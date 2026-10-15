@@ -23,6 +23,8 @@ llrc="$target_dir/release/llrc"
 
 mkdir -p "$bin" "$share" || die "install|mkdir=$prefix"
 rm -rf "$share/std" && cp -r "$root/std" "$share/std" || die "install|copy=std"
+cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
+say "ok|runtime|$share/llr_stat.o"
 cp "$llrc" "$bin/llrc" || die "install|copy=llrc"
 say "ok|llrc|$bin/llrc"
 say "ok|std|$share/std"

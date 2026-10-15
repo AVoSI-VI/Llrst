@@ -79,24 +79,20 @@
   (vec.sort_str (&mut out))
   (res.ok out)))
 
-;; stat(2) buffer offsets differ per architecture; only mtime seconds is read.
-(fn mtime_off () i64 (if (str.eq (sys.arch) "x86_64") 88 72))
-
+;; mtime seconds and byte size come from runtime/llr_stat.c, which uses the host stat.
 (pub (fn mtime ((path (& str))) (res i64 str)
   (let c (str.cstr path))
-  (let mut buf (str.new))
-  (str.reserve (&mut buf) 256)
-  (if (!= (sys.stat (. c p) (. buf p)) 0i32) (ret (res.err (err "io.stat" path))))
-  (let p (as (ptr i64) (ptr.add (. buf p) (mtime_off))))
-  (res.ok (ptr.read p))))
+  (let mut n 0)
+  (if (!= (sys.llr_stat_mtime (. c p) (as (ptr i64) (&mut n))) 0)
+    (ret (res.err (err "io.stat" path))))
+  (res.ok n)))
 
 (pub (fn size ((path (& str))) (res i64 str)
   (let c (str.cstr path))
-  (let mut buf (str.new))
-  (str.reserve (&mut buf) 256)
-  (if (!= (sys.stat (. c p) (. buf p)) 0i32) (ret (res.err (err "io.stat" path))))
-  (let p (as (ptr i64) (ptr.add (. buf p) 48)))
-  (res.ok (ptr.read p))))
+  (let mut n 0)
+  (if (!= (sys.llr_stat_size (. c p) (as (ptr i64) (&mut n))) 0)
+    (ret (res.err (err "io.stat" path))))
+  (res.ok n)))
 
 (test fs_roundtrip
   (let p (str.from "/tmp/llr_fs_test.txt"))

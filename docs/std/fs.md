@@ -1,6 +1,8 @@
 # std.fs
 
 Files and directories. Errors are `res.err` strings like `io.read|path=x`.
+`fs.mtime` and `fs.size` call `runtime/llr_stat.c`, which reads `st_mtime` and `st_size`
+through the host C compiler.
 
 Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and methods need no import.
 

@@ -11,6 +11,11 @@ if [ -z "$llrc" ] || [ ! -x "$llrc" ]; then
   exit 1
 fi
 export LLRST_STD="$root/std"
+cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
+  echo "fail|setup|cc=llr_stat.c"
+  exit 1
+}
+export LLRST_RUNTIME="$root/runtime"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fails=0

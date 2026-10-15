@@ -1,3 +1,4 @@
 /target
 *.o
+/runtime/llr_stat.o
 /tests/run/*.bin

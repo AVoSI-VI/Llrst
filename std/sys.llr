@@ -39,7 +39,9 @@
 
 (pub (extern closedir ((d (ptr u8))) i32))
 
-(pub (extern stat ((path (ptr u8)) (buf (ptr u8))) i32))
+(pub (extern llr_stat_mtime ((path (ptr u8)) (out (ptr i64))) i64))
+
+(pub (extern llr_stat_size ((path (ptr u8)) (out (ptr i64))) i64))
 
 (pub (extern unlink ((path (ptr u8))) i32))
 
