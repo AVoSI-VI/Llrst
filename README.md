@@ -13,6 +13,7 @@ machine-readable line.
 
 | path | content |
 |------|---------|
+| `HANDOFF.md` | status, design decisions, implementation notes, known limits, next steps |
 | `docs/spec/` | grammar, tokens, types, memory model, error format |
 | `docs/canon/` | the one right way per task |
 | `docs/std/` | standard library reference |
