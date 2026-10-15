@@ -1,1 +1,1 @@
-E|tests/err/move_used.llr|6|12|5|move.used|name=s|moved_at=5:3
+E|tests/err/move_used.llr|5|58|5|move.used|name=s|moved_at=5:41

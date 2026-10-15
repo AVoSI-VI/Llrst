@@ -1,18 +1,12 @@
 ;; Result value. Variant order is fixed: ok = 0, err = 1 (try relies on it).
 (enum res <T E> (ok T) (err E))
 
-(impl res <T E>
-  (fn is_ok ((self (& (res T E)))) bool
-    (match self ((res.ok _) true) ((res.err _) false)))
-
-  (fn is_err ((self (& (res T E)))) bool
-    (match self ((res.ok _) false) ((res.err _) true)))
-
-  (fn unwrap ((self (res T E))) T
-    (match self ((res.ok v) v) ((res.err _) (panic "res.err"))))
-
-  (fn unwrap_err ((self (res T E))) E
-    (match self ((res.ok _) (panic "res.ok")) ((res.err e) e))))
+(impl res <T
+  E>
+  (fn is_ok ((self (& (res T E)))) bool (match self ((res.ok _) true) ((res.err _) false)))
+  (fn is_err ((self (& (res T E)))) bool (match self ((res.ok _) false) ((res.err _) true)))
+  (fn unwrap ((self (res T E))) T (match self ((res.ok v) v) ((res.err _) (panic "res.err"))))
+  (fn unwrap_err ((self (res T E))) E (match self ((res.ok _) (panic "res.ok")) ((res.err e) e))))
 
 (test res_basic
   (let a (res.ok <i64 str> 3))

@@ -1,0 +1,67 @@
+;; llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--max N]: path|line|col|text.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.glob)
+(use std.io)
+(use std.os)
+(use std.re)
+
+(struct opts (fixed bool) (ic bool) (pat str) (rx (opt re)))
+
+;; Column (1-based) of the first match in line, or 0.
+(fn hit ((o (& opts)) (line (& str))) i64
+  (let l (if (. o ic) (str.lower line) (str.clone line)))
+  (if (. o fixed)
+    (match (str.find (& l) (& (. o pat))) ((opt.some i) (+ i 1)) ((opt.none) 0))
+    (match (& (. o rx))
+      ((opt.some r) (match (re.find r (& l)) ((opt.some m) (+ (. m lo) 1)) ((opt.none) 0)))
+      ((opt.none) 0))))
+
+(fn grep_file ((o (& opts)) (path (& str)) (max i64) (count (&mut i64))) unit
+  (let text (match (fs.read path) ((res.ok s) s) ((res.err _) (ret))))
+  (let lines (str.lines (& text)))
+  (for i 0 (vec.len (& lines))
+    (if (>= (@ count) max) (ret))
+    (let col (hit o (vec.get (& lines) i)))
+    (if (> col 0)
+      (do
+        (set (@ count) (+ (@ count) 1))
+        (io.puts (& (fmt.pipe4 path (& (fmt.int (+ i 1))) (& (fmt.int col)) (vec.get (& lines) i))))))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-grep" "search files, output path|line|col|text"))
+  (cli.pos (&mut c) "pattern")
+  (cli.opt (&mut c) "glob" "")
+  (cli.opt (&mut c) "max" "200")
+  (cli.flag (&mut c) "fixed")
+  (cli.flag (&mut c) "ic")
+  (cli.parse (&mut c) (os.args))
+  (let ic (cli.has (& c) "ic"))
+  (let raw (cli.at (& c) 0))
+  (let pat (if ic (str.lower raw) (str.clone raw)))
+  (let fixed (cli.has (& c) "fixed"))
+  (let rx
+    (if fixed
+      (opt.none)
+      (match (re.compile (& pat))
+        ((res.ok r) (opt.some r))
+        ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<grep>|0|0|0" (& e)))) (os.exit 1))))))
+  (let o (opts fixed ic pat rx))
+  (let g (cli.get (& c) "glob"))
+  (let max (cli.get_int (& c) "max"))
+  (let mut roots (vec.new <str>))
+  (for i 1 (cli.count (& c)) (vec.push (&mut roots) (str.clone (cli.at (& c) i))))
+  (if (== (vec.len (& roots)) 0) (vec.push (&mut roots) (str.from ".")))
+  (let mut count 0)
+  (for i 0 (vec.len (& roots))
+    (let root (vec.get (& roots) i))
+    (if (fs.is_dir root)
+      (do
+        (let files (glob.walk root))
+        (for j 0 (vec.len (& files))
+          (let f (vec.get (& files) j))
+          (if (or (== (str.len g) 0) (glob.matches_path g f)) (grep_file (& o) f max (&mut count)))))
+      (grep_file (& o) root max (&mut count))))
+  (if (>= count max) (io.puts (& (fmt.pipe2 "more" "limit reached"))))
+  (if (== count 0) (os.exit 2)))

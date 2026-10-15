@@ -1,0 +1,143 @@
+;; S-expression reader and printer for tools (llr-fmt, linters). Keeps comments.
+;; Node kinds: 0 atom, 1 string, 2 list, 3 comment. Children of a list are the index
+;; range [lo, hi) into `kids`, which stores node indexes in order.
+(struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64))
+
+(struct tree (nodes (vec node)) (kids (vec i64)) (top (vec i64)))
+
+(struct rd (src str) (i i64) (line i64) (col i64))
+
+(fn rerr ((what (& str)) (line i64) (col i64)) str
+  (let mut m (str.from "parse.unbalanced|line="))
+  (str.push (&mut m) (& (str.from_int line)))
+  (str.push (&mut m) "|col=")
+  (str.push (&mut m) (& (str.from_int col)))
+  (str.push (&mut m) "|what=")
+  (str.push (&mut m) what)
+  m)
+
+(fn peek ((r (& rd))) u8
+  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+
+(fn adv ((r (&mut rd))) unit
+  (if (== (peek r) 10u8)
+    (do (set (. r line) (+ (. r line) 1)) (set (. r col) 0))
+    (set (. r col) (+ (. r col) 1)))
+  (set (. r i) (+ (. r i) 1)))
+
+(fn skip_ws ((r (&mut rd))) unit
+  (while (or (== (peek r) 32u8) (== (peek r) 9u8) (== (peek r) 10u8) (== (peek r) 13u8)) (adv r)))
+
+(fn is_delim ((c u8)) bool
+  (or (== c 40u8)
+    (== c 41u8)
+    (== c 34u8)
+    (== c 59u8)
+    (== c 32u8)
+    (== c 9u8)
+    (== c 10u8)
+    (== c 13u8)
+    (== c 0u8)))
+
+(fn push_node ((t (&mut tree)) (n node)) i64
+  (vec.push (&mut (. t nodes)) n)
+  (- (vec.len (& (. t nodes))) 1))
+
+;; Reads one form; returns its node index or an error.
+(fn form ((r (&mut rd)) (t (&mut tree))) (res i64 str)
+  (let line (+ (. r line) 1))
+  (let col (+ (. r col) 1))
+  (let c (peek r))
+  (if (== c 59u8)
+    (do
+      (let start (. r i))
+      (while (and (!= (peek r) 10u8) (!= (peek r) 0u8)) (adv r))
+      (ret (res.ok (push_node t (node 3u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))))
+  (if (== c 34u8)
+    (do
+      (let start (. r i))
+      (adv r)
+      (loop
+        (let d (peek r))
+        (if (== d 0u8) (ret (res.err (rerr "unterminated string" line col))))
+        (if (== d 92u8) (do (adv r) (adv r) (cont)))
+        (adv r)
+        (if (== d 34u8) (brk)))
+      (ret (res.ok (push_node t (node 1u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))))
+  (if (== c 40u8)
+    (do
+      (adv r)
+      (let mut items (vec.new <i64>))
+      (loop
+        (skip_ws r)
+        (let d (peek r))
+        (if (== d 0u8) (ret (res.err (rerr "missing )" line col))))
+        (if (== d 41u8) (do (adv r) (brk)))
+        (vec.push (&mut items) (try (form r t))))
+      (let lo (vec.len (& (. t kids))))
+      (for k 0 (vec.len (& items)) (vec.push (&mut (. t kids)) (@ (vec.get (& items) k))))
+      (let hi (vec.len (& (. t kids))))
+      (ret (res.ok (push_node t (node 2u8 (str.new) lo hi line col))))))
+  (if (== c 41u8) (ret (res.err (rerr "unexpected )" line col))))
+  (let start (. r i))
+  (while (not (is_delim (peek r))) (adv r))
+  (res.ok (push_node t (node 0u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))
+
+(pub (fn read ((src (& str))) (res tree str)
+       (let mut r (rd (str.from src) 0 0 0))
+       (let mut t (tree (vec.new <node>) (vec.new <i64>) (vec.new <i64>)))
+       (loop
+         (skip_ws (&mut r))
+         (if (== (peek (& r)) 0u8) (brk))
+         (let n (try (form (&mut r) (&mut t))))
+         (vec.push (&mut (. t top)) n))
+       (res.ok t)))
+
+(pub (fn kind ((t (& tree)) (n i64)) u8 (. (vec.get (& (. t nodes)) n) kind)))
+
+(pub (fn text ((t (& tree)) (n i64)) (& str) (& (. (vec.get (& (. t nodes)) n) text))))
+
+(pub (fn line ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) line)))
+
+(pub (fn col ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) col)))
+
+(pub (fn count ((t (& tree)) (n i64)) i64
+       (let nd (vec.get (& (. t nodes)) n))
+       (if (!= (. nd kind) 2u8) 0 (- (. nd hi) (. nd lo)))))
+
+(pub (fn child ((t (& tree)) (n i64) (k i64)) i64
+       (let nd (vec.get (& (. t nodes)) n))
+       (@ (vec.get (& (. t kids)) (+ (. nd lo) k)))))
+
+;; Head atom text of a list, or "".
+(pub (fn head ((t (& tree)) (n i64)) (& str)
+       (if (and (== (kind t n) 2u8) (> (count t n) 0) (== (kind t (child t n 0)) 0u8))
+         (text t (child t n 0))
+         "")))
+
+;; Single-line rendering (comments force multi-line in the formatter).
+(pub (fn flat ((t (& tree)) (n i64)) str
+       (let k (kind t n))
+       (if (!= k 2u8) (ret (str.clone (text t n))))
+       (let mut s (str.from "("))
+       (for i 0 (count t n)
+         (if (> i 0) (str.push_byte (&mut s) 32u8))
+         (str.push (&mut s) (& (flat t (child t n i)))))
+       (str.push_byte (&mut s) 41u8)
+       s))
+
+(pub (fn has_comment ((t (& tree)) (n i64)) bool
+       (if (== (kind t n) 3u8) (ret true))
+       (if (!= (kind t n) 2u8) (ret false))
+       (for i 0 (count t n) (if (has_comment t (child t n i)) (ret true)))
+       false))
+
+(test sexp_read
+  (let t (res.unwrap (read "(fn main () unit ;; c\n  (io.puts \"hi\"))\n(x)")))
+  (assert_eq (vec.len (& (. t top))) 2)
+  (let f (@ (vec.get (& (. t top)) 0)))
+  (assert_eq (head (& t) f) "fn")
+  (assert_eq (count (& t) f) 6)
+  (assert (has_comment (& t) f))
+  (assert_eq (& (flat (& t) (@ (vec.get (& (. t top)) 1)))) "(x)")
+  (match (read "(a (b)") ((res.ok _) (assert false)) ((res.err _) (assert true))))

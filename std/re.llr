@@ -1,12 +1,15 @@
 ;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |
 ;; Leftmost match, longest end among alternatives. ASCII only.
-
 ;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol
 (struct atom (kind u8) (c u8) (set str) (neg bool) (grp i64) (min i64) (max i64))
+
 (struct seq (atoms (vec atom)))
+
 (struct alt (seqs (vec seq)))
+
 ;; alts[0] is the top level; groups are appended as they are parsed.
 (struct re (alts (vec alt)))
+
 (struct mat (lo i64) (hi i64))
 
 (struct parser (p str) (i i64) (alts (vec alt)))
@@ -24,7 +27,9 @@
 (fn class_escape ((c u8) (set (&mut str))) bool
   (if (or (== c 100u8) (== c 68u8)) (do (str.push set "0123456789") (ret (== c 68u8))))
   (if (or (== c 119u8) (== c 87u8))
-    (do (str.push set "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") (ret (== c 87u8))))
+    (do
+      (str.push set "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+      (ret (== c 87u8))))
   (if (or (== c 115u8) (== c 83u8)) (do (str.push set " \t\n\r") (ret (== c 83u8))))
   (str.push_byte set c)
   false)
@@ -40,12 +45,10 @@
     (set (. ps i) (+ (. ps i) 1))
     (if (== c 93u8) (brk))
     (if (== c 92u8)
-      (do
-        (let e (peek ps))
-        (set (. ps i) (+ (. ps i) 1))
-        (class_escape e (&mut set))
-        (cont)))
-    (if (and (== (peek ps) 45u8) (< (+ (. ps i) 1) (str.len (& (. ps p)))) (!= (str.at (& (. ps p)) (+ (. ps i) 1)) 93u8))
+      (do (let e (peek ps)) (set (. ps i) (+ (. ps i) 1)) (class_escape e (&mut set)) (cont)))
+    (if (and (== (peek ps) 45u8)
+       (< (+ (. ps i) 1) (str.len (& (. ps p))))
+       (!= (str.at (& (. ps p)) (+ (. ps i) 1)) 93u8))
       (do
         (let hi (str.at (& (. ps p)) (+ (. ps i) 1)))
         (set (. ps i) (+ (. ps i) 2))
@@ -56,9 +59,12 @@
 
 (fn parse_quant ((ps (&mut parser)) (a (&mut atom))) (res unit str)
   (let c (peek ps))
-  (if (== c 42u8) (do (set (. a min) 0) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
-  (if (== c 43u8) (do (set (. a min) 1) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
-  (if (== c 63u8) (do (set (. a min) 0) (set (. a max) 1) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (== c 42u8)
+    (do (set (. a min) 0) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (== c 43u8)
+    (do (set (. a min) 1) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (== c 63u8)
+    (do (set (. a min) 0) (set (. a max) 1) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
   (if (!= c 123u8) (ret (res.ok ())))
   (set (. ps i) (+ (. ps i) 1))
   (let mut n 0)
@@ -69,7 +75,8 @@
   (if (== (peek ps) 44u8)
     (do
       (set (. ps i) (+ (. ps i) 1))
-      (if (== (peek ps) 125u8) (set m 1000000)
+      (if (== (peek ps) 125u8)
+        (set m 1000000)
         (do
           (set m 0)
           (while (and (>= (peek ps) 48u8) (<= (peek ps) 57u8))
@@ -124,15 +131,14 @@
   (res.ok (alt seqs)))
 
 (pub (fn compile ((pat (& str))) (res re str)
-  (let mut ps (parser (str.from pat) 0 (vec.new <alt>)))
-  (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
-  (let top (try (parse_alt (&mut ps))))
-  (if (< (. ps i) (str.len (& (. ps p)))) (ret (res.err (perr "unexpected )" (. ps i)))))
-  (vec.set (&mut (. ps alts)) 0 top)
-  (res.ok (re (vec.take (&mut (. ps alts)))))))
+       (let mut ps (parser (str.from pat) 0 (vec.new <alt>)))
+       (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
+       (let top (try (parse_alt (&mut ps))))
+       (if (< (. ps i) (str.len (& (. ps p)))) (ret (res.err (perr "unexpected )" (. ps i)))))
+       (vec.set (&mut (. ps alts)) 0 top)
+       (res.ok (re (vec.take (&mut (. ps alts)))))))
 
-(fn push_end ((out (&mut (vec i64))) (e i64)) unit
-  (if (not (vec.has_int out e)) (vec.push out e)))
+(fn push_end ((out (&mut (vec i64))) (e i64)) unit (if (not (vec.has_int out e)) (vec.push out e)))
 
 (fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
   (let k (. a kind))
@@ -141,9 +147,10 @@
   (if (== k 3u8) (do (alt_ends r (. a grp) s i out) (ret)))
   (if (>= i (str.len s)) (ret))
   (let c (str.at s i))
-  (let ok (if (== k 1u8) true
-            (if (== k 0u8) (== c (. a c))
-              (!= (str.has_byte (& (. a set)) c) (. a neg)))))
+  (let ok
+    (if (== k 1u8)
+      true
+      (if (== k 0u8) (== c (. a c)) (!= (str.has_byte (& (. a set)) c) (. a neg)))))
   (if ok (push_end out (+ i 1))))
 
 (fn rep ((r (& re)) (sq (& seq)) (k i64) (s (& str)) (i i64) (count i64) (out (&mut (vec i64)))) unit
@@ -169,45 +176,43 @@
 
 (fn alt_ends ((r (& re)) (ai i64) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
   (let a (vec.get (& (. r alts)) ai))
-  (for j 0 (vec.len (& (. a seqs)))
-    (seq_ends r (vec.get (& (. a seqs)) j) 0 s i out)))
+  (for j 0 (vec.len (& (. a seqs))) (seq_ends r (vec.get (& (. a seqs)) j) 0 s i out)))
 
 ;; Leftmost match starting at or after `start`; end is the longest alternative.
 (pub (fn find_from ((r (& re)) (s (& str)) (start i64)) (opt mat)
-  (let mut i start)
-  (while (<= i (str.len s))
-    (let mut ends (vec.new <i64>))
-    (alt_ends r 0 s i (&mut ends))
-    (if (> (vec.len (& ends)) 0)
-      (do
-        (let mut best i)
-        (for j 0 (vec.len (& ends))
-          (let e (@ (vec.get (& ends) j)))
-          (if (> e best) (set best e)))
-        (ret (opt.some (mat i best)))))
-    (set i (+ i 1)))
-  (opt.none)))
+       (let mut i start)
+       (while (<= i (str.len s))
+         (let mut ends (vec.new <i64>))
+         (alt_ends r 0 s i (&mut ends))
+         (if (> (vec.len (& ends)) 0)
+           (do
+             (let mut best i)
+             (for j 0 (vec.len (& ends))
+               (let e (@ (vec.get (& ends) j)))
+               (if (> e best) (set best e)))
+             (ret (opt.some (mat i best)))))
+         (set i (+ i 1)))
+       (opt.none)))
 
 (pub (fn find ((r (& re)) (s (& str))) (opt mat) (find_from r s 0)))
 
 (pub (fn is_match ((r (& re)) (s (& str))) bool
-  (match (find r s) ((opt.some _) true) ((opt.none) false))))
+       (match (find r s) ((opt.some _) true) ((opt.none) false))))
 
 ;; All non-overlapping matches.
 (pub (fn find_all ((r (& re)) (s (& str))) (vec mat)
-  (let mut out (vec.new <mat>))
-  (let mut i 0)
-  (while (<= i (str.len s))
-    (match (find_from r s i)
-      ((opt.some m)
-        (do
-          (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi)))
-          (vec.push (&mut out) m)))
-      ((opt.none) (brk))))
-  out))
+       (let mut out (vec.new <mat>))
+       (let mut i 0)
+       (while (<= i (str.len s))
+         (match (find_from r s i)
+           ((opt.some m)
+             (do
+               (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi)))
+               (vec.push (&mut out) m)))
+           ((opt.none) (brk))))
+       out))
 
-(fn m ((pat (& str)) (s (& str))) bool
-  (is_match (& (res.unwrap (compile pat))) s))
+(fn m ((pat (& str)) (s (& str))) bool (is_match (& (res.unwrap (compile pat))) s))
 
 (test re_basic
   (assert (m "abc" "xxabcxx"))

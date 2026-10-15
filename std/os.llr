@@ -2,39 +2,37 @@
 (use std.sys)
 
 (pub (fn args () (vec str)
-  (let mut v (vec.new <str>))
-  (let argv (sys.argv))
-  (for i 0 (sys.argc)
-    (vec.push (&mut v) (str.from_cstr (ptr.read (ptr.add argv i)))))
-  v))
+       (let mut v (vec.new <str>))
+       (let argv (sys.argv))
+       (for i 0 (sys.argc) (vec.push (&mut v) (str.from_cstr (ptr.read (ptr.add argv i)))))
+       v))
 
 ;; Argument i (0 = program name), or none.
 (pub (fn arg ((i i64)) (opt str)
-  (if (or (< i 0) (>= i (sys.argc))) (ret (opt.none)))
-  (opt.some (str.from_cstr (ptr.read (ptr.add (sys.argv) i))))))
+       (if (or (< i 0) (>= i (sys.argc))) (ret (opt.none)))
+       (opt.some (str.from_cstr (ptr.read (ptr.add (sys.argv) i))))))
 
 (pub (fn env ((name (& str))) (opt str)
-  (let c (str.cstr name))
-  (let p (sys.getenv (. c p)))
-  (if (ptr.eq p (ptr.null <u8>)) (ret (opt.none)))
-  (opt.some (str.from_cstr p))))
+       (let c (str.cstr name))
+       (let p (sys.getenv (. c p)))
+       (if (ptr.eq p (ptr.null <u8>)) (ret (opt.none)))
+       (opt.some (str.from_cstr p))))
 
-(pub (fn exit ((code i64)) never
-  (sys.exit (as i32 code))))
+(pub (fn exit ((code i64)) never (sys.exit (as i32 code))))
 
 (pub (fn cwd () str
-  (let mut buf (str.new))
-  (str.reserve (&mut buf) 4096)
-  (let p (sys.getcwd (. buf p) 4096u64))
-  (if (ptr.eq p (ptr.null <u8>)) (ret (str.new)))
-  (set (. buf len) (as i64 (sys.strlen (. buf p))))
-  buf))
+       (let mut buf (str.new))
+       (str.reserve (&mut buf) 4096)
+       (let p (sys.getcwd (. buf p) 4096u64))
+       (if (ptr.eq p (ptr.null <u8>)) (ret (str.new)))
+       (set (. buf len) (as i64 (sys.strlen (. buf p))))
+       buf))
 
 ;; Runs a shell command, returns its exit code.
 (pub (fn shell ((cmd (& str))) i64
-  (let c (str.cstr cmd))
-  (let st (sys.system (. c p)))
-  (as i64 (band (shr st 8i32) 255i32))))
+       (let c (str.cstr cmd))
+       (let st (sys.system (. c p)))
+       (as i64 (band (shr st 8i32) 255i32))))
 
 (pub (fn arch () (& str) (sys.arch)))
 

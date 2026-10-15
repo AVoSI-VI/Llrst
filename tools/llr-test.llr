@@ -1,0 +1,48 @@
+;; llr-test [PATH] [--filter NAME]: compiles every .llr with test forms using llrc --test and runs them.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.glob)
+(use std.io)
+(use std.os)
+
+(fn llrc () str (match (os.env "LLRC") ((opt.some p) p) ((opt.none) (str.from "llrc"))))
+
+(fn has_tests ((path (& str))) bool
+  (match (fs.read path) ((res.ok s) (str.has (& s) "\n(test ")) ((res.err _) false)))
+
+;; Returns 1 when the file's tests failed to build or run.
+(fn run_file ((path (& str)) (filter (& str))) i64
+  (io.puts (& (fmt.pipe2 "file" path)))
+  (let bin (str.cat "/tmp/llr_test_" (& (str.replace path "/" "_"))))
+  (let mut cmd (llrc))
+  (str.push (&mut cmd) " build --test ")
+  (str.push (&mut cmd) path)
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& bin))
+  (if (!= (os.shell (& cmd)) 0) (ret 1))
+  (let mut run (str.clone (& bin)))
+  (if (> (str.len filter) 0) (do (str.push (&mut run) " ") (str.push (&mut run) filter)))
+  (let code (os.shell (& run)))
+  (fs.remove (& bin))
+  (if (== code 0) 0 1))
+
+(fn main () unit
+  (let mut c (cli.new "llr-test" "run (test ...) forms in a file or directory"))
+  (cli.opt (&mut c) "filter" "")
+  (cli.parse (&mut c) (os.args))
+  (let root (if (> (cli.count (& c)) 0) (str.clone (cli.at (& c) 0)) (str.from ".")))
+  (let filter (cli.get (& c) "filter"))
+  (let mut files (vec.new <str>))
+  (if (fs.is_dir (& root))
+    (do
+      (let all (glob.find (& root) "*.llr"))
+      (for i 0 (vec.len (& all))
+        (if (has_tests (vec.get (& all) i)) (vec.push (&mut files) (str.clone (vec.get (& all) i))))))
+    (vec.push (&mut files) (str.clone (& root))))
+  (let mut fails 0)
+  (for i 0 (vec.len (& files)) (set fails (+ fails (run_file (vec.get (& files) i) filter))))
+  (io.puts (& (fmt.pipe3 "done"
+      (& (fmt.kv "files" (& (fmt.int (vec.len (& files))))))
+      (& (fmt.kv "failed_files" (& (fmt.int fails)))))))
+  (if (> fails 0) (os.exit 2)))

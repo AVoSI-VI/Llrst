@@ -1,61 +1,55 @@
 ;; Path strings. Separator is / only.
-
 (pub (fn join ((a (& str)) (b (& str))) str
-  (if (== (str.len a) 0) (ret (str.from b)))
-  (if (str.starts b "/") (ret (str.from b)))
-  (let mut out (str.from a))
-  (if (not (str.ends a "/")) (str.push_byte (&mut out) 47u8))
-  (str.push (&mut out) b)
-  out))
+       (if (== (str.len a) 0) (ret (str.from b)))
+       (if (str.starts b "/") (ret (str.from b)))
+       (let mut out (str.from a))
+       (if (not (str.ends a "/")) (str.push_byte (&mut out) 47u8))
+       (str.push (&mut out) b)
+       out))
 
 (fn last_slash ((p (& str))) (opt i64)
   (let mut i (- (str.len p) 1))
-  (while (>= i 0)
-    (if (== (str.at p i) 47u8) (ret (opt.some i)))
-    (set i (- i 1)))
+  (while (>= i 0) (if (== (str.at p i) 47u8) (ret (opt.some i))) (set i (- i 1)))
   (opt.none))
 
 (pub (fn base ((p (& str))) str
-  (match (last_slash p)
-    ((opt.some i) (str.slice p (+ i 1) (str.len p)))
-    ((opt.none) (str.from p)))))
+       (match (last_slash p)
+         ((opt.some i) (str.slice p (+ i 1) (str.len p)))
+         ((opt.none) (str.from p)))))
 
 (pub (fn dir ((p (& str))) str
-  (match (last_slash p)
-    ((opt.some i) (if (== i 0) (str.from "/") (str.slice p 0 i)))
-    ((opt.none) (str.from ".")))))
+       (match (last_slash p)
+         ((opt.some i) (if (== i 0) (str.from "/") (str.slice p 0 i)))
+         ((opt.none) (str.from ".")))))
 
 ;; Extension without the dot, or empty.
 (pub (fn ext ((p (& str))) str
-  (let b (base p))
-  (let mut i (- (str.len (& b)) 1))
-  (while (> i 0)
-    (if (== (str.at (& b) i) 46u8) (ret (str.slice (& b) (+ i 1) (str.len (& b)))))
-    (set i (- i 1)))
-  (str.new)))
+       (let b (base p))
+       (let mut i (- (str.len (& b)) 1))
+       (while (> i 0)
+         (if (== (str.at (& b) i) 46u8) (ret (str.slice (& b) (+ i 1) (str.len (& b)))))
+         (set i (- i 1)))
+       (str.new)))
 
 (pub (fn stem ((p (& str))) str
-  (let b (base p))
-  (let mut i (- (str.len (& b)) 1))
-  (while (> i 0)
-    (if (== (str.at (& b) i) 46u8) (ret (str.slice (& b) 0 i)))
-    (set i (- i 1)))
-  b))
+       (let b (base p))
+       (let mut i (- (str.len (& b)) 1))
+       (while (> i 0) (if (== (str.at (& b) i) 46u8) (ret (str.slice (& b) 0 i))) (set i (- i 1)))
+       b))
 
 (pub (fn is_abs ((p (& str))) bool (str.starts p "/")))
 
 ;; Removes "./" prefixes and duplicate slashes; keeps "..".
 (pub (fn clean ((p (& str))) str
-  (let parts (str.split p 47u8))
-  (let mut out (vec.new <str>))
-  (for i 0 (vec.len (& parts))
-    (let s (vec.get (& parts) i))
-    (if (not (or (str.eq s "") (str.eq s ".")))
-      (vec.push (&mut out) (str.clone s))))
-  (let mut r (if (is_abs p) (str.from "/") (str.new)))
-  (str.push (&mut r) (& (str.join (& out) "/")))
-  (if (== (str.len (& r)) 0) (ret (str.from ".")))
-  r))
+       (let parts (str.split p 47u8))
+       (let mut out (vec.new <str>))
+       (for i 0 (vec.len (& parts))
+         (let s (vec.get (& parts) i))
+         (if (not (or (str.eq s "") (str.eq s "."))) (vec.push (&mut out) (str.clone s))))
+       (let mut r (if (is_abs p) (str.from "/") (str.new)))
+       (str.push (&mut r) (& (str.join (& out) "/")))
+       (if (== (str.len (& r)) 0) (ret (str.from ".")))
+       r))
 
 (test path_parts
   (assert_eq (& (join "a" "b")) "a/b")

@@ -26,10 +26,6 @@ usage|llrc version";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(cmd) = args.first() else {
-        eprintln!("{}", USAGE);
-        std::process::exit(1);
-    };
     let mut opt = Options {
         input: PathBuf::new(),
         output: None,
@@ -41,7 +37,8 @@ fn main() {
         check_only: false,
     };
     let mut run_args: Vec<String> = Vec::new();
-    let mut i = 1;
+    let mut cmd = String::new();
+    let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "-o" => {
@@ -67,7 +64,9 @@ fn main() {
                 std::process::exit(1);
             }
             a => {
-                if opt.input.as_os_str().is_empty() {
+                if cmd.is_empty() {
+                    cmd = a.to_string();
+                } else if opt.input.as_os_str().is_empty() {
                     opt.input = PathBuf::from(a);
                 } else {
                     run_args.push(a.to_string());

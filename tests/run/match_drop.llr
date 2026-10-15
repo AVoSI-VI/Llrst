@@ -1,5 +1,7 @@
 (use std.io)
+
 (enum two (a str str) (b str))
+
 (fn main () unit
   (let x (two.a (str.from "p") (str.from "q")))
   (match x ((two.a _ s) (io.puts (& s))) ((two.b _) (io.puts "b")))

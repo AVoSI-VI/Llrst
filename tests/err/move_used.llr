@@ -1,6 +1,5 @@
 (use std.io)
+
 (fn eat ((s str)) unit (io.puts (& s)))
-(fn main () unit
-  (let s (str.from "x"))
-  (eat s)
-  (io.puts (& s)))
+
+(fn main () unit (let s (str.from "x")) (eat s) (io.puts (& s)))

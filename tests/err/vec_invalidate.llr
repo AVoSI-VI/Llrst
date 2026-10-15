@@ -1,4 +1,5 @@
 (use std.io)
+
 (fn main () unit
   (let mut v (vec.new <str>))
   (vec.push (&mut v) (str.from "a"))

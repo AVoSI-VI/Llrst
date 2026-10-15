@@ -1,0 +1,111 @@
+;; Canon lint rules for llr-fmt --lint. Each warning: W|file|line|col|0|code|k=v
+(use std.fmt)
+(use std.io)
+(use std.sexp)
+
+(fn warn ((path (& str)) (line i64) (col i64) (code (& str)) (kv (& str))) unit
+  (let mut s (str.from "W|"))
+  (str.push (&mut s) path)
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (fmt.int line)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (fmt.int col)))
+  (str.push (&mut s) "|0|")
+  (str.push (&mut s) code)
+  (if (> (str.len kv) 0) (do (str.push_byte (&mut s) 124u8) (str.push (&mut s) kv)))
+  (io.puts (& s)))
+
+;; Recursively flags raw memory use and deep nesting inside a form.
+(fn walk ((path (& str)) (t (& sexp.tree)) (n i64) (if_depth i64) (count (&mut i64))) unit
+  (let k (sexp.kind t n))
+  (if (== k 0u8)
+    (do
+      (if (str.starts (sexp.text t n) "ptr.")
+        (do
+          (warn path
+            (sexp.line t n)
+            (sexp.col t n)
+            "canon.memory.raw"
+            (& (fmt.kv "atom" (sexp.text t n))))
+          (set (@ count) (+ (@ count) 1))))
+      (ret)))
+  (if (!= k 2u8) (ret))
+  (let h (sexp.head t n))
+  (let mut d if_depth)
+  (if (str.eq h "if")
+    (do
+      (set d (+ d 1))
+      (if (> d 2)
+        (do
+          (warn path
+            (sexp.line t n)
+            (sexp.col t n)
+            "canon.flow.nested_if"
+            "fix=extract fn or use match")
+          (set (@ count) (+ (@ count) 1))))))
+  (if (and (str.eq h "let") (> (sexp.count t n) 1) (str.eq (sexp.text t (sexp.child t n 1)) "_"))
+    (do
+      (warn path (sexp.line t n) (sexp.col t n) "canon.bind.unit" "fix=drop the let")
+      (set (@ count) (+ (@ count) 1))))
+  (for i 0 (sexp.count t n) (walk path t (sexp.child t n i) d count)))
+
+;; Lines spanned by top-level form i (distance to the next form).
+(fn span_lines ((t (& sexp.tree)) (i i64) (total i64)) i64
+  (let f (@ (vec.get (& (. t top)) i)))
+  (if (< (+ i 1) (vec.len (& (. t top))))
+    (- (sexp.line t (@ (vec.get (& (. t top)) (+ i 1)))) (sexp.line t f))
+    (- (+ total 1) (sexp.line t f))))
+
+;; Per-form state for top-level checks.
+(struct st (seen_non_use bool) (last_use str) (main_at i64) (count i64))
+
+(fn check_use ((path (& str)) (t (& sexp.tree)) (f i64) (s (&mut st))) unit
+  (let name (sexp.flat t f))
+  (if (. s seen_non_use)
+    (do
+      (warn path (sexp.line t f) 1 "canon.program.use_first" "")
+      (set (. s count) (+ (. s count) 1))))
+  (if (< (str.cmp (& name) (& (. s last_use))) 0)
+    (do
+      (warn path (sexp.line t f) 1 "canon.program.use_sorted" "")
+      (set (. s count) (+ (. s count) 1))))
+  (set (. s last_use) name))
+
+(fn check_fn ((path (& str)) (t (& sexp.tree)) (i i64) (inner i64) (total i64) (s (&mut st))) unit
+  (let f (@ (vec.get (& (. t top)) i)))
+  (let ln (span_lines t i total))
+  (if (> ln 40)
+    (do
+      (warn path (sexp.line t f) 1 "canon.program.fn_lines" (& (fmt.kv "lines" (& (fmt.int ln)))))
+      (set (. s count) (+ (. s count) 1))))
+  (if (and (> (sexp.count t inner) 1) (str.eq (sexp.text t (sexp.child t inner 1)) "main"))
+    (set (. s main_at) i)))
+
+;; Returns the number of warnings.
+(pub (fn lint ((path (& str)) (src (& str)) (t (& sexp.tree))) i64
+       (let mut s (st false (str.new) (neg 1) 0))
+       (let is_std (or (str.starts path "std/") (str.has path "/std/")))
+       (let total (vec.len (& (str.lines src))))
+       (if (> total 500)
+         (do
+           (warn path 1 1 "canon.program.file_lines" (& (fmt.kv "lines" (& (fmt.int total)))))
+           (set (. s count) 1)))
+       (for i 0 (vec.len (& (. t top)))
+         (let f (@ (vec.get (& (. t top)) i)))
+         (if (== (sexp.kind t f) 3u8) (cont))
+         (let h (sexp.head t f))
+         (let inner (if (and (str.eq h "pub") (> (sexp.count t f) 1)) (sexp.child t f 1) f))
+         (let ih (sexp.head t inner))
+         (if (str.eq h "use") (check_use path t f (&mut s)) (set (. s seen_non_use) true))
+         (if (and (not is_std) (str.eq ih "extern"))
+           (do
+             (warn path (sexp.line t f) 1 "canon.memory.raw" "atom=extern")
+             (set (. s count) (+ (. s count) 1))))
+         (if (str.eq ih "fn") (check_fn path t i inner total (&mut s)))
+         (if (and (>= (. s main_at) 0) (> i (. s main_at)) (not (str.eq h "test")))
+           (do
+             (warn path (sexp.line t f) 1 "canon.program.main_last" "")
+             (set (. s count) (+ (. s count) 1))
+             (set (. s main_at) (neg 1))))
+         (if (not is_std) (walk path t f 0 (&mut (. s count)))))
+       (. s count)))

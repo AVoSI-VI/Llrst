@@ -7,22 +7,16 @@
 
 (fn hash ((s (& str))) i64
   (let mut h 1469598103934665603)
-  (for i 0 (str.len s)
-    (set h (bxor h (as i64 (str.at s i))))
-    (set h (* h 1099511628211)))
+  (for i 0 (str.len s) (set h (bxor h (as i64 (str.at s i)))) (set h (* h 1099511628211)))
   (band h 9223372036854775807))
 
 (impl map <V>
   (fn new () (map V)
-    (let mut m (map (vec.new <i64>) (vec.new <(entry V)>) 0))
+    (let mut m (map (vec.new <i64>) (vec.new < (entry V) >) 0))
     (for i 0 16 (vec.push (&mut (. m heads)) (neg 1)))
     m)
-
   (fn len ((self (& (map V)))) i64 (. self len))
-
-  (fn bucket ((self (& (map V))) (k (& str))) i64
-    (% (hash k) (vec.len (& (. self heads)))))
-
+  (fn bucket ((self (& (map V))) (k (& str))) i64 (% (hash k) (vec.len (& (. self heads)))))
   ;; Entry index for k, or -1.
   (fn find ((self (& (map V))) (k (& str))) i64
     (let mut i (@ (vec.get (& (. self heads)) (map.bucket self k))))
@@ -31,20 +25,15 @@
       (if (and (. e alive) (str.eq (& (. e k)) k)) (ret i))
       (set i (. e next)))
     (neg 1))
-
-  (fn has ((self (& (map V))) (k (& str))) bool
-    (>= (map.find self k) 0))
-
+  (fn has ((self (& (map V))) (k (& str))) bool (>= (map.find self k) 0))
   (fn get ((self (& (map V))) (k (& str))) (opt (& V))
     (let i (map.find self k))
     (if (< i 0) (ret (opt.none)))
     (opt.some (& (. (vec.get (& (. self ents)) i) v))))
-
   (fn get_mut ((self (&mut (map V))) (k (& str))) (opt (&mut V))
     (let i (map.find self k))
     (if (< i 0) (ret (opt.none)))
     (opt.some (&mut (. (vec.get_mut (&mut (. self ents)) i) v))))
-
   (fn rehash ((self (&mut (map V)))) unit
     (let n (* 2 (vec.len (& (. self heads)))))
     (let mut heads (vec.new <i64>))
@@ -57,13 +46,9 @@
           (set (. e next) (@ (vec.get (& heads) b)))
           (vec.set (&mut heads) b i))))
     (set (. self heads) heads))
-
   (fn put ((self (&mut (map V))) (k str) (v V)) unit
     (let i (map.find self (& k)))
-    (if (>= i 0)
-      (do
-        (set (. (vec.get_mut (&mut (. self ents)) i) v) v)
-        (ret)))
+    (if (>= i 0) (do (set (. (vec.get_mut (&mut (. self ents)) i) v) v) (ret)))
     (if (> (. self len) (* 2 (vec.len (& (. self heads))))) (map.rehash self))
     (let b (map.bucket self (& k)))
     (let head (@ (vec.get (& (. self heads)) b)))
@@ -71,14 +56,12 @@
     (vec.push (&mut (. self ents)) (entry k v head true))
     (vec.set (&mut (. self heads)) b idx)
     (set (. self len) (+ (. self len) 1)))
-
   (fn del ((self (&mut (map V))) (k (& str))) bool
     (let i (map.find self k))
     (if (< i 0) (ret false))
     (set (. (vec.get_mut (&mut (. self ents)) i) alive) false)
     (set (. self len) (- (. self len) 1))
     true)
-
   ;; Live keys, cloned and sorted.
   (fn keys ((self (& (map V)))) (vec str)
     (let mut out (vec.new <str>))

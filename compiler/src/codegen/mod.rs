@@ -3,6 +3,7 @@ mod drop;
 mod func;
 pub mod layout;
 mod ops;
+mod term;
 
 use crate::diag::{Diag, PResult, Span};
 use crate::mir::Body;

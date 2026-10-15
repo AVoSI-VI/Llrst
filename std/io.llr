@@ -3,25 +3,21 @@
 
 (pub (fn put ((s (& str))) unit (sys.write_str 1 s)))
 
-(pub (fn puts ((s (& str))) unit
-  (sys.write_str 1 s)
-  (sys.write_all 1 (. "\n" p) 1)))
+(pub (fn puts ((s (& str))) unit (sys.write_str 1 s) (sys.write_all 1 (. "\n" p) 1)))
 
 (pub (fn eput ((s (& str))) unit (sys.write_str 2 s)))
 
-(pub (fn eputs ((s (& str))) unit
-  (sys.write_str 2 s)
-  (sys.write_all 2 (. "\n" p) 1)))
+(pub (fn eputs ((s (& str))) unit (sys.write_str 2 s) (sys.write_all 2 (. "\n" p) 1)))
 
 ;; Reads a whole fd into an owned str.
 (pub (fn read_fd ((fd i32)) str
-  (let mut s (str.new))
-  (let chunk 65536)
-  (loop
-    (str.reserve (&mut s) chunk)
-    (let n (sys.read fd (ptr.add (. s p) (. s len)) (as u64 chunk)))
-    (if (<= n 0) (brk))
-    (set (. s len) (+ (. s len) n)))
-  s))
+       (let mut s (str.new))
+       (let chunk 65536)
+       (loop
+         (str.reserve (&mut s) chunk)
+         (let n (sys.read fd (ptr.add (. s p) (. s len)) (as u64 chunk)))
+         (if (<= n 0) (brk))
+         (set (. s len) (+ (. s len) n)))
+       s))
 
 (pub (fn stdin () str (read_fd 0)))

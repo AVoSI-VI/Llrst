@@ -1,1 +1,1 @@
-E|tests/err/mut_required.llr|3|8|1|mut.required|name=n|fix=(let mut n ...)
+E|tests/err/mut_required.llr|1|33|1|mut.required|name=n|fix=(let mut n ...)

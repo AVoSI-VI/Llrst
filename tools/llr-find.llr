@@ -1,0 +1,39 @@
+;; llr-find PATTERN [DIR] [--max N]: files matching a glob, newest first, path|mtime.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.glob)
+(use std.io)
+(use std.os)
+
+(struct hit (path str) (mtime i64))
+
+(fn sort_hits ((v (&mut (vec hit)))) unit
+  (for i 1 (vec.len v)
+    (let mut j i)
+    (while (and (> j 0) (< (. (vec.get v (- j 1)) mtime) (. (vec.get v j) mtime)))
+      (vec.swap v j (- j 1))
+      (set j (- j 1)))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-find" "find files by glob, newest first"))
+  (cli.pos (&mut c) "pattern")
+  (cli.opt (&mut c) "max" "200")
+  (cli.parse (&mut c) (os.args))
+  (let pat (cli.at (& c) 0))
+  (let dir (if (> (cli.count (& c)) 1) (str.clone (cli.at (& c) 1)) (str.from ".")))
+  (let max (cli.get_int (& c) "max"))
+  (let files (glob.find (& dir) pat))
+  (let mut hits (vec.new <hit>))
+  (for i 0 (vec.len (& files))
+    (let f (vec.get (& files) i))
+    (let m (match (fs.mtime f) ((res.ok t) t) ((res.err _) 0)))
+    (vec.push (&mut hits) (hit (str.clone f) m)))
+  (sort_hits (&mut hits))
+  (let n (vec.len (& hits)))
+  (let shown (if (> n max) max n))
+  (for i 0 shown
+    (let h (vec.get (& hits) i))
+    (io.puts (& (fmt.pipe2 (& (. h path)) (& (fmt.int (. h mtime)))))))
+  (if (> n shown) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n shown)))))))
+  (if (== n 0) (os.exit 2)))

@@ -1,7 +1,5 @@
 (use std.io)
-(fn first () (& str)
-  (let s (str.from "x"))
-  (& s))
-(fn main () unit
-  (let r (first))
-  (io.puts r))
+
+(fn first () (& str) (let s (str.from "x")) (& s))
+
+(fn main () unit (let r (first)) (io.puts r))

@@ -1,0 +1,35 @@
+;; llr-edit FILE OLD NEW [--all] [--files]: exact string replacement with uniqueness check.
+;; With --files, OLD and NEW are paths to files holding the text (for multi-line edits).
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+
+(fn die ((code (& str)) (kv (& str))) never
+  (io.eputs (& (fmt.pipe3 "E|<edit>|0|0|0" code kv)))
+  (os.exit 1))
+
+(fn load ((p (& str))) str (match (fs.read p) ((res.ok s) s) ((res.err e) (die "io.read" (& e)))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-edit" "replace OLD with NEW in FILE; OLD must be unique unless --all"))
+  (cli.pos (&mut c) "file")
+  (cli.pos (&mut c) "old")
+  (cli.pos (&mut c) "new")
+  (cli.flag (&mut c) "all")
+  (cli.flag (&mut c) "files")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.at (& c) 0))
+  (let old (if (cli.has (& c) "files") (load (cli.at (& c) 1)) (str.clone (cli.at (& c) 1))))
+  (let new (if (cli.has (& c) "files") (load (cli.at (& c) 2)) (str.clone (cli.at (& c) 2))))
+  (if (== (str.len (& old)) 0) (die "edit.empty_old" "fix=give non-empty OLD"))
+  (let text (load path))
+  (let n (str.count (& text) (& old)))
+  (if (== n 0) (die "edit.not_found" (& (fmt.kv "old" (& old)))))
+  (if (and (> n 1) (not (cli.has (& c) "all")))
+    (die "edit.ambiguous"
+      (& (fmt.pipe2 (& (fmt.kv "count" (& (fmt.int n)))) "fix=--all or a longer OLD"))))
+  (let out (str.replace (& text) (& old) (& new)))
+  (match (fs.write path (& out)) ((res.ok _) ()) ((res.err e) (die "io.write" (& e))))
+  (io.puts (& (fmt.pipe3 "ok" path (& (fmt.kv "replaced" (& (fmt.int n))))))))

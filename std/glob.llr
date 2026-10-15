@@ -9,9 +9,7 @@
   (if (== c 42u8)
     (do
       (let mut k si)
-      (while (<= k (str.len s))
-        (if (seg p (+ pi 1) s k) (ret true))
-        (set k (+ k 1)))
+      (while (<= k (str.len s)) (if (seg p (+ pi 1) s k) (ret true)) (set k (+ k 1)))
       (ret false)))
   (if (== si (str.len s)) (ret false))
   (if (== c 63u8) (ret (seg p (+ pi 1) s (+ si 1))))
@@ -24,11 +22,10 @@
       (while (and (< j (str.len p)) (!= (str.at p j) 93u8))
         (if (and (< (+ j 2) (str.len p)) (== (str.at p (+ j 1)) 45u8) (!= (str.at p (+ j 2)) 93u8))
           (do
-            (if (and (>= (str.at s si) (str.at p j)) (<= (str.at s si) (str.at p (+ j 2)))) (set hit true))
+            (if (and (>= (str.at s si) (str.at p j)) (<= (str.at s si) (str.at p (+ j 2))))
+              (set hit true))
             (set j (+ j 3)))
-          (do
-            (if (== (str.at s si) (str.at p j)) (set hit true))
-            (set j (+ j 1)))))
+          (do (if (== (str.at s si) (str.at p j)) (set hit true)) (set j (+ j 1)))))
       (if (!= hit (not neg)) (ret false))
       (ret (seg p (+ j 1) s (+ si 1)))))
   (if (!= c (str.at s si)) (ret false))
@@ -40,9 +37,7 @@
   (if (str.eq p "**")
     (do
       (let mut k si)
-      (while (<= k (vec.len sp))
-        (if (parts_match pp (+ pi 1) sp k) (ret true))
-        (set k (+ k 1)))
+      (while (<= k (vec.len sp)) (if (parts_match pp (+ pi 1) sp k) (ret true)) (set k (+ k 1)))
       (ret false)))
   (if (== si (vec.len sp)) (ret false))
   (if (not (seg p 0 (vec.get sp si) 0)) (ret false))
@@ -50,13 +45,13 @@
 
 ;; Full-path match; segments split on /. "**" matches any number of segments.
 (pub (fn matches ((pat (& str)) (p (& str))) bool
-  (let pp (str.split pat 47u8))
-  (let sp (str.split p 47u8))
-  (parts_match (& pp) 0 (& sp) 0)))
+       (let pp (str.split pat 47u8))
+       (let sp (str.split p 47u8))
+       (parts_match (& pp) 0 (& sp) 0)))
 
 ;; Matches against the base name only when the pattern has no slash.
 (pub (fn matches_path ((pat (& str)) (p (& str))) bool
-  (if (str.has pat "/") (matches pat p) (seg pat 0 (& (path.base p)) 0))))
+       (if (str.has pat "/") (matches pat p) (seg pat 0 (& (path.base p)) 0))))
 
 (fn walk_into ((dir (& str)) (out (&mut (vec str)))) unit
   (match (fs.list dir)
@@ -66,26 +61,24 @@
         (if (not (str.starts name "."))
           (do
             (let full (if (str.eq dir ".") (str.clone name) (path.join dir name)))
-            (if (fs.is_dir (& full))
-              (walk_into (& full) out)
-              (vec.push out full))))))
+            (if (fs.is_dir (& full)) (walk_into (& full) out) (vec.push out full))))))
     ((res.err _) ())))
 
 ;; All files under dir (recursive, skips dotfiles), sorted.
 (pub (fn walk ((dir (& str))) (vec str)
-  (let mut out (vec.new <str>))
-  (walk_into dir (&mut out))
-  (vec.sort_str (&mut out))
-  out))
+       (let mut out (vec.new <str>))
+       (walk_into dir (&mut out))
+       (vec.sort_str (&mut out))
+       out))
 
 ;; Files under dir whose path matches pat.
 (pub (fn find ((dir (& str)) (pat (& str))) (vec str)
-  (let all (walk dir))
-  (let mut out (vec.new <str>))
-  (for i 0 (vec.len (& all))
-    (let f (vec.get (& all) i))
-    (if (matches_path pat f) (vec.push (&mut out) (str.clone f))))
-  out))
+       (let all (walk dir))
+       (let mut out (vec.new <str>))
+       (for i 0 (vec.len (& all))
+         (let f (vec.get (& all) i))
+         (if (matches_path pat f) (vec.push (&mut out) (str.clone f))))
+       out))
 
 (test glob_seg
   (assert (matches "*.llr" "a.llr"))

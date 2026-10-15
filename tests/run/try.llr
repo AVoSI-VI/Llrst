@@ -1,16 +1,14 @@
 (use std.io)
+
 (fn parse ((s (& str))) (res i64 str)
-  (match (str.to_int s)
-    ((opt.some v) (res.ok v))
-    ((opt.none) (res.err (str.cat "bad|" s)))))
+  (match (str.to_int s) ((opt.some v) (res.ok v)) ((opt.none) (res.err (str.cat "bad|" s)))))
+
 (fn sum ((a (& str)) (b (& str))) (res i64 str)
   (let x (try (parse a)))
   (let y (try (parse b)))
   (res.ok (+ x y)))
+
 (fn show ((r (res i64 str))) unit
-  (match r
-    ((res.ok v) (io.puts (& (str.from_int v))))
-    ((res.err e) (io.puts (& e)))))
-(fn main () unit
-  (show (sum "1" "2"))
-  (show (sum "1" "x")))
+  (match r ((res.ok v) (io.puts (& (str.from_int v)))) ((res.err e) (io.puts (& e)))))
+
+(fn main () unit (show (sum "1" "2")) (show (sum "1" "x")))

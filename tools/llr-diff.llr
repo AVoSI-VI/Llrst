@@ -1,0 +1,33 @@
+;; llr-diff A B [--context N]: line diff as =|i|j|text, -|i|text, +|j|text. Exit 2 when different.
+(use std.cli)
+(use std.diff)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+
+(fn load ((p (& str))) str
+  (match (fs.read p)
+    ((res.ok s) s)
+    ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<diff>|0|0|0" (& e)))) (os.exit 1)))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-diff" "line diff of two files"))
+  (cli.pos (&mut c) "a")
+  (cli.pos (&mut c) "b")
+  (cli.opt (&mut c) "context" "2")
+  (cli.parse (&mut c) (os.args))
+  (let a (load (cli.at (& c) 0)))
+  (let b (load (cli.at (& c) 1)))
+  (let la (str.lines (& a)))
+  (let lb (str.lines (& b)))
+  (let st (diff.stat (& la) (& lb)))
+  (let rem (@ (vec.get (& st) 0)))
+  (let add (@ (vec.get (& st) 1)))
+  (io.puts (& (fmt.pipe3 "stat"
+      (& (fmt.kv "removed" (& (fmt.int rem))))
+      (& (fmt.kv "added" (& (fmt.int add)))))))
+  (if (== (+ rem add) 0) (ret))
+  (let out (diff.lines (& la) (& lb) (cli.get_int (& c) "context")))
+  (for i 0 (vec.len (& out)) (io.puts (vec.get (& out) i)))
+  (os.exit 2))

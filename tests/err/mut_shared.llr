@@ -1,6 +1,3 @@
 (use std.io)
-(fn main () unit
-  (let mut s (str.from "x"))
-  (let r (& s))
-  (str.push (&mut s) "y")
-  (io.puts r))
+
+(fn main () unit (let mut s (str.from "x")) (let r (& s)) (str.push (&mut s) "y") (io.puts r))
