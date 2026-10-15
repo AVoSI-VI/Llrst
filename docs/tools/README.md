@@ -1,0 +1,24 @@
+# Agent tools
+
+Tools an agent uses most while programming, ranked by call frequency in typical coding
+sessions, and the Llrst reimplementation of each. All tools print one record per line,
+`|` separated, first field is a tag. Diagnostics go to stderr as `E|...`. Exit codes:
+0 ok, 1 tool error, 2 negative result (no matches, differences, failed tests).
+
+| rank | agent tool | role | Llrst tool |
+|------|-----------|------|-----------|
+| 1 | read file | view source with line numbers | [llr-read](llr-read.md) |
+| 2 | grep / ripgrep | find text or regex across files | [llr-grep](llr-grep.md) |
+| 3 | edit / string replace | apply an exact replacement | [llr-edit](llr-edit.md) |
+| 4 | shell: build and run | compile, run, see errors | `llrc build`, `llrc run`, `llrc check` |
+| 5 | glob / find | locate files by name pattern | [llr-find](llr-find.md) |
+| 6 | test runner | run tests, read failures | [llr-test](llr-test.md) |
+| 7 | formatter / linter | normalize layout, enforce canon | [llr-fmt](llr-fmt.md) |
+| 8 | diff | compare two files | [llr-diff](llr-diff.md) |
+
+Every tool is a single `.llr` file under `tools/` built by `scripts/install.sh`. Shared
+behaviour lives in `std` (`cli`, `fmt`, `fs`, `glob`, `re`, `diff`, `sexp`), so a tool is
+mostly argument parsing plus output.
+
+Common flags: `--help` prints `usage|NAME ARGS...|about`. Every tool with a list output
+accepts `--max N` and ends a truncated list with a `more|...` record.
