@@ -1,0 +1,7 @@
+(use std.io)
+
+(fn main () unit
+  (let mut a (str.from "a"))
+  (let b (str.from "b"))
+  (let mut r (& a))
+  (for i 0 2 (if (== i 1) (set r (& b))) (str.push (&mut a) "x") (io.puts r)))

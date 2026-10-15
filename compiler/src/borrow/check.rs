@@ -1,10 +1,11 @@
 //! Conflict detection between live loans and accesses.
+use super::holders::Holders;
 use super::liveness::Liveness;
 use super::loans::Loan;
 use super::*;
 use crate::diag::{Diag, SourceMap};
 
-pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body, loans: &[Loan], live: &Liveness) {
+pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body, loans: &[Loan], holders: &Holders, live: &Liveness) {
     let _ = prog;
     let mut reported: Vec<(usize, Span, &'static str)> = Vec::new();
     for (bi, blk) in body.blocks.iter().enumerate() {
@@ -22,7 +23,7 @@ pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Bod
                 }
                 // A loan is in force at `point` when a holder is live after the borrow and
                 // still live here (the borrow point itself is excluded above).
-                if !loan.live_at(point, live) && !holder_live_after(loan, point, live, &accs) {
+                if !holders.in_force(point, li, live) && !holder_live_after(holders, loan, li, point, live, &accs) {
                     continue;
                 }
                 for a in &accs {
@@ -30,7 +31,7 @@ pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Bod
                         continue;
                     }
                     // Accessing through the reference itself (holder as root) is fine.
-                    if loan.holders.contains(a.place.local) && a.place.local != loan.place.local {
+                    if holders.held(point, li, a.place.local) && a.place.local != loan.place.local {
                         continue;
                     }
                     let active = loan.active_at(point);
@@ -52,7 +53,7 @@ pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Bod
                     }
                     reported.push((li, a.span, code));
                     let name = body.locals[loan.place.local as usize].name.clone();
-                    let holder = loan.holders.iter().map(|h| body.locals[h as usize].name.clone()).find(|n| !n.starts_with("_t")).unwrap_or_default();
+                    let holder = holders.some_holder_name(point, li, body);
                     let at = if code == "borrow.escape" { loan.span } else { a.span };
                     let mut d = Diag::error(at, code).kv("name", name);
                     if !holder.is_empty() {
@@ -69,9 +70,9 @@ pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Bod
 
 /// For `Drop`/`StorageDead` of the borrowed local, the question is whether a holder is live
 /// *after* this point (the referent dies while the reference lives on).
-fn holder_live_after(loan: &Loan, point: Point, live: &Liveness, accs: &[Access]) -> bool {
+fn holder_live_after(holders: &Holders, loan: &Loan, li: usize, point: Point, live: &Liveness, accs: &[Access]) -> bool {
     if !accs.iter().any(|a| matches!(a.kind, AccessKind::Drop | AccessKind::StorageDead) && a.place.local == loan.place.local) {
         return false;
     }
-    loan.holders.iter().any(|h| live.live_after(point, h))
+    holders.any_holder_live_after(point, li, live)
 }

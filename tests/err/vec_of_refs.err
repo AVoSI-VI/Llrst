@@ -1,0 +1,1 @@
+E|tests/err/vec_of_refs.llr|7|13|8|borrow.mut_shared|name=a|ref=hold|borrowed_at=6:25

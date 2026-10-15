@@ -22,6 +22,12 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 5. `(& (. p x))` borrows only field `x`; sibling fields stay usable.
 6. Two-phase borrows: `(vec.push (&mut v) (vec.len (& v)))` is allowed; the `&mut` activates
    after the arguments are evaluated.
+7. Reassigning a reference variable, or a struct holding references, as a whole
+   (`(set r (& b))`, `(set v (view (& b)))`) releases the loans it held. Writing a single
+   field (`(set (. v s) (& b))`) releases nothing.
+8. Storing a reference into a container through `(&mut c)` (for example `vec.push`) makes
+   the container a holder: the referent stays borrowed while `c` is live. Declare such a
+   container after its referents so it is dropped first; otherwise `borrow.escape`.
 
 ## Lifetimes across functions
 

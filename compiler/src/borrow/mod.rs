@@ -1,5 +1,6 @@
 //! Borrow checker over MIR: moves, loans with liveness-based (NLL) regions, conflicts.
 mod check;
+mod holders;
 mod liveness;
 mod loans;
 mod moves;
@@ -134,6 +135,7 @@ pub fn overlaps(a: &Place, b: &Place) -> bool {
 pub fn borrowck(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body) {
     let live = liveness::compute(prog, body);
     moves::check_moves(prog, diags, sm, body);
-    let loans = loans::compute(prog, body, &live);
-    check::check_conflicts(prog, diags, sm, body, &loans, &live);
+    let loans = loans::compute(body);
+    let holders = holders::compute(prog, body, &loans);
+    check::check_conflicts(prog, diags, sm, body, &loans, &holders, &live);
 }

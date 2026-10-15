@@ -1,0 +1,19 @@
+(use std.io)
+
+(struct view <'a> (s (& 'a str)))
+
+(fn main () unit
+  (let mut a (str.from "a"))
+  (let b (str.from "b"))
+  (let mut r (& a))
+  (for i 0 2 (set r (& b)) (str.push (&mut a) "x") (io.puts r))
+  (io.puts (& a))
+  (let mut v (view (& a)))
+  (for i 0 2 (set v (view (& b))) (str.push (&mut a) "y") (io.puts (. v s)))
+  (io.puts (& a))
+  (do
+    (let mut hold (vec.new < (& str) >))
+    (vec.push (&mut hold) (& a))
+    (io.puts (@ (vec.get (& hold) 0))))
+  (str.push (&mut a) "z")
+  (io.puts (& a)))

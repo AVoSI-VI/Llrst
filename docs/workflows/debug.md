@@ -19,7 +19,7 @@ Goal: turn a machine diagnostic into a fix.
 | `match.missing` | add the arms listed in `missing=` |
 | `move.used` | value moved at `moved_at=L:C`; borrow instead, or `str.clone` |
 | `move.field` / `move.deref` | borrow the field `(& (. p x))` or use `mem.replace` |
-| `borrow.mut_shared` / `borrow.mut_mut` | a reference `ref=` is still live; shorten its use or clone |
+| `borrow.mut_shared` / `borrow.mut_mut` | `ref=` is still live (it may be a container such as a vec of refs); shorten its use, reassign it, or clone |
 | `borrow.assign` | writing a borrowed place; move the write after the last use of `ref=` |
 | `borrow.escape` | returning a reference to a local; return the owned value |
 | `mut.required` | `fix=(let mut NAME ...)` |

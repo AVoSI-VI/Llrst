@@ -9,7 +9,7 @@ workflow you need in `docs/workflows/`. Everything below is verifiable from the 
 commit|ce284b9|tests: lifetimes, struct escape, move through deref
 suite|tests/run.sh|done|fails=0
 lines|compiler=6018 rs|std=1685 llr|tools=464 llr|max_file=449|budget=500 soft, 1000 hard
-plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done
+plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done|flow-sensitive borrow holders done
 ```
 
 The bootstrap plan (spec, compiler, std, hello world, tools, install, docs) is finished.
@@ -65,7 +65,7 @@ flowchart LR
 | types | `ty.rs` | `Ty::{Int,F32,F64,Bool,Unit,Never,Ref,Ptr,Adt(DefId,args),Fn,Param,Infer}` |
 | check | `check/mod.rs` (unify, scopes, `check_fn(def, targs)`), `expr.rs`, `call.rs`, `pat.rs`, `zonk.rs` | `thir::{FnBody, Expr, ExprKind, Callee, Pat}` |
 | MIR | `mir/mod.rs` types + `needs_drop`, `lower.rs`, `lower_call.rs`, `lower_match.rs`, `print.rs` | `Body { locals, blocks }`, `Place { local, proj }`, `Operand::{Copy,Move,Const}`, `Rvalue`, `Stmt::{Assign,Drop,Forget,StorageDead}`, `Term` |
-| borrowck | `borrow/mod.rs` (accesses, overlap), `liveness.rs`, `moves.rs`, `loans.rs`, `check.rs` | `Loan { place, mutable, two_phase, point, holders: BitSet }` |
+| borrowck | `borrow/mod.rs` (accesses, overlap), `liveness.rs`, `moves.rs`, `loans.rs`, `holders.rs`, `check.rs` | `Loan { place, mutable, two_phase, point, span }`, `Holders` (per-point `(loan, local)` bitsets) |
 | codegen | `codegen/mod.rs` (module, symbols, data, ABI), `layout.rs`, `func.rs`, `ops.rs`, `term.rs`, `drop.rs` | `Instance = (DefId, Vec<Ty>)`, `Val::{Scalar,Agg(addr),Unit}` |
 | driver | `driver.rs` | checks all non-generic user fns, then mono worklist from `main` (or tests) via `cg.discovered` |
 
@@ -131,9 +131,15 @@ Borrow checker (`borrow/`)
 - Moves: forward "maybe moved" bitset per local; `Move` of a whole local (no deref) marks,
   whole-local write clears. Moving out of a field/deref is rejected earlier in lowering
   (`move.field`, `move.deref`), except match bindings on a whole local.
-- Loans: created at `Rvalue::Ref`; holders start at the dest local and grow by flow edges
-  (`Use`, `Cast`, `Struct`, `Variant` operands with ref-bearing types; call results from
-  eligible args). Reborrows (`&(*r).f`) make the outer loan inherit the inner loan's holders.
+- Loans (`loans.rs`): one per `Rvalue::Ref`, indexed in program order. Holders are a
+  forward dataflow in `holders.rs` over `(loan, local)` pairs, union at joins, recorded per
+  point. Transfer: a whole-local `Assign`/call dest and `StorageDead` kill that local's
+  pairs; `Ref{place}` gens its own loan plus every pair of `place.local` (a reference into a
+  holder reaches what it holds); `Use`/`Cast`/`Struct`/`Variant` operands flow pairs when
+  either side is ref-bearing; calls flow eligible args into the dest; and for each arg typed
+  `(&mut X)` with ref-bearing `X` (`mut_ref_sink_args`), the referents of the mutable loans
+  it holds become holders of every other ref argument (so `vec.push (&mut hold) (& a)` makes
+  `hold` hold the loan on `a`).
 - Eligible call args (`loans::eligible_args`): params sharing a named lifetime with the
   return type; else the single ref param; else `self` if a ref; else all ref params.
 - Region of a loan = points where any holder is live (backward liveness, `liveness.rs`).
@@ -184,7 +190,8 @@ Tools (`tools/`, `docs/tools/`)
 | visibility | struct fields are always public; privacy is per module only (no finer scopes) | encapsulate via methods | `resolve.rs visible` |
 | traits | none; typed helpers instead (`vec.sort_str`, `vec.has_int`), `map` keyed by `str` only | duplication per element type | `std/vec.llr`, `std/map.llr`, `check/call.rs` |
 | moves | whole locals only; no partial moves; `move.field`/`move.deref` errors | use `(& ...)`, `str.clone`, `mem.replace` | `mir/lower.rs as_operand`, `lower_match.rs` |
-| regions | holder sets are flow-insensitive; a local that ever holds a loan holds it wherever live | false positives when a ref local is reassigned in a loop | `borrow/loans.rs` |
+| regions | holder pairs are per local, not per field: a field write never releases a loan; a container of refs declared before its referents reports `borrow.escape` at scope end | conservative | `borrow/holders.rs` |
+| integers | overflow wraps silently (Cranelift `iadd`); `cast.overflow` reserved | silent bugs | `codegen/ops.rs` |
 | lifetimes | no `'static`; struct lifetime params parsed but not related to field loans beyond flow | over-approximate | `borrow/loans.rs`, `ty.rs lifetimes` |
 | init | no definite-initialization analysis (every `let` has an init, so unreachable today) | would matter for `let` without init | `borrow/moves.rs` |
 | runtime | POSIX libc only; `fs.mtime`/`fs.size` hardcode `struct stat` offsets (x86_64 88/48, others 72/48) | Linux-centric; macOS stat layout untested | `std/fs.llr`, `std/sys.llr` |
@@ -199,15 +206,27 @@ Tools (`tools/`, `docs/tools/`)
 
 ## 8. Suggested next steps, in order
 
-1. Borrowck precision: make holder sets flow-sensitive per point (kill on whole-local
-   reassign); add stress tests for reference-holding structs in loops.
-2. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with `(fn ...)`
-   predicate, replacing the `_str`/`_int` pairs; update `docs/canon/collections.md`.
-3. `re`: captures (`mat` groups) so `llr-edit` can offer regex replacement.
-4. Self-hosting path: `std/sexp.llr` already reads source; next is an Llrst type
-   checker. Keep `llrc` (Rust) as the reference until parity.
-5. Visibility of std growth: a script (in Llrst) that regenerates `docs/std/*.md` from
-   signatures; today they were generated once by hand.
+1. `div.zero` as a `P|` line: emit a zero check before integer `sdiv/udiv/srem/urem` in
+   `codegen/ops.rs binop` and call `sys.panic` with a per-site `file|line|col` literal
+   (`str_data`); add `tests/panic/div_zero.llr`.
+2. Integer overflow policy: decide wrap vs trap. If trap, `--checked` flag using
+   `iadd_cout`-style checks and `P|...|int.overflow`; document in `docs/spec/types.md`.
+3. `fs.stat` portability: replace the hardcoded `struct stat` offsets in `std/fs.llr` with a
+   tiny C shim compiled by `install.sh` (`llr_stat_mtime(path, out)`), then verify macOS.
+4. Compiler warnings: `W|...|flow.unreachable` for MIR blocks with no predecessors and
+   `name.unused` for never-read locals; `Diags::flush` already renders `W`.
+5. Field privacy: `(pub (x i64))` field syntax and `name.private_field` on `(. p x)` across
+   modules (`parse/mod.rs` struct fields, `check/expr.rs field_of`).
+6. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with a predicate,
+   replacing the `_str`/`_int` pairs; merge sort instead of insertion sort; update
+   `docs/canon/collections.md`.
+7. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
+   a `str.from_int` wrapper.
+8. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
+9. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
+   `std/sexp.llr` and skips private items; today the tables were generated once by hand.
+10. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
+    checker in Llrst, checked against `llrc` on `tests/`. Keep `llrc` as the reference.
 
 ## 9. Conventions to keep
 
