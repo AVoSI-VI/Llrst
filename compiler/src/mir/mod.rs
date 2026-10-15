@@ -1,6 +1,7 @@
 //! Mid-level IR: a control-flow graph of basic blocks over places and operands.
 pub mod lower;
 mod lower_call;
+mod lower_div;
 mod lower_match;
 pub mod print;
 

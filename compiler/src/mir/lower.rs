@@ -1,6 +1,6 @@
 //! THIR to MIR lowering.
 use super::*;
-use crate::diag::{Diag, Diags};
+use crate::diag::{Diag, Diags, SourceMap};
 use crate::ast::{BinOp, Lit};
 use crate::thir::{Expr, ExprKind, FnBody, LocalId};
 
@@ -19,6 +19,10 @@ pub struct Scope {
 pub struct Lower<'a> {
     pub prog: &'a Program,
     pub diags: &'a Diags,
+    pub sm: &'a SourceMap,
+    /// Set while lowering `sys.checked_div`, whose own `/` and `%` must stay raw.
+    pub raw_div: bool,
+    pub checked_div: Option<DefId>,
     pub body: Body,
     pub cur: BlockId,
     pub local_map: Vec<LocalIdx>,
@@ -27,7 +31,7 @@ pub struct Lower<'a> {
     pub ret_ty: Ty,
 }
 
-pub fn lower_fn(prog: &Program, diags: &Diags, f: &FnBody, name: String, lifetimes: Vec<String>) -> Body {
+pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name: String, lifetimes: Vec<String>) -> Body {
     let mut locals = vec![LocalDecl { ty: f.ret.clone(), name: "_0".into(), mutable: true, span: f.span }];
     let mut local_map = Vec::new();
     for l in &f.locals {
@@ -50,8 +54,9 @@ pub fn lower_fn(prog: &Program, diags: &Diags, f: &FnBody, name: String, lifetim
     for m in local_map.iter_mut() {
         *m = remap[*m as usize];
     }
+    let raw_div = name == "sys.checked_div";
     let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes };
-    let mut lw = Lower { prog, diags, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone() };
+    let mut lw = Lower { prog, diags, sm, raw_div, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone() };
     let entry = lw.new_block();
     lw.cur = entry;
     lw.push_scope();
@@ -365,9 +370,13 @@ impl<'a> Lower<'a> {
                 self.assign(&dest, Rvalue::Cast(op, e.ty.clone()), sp);
             }
             ExprKind::Bin { op, l, r } => {
-                let a = self.as_operand(l);
-                let b = self.as_operand(r);
-                self.assign(&dest, Rvalue::Bin(*op, a, b), sp);
+                if !self.raw_div && matches!(op, BinOp::Div | BinOp::Rem) && matches!(e.ty, Ty::Int(_)) {
+                    self.lower_checked_div(*op, l, r, &dest, e.ty.clone(), sp);
+                } else {
+                    let a = self.as_operand(l);
+                    let b = self.as_operand(r);
+                    self.assign(&dest, Rvalue::Bin(*op, a, b), sp);
+                }
             }
             ExprKind::Neg(x) => {
                 let a = self.as_operand(x);

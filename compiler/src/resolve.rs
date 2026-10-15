@@ -230,6 +230,7 @@ impl<'a> Loader<'a> {
             // Compiling a std file directly (e.g. its tests): it is both main and std.X.
             if std::fs::canonicalize(&f).ok() == main_canon {
                 self.by_path.insert(format!("std.{}", name), main_idx);
+                self.parsed[main_idx as usize].0 = format!("std.{}", name);
                 self.parsed[main_idx as usize].3 = true;
                 continue;
             }

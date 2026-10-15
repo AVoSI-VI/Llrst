@@ -36,19 +36,21 @@ P|FILE|LINE|COL|CODE|k=v...
 ```
 Exit code 101. `FILE|LINE|COL` is the frame that detected the fault, usually inside `std`
 (there are no stack traces; find the caller with `llr-grep` on the method name).
+`div.zero` is the exception: its location is the `/` or `%` expression itself.
 
 | code | fields | source |
 |------|--------|--------|
 | `idx.oob` | `len= idx=` (index) or `len= lo= hi=` (slice) | `vec.get` `vec.get_mut` `vec.set` `vec.remove` `vec.swap` `vec.insert` `str.at` `str.slice` |
 | `opt.none` | | `opt.unwrap` |
 | `res.err` / `res.ok` | | `res.unwrap` / `res.unwrap_err` |
+| `div.zero` | | integer `/` and `%`, every width; floats stay IEEE and do not panic |
 | `oom` | | `sys.alloc` `sys.grow` |
 | `cli.no_such_opt` / `cli.no_such_flag` | | `cli.get` `cli.has` with an undeclared name |
 | user `(panic "code|k=v")` | as written | any program |
 
 `(assert ...)` failing outside a test prints `F|FILE|LINE|COL|assert` (or `assert_eq|want=|got=`)
-and also exits 101. Integer division by zero is currently a hardware trap (killed by
-`SIGFPE`, no `P|` line); `div.zero` and `cast.overflow` are reserved, not emitted.
+and also exits 101. `cast.overflow` is reserved, not emitted. Dividing the minimum
+signed value by `-1` (`i64` and narrower) is still a hardware trap.
 
 ## Code catalogue
 

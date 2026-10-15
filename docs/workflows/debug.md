@@ -35,7 +35,8 @@ Goal: turn a machine diagnostic into a fix.
 the fault (`std/vec.llr` for `vec.get`), not your call site: `llr-grep "vec\\.get" FILE` in
 your code to find candidates, then compare `len=`/`idx=` (or `len= lo= hi=` for slices)
 with the values you passed. `opt.none` / `res.err` come from `unwrap`: match instead.
-A process killed by a signal with no `P|` line is a division by zero or a bug in std.
+`div.zero` is a `P|` line at the `/` or `%` expression. A process killed by a signal
+with no `P|` line is a bug in std, or the minimum signed value divided by `-1`.
 
 ## Test failures
 
