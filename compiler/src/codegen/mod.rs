@@ -35,6 +35,7 @@ pub struct Codegen<'a> {
     pub call_conv: CallConv,
     pub ptr_ty: types::Type,
     pub frontend: TargetFrontendConfig,
+    pub big_endian: bool,
     /// Instances discovered while compiling bodies, for the mono driver.
     pub discovered: Vec<Instance>,
 }
@@ -59,6 +60,7 @@ impl<'a> Codegen<'a> {
         let call_conv = isa.default_call_conv();
         let ptr_ty = isa.pointer_type();
         let frontend = isa.frontend_config();
+        let big_endian = isa.triple().endianness().map_or(false, |e| e == target_lexicon::Endianness::Big);
         let builder = ObjectBuilder::new(isa, "llr", cranelift_module::default_libcall_names())
             .map_err(|e| Diag::error(Span::default(), "codegen.init").kv("got", e.to_string()))?;
         let mut module = ObjectModule::new(builder);
@@ -84,6 +86,7 @@ impl<'a> Codegen<'a> {
             call_conv,
             ptr_ty,
             frontend,
+            big_endian,
             discovered: Vec::new(),
         })
     }
@@ -175,7 +178,8 @@ impl<'a> Codegen<'a> {
         let str_id = self.module.declare_data(&format!("llr_ss{}", n), Linkage::Local, false, false).unwrap();
         let mut sd = DataDescription::new();
         let mut buf = vec![0u8; 24];
-        buf[8..16].copy_from_slice(&(bytes.len() as u64).to_le_bytes());
+        let len = bytes.len() as u64;
+        buf[8..16].copy_from_slice(&if self.big_endian { len.to_be_bytes() } else { len.to_le_bytes() });
         sd.define(buf.into_boxed_slice());
         sd.set_align(8);
         let gv = self.module.declare_data_in_data(bytes_id, &mut sd);
