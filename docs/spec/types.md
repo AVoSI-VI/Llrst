@@ -71,6 +71,13 @@ Bidirectional, local to a function body. Expected type flows into literals, `opt
 `vec.new`, and generic calls. Unsuffixed integer literal with no expected type is `i64`.
 No global inference; every `fn` signature is fully annotated.
 
+## Arithmetic
+
+`+` `-` `*` and `neg` wrap in two's complement. `llrc build --checked` makes those four trap
+with `P|FILE|LINE|COL|int.overflow` at the expression, and does the same for signed
+`MIN / -1` and `MIN % -1`. `wadd` `wsub` `wmul` `wneg` wrap either way. Shifts and casts
+are not checked.
+
 ## Casts
 
 `(as T e)` between numeric types only; truncating/sign-extending/float-int by Rust rules.

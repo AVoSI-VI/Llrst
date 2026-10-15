@@ -110,6 +110,7 @@
   (pub (fn from_int ((n i64)) str
     (let mut s (str.new))
     (if (== n 0) (do (str.push_byte (&mut s) 48u8) (ret s)))
+    (if (== n (as i64 (shl 1u64 63))) (ret (str.from "-9223372036854775808")))
     (let neg (< n 0))
     (let mut v (if neg (neg n) n))
     (let mut digits (vec.new <u8>))

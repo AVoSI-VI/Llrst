@@ -55,6 +55,7 @@ fn rvalue(r: &Rvalue) -> String {
         Rvalue::Ref { mutable, place: p, two_phase } => format!("&{}{} {}", if *mutable { "mut " } else { "" }, if *two_phase { "2p" } else { "" }, place(p)),
         Rvalue::Bin(op, a, b) => format!("{:?}({}, {})", op, operand(a), operand(b)),
         Rvalue::Neg(a) => format!("neg {}", operand(a)),
+        Rvalue::WNeg(a) => format!("wneg {}", operand(a)),
         Rvalue::Not(a) => format!("not {}", operand(a)),
         Rvalue::Cast(a, t) => format!("{} as {}", operand(a), t),
         Rvalue::Struct(t, o) => format!("{} {{{}}}", t, ops(o)),

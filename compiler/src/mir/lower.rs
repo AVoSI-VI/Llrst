@@ -22,6 +22,7 @@ pub struct Lower<'a> {
     pub sm: &'a SourceMap,
     /// Set while lowering `sys.checked_div`, whose own `/` and `%` must stay raw.
     pub raw_div: bool,
+    pub checked: bool,
     pub checked_div: Option<DefId>,
     pub body: Body,
     pub cur: BlockId,
@@ -31,7 +32,7 @@ pub struct Lower<'a> {
     pub ret_ty: Ty,
 }
 
-pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name: String, lifetimes: Vec<String>) -> Body {
+pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name: String, lifetimes: Vec<String>, checked: bool) -> Body {
     let mut locals = vec![LocalDecl { ty: f.ret.clone(), name: "_0".into(), mutable: true, span: f.span }];
     let mut local_map = Vec::new();
     for l in &f.locals {
@@ -56,7 +57,7 @@ pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name:
     }
     let raw_div = name == "sys.checked_div";
     let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes };
-    let mut lw = Lower { prog, diags, sm, raw_div, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone() };
+    let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone() };
     let entry = lw.new_block();
     lw.cur = entry;
     lw.push_scope();
@@ -378,9 +379,10 @@ impl<'a> Lower<'a> {
                     self.assign(&dest, Rvalue::Bin(*op, a, b), sp);
                 }
             }
-            ExprKind::Neg(x) => {
+            ExprKind::Neg(x) | ExprKind::WNeg(x) => {
                 let a = self.as_operand(x);
-                self.assign(&dest, Rvalue::Neg(a), sp);
+                let rv = if matches!(e.kind, ExprKind::WNeg(_)) { Rvalue::WNeg(a) } else { Rvalue::Neg(a) };
+                self.assign(&dest, rv, sp);
             }
             ExprKind::Not(x) => {
                 let a = self.as_operand(x);

@@ -112,6 +112,7 @@ pub enum ExprKind {
     Cast(Box<Expr>),
     Bin { op: BinOp, l: Box<Expr>, r: Box<Expr> },
     Neg(Box<Expr>),
+    WNeg(Box<Expr>),
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),

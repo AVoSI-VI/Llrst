@@ -69,6 +69,7 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
         ExprKind::Cast(x) => ExprKind::Cast(bx(c, x)?),
         ExprKind::Bin { op, l, r } => ExprKind::Bin { op, l: bx(c, l)?, r: bx(c, r)? },
         ExprKind::Neg(x) => ExprKind::Neg(bx(c, x)?),
+        ExprKind::WNeg(x) => ExprKind::WNeg(bx(c, x)?),
         ExprKind::Not(x) => ExprKind::Not(bx(c, x)?),
         ExprKind::And(l, r) => ExprKind::And(bx(c, l)?, bx(c, r)?),
         ExprKind::Or(l, r) => ExprKind::Or(bx(c, l)?, bx(c, r)?),

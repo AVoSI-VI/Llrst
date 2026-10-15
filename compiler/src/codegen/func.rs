@@ -296,7 +296,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 }
             }
             _ => {
-                let v = self.rvalue(rv);
+                let v = self.rvalue(rv, span);
                 let (daddr, dty) = self.place_addr(dest);
                 self.store(&dty, daddr, v);
             }
@@ -326,18 +326,25 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         out
     }
 
-    fn rvalue(&mut self, rv: &Rvalue) -> Val {
+    fn rvalue(&mut self, rv: &Rvalue, span: Span) -> Val {
         match rv {
             Rvalue::Use(op) => self.operand(op).0,
             Rvalue::Ref { place, .. } => Val::Scalar(self.place_addr(place).0),
             Rvalue::Bin(op, a, b) => {
                 let (x, t) = self.scalar(a);
                 let (y, _) = self.scalar(b);
-                Val::Scalar(self.binop(*op, x, y, &t))
+                Val::Scalar(self.binop(*op, x, y, &t, span))
             }
-            Rvalue::Neg(a) => {
+            Rvalue::Neg(a) | Rvalue::WNeg(a) => {
                 let (x, t) = self.scalar(a);
-                Val::Scalar(if matches!(t, Ty::F32 | Ty::F64) { self.b.ins().fneg(x) } else { self.b.ins().ineg(x) })
+                let wrapping = matches!(rv, Rvalue::WNeg(_));
+                Val::Scalar(if matches!(t, Ty::F32 | Ty::F64) {
+                    self.b.ins().fneg(x)
+                } else if self.cg.checked && !wrapping {
+                    self.checked_neg(x, &t, span)
+                } else {
+                    self.b.ins().ineg(x)
+                })
             }
             Rvalue::Not(a) => {
                 let (x, _) = self.scalar(a);

@@ -19,6 +19,7 @@ pub struct Options {
     pub emit_obj: bool,
     pub emit_mir: bool,
     pub check_only: bool,
+    pub checked: bool,
 }
 
 pub fn find_std(opt: &Options) -> PResult<PathBuf> {
@@ -71,7 +72,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     let sm: &SourceMap = sm;
     let isa = make_isa(opt.target.as_deref())?;
     prog.target_arch = isa.triple().architecture.to_string();
-    let mut cg = Codegen::new(&prog, isa)?;
+    let mut cg = Codegen::new(&prog, isa, sm, opt.checked)?;
 
     // Always check every non-generic function of user modules so errors surface even in
     // unreachable code.
@@ -110,7 +111,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         let mut test_fns = Vec::new();
         for (i, t) in tests.iter().enumerate() {
             let body = check_test(&prog, diags, sm, prog.main_module, t)?;
-            let mir = lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new());
+            let mir = lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new(), opt.checked);
             if opt.emit_mir {
                 st.mir_dump.push_str(&print_body(&mir));
             }
@@ -197,7 +198,7 @@ impl<'a> Pipeline<'a> {
         let body = check_fn(self.prog, self.diags, self.sm, inst.0, &inst.1)?;
         let name = self.prog.fn_path(inst.0);
         let lifetimes = self.prog.fn_def(inst.0).lifetimes.clone();
-        let mir = lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes);
+        let mir = lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes, self.opt.checked);
         if self.opt.emit_mir {
             self.mir_dump.push_str(&print_body(&mir));
         }

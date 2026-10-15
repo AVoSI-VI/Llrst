@@ -7,7 +7,7 @@
 
 (fn hash ((s (& str))) i64
   (let mut h 1469598103934665603)
-  (for i 0 (str.len s) (set h (bxor h (as i64 (str.at s i)))) (set h (* h 1099511628211)))
+  (for i 0 (str.len s) (set h (bxor h (as i64 (str.at s i)))) (set h (wmul h 1099511628211)))
   (band h 9223372036854775807))
 
 (impl map <V>

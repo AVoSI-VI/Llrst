@@ -19,7 +19,11 @@ for f in "$root"/tests/run/*.llr; do
   name="$(basename "$f" .llr)"
   want="${f%.llr}.out"
   [ -e "$want" ] || continue   # helper module for a proj.* test
-  if ! "$llrc" build "$f" -o "$tmp/$name" 2>"$tmp/$name.err"; then
+  flags=()
+  if [ -f "${f%.llr}.flags" ]; then
+    read -r -a flags <"${f%.llr}.flags"
+  fi
+  if ! "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.err"; then
     echo "fail|run/$name|compile|$(head -1 "$tmp/$name.err")"; fails=$((fails+1)); continue
   fi
   "$tmp/$name" >"$tmp/$name.out" 2>/dev/null
@@ -50,7 +54,12 @@ for f in "$root"/tests/panic/*.llr; do
   name="$(basename "$f" .llr)"
   want="${f%.llr}.err"
   [ -e "$want" ] || continue   # helper module
-  if ! ( cd "$root" && "$llrc" build "tests/panic/$name.llr" --std std -o "$tmp/panic_$name" 2>"$tmp/panic_$name.cerr" ); then
+  flags=(--std std)
+  if [ -f "${f%.llr}.flags" ]; then
+    read -r -a extra <"${f%.llr}.flags"
+    flags+=("${extra[@]}")
+  fi
+  if ! ( cd "$root" && "$llrc" build "tests/panic/$name.llr" "${flags[@]}" -o "$tmp/panic_$name" 2>"$tmp/panic_$name.cerr" ); then
     echo "fail|panic/$name|compile|$(head -1 "$tmp/panic_$name.cerr")"; fails=$((fails+1)); continue
   fi
   "$tmp/panic_$name" >/dev/null 2>"$tmp/panic_$name.err"; code=$?

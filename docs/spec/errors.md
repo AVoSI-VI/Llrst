@@ -44,13 +44,14 @@ Exit code 101. `FILE|LINE|COL` is the frame that detected the fault, usually ins
 | `opt.none` | | `opt.unwrap` |
 | `res.err` / `res.ok` | | `res.unwrap` / `res.unwrap_err` |
 | `div.zero` | | integer `/` and `%`, every width; floats stay IEEE and do not panic |
+| `int.overflow` | | `--checked` only: `+` `-` `*` `neg`, and signed `MIN / -1`, `MIN % -1` |
 | `oom` | | `sys.alloc` `sys.grow` |
 | `cli.no_such_opt` / `cli.no_such_flag` | | `cli.get` `cli.has` with an undeclared name |
 | user `(panic "code|k=v")` | as written | any program |
 
 `(assert ...)` failing outside a test prints `F|FILE|LINE|COL|assert` (or `assert_eq|want=|got=`)
-and also exits 101. `cast.overflow` is reserved, not emitted. Dividing the minimum
-signed value by `-1` (`i64` and narrower) is still a hardware trap.
+and also exits 101. `cast.overflow` is reserved, not emitted. Without `--checked`,
+dividing the minimum signed value by `-1` is still a hardware trap. Shifts are not checked.
 
 ## Code catalogue
 

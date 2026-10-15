@@ -55,6 +55,10 @@ impl SourceMap {
     pub fn text(&self, file: u32) -> &str {
         &self.files[file as usize].text
     }
+    /// Owned copy of paths and line starts, for codegen after the map is no longer borrowed.
+    pub fn export_locs(&self) -> Vec<(String, Vec<u32>)> {
+        self.files.iter().map(|f| (f.path.clone(), f.line_starts.clone())).collect()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

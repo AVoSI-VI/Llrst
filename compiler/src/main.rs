@@ -18,7 +18,7 @@ use driver::Options;
 use std::path::PathBuf;
 use std::process::Command;
 
-const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj]
+const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked]
 usage|llrc run FILE [--std DIR] [-- ARGS...]
 usage|llrc check FILE [--std DIR]
 usage|llrc emit-mir FILE [--std DIR]
@@ -35,6 +35,7 @@ fn main() {
         emit_obj: false,
         emit_mir: false,
         check_only: false,
+        checked: false,
     };
     let mut run_args: Vec<String> = Vec::new();
     let mut cmd = String::new();
@@ -55,6 +56,7 @@ fn main() {
             }
             "--test" => opt.test = true,
             "--emit-obj" => opt.emit_obj = true,
+            "--checked" => opt.checked = true,
             "--" => {
                 run_args = args[i + 1..].to_vec();
                 break;

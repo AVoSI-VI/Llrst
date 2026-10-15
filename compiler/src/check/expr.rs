@@ -178,13 +178,14 @@ impl<'a> Checker<'a> {
                 self.expect(&x, &Ty::Bool)?;
                 mk(ExprKind::Not(Box::new(x)), Ty::Bool, sp)
             }
-            A::Neg(x) => {
+            A::WNeg(x) | A::Neg(x) => {
                 let x = self.check_expr(x, want.filter(|t| t.is_numeric()))?;
                 if !self.shallow(&x.ty).is_numeric() {
                     return Err(Diag::error(sp, "type.not_numeric").kv("got", self.show(&x.ty)));
                 }
                 let ty = x.ty.clone();
-                mk(ExprKind::Neg(Box::new(x)), ty, sp)
+                let k = if matches!(e.kind, A::WNeg(_)) { ExprKind::WNeg(Box::new(x)) } else { ExprKind::Neg(Box::new(x)) };
+                mk(k, ty, sp)
             }
             A::Call { callee, targs, args } => self.check_call(callee, targs, args, want, sp)?,
             A::CallPtr { callee, args } => {
@@ -377,6 +378,7 @@ impl<'a> Checker<'a> {
             BinOp::Eq | BinOp::Ne => lt.is_numeric() || matches!(lt, Ty::Bool | Ty::Ptr(_)),
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => lt.is_numeric(),
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => lt.is_int() || matches!(lt, Ty::Bool),
+            BinOp::WAdd | BinOp::WSub | BinOp::WMul => lt.is_int(),
             _ => lt.is_numeric(),
         };
         if !ok {
@@ -443,7 +445,7 @@ fn has_break(e: &Expr) -> bool {
         ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
         ExprKind::Match { scrut, arms, .. } => has_break(scrut) || arms.iter().any(|a| has_break(&a.body)),
         ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
-        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::Not(x) => has_break(x),
+        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::Not(x) => has_break(x),
         ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),
         ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } => has_break(x),
         _ => false,

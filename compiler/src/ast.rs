@@ -123,6 +123,8 @@ pub enum Lit {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinOp {
     Add, Sub, Mul, Div, Rem, Eq, Ne, Lt, Le, Gt, Ge, BitAnd, BitOr, BitXor, Shl, Shr,
+    /// Always wrap, even under `llrc --checked`.
+    WAdd, WSub, WMul,
 }
 
 impl BinOp {
@@ -131,6 +133,7 @@ impl BinOp {
             "+" => BinOp::Add, "-" => BinOp::Sub, "*" => BinOp::Mul, "/" => BinOp::Div, "%" => BinOp::Rem,
             "==" => BinOp::Eq, "!=" => BinOp::Ne, "<" => BinOp::Lt, "<=" => BinOp::Le, ">" => BinOp::Gt, ">=" => BinOp::Ge,
             "band" => BinOp::BitAnd, "bor" => BinOp::BitOr, "bxor" => BinOp::BitXor, "shl" => BinOp::Shl, "shr" => BinOp::Shr,
+            "wadd" => BinOp::WAdd, "wsub" => BinOp::WSub, "wmul" => BinOp::WMul,
             _ => return None,
         })
     }
@@ -192,6 +195,8 @@ pub enum ExprKind {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
     Neg(Box<Expr>),
+    /// Negation that always wraps.
+    WNeg(Box<Expr>),
     Call { callee: String, targs: Vec<TyExpr>, args: Vec<Expr> },
     CallPtr { callee: Box<Expr>, args: Vec<Expr> },
     Try(Box<Expr>),

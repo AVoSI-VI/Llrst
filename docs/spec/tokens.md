@@ -35,6 +35,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `as` | cast |
 | `and` `or` `not` | booleans |
 | `neg` | numeric negate |
+| `wadd` `wsub` `wmul` `wneg` | wrapping arithmetic; never traps |
 | `band` `bor` `bxor` `shl` `shr` | bitwise |
 
 ## Sigils

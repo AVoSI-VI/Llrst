@@ -9,7 +9,7 @@ workflow you need in `docs/workflows/`. Everything below is verifiable from the 
 commit|ce284b9|tests: lifetimes, struct escape, move through deref
 suite|tests/run.sh|done|fails=0
 lines|compiler=6018 rs|std=1685 llr|tools=464 llr|max_file=449|budget=500 soft, 1000 hard
-plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done|flow-sensitive borrow holders done|div.zero is a P| line via sys.checked_div
+plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done|flow-sensitive borrow holders done|div.zero is a P| line via sys.checked_div|--checked traps overflow; wadd/wmul always wrap
 ```
 
 The bootstrap plan (spec, compiler, std, hello world, tools, install, docs) is finished.
@@ -112,6 +112,10 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
   `i64`, the call carries a `file|line|col` literal, the result truncates back. The
   function's own division stays raw (`Lower::raw_div`) so the rewrite does not recurse.
   Float division is unchanged. Goldens: `tests/panic/div_zero*`, `tests/run/div_ok`.
+  With `--checked`, `checked_div` also rejects signed `MIN / -1` and `MIN % -1`.
+- `+ - * neg` wrap by default. `llrc --checked` traps them (`codegen/ovf.rs` calls
+  `sys.abort` with `int.overflow`) using Cranelift `sadd_overflow` / `uadd_overflow` and
+  the sub/mul pairs. `wadd` `wsub` `wmul` `wneg` always wrap; the map hash uses `wmul`.
 - `(sizeof T)` is `Callee::Sizeof`; `(sys.arch)` is a compile-time `(& str)`; `sys.argc`
   / `sys.argv` read globals set by the generated C `main` (`emit_entry`).
 - `--test`: each `(test ...)` becomes `llr_test_i`; `emit_test_entry` calls
@@ -195,7 +199,7 @@ Tools (`tools/`, `docs/tools/`)
 | traits | none; typed helpers instead (`vec.sort_str`, `vec.has_int`), `map` keyed by `str` only | duplication per element type | `std/vec.llr`, `std/map.llr`, `check/call.rs` |
 | moves | whole locals only; no partial moves; `move.field`/`move.deref` errors | use `(& ...)`, `str.clone`, `mem.replace` | `mir/lower.rs as_operand`, `lower_match.rs` |
 | regions | holder pairs are per local, not per field: a field write never releases a loan; a container of refs declared before its referents reports `borrow.escape` at scope end | conservative | `borrow/holders.rs` |
-| integers | overflow wraps silently (Cranelift `iadd`); `cast.overflow` reserved; minimum signed value divided by `-1` is still a hardware trap | silent bugs, one remaining SIGFPE | `codegen/ops.rs` |
+| integers | wrap by default; `--checked` traps `+ - * neg` and `MIN / -1`; shifts and casts are still unchecked, and `MIN / -1` without the flag is still a hardware trap | | `codegen/ops.rs`, `codegen/ovf.rs` |
 | lifetimes | no `'static`; struct lifetime params parsed but not related to field loans beyond flow | over-approximate | `borrow/loans.rs`, `ty.rs lifetimes` |
 | init | no definite-initialization analysis (every `let` has an init, so unreachable today) | would matter for `let` without init | `borrow/moves.rs` |
 | runtime | POSIX libc only; `fs.mtime`/`fs.size` hardcode `struct stat` offsets (x86_64 88/48, others 72/48) | Linux-centric; macOS stat layout untested | `std/fs.llr`, `std/sys.llr` |
@@ -210,38 +214,49 @@ Tools (`tools/`, `docs/tools/`)
 
 ## 8. Suggested next steps, in order
 
-1. Integer overflow policy: decide wrap vs trap. If trap, `--checked` flag using
-   `iadd_cout`-style checks and `P|...|int.overflow`; document in `docs/spec/types.md`.
-   Cover the remaining `MIN / -1` trap in the same pass.
-2. `fs.stat` portability: replace the hardcoded `struct stat` offsets in `std/fs.llr` with a
+1. `fs.stat` portability: replace the hardcoded `struct stat` offsets in `std/fs.llr` with a
    tiny C shim compiled by `install.sh` (`llr_stat_mtime(path, out)`), then verify macOS.
-3. Compiler warnings: `W|...|flow.unreachable` for MIR blocks with no predecessors and
+2. Compiler warnings: `W|...|flow.unreachable` for MIR blocks with no predecessors and
    `name.unused` for never-read locals; `Diags::flush` already renders `W`.
-4. Field privacy: `(pub (x i64))` field syntax and `name.private_field` on `(. p x)` across
+3. Field privacy: `(pub (x i64))` field syntax and `name.private_field` on `(. p x)` across
    modules (`parse/mod.rs` struct fields, `check/expr.rs field_of`).
-5. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with a predicate,
+4. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with a predicate,
    replacing the `_str`/`_int` pairs; merge sort instead of insertion sort; update
    `docs/canon/collections.md`.
-6. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
+5. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
    a `str.from_int` wrapper.
-7. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
-8. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
+6. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
+7. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
    `std/sexp.llr` and skips private items; today the tables were generated once by hand.
-9. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
+8. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
    checker in Llrst, checked against `llrc` on `tests/`. Keep `llrc` as the reference.
-10. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
+9. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
     lowering small bodies into the caller; first targets are the `str.at` and `vec.get`
     bounds checks (`codegen/func.rs`).
-11. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
+10. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
     `tests/run.sh` checks it. Today that set compares stdout only.
-12. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
+11. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
     and a note in `docs/tools/llr-fmt.md` that a comment inside a form forces a line break.
-13. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
+12. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
     that builds `--emit-obj` for aarch64, riscv64, s390x, and apple-darwin and checks `file`.
-14. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
+13. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
     for the whole program (`borrow/holders.rs`).
-15. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
+14. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
     in `docs/canon/collections.md` until user traits exist.
+15. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
+    Cranelift shift counts are otherwise undefined (`codegen/ops.rs`).
+16. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
+    truncating (`codegen/ops.rs cast`).
+17. Partial moves of copy fields, so one field of a struct can be moved while the rest
+    drops (`mir/lower.rs`).
+18. Field-granular loans: writing `(. v s)` releases only loans of that field
+    (`borrow/holders.rs`).
+19. Definite initialization, so a future `(let mut x T)` can omit the initializer
+    (`borrow/moves.rs`).
+20. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
+    and a Windows file, selected by the target OS.
+21. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
+    (`std/diff.llr`).
 
 ## 9. Conventions to keep
 

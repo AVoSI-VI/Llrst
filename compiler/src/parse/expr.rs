@@ -181,6 +181,7 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
         }
         "not" => ExprKind::Not(one(items, sp, "not")?),
         "neg" => ExprKind::Neg(one(items, sp, "neg")?),
+        "wneg" => ExprKind::WNeg(one(items, sp, "wneg")?),
         "try" => ExprKind::Try(one(items, sp, "try")?),
         "panic" => ExprKind::Panic(one(items, sp, "panic")?),
         "assert" => ExprKind::Assert(one(items, sp, "assert")?),

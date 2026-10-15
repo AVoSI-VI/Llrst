@@ -71,9 +71,9 @@ EXPR :=
   (& PLACE) | (&mut PLACE) | (@ EXPR)        ; borrow, mutable borrow, deref
   (. EXPR NAME)                              ; field access
   (as TYPE EXPR)                             ; numeric cast
-  (OP EXPR EXPR)                             ; + - * / % == != < <= > >= band bor bxor shl shr
+  (OP EXPR EXPR)                             ; + - * / % == != < <= > >= band bor bxor shl shr wadd wsub wmul
   (and EXPR EXPR...) | (or EXPR EXPR...) | (not EXPR)  ; and/or take 2 or more
-  (neg EXPR)
+  (neg EXPR) | (wneg EXPR)                   ; wneg always wraps
   (CALLEE EXPR...)                           ; call: fn, mod.fn, type.method, type (struct ctor), enum.variant
   (CALLEE <TYPE...> EXPR...)                 ; call with explicit type args
   (try EXPR)                                 ; unwrap res/opt or return the err/none from the fn

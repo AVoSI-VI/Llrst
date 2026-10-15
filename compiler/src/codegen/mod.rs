@@ -1,11 +1,12 @@
 //! Cranelift backend: module setup, symbol management, data, ABI.
 mod drop;
 mod func;
+mod ovf;
 pub mod layout;
 mod ops;
 mod term;
 
-use crate::diag::{Diag, PResult, Span};
+use crate::diag::{Diag, PResult, SourceMap, Span};
 use crate::mir::Body;
 use crate::resolve::Program;
 use crate::ty::{DefId, Ty};
@@ -36,6 +37,9 @@ pub struct Codegen<'a> {
     pub ptr_ty: types::Type,
     pub frontend: TargetFrontendConfig,
     pub big_endian: bool,
+    pub checked: bool,
+    /// `(path, line starts)` copied from the source map, for panic locations.
+    pub locs: Vec<(String, Vec<u32>)>,
     /// Instances discovered while compiling bodies, for the mono driver.
     pub discovered: Vec<Instance>,
 }
@@ -56,7 +60,7 @@ pub fn make_isa(target: Option<&str>) -> PResult<OwnedTargetIsa> {
 }
 
 impl<'a> Codegen<'a> {
-    pub fn new(prog: &'a Program, isa: OwnedTargetIsa) -> PResult<Self> {
+    pub fn new(prog: &'a Program, isa: OwnedTargetIsa, sm: &SourceMap, checked: bool) -> PResult<Self> {
         let call_conv = isa.default_call_conv();
         let ptr_ty = isa.pointer_type();
         let frontend = isa.frontend_config();
@@ -87,6 +91,8 @@ impl<'a> Codegen<'a> {
             ptr_ty,
             frontend,
             big_endian,
+            checked,
+            locs: sm.export_locs(),
             discovered: Vec::new(),
         })
     }

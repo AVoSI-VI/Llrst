@@ -91,6 +91,7 @@ pub enum Rvalue {
     Ref { mutable: bool, place: Place, two_phase: bool },
     Bin(BinOp, Operand, Operand),
     Neg(Operand),
+    WNeg(Operand),
     Not(Operand),
     Cast(Operand, Ty),
     Struct(Ty, Vec<Operand>),
