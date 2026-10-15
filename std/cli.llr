@@ -1,0 +1,131 @@
+;; Command-line parsing for tools. Flags: --name value, --flag, positional args.
+(use std.io)
+(use std.os)
+
+(struct cli
+  (name str)
+  (about str)
+  (pos_names (vec str))
+  (opt_names (vec str))
+  (opt_vals (vec str))
+  (flag_names (vec str))
+  (flag_set (vec bool))
+  (pos (vec str)))
+
+(impl cli
+  (fn new ((name (& str)) (about (& str))) cli
+    (cli (str.from name) (str.from about)
+         (vec.new <str>) (vec.new <str>) (vec.new <str>) (vec.new <str>) (vec.new <bool>) (vec.new <str>)))
+
+  ;; Declares a required positional argument, in order.
+  (fn pos ((self (&mut cli)) (name (& str))) unit
+    (vec.push (&mut (. self pos_names)) (str.from name)))
+
+  ;; Declares --name VALUE with a default.
+  (fn opt ((self (&mut cli)) (name (& str)) (default (& str))) unit
+    (vec.push (&mut (. self opt_names)) (str.from name))
+    (vec.push (&mut (. self opt_vals)) (str.from default)))
+
+  ;; Declares a boolean --name flag.
+  (fn flag ((self (&mut cli)) (name (& str))) unit
+    (vec.push (&mut (. self flag_names)) (str.from name))
+    (vec.push (&mut (. self flag_set)) false))
+
+  (fn usage ((self (& cli))) str
+    (let mut s (str.from "usage|"))
+    (str.push (&mut s) (& (. self name)))
+    (for i 0 (vec.len (& (. self pos_names)))
+      (str.push (&mut s) " ")
+      (str.push (&mut s) (vec.get (& (. self pos_names)) i)))
+    (for i 0 (vec.len (& (. self opt_names)))
+      (str.push (&mut s) " [--")
+      (str.push (&mut s) (vec.get (& (. self opt_names)) i))
+      (str.push (&mut s) " V]"))
+    (for i 0 (vec.len (& (. self flag_names)))
+      (str.push (&mut s) " [--")
+      (str.push (&mut s) (vec.get (& (. self flag_names)) i))
+      (str.push (&mut s) "]"))
+    (str.push (&mut s) "|")
+    (str.push (&mut s) (& (. self about)))
+    s)
+
+  ;; Parses argv (argv[0] skipped). Exits 1 with usage on any problem, 0 on --help.
+  (fn parse ((self (&mut cli)) (args (vec str))) unit
+    (let mut i 1)
+    (let n (vec.len (& args)))
+    (let mut only_pos false)
+    (while (< i n)
+      (let a (vec.get (& args) i))
+      (if (and (not only_pos) (str.eq a "--"))
+        (do (set only_pos true) (set i (+ i 1)) (cont)))
+      (if (and (not only_pos) (str.eq a "--help"))
+        (do (io.puts (& (cli.usage self))) (os.exit 0)))
+      (if (and (not only_pos) (str.starts a "--"))
+        (do
+          (let name (str.slice a 2 (str.len a)))
+          (match (vec.index_str (& (. self flag_names)) (& name))
+            ((opt.some fi) (do (vec.set (&mut (. self flag_set)) fi true) (set i (+ i 1)) (cont)))
+            ((opt.none) ()))
+          (match (vec.index_str (& (. self opt_names)) (& name))
+            ((opt.some oi)
+              (do
+                (if (>= (+ i 1) n) (cli.die self "cli.missing_value" (& name)))
+                (vec.set (&mut (. self opt_vals)) oi (str.clone (vec.get (& args) (+ i 1))))
+                (set i (+ i 2))
+                (cont)))
+            ((opt.none) ()))
+          (cli.die self "cli.unknown_flag" (& name))))
+      (vec.push (&mut (. self pos)) (str.clone a))
+      (set i (+ i 1)))
+    (if (< (vec.len (& (. self pos))) (vec.len (& (. self pos_names))))
+      (cli.die self "cli.missing_arg" (vec.get (& (. self pos_names)) (vec.len (& (. self pos)))))))
+
+  (fn die ((self (& cli)) (code (& str)) (what (& str))) never
+    (let mut m (str.from "E|<cli>|0|0|0|"))
+    (str.push (&mut m) code)
+    (str.push (&mut m) "|name=")
+    (str.push (&mut m) what)
+    (io.eputs (& m))
+    (io.eputs (& (cli.usage self)))
+    (os.exit 1))
+
+  (fn get ((self (& cli)) (name (& str))) (& str)
+    (match (vec.index_str (& (. self opt_names)) name)
+      ((opt.some i) (vec.get (& (. self opt_vals)) i))
+      ((opt.none) (panic "cli.no_such_opt"))))
+
+  (fn get_int ((self (& cli)) (name (& str))) i64
+    (let v (cli.get self name))
+    (match (str.to_int v)
+      ((opt.some n) n)
+      ((opt.none) (cli.die self "cli.not_int" name))))
+
+  (fn has ((self (& cli)) (name (& str))) bool
+    (match (vec.index_str (& (. self flag_names)) name)
+      ((opt.some i) (@ (vec.get (& (. self flag_set)) i)))
+      ((opt.none) (panic "cli.no_such_flag"))))
+
+  ;; Positional argument by index (declared ones first, then extras).
+  (fn at ((self (& cli)) (i i64)) (& str)
+    (vec.get (& (. self pos)) i))
+
+  (fn count ((self (& cli))) i64
+    (vec.len (& (. self pos)))))
+
+(test cli_parse
+  (let mut c (cli.new "t" "test"))
+  (cli.pos (&mut c) "path")
+  (cli.opt (&mut c) "from" "1")
+  (cli.flag (&mut c) "all")
+  (let mut args (vec.new <str>))
+  (vec.push (&mut args) (str.from "t"))
+  (vec.push (&mut args) (str.from "--all"))
+  (vec.push (&mut args) (str.from "--from"))
+  (vec.push (&mut args) (str.from "7"))
+  (vec.push (&mut args) (str.from "f.llr"))
+  (vec.push (&mut args) (str.from "extra"))
+  (cli.parse (&mut c) args)
+  (assert (cli.has (& c) "all"))
+  (assert_eq (cli.get_int (& c) "from") 7)
+  (assert_eq (cli.at (& c) 0) "f.llr")
+  (assert_eq (cli.count (& c)) 2))

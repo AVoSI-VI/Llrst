@@ -1,0 +1,25 @@
+# std.fs
+
+Files and directories. Errors are `res.err` strings like `io.read|path=x`.
+
+Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and methods need no import.
+
+## Functions
+
+| name | params | returns |
+|------|--------|---------|
+| `fs.read` | `((path (& str)))` | `(res str str)` |
+| `fs.write` | `((path (& str)) (data (& str)))` | `(res unit str)` |
+| `fs.append` | `((path (& str)) (data (& str)))` | `(res unit str)` |
+| `fs.exists` | `((path (& str)))` | `bool` |
+| `fs.is_dir` | `((path (& str)))` | `bool` |
+| `fs.remove` | `((path (& str)))` | `(res unit str)` |
+| `fs.mkdir` | `((path (& str)))` | `(res unit str)` |
+| `fs.rename` | `((from (& str)) (to (& str)))` | `(res unit str)` |
+| `fs.list` | `((path (& str)))` | `(res (vec str) str)` |
+| `fs.mtime` | `((path (& str)))` | `(res i64 str)` |
+| `fs.size` | `((path (& str)))` | `(res i64 str)` |
+
+## Tests
+
+`fs_roundtrip`

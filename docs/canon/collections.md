@@ -13,8 +13,13 @@
 | pop | `(vec.pop (&mut v))` returns `(opt T)` |
 | remove | `(vec.remove (&mut v) i)` returns `T`, shifts |
 | iterate | `(for i 0 (vec.len (& v)) (let x (vec.get (& v) i)) ...)` |
-| contains | `(vec.has (& v) (& x))` for `str` and primitives |
-| sort | `(vec.sort (&mut v))` for `str` and primitives, stable |
+| contains | `(vec.has_str (& v) x)` / `(vec.has_int (& v) x)` |
+| index of | `(vec.index_str (& v) x)` returns `(opt i64)` |
+| sort | `(vec.sort_str (&mut v))` / `(vec.sort_int (&mut v))`, stable |
+| clone | `(vec.clone_str (& v))` |
+| reverse | `(vec.reverse (&mut v))` |
+| insert | `(vec.insert (&mut v) i x)` |
+| last | `(vec.last (& v))` returns `(opt (& T))` |
 | clear | `(vec.clear (&mut v))` |
 | take all | `(vec.take (&mut v))` returns the vec, leaves empty |
 
@@ -22,14 +27,15 @@ No map/filter/closures in v1. Write the loop.
 
 ## map
 
-Keys: `str`, `i64`, `u64`. Values: any.
+Keys are always `str` (use `(str.from_int n)` for integer keys). Values: any.
 
 | task | form |
 |------|------|
-| create | `(map.new <K V>)` |
-| insert | `(map.put (&mut m) k v)` replaces |
-| get | `(map.get (& m) (& k))` returns `(opt (& V))` |
-| has | `(map.has (& m) (& k))` |
-| remove | `(map.del (&mut m) (& k))` returns `(opt V)` |
+| create | `(map.new <V>)` |
+| insert | `(map.put (&mut m) k v)` moves `k`, replaces an existing value |
+| get | `(map.get (& m) k)` returns `(opt (& V))` |
+| get mutable | `(map.get_mut (&mut m) k)` returns `(opt (&mut V))` |
+| has | `(map.has (& m) k)` |
+| remove | `(map.del (&mut m) k)` returns `bool` |
 | size | `(map.len (& m))` |
-| keys | `(map.keys (& m))` returns `(vec K)` sorted, keys cloned |
+| keys | `(map.keys (& m))` returns `(vec str)` sorted, cloned |

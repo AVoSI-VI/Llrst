@@ -91,6 +91,9 @@
       (if (== (str.at self i) b) (ret (opt.some i))))
     (opt.none))
 
+  (fn has_byte ((self (& str)) (b u8)) bool
+    (match (str.find_byte self b) ((opt.some _) true) ((opt.none) false)))
+
   (fn has ((self (& str)) (needle (& str))) bool
     (match (str.find self needle) ((opt.some _) true) ((opt.none) false)))
 

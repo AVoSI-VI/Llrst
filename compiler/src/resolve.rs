@@ -64,6 +64,8 @@ pub struct Program {
     pub methods: HashMap<DefId, HashMap<String, DefId>>,
     pub main_module: u32,
     pub prelude: HashMap<String, DefId>,
+    /// Target architecture name, exposed as `(sys.arch)`.
+    pub target_arch: String,
 }
 
 impl Program {
@@ -242,7 +244,7 @@ impl<'a> Loader<'a> {
 }
 
 fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
-    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new() };
+    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), target_arch: String::new() };
     // Phase 1: modules, type names, uses.
     for (path, file, items, is_std) in &parsed {
         let mi = prog.modules.len() as u32;

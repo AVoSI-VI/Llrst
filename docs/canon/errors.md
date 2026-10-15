@@ -28,7 +28,7 @@ The error type in `std` and tools is always `str`. Programs may define an enum i
 ```
 (opt.unwrap x)                      ; only in tests and main
 (res.unwrap x)
-(res.expect x "why")                ; never
+(opt.or x default)                  ; when a default exists
 ```
 
 ## Panics

@@ -95,6 +95,11 @@ impl<'a> Lower<'a> {
             }
             Builtin::Argc => self.assign(&dest, Rvalue::Argc, sp),
             Builtin::Argv => self.assign(&dest, Rvalue::Argv, sp),
+            Builtin::Arch => {
+                let ty = args.first().map(|a| a.ty.clone()).unwrap_or_else(|| place_ty(self.prog, &self.body, &dest));
+                let arch = self.prog.target_arch.clone().into_bytes();
+                self.assign(&dest, Rvalue::Use(Operand::Const(Const::Str(arch), ty)), sp);
+            }
         }
     }
 

@@ -1,0 +1,238 @@
+;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |
+;; Leftmost match, longest end among alternatives. ASCII only.
+
+;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol
+(struct atom (kind u8) (c u8) (set str) (neg bool) (grp i64) (min i64) (max i64))
+(struct seq (atoms (vec atom)))
+(struct alt (seqs (vec seq)))
+;; alts[0] is the top level; groups are appended as they are parsed.
+(struct re (alts (vec alt)))
+(struct mat (lo i64) (hi i64))
+
+(struct parser (p str) (i i64) (alts (vec alt)))
+
+(fn perr ((what (& str)) (at i64)) str
+  (let mut m (str.from "re.parse|at="))
+  (str.push (&mut m) (& (str.from_int at)))
+  (str.push (&mut m) "|what=")
+  (str.push (&mut m) what)
+  m)
+
+(fn peek ((ps (& parser))) u8
+  (if (>= (. ps i) (str.len (& (. ps p)))) 0u8 (str.at (& (. ps p)) (. ps i))))
+
+(fn class_escape ((c u8) (set (&mut str))) bool
+  (if (or (== c 100u8) (== c 68u8)) (do (str.push set "0123456789") (ret (== c 68u8))))
+  (if (or (== c 119u8) (== c 87u8))
+    (do (str.push set "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") (ret (== c 87u8))))
+  (if (or (== c 115u8) (== c 83u8)) (do (str.push set " \t\n\r") (ret (== c 83u8))))
+  (str.push_byte set c)
+  false)
+
+;; Parses [...] after the opening bracket; returns (set, neg) through the atom.
+(fn parse_class ((ps (&mut parser))) (res atom str)
+  (let mut set (str.new))
+  (let mut neg false)
+  (if (== (peek ps) 94u8) (do (set neg true) (set (. ps i) (+ (. ps i) 1))))
+  (loop
+    (let c (peek ps))
+    (if (== c 0u8) (ret (res.err (perr "unclosed [" (. ps i)))))
+    (set (. ps i) (+ (. ps i) 1))
+    (if (== c 93u8) (brk))
+    (if (== c 92u8)
+      (do
+        (let e (peek ps))
+        (set (. ps i) (+ (. ps i) 1))
+        (class_escape e (&mut set))
+        (cont)))
+    (if (and (== (peek ps) 45u8) (< (+ (. ps i) 1) (str.len (& (. ps p)))) (!= (str.at (& (. ps p)) (+ (. ps i) 1)) 93u8))
+      (do
+        (let hi (str.at (& (. ps p)) (+ (. ps i) 1)))
+        (set (. ps i) (+ (. ps i) 2))
+        (let mut b c)
+        (while (<= b hi) (do (str.push_byte (&mut set) b) (set b (+ b 1u8)))))
+      (str.push_byte (&mut set) c)))
+  (res.ok (atom 2u8 0u8 set neg 0 1 1)))
+
+(fn parse_quant ((ps (&mut parser)) (a (&mut atom))) (res unit str)
+  (let c (peek ps))
+  (if (== c 42u8) (do (set (. a min) 0) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (== c 43u8) (do (set (. a min) 1) (set (. a max) 1000000) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (== c 63u8) (do (set (. a min) 0) (set (. a max) 1) (set (. ps i) (+ (. ps i) 1)) (ret (res.ok ()))))
+  (if (!= c 123u8) (ret (res.ok ())))
+  (set (. ps i) (+ (. ps i) 1))
+  (let mut n 0)
+  (let mut m (neg 1))
+  (while (and (>= (peek ps) 48u8) (<= (peek ps) 57u8))
+    (set n (+ (* n 10) (as i64 (- (peek ps) 48u8))))
+    (set (. ps i) (+ (. ps i) 1)))
+  (if (== (peek ps) 44u8)
+    (do
+      (set (. ps i) (+ (. ps i) 1))
+      (if (== (peek ps) 125u8) (set m 1000000)
+        (do
+          (set m 0)
+          (while (and (>= (peek ps) 48u8) (<= (peek ps) 57u8))
+            (set m (+ (* m 10) (as i64 (- (peek ps) 48u8))))
+            (set (. ps i) (+ (. ps i) 1)))))))
+  (if (!= (peek ps) 125u8) (ret (res.err (perr "bad {}" (. ps i)))))
+  (set (. ps i) (+ (. ps i) 1))
+  (set (. a min) n)
+  (set (. a max) (if (< m 0) n m))
+  (res.ok ()))
+
+(fn parse_seq ((ps (&mut parser))) (res seq str)
+  (let mut atoms (vec.new <atom>))
+  (loop
+    (let c (peek ps))
+    (if (or (== c 0u8) (== c 124u8) (== c 41u8)) (brk))
+    (set (. ps i) (+ (. ps i) 1))
+    (let mut a (atom 0u8 c (str.new) false 0 1 1))
+    (if (== c 46u8) (set (. a kind) 1u8))
+    (if (== c 94u8) (set (. a kind) 4u8))
+    (if (== c 36u8) (set (. a kind) 5u8))
+    (if (== c 91u8) (set a (try (parse_class ps))))
+    (if (== c 40u8)
+      (do
+        (let idx (vec.len (& (. ps alts))))
+        (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
+        (let g (try (parse_alt ps)))
+        (if (!= (peek ps) 41u8) (ret (res.err (perr "unclosed (" (. ps i)))))
+        (set (. ps i) (+ (. ps i) 1))
+        (vec.set (&mut (. ps alts)) idx g)
+        (set a (atom 3u8 0u8 (str.new) false idx 1 1))))
+    (if (== c 92u8)
+      (do
+        (let e (peek ps))
+        (if (== e 0u8) (ret (res.err (perr "trailing \\" (. ps i)))))
+        (set (. ps i) (+ (. ps i) 1))
+        (let mut set (str.new))
+        (let neg (class_escape e (&mut set)))
+        (if (== (str.len (& set)) 1)
+          (set a (atom 0u8 e (str.new) false 0 1 1))
+          (set a (atom 2u8 0u8 set neg 0 1 1)))))
+    (try (parse_quant ps (&mut a)))
+    (vec.push (&mut atoms) a))
+  (res.ok (seq atoms)))
+
+(fn parse_alt ((ps (&mut parser))) (res alt str)
+  (let mut seqs (vec.new <seq>))
+  (loop
+    (vec.push (&mut seqs) (try (parse_seq ps)))
+    (if (!= (peek ps) 124u8) (brk))
+    (set (. ps i) (+ (. ps i) 1)))
+  (res.ok (alt seqs)))
+
+(pub (fn compile ((pat (& str))) (res re str)
+  (let mut ps (parser (str.from pat) 0 (vec.new <alt>)))
+  (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
+  (let top (try (parse_alt (&mut ps))))
+  (if (< (. ps i) (str.len (& (. ps p)))) (ret (res.err (perr "unexpected )" (. ps i)))))
+  (vec.set (&mut (. ps alts)) 0 top)
+  (res.ok (re (vec.take (&mut (. ps alts)))))))
+
+(fn push_end ((out (&mut (vec i64))) (e i64)) unit
+  (if (not (vec.has_int out e)) (vec.push out e)))
+
+(fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
+  (let k (. a kind))
+  (if (== k 4u8) (do (if (== i 0) (push_end out i)) (ret)))
+  (if (== k 5u8) (do (if (== i (str.len s)) (push_end out i)) (ret)))
+  (if (== k 3u8) (do (alt_ends r (. a grp) s i out) (ret)))
+  (if (>= i (str.len s)) (ret))
+  (let c (str.at s i))
+  (let ok (if (== k 1u8) true
+            (if (== k 0u8) (== c (. a c))
+              (!= (str.has_byte (& (. a set)) c) (. a neg)))))
+  (if ok (push_end out (+ i 1))))
+
+(fn rep ((r (& re)) (sq (& seq)) (k i64) (s (& str)) (i i64) (count i64) (out (&mut (vec i64)))) unit
+  (let a (vec.get (& (. sq atoms)) k))
+  (if (or (== (. a kind) 4u8) (== (. a kind) 5u8))
+    (do
+      (let mut z (vec.new <i64>))
+      (atom_ends r a s i (&mut z))
+      (if (> (vec.len (& z)) 0) (seq_ends r sq (+ k 1) s i out))
+      (ret)))
+  (if (< count (. a max))
+    (do
+      (let mut ends (vec.new <i64>))
+      (atom_ends r a s i (&mut ends))
+      (for j 0 (vec.len (& ends))
+        (let e (@ (vec.get (& ends) j)))
+        (if (!= e i) (rep r sq k s e (+ count 1) out)))))
+  (if (>= count (. a min)) (seq_ends r sq (+ k 1) s i out)))
+
+(fn seq_ends ((r (& re)) (sq (& seq)) (k i64) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
+  (if (== k (vec.len (& (. sq atoms)))) (do (push_end out i) (ret)))
+  (rep r sq k s i 0 out))
+
+(fn alt_ends ((r (& re)) (ai i64) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
+  (let a (vec.get (& (. r alts)) ai))
+  (for j 0 (vec.len (& (. a seqs)))
+    (seq_ends r (vec.get (& (. a seqs)) j) 0 s i out)))
+
+;; Leftmost match starting at or after `start`; end is the longest alternative.
+(pub (fn find_from ((r (& re)) (s (& str)) (start i64)) (opt mat)
+  (let mut i start)
+  (while (<= i (str.len s))
+    (let mut ends (vec.new <i64>))
+    (alt_ends r 0 s i (&mut ends))
+    (if (> (vec.len (& ends)) 0)
+      (do
+        (let mut best i)
+        (for j 0 (vec.len (& ends))
+          (let e (@ (vec.get (& ends) j)))
+          (if (> e best) (set best e)))
+        (ret (opt.some (mat i best)))))
+    (set i (+ i 1)))
+  (opt.none)))
+
+(pub (fn find ((r (& re)) (s (& str))) (opt mat) (find_from r s 0)))
+
+(pub (fn is_match ((r (& re)) (s (& str))) bool
+  (match (find r s) ((opt.some _) true) ((opt.none) false))))
+
+;; All non-overlapping matches.
+(pub (fn find_all ((r (& re)) (s (& str))) (vec mat)
+  (let mut out (vec.new <mat>))
+  (let mut i 0)
+  (while (<= i (str.len s))
+    (match (find_from r s i)
+      ((opt.some m)
+        (do
+          (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi)))
+          (vec.push (&mut out) m)))
+      ((opt.none) (brk))))
+  out))
+
+(fn m ((pat (& str)) (s (& str))) bool
+  (is_match (& (res.unwrap (compile pat))) s))
+
+(test re_basic
+  (assert (m "abc" "xxabcxx"))
+  (assert (not (m "abd" "xxabcxx")))
+  (assert (m "^ab" "abc"))
+  (assert (not (m "^bc" "abc")))
+  (assert (m "bc$" "abc"))
+  (assert (m "a.c" "abc"))
+  (assert (m "ab*c" "ac"))
+  (assert (m "ab+c" "abbc"))
+  (assert (not (m "ab+c" "ac")))
+  (assert (m "colou?r" "color"))
+  (assert (m "[0-9]+" "x42"))
+  (assert (m "\\d{2,3}" "a123"))
+  (assert (not (m "^\\d{2,3}$" "1234")))
+  (assert (m "(ab|cd)+e" "abcdabe"))
+  (assert (m "[^a-z]" "abc1"))
+  (assert (m "\\(fn" "(fn main"))
+  (assert (m "\\w+\\s*=" "key ="))
+  (match (compile "(ab") ((res.ok _) (assert false)) ((res.err _) (assert true))))
+
+(test re_find
+  (let r (res.unwrap (compile "b+")))
+  (match (find (& r) "abbbc")
+    ((opt.some x) (do (assert_eq (. x lo) 1) (assert_eq (. x hi) 4)))
+    ((opt.none) (assert false)))
+  (let all (find_all (& r) "abba b"))
+  (assert_eq (vec.len (& all)) 2))

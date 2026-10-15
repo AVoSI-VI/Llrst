@@ -1,0 +1,42 @@
+;; Minimal JSON encoding for tools that offer --json output.
+
+(pub (fn quote ((s (& str))) str
+  (let mut out (str.from "\""))
+  (for i 0 (str.len s)
+    (let b (str.at s i))
+    (if (== b 34u8) (str.push (&mut out) "\\\"")
+      (if (== b 92u8) (str.push (&mut out) "\\\\")
+        (if (== b 10u8) (str.push (&mut out) "\\n")
+          (if (== b 13u8) (str.push (&mut out) "\\r")
+            (if (== b 9u8) (str.push (&mut out) "\\t")
+              (if (< b 32u8) (str.push (&mut out) "?")
+                (str.push_byte (&mut out) b))))))))
+  (str.push_byte (&mut out) 34u8)
+  out))
+
+;; Builds {"k":v,...} from parallel key/value vectors; values are raw JSON text.
+(pub (fn obj ((keys (& (vec str))) (vals (& (vec str)))) str
+  (let mut out (str.from "{"))
+  (for i 0 (vec.len keys)
+    (if (> i 0) (str.push_byte (&mut out) 44u8))
+    (str.push (&mut out) (& (quote (vec.get keys i))))
+    (str.push_byte (&mut out) 58u8)
+    (str.push (&mut out) (vec.get vals i)))
+  (str.push_byte (&mut out) 125u8)
+  out))
+
+(pub (fn arr ((vals (& (vec str)))) str
+  (let mut out (str.from "["))
+  (for i 0 (vec.len vals)
+    (if (> i 0) (str.push_byte (&mut out) 44u8))
+    (str.push (&mut out) (vec.get vals i)))
+  (str.push_byte (&mut out) 93u8)
+  out))
+
+(test json_quote
+  (assert_eq (& (quote "a\"b\n")) "\"a\\\"b\\n\"")
+  (let mut ks (vec.new <str>))
+  (let mut vs (vec.new <str>))
+  (vec.push (&mut ks) (str.from "n"))
+  (vec.push (&mut vs) (str.from "1"))
+  (assert_eq (& (obj (& ks) (& vs))) "{\"n\":1}"))

@@ -200,6 +200,10 @@ impl<'a> Checker<'a> {
                 arity(0)?;
                 (Vec::new(), Ty::Ptr(Box::new(Ty::Ptr(Box::new(Ty::Int(IntTy::U8))))))
             }
+            Builtin::Arch => {
+                arity(0)?;
+                (Vec::new(), self.ref_str())
+            }
             Builtin::Drop => unreachable!(),
         };
         Ok(mk(ExprKind::Call { callee: Callee::Builtin(b), args: out }, ty, sp))

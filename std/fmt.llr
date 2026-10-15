@@ -1,0 +1,54 @@
+;; Record formatting: pipe-separated fields for model-facing output.
+
+(pub (fn pipe2 ((a (& str)) (b (& str))) str
+  (let mut s (str.from a))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) b)
+  s))
+
+(pub (fn pipe3 ((a (& str)) (b (& str)) (c (& str))) str
+  (let mut s (pipe2 a b))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) c)
+  s))
+
+(pub (fn pipe4 ((a (& str)) (b (& str)) (c (& str)) (d (& str))) str
+  (let mut s (pipe3 a b c))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) d)
+  s))
+
+(pub (fn pipe5 ((a (& str)) (b (& str)) (c (& str)) (d (& str)) (e (& str))) str
+  (let mut s (pipe4 a b c d))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) e)
+  s))
+
+;; Escapes | and newline inside a field value.
+(pub (fn field ((s (& str))) str
+  (let mut out (str.new))
+  (for i 0 (str.len s)
+    (let b (str.at s i))
+    (if (== b 124u8) (str.push (&mut out) "\\x7c")
+      (if (== b 10u8) (str.push (&mut out) "\\n")
+        (str.push_byte (&mut out) b))))
+  out))
+
+(pub (fn kv ((k (& str)) (v (& str))) str
+  (let mut s (str.from k))
+  (str.push_byte (&mut s) 61u8)
+  (str.push (&mut s) (& (field v)))
+  s))
+
+(pub (fn int ((n i64)) str (str.from_int n)))
+
+(pub (fn pad_left ((s (& str)) (width i64) (fill u8)) str
+  (let mut out (str.new))
+  (for i 0 (- width (str.len s)) (str.push_byte (&mut out) fill))
+  (str.push (&mut out) s)
+  out))
+
+(test fmt_pipe
+  (assert_eq (& (pipe3 "a" "b" "c")) "a|b|c")
+  (assert_eq (& (kv "k" "x|y")) "k=x\\x7cy")
+  (assert_eq (& (pad_left "7" 3 48u8)) "007"))

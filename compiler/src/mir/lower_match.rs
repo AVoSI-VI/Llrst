@@ -24,6 +24,7 @@ impl<'a> Lower<'a> {
             self.test_pat(&arm.pat, base.clone(), fail, &mut binds, &mut drops, arm.span);
             // Bindings run after all tests pass.
             self.push_scope();
+            let mut moved_any = false;
             for (l, p) in binds {
                 let pty = place_ty(self.prog, &self.body, &p);
                 let rv = match by_ref {
@@ -37,13 +38,23 @@ impl<'a> Lower<'a> {
                         if needs_drop(self.prog, &pty) {
                             sc.drops.push(l);
                         }
-                        let op = if self.is_copy(&pty) { Operand::Copy(p) } else { Operand::Move(p) };
+                        let op = if self.is_copy(&pty) {
+                            Operand::Copy(p)
+                        } else {
+                            moved_any = true;
+                            if !base.is_local() {
+                                self.diags.push(crate::diag::Diag::error(arm.span, "move.field").kv("fix", "match on (& ...)"));
+                            }
+                            Operand::Move(p)
+                        };
                         Rvalue::Use(op)
                     }
                 };
                 self.assign(&Place::local(l), rv, arm.span);
             }
-            if by_ref.is_none() {
+            // Moving a payload field clears the scrutinee's drop flag, so the remaining
+            // wildcard fields must be dropped here. Otherwise the whole value drops later.
+            if by_ref.is_none() && moved_any {
                 for d in drops {
                     self.push(Stmt::Drop(d), arm.span);
                 }

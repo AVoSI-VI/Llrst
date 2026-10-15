@@ -15,7 +15,10 @@
 | substring | `(str.slice (& s) lo hi)` new `str`, `[lo hi)` |
 | find | `(str.find (& s) (& needle))` returns `(opt i64)` |
 | prefix / suffix | `(str.starts (& s) (& p))` `(str.ends (& s) (& p))` |
-| split | `(str.split (& s) 124u8)` returns `(vec str)` |
+| split | `(str.split (& s) 124u8)` returns `(vec str)` (byte separator) |
+| contains | `(str.has (& s) (& needle))`, `(str.has_byte (& s) 10u8)` |
+| compare order | `(str.cmp (& a) (& b))` negative, 0, positive |
+| count | `(str.count (& s) (& needle))` |
 | lines | `(str.lines (& s))` returns `(vec str)`, strips `\n` and `\r\n` |
 | trim | `(str.trim (& s))` |
 | int to str | `(str.from_int n)` |
@@ -23,6 +26,8 @@
 | replace | `(str.replace (& s) (& old) (& new))` all occurrences |
 | join | `(str.join (& parts) (& sep))` |
 | lower | `(str.lower (& s))` ASCII only |
+| repeat | `(str.repeat (& s) n)` |
+| C string | `(str.cstr (& s))` NUL-terminated copy for externs; `(str.from_cstr p)` back |
 
 ## Building output lines
 

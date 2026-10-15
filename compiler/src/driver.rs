@@ -64,12 +64,13 @@ pub fn run(opt: Options) -> i32 {
 fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     let std_dir = find_std(opt)?;
     let proj_dir = opt.input.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let prog = Loader::new(sm, diags, std_dir, proj_dir).load(&opt.input)?;
+    let mut prog = Loader::new(sm, diags, std_dir, proj_dir).load(&opt.input)?;
     if diags.has_errors() {
         return Ok(());
     }
     let sm: &SourceMap = sm;
     let isa = make_isa(opt.target.as_deref())?;
+    prog.target_arch = isa.triple().architecture.to_string();
     let mut cg = Codegen::new(&prog, isa)?;
 
     // Always check every non-generic function of user modules so errors surface even in

@@ -35,6 +35,7 @@ pub enum Builtin {
     MemReplace,
     Argc,
     Argv,
+    Arch,
     Drop,
     /// Bitwise copy of a value regardless of type; std internals only.
     Forget,
@@ -52,6 +53,7 @@ impl Builtin {
             "mem.forget" => Builtin::Forget,
             "sys.argc" => Builtin::Argc,
             "sys.argv" => Builtin::Argv,
+            "sys.arch" => Builtin::Arch,
             _ => return None,
         })
     }

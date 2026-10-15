@@ -1,0 +1,114 @@
+;; Files and directories. Errors are pipe-form strings: "io.read|path=x".
+(use std.sys)
+(use std.io)
+
+(fn err ((code (& str)) (path (& str))) str
+  (let mut m (str.from code))
+  (str.push (&mut m) "|path=")
+  (str.push (&mut m) path)
+  m)
+
+(pub (fn read ((path (& str))) (res str str)
+  (let c (str.cstr path))
+  (let fd (sys.open (. c p) 0i32 0i32))
+  (if (< fd 0i32) (ret (res.err (err "io.read" path))))
+  (let s (io.read_fd fd))
+  (sys.close fd)
+  (res.ok s)))
+
+(pub (fn write ((path (& str)) (data (& str))) (res unit str)
+  (let c (str.cstr path))
+  ;; O_WRONLY | O_CREAT | O_TRUNC, mode 0644
+  (let fd (sys.open (. c p) 577i32 420i32))
+  (if (< fd 0i32) (ret (res.err (err "io.write" path))))
+  (sys.write_str fd data)
+  (sys.close fd)
+  (res.ok ())))
+
+(pub (fn append ((path (& str)) (data (& str))) (res unit str)
+  (let c (str.cstr path))
+  ;; O_WRONLY | O_CREAT | O_APPEND
+  (let fd (sys.open (. c p) 1089i32 420i32))
+  (if (< fd 0i32) (ret (res.err (err "io.write" path))))
+  (sys.write_str fd data)
+  (sys.close fd)
+  (res.ok ())))
+
+(pub (fn exists ((path (& str))) bool
+  (let c (str.cstr path))
+  (let fd (sys.open (. c p) 0i32 0i32))
+  (if (< fd 0i32) (ret false))
+  (sys.close fd)
+  true))
+
+(pub (fn is_dir ((path (& str))) bool
+  (let c (str.cstr path))
+  (let d (sys.opendir (. c p)))
+  (if (ptr.eq d (ptr.null <u8>)) (ret false))
+  (sys.closedir d)
+  true))
+
+(pub (fn remove ((path (& str))) (res unit str)
+  (let c (str.cstr path))
+  (if (!= (sys.unlink (. c p)) 0i32) (ret (res.err (err "io.remove" path))))
+  (res.ok ())))
+
+(pub (fn mkdir ((path (& str))) (res unit str)
+  (let c (str.cstr path))
+  (if (!= (sys.mkdir (. c p) 493i32) 0i32) (ret (res.err (err "io.mkdir" path))))
+  (res.ok ())))
+
+(pub (fn rename ((from (& str)) (to (& str))) (res unit str)
+  (let a (str.cstr from))
+  (let b (str.cstr to))
+  (if (!= (sys.rename (. a p) (. b p)) 0i32) (ret (res.err (err "io.rename" from))))
+  (res.ok ())))
+
+;; Entry names (no . or ..), sorted. Linux dirent: d_name at byte 19.
+(pub (fn list ((path (& str))) (res (vec str) str)
+  (let c (str.cstr path))
+  (let d (sys.opendir (. c p)))
+  (if (ptr.eq d (ptr.null <u8>)) (ret (res.err (err "io.list" path))))
+  (let mut out (vec.new <str>))
+  (loop
+    (let e (sys.readdir d))
+    (if (ptr.eq e (ptr.null <u8>)) (brk))
+    (let name (str.from_cstr (ptr.add e 19)))
+    (if (not (or (str.eq (& name) ".") (str.eq (& name) "..")))
+      (vec.push (&mut out) name)))
+  (sys.closedir d)
+  (vec.sort_str (&mut out))
+  (res.ok out)))
+
+;; stat(2) buffer offsets differ per architecture; only mtime seconds is read.
+(fn mtime_off () i64
+  (if (str.eq (sys.arch) "x86_64") 88 72))
+
+(pub (fn mtime ((path (& str))) (res i64 str)
+  (let c (str.cstr path))
+  (let mut buf (str.new))
+  (str.reserve (&mut buf) 256)
+  (if (!= (sys.stat (. c p) (. buf p)) 0i32) (ret (res.err (err "io.stat" path))))
+  (let p (as (ptr i64) (ptr.add (. buf p) (mtime_off))))
+  (res.ok (ptr.read p))))
+
+(pub (fn size ((path (& str))) (res i64 str)
+  (let c (str.cstr path))
+  (let mut buf (str.new))
+  (str.reserve (&mut buf) 256)
+  (if (!= (sys.stat (. c p) (. buf p)) 0i32) (ret (res.err (err "io.stat" path))))
+  (let p (as (ptr i64) (ptr.add (. buf p) 48)))
+  (res.ok (ptr.read p))))
+
+(test fs_roundtrip
+  (let p (str.from "/tmp/llr_fs_test.txt"))
+  (res.unwrap (write (& p) "a\nb\n"))
+  (assert (exists (& p)))
+  (assert (not (is_dir (& p))))
+  (assert (is_dir "/tmp"))
+  (let s (res.unwrap (read (& p))))
+  (assert_eq (& s) "a\nb\n")
+  (assert_eq (res.unwrap (size (& p))) 4)
+  (assert (> (res.unwrap (mtime (& p))) 0))
+  (res.unwrap (remove (& p)))
+  (assert (not (exists (& p)))))

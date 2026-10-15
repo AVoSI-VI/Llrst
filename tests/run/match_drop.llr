@@ -1,0 +1,13 @@
+(use std.io)
+(enum two (a str str) (b str))
+(fn main () unit
+  (let x (two.a (str.from "p") (str.from "q")))
+  (match x ((two.a _ s) (io.puts (& s))) ((two.b _) (io.puts "b")))
+  (let y (two.b (str.from "z")))
+  (match y ((two.a _ _) (io.puts "a")) ((two.b _) (io.puts "b")))
+  (let r (res.ok <str str> (str.from "fine")))
+  (match (& r) ((res.ok v) (io.puts v)) ((res.err e) (io.puts e)))
+  (let mut v (vec.new <str>))
+  (for i 0 3 (vec.push (&mut v) (str.from_int i)))
+  (vec.set (&mut v) 1 (str.from "one"))
+  (io.puts (& (str.join (& v) ","))))

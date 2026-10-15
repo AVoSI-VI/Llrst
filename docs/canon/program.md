@@ -50,6 +50,9 @@ Tools parse args with `cli`:
   (let mut c (cli.new "llr-read" "print lines of a file"))
   (cli.pos (&mut c) "path")
   (cli.opt (&mut c) "from" "1")
-  (let a (cli.parse (&mut c) (os.args)))
-  ...)
+  (cli.flag (&mut c) "all")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.at (& c) 0))
+  (let from (cli.get_int (& c) "from"))
+  (if (cli.has (& c) "all") ...))
 ```
