@@ -27,3 +27,5 @@ machine-readable line.
 
 Install: `scripts/install.sh` (see `docs/install.md`). Build only: `cargo build --release`.
 Try it: `llrc run examples/hello.llr`.
+
+License: MIT (see `LICENSE`).
