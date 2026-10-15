@@ -14,6 +14,7 @@ machine-readable line.
 | path | content |
 |------|---------|
 | `HANDOFF.md` | status, design decisions, implementation notes, known limits, next steps |
+| `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format |
 | `docs/canon/` | the one right way per task |
 | `docs/std/` | standard library reference |
@@ -25,3 +26,4 @@ machine-readable line.
 | `tests/` | golden tests; `tests/run.sh` |
 
 Install: `scripts/install.sh` (see `docs/install.md`). Build only: `cargo build --release`.
+Try it: `llrc run examples/hello.llr`.

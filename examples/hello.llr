@@ -1,0 +1,5 @@
+;; Hello world. Build: llrc build examples/hello.llr -o hello   Run: llrc run examples/hello.llr
+(use std.io)
+
+(fn main () unit
+  (io.puts "hello world"))
