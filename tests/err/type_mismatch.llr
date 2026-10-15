@@ -1,0 +1,4 @@
+(use std.io)
+(fn main () unit
+  (let n i64 "x")
+  (io.puts "y"))

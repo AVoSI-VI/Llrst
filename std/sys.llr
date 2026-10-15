@@ -1,0 +1,63 @@
+;; libc bindings and the panic runtime. Everything else in std is built on this file.
+(extern write ((fd i32) (buf (ptr u8)) (n u64)) i64)
+(extern read ((fd i32) (buf (ptr u8)) (n u64)) i64)
+(extern open ((path (ptr u8)) (flags i32) (mode i32)) i32)
+(extern close ((fd i32)) i32)
+(extern malloc ((n u64)) (ptr u8))
+(extern realloc ((p (ptr u8)) (n u64)) (ptr u8))
+(extern free ((p (ptr u8))) unit)
+(extern memcpy ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8))
+(extern memmove ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8))
+(extern memcmp ((a (ptr u8)) (b (ptr u8)) (n u64)) i32)
+(extern exit ((code i32)) never)
+(extern _exit ((code i32)) never)
+(extern fork () i32)
+(extern waitpid ((pid i32) (status (ptr i32)) (opts i32)) i32)
+(extern getenv ((name (ptr u8))) (ptr u8))
+(extern getcwd ((buf (ptr u8)) (n u64)) (ptr u8))
+(extern strlen ((s (ptr u8))) u64)
+(extern opendir ((path (ptr u8))) (ptr u8))
+(extern readdir ((d (ptr u8))) (ptr u8))
+(extern closedir ((d (ptr u8))) i32)
+(extern stat ((path (ptr u8)) (buf (ptr u8))) i32)
+(extern unlink ((path (ptr u8))) i32)
+(extern mkdir ((path (ptr u8)) (mode i32)) i32)
+(extern rename ((a (ptr u8)) (b (ptr u8))) i32)
+(extern system ((cmd (ptr u8))) i32)
+(extern isatty ((fd i32)) i32)
+
+(const o_rdonly i32 0)
+(const o_wronly i32 1)
+(const o_creat i32 64)
+(const o_trunc i32 512)
+
+;; Writes all bytes to fd, retrying on short writes.
+(pub (fn write_all ((fd i32) (p (ptr u8)) (n i64)) unit
+  (let mut off 0)
+  (while (< off n)
+    (let w (write fd (ptr.add p off) (as u64 (- n off))))
+    (if (<= w 0) (ret))
+    (set off (+ off w)))))
+
+(pub (fn write_str ((fd i32) (s (& str))) unit
+  (write_all fd (. s p) (. s len))))
+
+;; Allocates n bytes or panics with oom.
+(pub (fn alloc ((n i64)) (ptr u8)
+  (let p (malloc (as u64 (if (<= n 0) 1 n))))
+  (if (ptr.eq p (ptr.null <u8>)) (panic "oom"))
+  p))
+
+(pub (fn grow ((p (ptr u8)) (n i64)) (ptr u8)
+  (let q (realloc p (as u64 (if (<= n 0) 1 n))))
+  (if (ptr.eq q (ptr.null <u8>)) (panic "oom"))
+  q))
+
+;; Runtime panic: P|file|line|col|msg then exit 101. Only the compiler calls this.
+(pub (fn panic ((loc (& str)) (msg (& str))) never
+  (write_all 2 (. "P|" p) 2)
+  (write_str 2 loc)
+  (write_all 2 (. "|" p) 1)
+  (write_str 2 msg)
+  (write_all 2 (. "\n" p) 1)
+  (_exit 101)))

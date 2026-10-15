@@ -1,0 +1,3 @@
+/target
+*.o
+/tests/run/*.bin

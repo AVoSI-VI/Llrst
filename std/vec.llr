@@ -1,0 +1,165 @@
+;; Growable array. Elements are owned; get returns references.
+(use std.sys)
+
+(struct vec <T> (p (ptr T)) (len i64) (cap i64))
+
+(impl vec <T>
+  (fn new () (vec T) (vec (ptr.null <T>) 0 0))
+
+  (fn drop ((self (&mut (vec T)))) unit
+    (for i 0 (. self len) (drop (ptr.read (ptr.add (. self p) i))))
+    (if (> (. self cap) 0) (sys.free (as (ptr u8) (. self p)))))
+
+  (fn len ((self (& (vec T)))) i64 (. self len))
+
+  (fn is_empty ((self (& (vec T)))) bool (== (. self len) 0))
+
+  (fn reserve ((self (&mut (vec T))) (extra i64)) unit
+    (let need (+ (. self len) extra))
+    (if (<= need (. self cap)) (ret))
+    (let mut cap (if (< (. self cap) 8) 8 (* (. self cap) 2)))
+    (while (< cap need) (set cap (* cap 2)))
+    (let bytes (* cap (as i64 (sizeof T))))
+    (if (== (. self cap) 0)
+      (set (. self p) (as (ptr T) (sys.alloc bytes)))
+      (set (. self p) (as (ptr T) (sys.grow (as (ptr u8) (. self p)) bytes))))
+    (set (. self cap) cap))
+
+  (fn push ((self (&mut (vec T))) (x T)) unit
+    (vec.reserve self 1)
+    (ptr.write (ptr.add (. self p) (. self len)) x)
+    (set (. self len) (+ (. self len) 1)))
+
+  (fn check ((self (& (vec T))) (i i64)) unit
+    (if (or (< i 0) (>= i (. self len))) (panic "idx.oob")))
+
+  (fn get ((self (& (vec T))) (i i64)) (& T)
+    (vec.check self i)
+    (& (@ (ptr.add (. self p) i))))
+
+  (fn get_mut ((self (&mut (vec T))) (i i64)) (&mut T)
+    (vec.check self i)
+    (&mut (@ (ptr.add (. self p) i))))
+
+  (fn last ((self (& (vec T)))) (opt (& T))
+    (if (== (. self len) 0) (ret (opt.none)))
+    (opt.some (vec.get self (- (. self len) 1))))
+
+  (fn set ((self (&mut (vec T))) (i i64) (x T)) unit
+    (vec.check self i)
+    (drop (ptr.read (ptr.add (. self p) i)))
+    (ptr.write (ptr.add (. self p) i) x))
+
+  (fn pop ((self (&mut (vec T)))) (opt T)
+    (if (== (. self len) 0) (ret (opt.none)))
+    (set (. self len) (- (. self len) 1))
+    (opt.some (ptr.read (ptr.add (. self p) (. self len)))))
+
+  (fn remove ((self (&mut (vec T))) (i i64)) T
+    (vec.check self i)
+    (let x (ptr.read (ptr.add (. self p) i)))
+    (let rest (- (- (. self len) i) 1))
+    (if (> rest 0)
+      (sys.memmove (as (ptr u8) (ptr.add (. self p) i))
+                   (as (ptr u8) (ptr.add (. self p) (+ i 1)))
+                   (as u64 (* rest (as i64 (sizeof T))))))
+    (set (. self len) (- (. self len) 1))
+    x)
+
+  (fn insert ((self (&mut (vec T))) (i i64) (x T)) unit
+    (if (or (< i 0) (> i (. self len))) (panic "idx.oob"))
+    (vec.reserve self 1)
+    (let rest (- (. self len) i))
+    (if (> rest 0)
+      (sys.memmove (as (ptr u8) (ptr.add (. self p) (+ i 1)))
+                   (as (ptr u8) (ptr.add (. self p) i))
+                   (as u64 (* rest (as i64 (sizeof T))))))
+    (ptr.write (ptr.add (. self p) i) x)
+    (set (. self len) (+ (. self len) 1)))
+
+  (fn swap ((self (&mut (vec T))) (i i64) (j i64)) unit
+    (vec.check self i)
+    (vec.check self j)
+    (let a (ptr.read (ptr.add (. self p) i)))
+    (let b (ptr.read (ptr.add (. self p) j)))
+    (ptr.write (ptr.add (. self p) i) b)
+    (ptr.write (ptr.add (. self p) j) a))
+
+  (fn clear ((self (&mut (vec T)))) unit
+    (for i 0 (. self len) (drop (ptr.read (ptr.add (. self p) i))))
+    (set (. self len) 0))
+
+  (fn take ((self (&mut (vec T)))) (vec T)
+    (mem.replace self (vec.new)))
+
+  (fn append ((self (&mut (vec T))) (other (vec T))) unit
+    (let mut o other)
+    (vec.reserve self (. o len))
+    (for i 0 (. o len)
+      (ptr.write (ptr.add (. self p) (+ (. self len) i)) (ptr.read (ptr.add (. o p) i))))
+    (set (. self len) (+ (. self len) (. o len)))
+    (set (. o len) 0))
+
+  (fn reverse ((self (&mut (vec T)))) unit
+    (let mut i 0)
+    (let mut j (- (. self len) 1))
+    (while (< i j)
+      (vec.swap self i j)
+      (set i (+ i 1))
+      (set j (- j 1)))))
+
+;; Type-specific helpers; v1 has no traits.
+(pub (fn has_str ((v (& (vec str))) (x (& str))) bool
+  (for i 0 (vec.len v) (if (str.eq (vec.get v i) x) (ret true)))
+  false))
+
+(pub (fn has_int ((v (& (vec i64))) (x i64)) bool
+  (for i 0 (vec.len v) (if (== (@ (vec.get v i)) x) (ret true)))
+  false))
+
+(pub (fn index_str ((v (& (vec str))) (x (& str))) (opt i64)
+  (for i 0 (vec.len v) (if (str.eq (vec.get v i) x) (ret (opt.some i))))
+  (opt.none)))
+
+;; Insertion sort: stable, fine for tool-sized inputs.
+(pub (fn sort_str ((v (&mut (vec str)))) unit
+  (for i 1 (vec.len v)
+    (let mut j i)
+    (while (and (> j 0) (> (str.cmp (vec.get v (- j 1)) (vec.get v j)) 0))
+      (vec.swap v j (- j 1))
+      (set j (- j 1))))))
+
+(pub (fn sort_int ((v (&mut (vec i64)))) unit
+  (for i 1 (vec.len v)
+    (let mut j i)
+    (while (and (> j 0) (> (@ (vec.get v (- j 1))) (@ (vec.get v j))))
+      (vec.swap v j (- j 1))
+      (set j (- j 1))))))
+
+(pub (fn clone_str ((v (& (vec str)))) (vec str)
+  (let mut out (vec.new <str>))
+  (for i 0 (vec.len v) (vec.push (&mut out) (str.clone (vec.get v i))))
+  out))
+
+(test vec_push_get
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 3)
+  (vec.push (&mut v) 1)
+  (vec.push (&mut v) 2)
+  (assert_eq (vec.len (& v)) 3)
+  (assert_eq (@ (vec.get (& v) 1)) 1)
+  (sort_int (&mut v))
+  (assert_eq (@ (vec.get (& v) 0)) 1)
+  (assert_eq (@ (vec.get (& v) 2)) 3)
+  (let x (vec.remove (&mut v) 0))
+  (assert_eq x 1)
+  (assert_eq (vec.len (& v)) 2))
+
+(test vec_str_owned
+  (let mut v (vec.new <str>))
+  (vec.push (&mut v) (str.from "b"))
+  (vec.push (&mut v) (str.from "a"))
+  (sort_str (&mut v))
+  (assert_eq (vec.get (& v) 0) "a")
+  (assert (has_str (& v) "b"))
+  (match (vec.pop (&mut v)) ((opt.some s) (assert_eq (& s) "b")) ((opt.none) (assert false))))

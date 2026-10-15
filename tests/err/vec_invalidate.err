@@ -1,0 +1,1 @@
+E|tests/err/vec_invalidate.llr|6|13|8|borrow.mut_shared|name=v|ref=e|borrowed_at=5:19

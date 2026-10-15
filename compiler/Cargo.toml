@@ -1,0 +1,16 @@
+[package]
+name = "llrc"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "llrc"
+path = "src/main.rs"
+
+[dependencies]
+cranelift-codegen = "0.136"
+cranelift-frontend = "0.136"
+cranelift-module = "0.136"
+cranelift-object = "0.136"
+cranelift-native = "0.136"
+target-lexicon = "0.13"

@@ -1,0 +1,258 @@
+;; Owned byte string. Literals are (& str) pointing at static data with cap 0.
+(use std.sys)
+(use std.vec)
+
+(struct str (p (ptr u8)) (len i64) (cap i64))
+
+(impl str
+  (fn new () str (str (ptr.null <u8>) 0 0))
+
+  (fn drop ((self (&mut str))) unit
+    (if (> (. self cap) 0) (sys.free (. self p))))
+
+  (fn len ((self (& str))) i64 (. self len))
+
+  (fn at ((self (& str)) (i i64)) u8
+    (if (or (< i 0) (>= i (. self len))) (panic "idx.oob"))
+    (ptr.read (ptr.add (. self p) i)))
+
+  (fn reserve ((self (&mut str)) (extra i64)) unit
+    (let need (+ (. self len) extra))
+    (if (<= need (. self cap)) (ret))
+    (let mut cap (if (< (. self cap) 16) 16 (* (. self cap) 2)))
+    (while (< cap need) (set cap (* cap 2)))
+    (if (== (. self cap) 0)
+      (do
+        (let q (sys.alloc cap))
+        (if (> (. self len) 0) (sys.memcpy q (. self p) (as u64 (. self len))))
+        (set (. self p) q))
+      (set (. self p) (sys.grow (. self p) cap)))
+    (set (. self cap) cap))
+
+  (fn push_byte ((self (&mut str)) (b u8)) unit
+    (str.reserve self 1)
+    (ptr.write (ptr.add (. self p) (. self len)) b)
+    (set (. self len) (+ (. self len) 1)))
+
+  (fn push ((self (&mut str)) (t (& str))) unit
+    (let n (. t len))
+    (if (== n 0) (ret))
+    (str.reserve self n)
+    (sys.memcpy (ptr.add (. self p) (. self len)) (. t p) (as u64 n))
+    (set (. self len) (+ (. self len) n)))
+
+  (fn from ((t (& str))) str
+    (let mut s (str.new))
+    (str.push (&mut s) t)
+    s)
+
+  (fn clone ((self (& str))) str (str.from self))
+
+  (fn cat ((a (& str)) (b (& str))) str
+    (let mut s (str.new))
+    (str.reserve (&mut s) (+ (. a len) (. b len)))
+    (str.push (&mut s) a)
+    (str.push (&mut s) b)
+    s)
+
+  (fn eq ((a (& str)) (b (& str))) bool
+    (if (!= (. a len) (. b len)) (ret false))
+    (if (== (. a len) 0) (ret true))
+    (== (sys.memcmp (. a p) (. b p) (as u64 (. a len))) 0))
+
+  (fn cmp ((a (& str)) (b (& str))) i64
+    (let n (if (< (. a len) (. b len)) (. a len) (. b len)))
+    (let c (if (== n 0) 0 (as i64 (sys.memcmp (. a p) (. b p) (as u64 n)))))
+    (if (!= c 0) (ret c))
+    (- (. a len) (. b len)))
+
+  (fn slice ((self (& str)) (lo i64) (hi i64)) str
+    (if (or (< lo 0) (> hi (. self len)) (> lo hi)) (panic "idx.oob"))
+    (let mut s (str.new))
+    (str.reserve (&mut s) (- hi lo))
+    (if (> hi lo) (sys.memcpy (. s p) (ptr.add (. self p) lo) (as u64 (- hi lo))))
+    (set (. s len) (- hi lo))
+    s)
+
+  (fn find_from ((self (& str)) (needle (& str)) (start i64)) (opt i64)
+    (let n (. needle len))
+    (let mut i start)
+    (while (<= (+ i n) (. self len))
+      (if (or (== n 0) (== (sys.memcmp (ptr.add (. self p) i) (. needle p) (as u64 n)) 0))
+        (ret (opt.some i)))
+      (set i (+ i 1)))
+    (opt.none))
+
+  (fn find ((self (& str)) (needle (& str))) (opt i64)
+    (str.find_from self needle 0))
+
+  (fn find_byte ((self (& str)) (b u8)) (opt i64)
+    (for i 0 (. self len)
+      (if (== (str.at self i) b) (ret (opt.some i))))
+    (opt.none))
+
+  (fn has ((self (& str)) (needle (& str))) bool
+    (match (str.find self needle) ((opt.some _) true) ((opt.none) false)))
+
+  (fn starts ((self (& str)) (p (& str))) bool
+    (if (> (. p len) (. self len)) (ret false))
+    (if (== (. p len) 0) (ret true))
+    (== (sys.memcmp (. self p) (. p p) (as u64 (. p len))) 0))
+
+  (fn ends ((self (& str)) (p (& str))) bool
+    (if (> (. p len) (. self len)) (ret false))
+    (if (== (. p len) 0) (ret true))
+    (== (sys.memcmp (ptr.add (. self p) (- (. self len) (. p len))) (. p p) (as u64 (. p len))) 0))
+
+  (fn split ((self (& str)) (sep u8)) (vec str)
+    (let mut out (vec.new <str>))
+    (let mut start 0)
+    (for i 0 (. self len)
+      (if (== (str.at self i) sep)
+        (do
+          (vec.push (&mut out) (str.slice self start i))
+          (set start (+ i 1)))))
+    (vec.push (&mut out) (str.slice self start (. self len)))
+    out)
+
+  (fn lines ((self (& str))) (vec str)
+    (let mut out (vec.new <str>))
+    (let mut start 0)
+    (for i 0 (. self len)
+      (if (== (str.at self i) 10u8)
+        (do
+          (let end (if (and (> i start) (== (str.at self (- i 1)) 13u8)) (- i 1) i))
+          (vec.push (&mut out) (str.slice self start end))
+          (set start (+ i 1)))))
+    (if (< start (. self len)) (vec.push (&mut out) (str.slice self start (. self len))))
+    out)
+
+  (fn is_space ((b u8)) bool
+    (or (== b 32u8) (or (== b 9u8) (or (== b 10u8) (== b 13u8)))))
+
+  (fn trim ((self (& str))) str
+    (let mut lo 0)
+    (let mut hi (. self len))
+    (while (and (< lo hi) (str.is_space (str.at self lo))) (set lo (+ lo 1)))
+    (while (and (< lo hi) (str.is_space (str.at self (- hi 1)))) (set hi (- hi 1)))
+    (str.slice self lo hi))
+
+  (fn from_int ((n i64)) str
+    (let mut s (str.new))
+    (if (== n 0) (do (str.push_byte (&mut s) 48u8) (ret s)))
+    (let neg (< n 0))
+    (let mut v (if neg (neg n) n))
+    (let mut digits (vec.new <u8>))
+    (while (> v 0)
+      (vec.push (&mut digits) (as u8 (+ 48 (% v 10))))
+      (set v (/ v 10)))
+    (if neg (str.push_byte (&mut s) 45u8))
+    (let mut i (- (vec.len (& digits)) 1))
+    (while (>= i 0)
+      (str.push_byte (&mut s) (@ (vec.get (& digits) i)))
+      (set i (- i 1)))
+    s)
+
+  (fn to_int ((self (& str))) (opt i64)
+    (let n (. self len))
+    (if (== n 0) (ret (opt.none)))
+    (let mut i 0)
+    (let neg (== (str.at self 0) 45u8))
+    (if neg (set i 1))
+    (if (== i n) (ret (opt.none)))
+    (let mut v 0)
+    (while (< i n)
+      (let b (str.at self i))
+      (if (or (< b 48u8) (> b 57u8)) (ret (opt.none)))
+      (set v (+ (* v 10) (as i64 (- b 48u8))))
+      (set i (+ i 1)))
+    (opt.some (if neg (neg v) v)))
+
+  (fn replace ((self (& str)) (old (& str)) (new (& str))) str
+    (let mut out (str.new))
+    (let mut i 0)
+    (let n (. old len))
+    (if (== n 0) (ret (str.from self)))
+    (while (< i (. self len))
+      (if (and (<= (+ i n) (. self len)) (== (sys.memcmp (ptr.add (. self p) i) (. old p) (as u64 n)) 0))
+        (do (str.push (&mut out) new) (set i (+ i n)))
+        (do (str.push_byte (&mut out) (str.at self i)) (set i (+ i 1)))))
+    out)
+
+  (fn count ((self (& str)) (needle (& str))) i64
+    (let mut c 0)
+    (let mut i 0)
+    (let n (. needle len))
+    (if (== n 0) (ret 0))
+    (while (<= (+ i n) (. self len))
+      (if (== (sys.memcmp (ptr.add (. self p) i) (. needle p) (as u64 n)) 0)
+        (do (set c (+ c 1)) (set i (+ i n)))
+        (set i (+ i 1))))
+    c)
+
+  (fn join ((parts (& (vec str))) (sep (& str))) str
+    (let mut out (str.new))
+    (for i 0 (vec.len parts)
+      (if (> i 0) (str.push (&mut out) sep))
+      (str.push (&mut out) (vec.get parts i)))
+    out)
+
+  (fn lower ((self (& str))) str
+    (let mut out (str.from self))
+    (for i 0 (. out len)
+      (let b (str.at (& out) i))
+      (if (and (>= b 65u8) (<= b 90u8))
+        (ptr.write (ptr.add (. out p) i) (+ b 32u8))))
+    out)
+
+  (fn repeat ((self (& str)) (n i64)) str
+    (let mut out (str.new))
+    (for i 0 n (str.push (&mut out) self))
+    out)
+
+  ;; NUL-terminated copy for C calls. Caller drops it.
+  (fn cstr ((self (& str))) str
+    (let mut s (str.from self))
+    (str.push_byte (&mut s) 0u8)
+    (set (. s len) (- (. s len) 1))
+    s)
+
+  ;; Builds an owned str from C memory of known length.
+  (fn from_raw ((p (ptr u8)) (n i64)) str
+    (let mut s (str.new))
+    (str.reserve (&mut s) n)
+    (if (> n 0) (sys.memcpy (. s p) p (as u64 n)))
+    (set (. s len) n)
+    s)
+
+  (fn from_cstr ((p (ptr u8))) str
+    (str.from_raw p (as i64 (sys.strlen p)))))
+
+(test str_basic
+  (let s (str.cat "ab" "cd"))
+  (assert_eq (& s) "abcd")
+  (assert_eq (str.len (& s)) 4)
+  (assert (str.starts (& s) "ab"))
+  (assert (str.ends (& s) "cd"))
+  (assert_eq (& (str.slice (& s) 1 3)) "bc"))
+
+(test str_find_replace
+  (let s (str.from "a|b|c"))
+  (match (str.find (& s) "|") ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
+  (assert_eq (& (str.replace (& s) "|" "--")) "a--b--c")
+  (let parts (str.split (& s) 124u8))
+  (assert_eq (vec.len (& parts)) 3)
+  (assert_eq (& (str.join (& parts) ",")) "a,b,c"))
+
+(test str_int
+  (assert_eq (& (str.from_int 1234)) "1234")
+  (assert_eq (& (str.from_int (neg 5))) "-5")
+  (assert_eq (& (str.from_int 0)) "0")
+  (match (str.to_int "-42") ((opt.some v) (assert_eq v (neg 42))) ((opt.none) (assert false)))
+  (match (str.to_int "x") ((opt.some _) (assert false)) ((opt.none) (assert true))))
+
+(test str_lines_trim
+  (let ls (str.lines "a\r\nb\nc"))
+  (assert_eq (vec.len (& ls)) 3)
+  (assert_eq (vec.get (& ls) 0) "a")
+  (assert_eq (& (str.trim "  x y \n")) "x y"))
