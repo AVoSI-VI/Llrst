@@ -31,8 +31,11 @@ Goal: turn a machine diagnostic into a fix.
 
 ## Runtime panics
 
-`P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101. `idx.oob` means a `vec.get`/`str.at` index;
-read `len=`/`idx=` when present. `opt.none` / `res.err` come from `unwrap`: match instead.
+`P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101. FILE is usually the std frame that caught
+the fault (`std/vec.llr` for `vec.get`), not your call site: `llr-grep "vec\\.get" FILE` in
+your code to find candidates, then compare `len=`/`idx=` (or `len= lo= hi=` for slices)
+with the values you passed. `opt.none` / `res.err` come from `unwrap`: match instead.
+A process killed by a signal with no `P|` line is a division by zero or a bug in std.
 
 ## Test failures
 

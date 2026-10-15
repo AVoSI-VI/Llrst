@@ -9,7 +9,7 @@
   (fn drop ((self (&mut str))) unit (if (> (. self cap) 0) (sys.free (. self p))))
   (pub (fn len ((self (& str))) i64 (. self len)))
   (pub (fn at ((self (& str)) (i i64)) u8
-    (if (or (< i 0) (>= i (. self len))) (panic "idx.oob"))
+    (if (or (< i 0) (>= i (. self len))) (panic (& (str.oob (. self len) i))))
     (ptr.read (ptr.add (. self p) i))))
   (pub (fn reserve ((self (&mut str)) (extra i64)) unit
     (let need (+ (. self len) extra))
@@ -51,7 +51,7 @@
     (if (!= c 0) (ret c))
     (- (. a len) (. b len))))
   (pub (fn slice ((self (& str)) (lo i64) (hi i64)) str
-    (if (or (< lo 0) (> hi (. self len)) (> lo hi)) (panic "idx.oob"))
+    (if (or (< lo 0) (> hi (. self len)) (> lo hi)) (panic (& (str.oob_range (. self len) lo hi))))
     (let mut s (str.new))
     (str.reserve (&mut s) (- hi lo))
     (if (> hi lo) (sys.memcpy (. s p) (ptr.add (. self p) lo) (as u64 (- hi lo))))
@@ -183,6 +183,23 @@
     (set (. s len) n)
     s))
   (pub (fn from_cstr ((p (ptr u8))) str (str.from_raw p (as i64 (sys.strlen p))))))
+
+;; Panic messages for out-of-bounds access: idx.oob|len=N|idx=M.
+(pub (fn oob ((len i64) (idx i64)) str
+  (let mut m (str.from "idx.oob|len="))
+  (str.push (&mut m) (& (str.from_int len)))
+  (str.push (&mut m) "|idx=")
+  (str.push (&mut m) (& (str.from_int idx)))
+  m))
+
+(pub (fn oob_range ((len i64) (lo i64) (hi i64)) str
+  (let mut m (str.from "idx.oob|len="))
+  (str.push (&mut m) (& (str.from_int len)))
+  (str.push (&mut m) "|lo=")
+  (str.push (&mut m) (& (str.from_int lo)))
+  (str.push (&mut m) "|hi=")
+  (str.push (&mut m) (& (str.from_int hi)))
+  m))
 
 (test str_basic
   (let s (str.cat "ab" "cd"))

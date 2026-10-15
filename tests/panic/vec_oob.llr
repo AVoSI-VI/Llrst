@@ -1,0 +1,5 @@
+(fn main () unit
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 1)
+  (vec.push (&mut v) 2)
+  (let x (vec.get (& v) 3)))

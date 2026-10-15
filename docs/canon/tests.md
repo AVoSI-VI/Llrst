@@ -18,7 +18,12 @@ Failure prints `F|FILE|LINE|COL|assert|want=..|got=..` and the test is marked fa
 
 `tests/run/NAME.llr` with `tests/run/NAME.out`: compile, run, compare stdout.
 `tests/err/NAME.llr` with `tests/err/NAME.err`: compile, compare stderr lines exactly.
-`tests/run.sh` executes both sets. Output: `ok|NAME` or `fail|NAME|want=..|got=..`.
+`tests/panic/NAME.llr` with `tests/panic/NAME.err`: compile, run, stderr must equal `.err`
+and the exit code must be 101.
+`tests/run.sh` executes all sets. Output: `ok|NAME` or `fail|NAME|want=..|got=..`.
+A `.llr` without a sibling `.out`/`.err` is a helper module for a `proj.*` import.
+Goldens that point into `std/` shift when std lines move; regenerate with the command in
+`HANDOFF.md` section 5 and review the diff.
 
 ## Rule
 

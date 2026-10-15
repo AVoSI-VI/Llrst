@@ -9,7 +9,7 @@ workflow you need in `docs/workflows/`. Everything below is verifiable from the 
 commit|ce284b9|tests: lifetimes, struct escape, move through deref
 suite|tests/run.sh|done|fails=0
 lines|compiler=6018 rs|std=1685 llr|tools=464 llr|max_file=449|budget=500 soft, 1000 hard
-plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)
+plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done
 ```
 
 The bootstrap plan (spec, compiler, std, hello world, tools, install, docs) is finished.
@@ -83,6 +83,7 @@ LLRC=<path to llrc> tests/run.sh              # goldens + every std test + line 
 <llrc> run tests/run/hello.llr --std std
 <llrc> build std/re.llr --test --std std -o /tmp/t && /tmp/t [FILTER]
 <llrc> check tests/err/X.llr --std std 2> tests/err/X.err   # regenerate a golden after a deliberate change
+<llrc> build tests/panic/X.llr --std std -o /tmp/p && /tmp/p 2> tests/panic/X.err   # same for panic goldens (exit 101)
 <llrc> emit-mir FILE --std std                # MIR dump, for borrow errors
 <llrc> build f.llr --target aarch64-unknown-linux-gnu --emit-obj   # also riscv64gc-, s390x-, aarch64-apple-darwin
 scripts/install.sh /tmp/prefix                # release build, std copy, 7 tools, hello verify
@@ -105,6 +106,8 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
 - `"literal"` has type `(& str)` and points at a static 24-byte `{ptr,len,cap=0}` record
   (`str_data`); `str.drop` frees only when `cap > 0`. Length bytes follow target
   endianness (`big_endian`).
+- Panic messages are built in std: `str.oob(len, idx)` / `str.oob_range(len, lo, hi)`;
+  the compiler only supplies `loc`. Goldens for them live in `tests/panic/`.
 - `(sizeof T)` is `Callee::Sizeof`; `(sys.arch)` is a compile-time `(& str)`; `sys.argc`
   / `sys.argv` read globals set by the generated C `main` (`emit_entry`).
 - `--test`: each `(test ...)` becomes `llr_test_i`; `emit_test_entry` calls
@@ -190,22 +193,20 @@ Tools (`tools/`, `docs/tools/`)
 | cross | `--emit-obj` verified for aarch64/riscv64/s390x/apple-darwin; direct `--target` linking needs a clang sysroot | link on target instead | `link.rs` |
 | fmt | width fixed at 100; blank-line policy fixed; comments inside a form force multi-line | by design | `tools/llr-fmt.llr` |
 | grep | no word-boundary `\b` | check hits manually | `std/re.llr` |
-| diagnostics | no `W` warnings emitted by the compiler yet (`flow.unreachable` reserved); panics lack `len=`/`idx=` kv | | `diag.rs`, `std/vec.llr check`, `std/str.llr at` |
-| tests | no runtime-panic goldens; `tests/run.sh` compares stdout only | | `tests/run.sh` |
+| diagnostics | no `W` warnings emitted by the compiler yet (`flow.unreachable` reserved); division by zero is a SIGFPE trap, not a `P\|div.zero` line | | `diag.rs`, `codegen/ops.rs binop` |
+| tests | `tests/run` compares stdout only (no stderr/exit check for normal runs) | | `tests/run.sh` |
 | codegen | all locals in memory, `opt_level=speed` only on IR; no inlining of `str.at`/`vec.get` bounds checks | slower than needed | `codegen/func.rs` |
 
 ## 8. Suggested next steps, in order
 
-1. Runtime panics: add `len=`/`idx=` to `idx.oob` messages (`vec.check`, `str.at`), and
-   `tests/panic/*.llr` with expected stderr + exit 101 in `tests/run.sh`.
-2. Borrowck precision: make holder sets flow-sensitive per point (kill on whole-local
+1. Borrowck precision: make holder sets flow-sensitive per point (kill on whole-local
    reassign); add stress tests for reference-holding structs in loops.
-3. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with `(fn ...)`
+2. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with `(fn ...)`
    predicate, replacing the `_str`/`_int` pairs; update `docs/canon/collections.md`.
-4. `re`: captures (`mat` groups) so `llr-edit` can offer regex replacement.
-5. Self-hosting path: `std/sexp.llr` already reads source; next is an Llrst type
+3. `re`: captures (`mat` groups) so `llr-edit` can offer regex replacement.
+4. Self-hosting path: `std/sexp.llr` already reads source; next is an Llrst type
    checker. Keep `llrc` (Rust) as the reference until parity.
-6. Visibility of std growth: a script (in Llrst) that regenerates `docs/std/*.md` from
+5. Visibility of std growth: a script (in Llrst) that regenerates `docs/std/*.md` from
    signatures; today they were generated once by hand.
 
 ## 9. Conventions to keep

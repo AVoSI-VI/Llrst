@@ -34,8 +34,21 @@ Exit code 1 on any `E`, 0 otherwise.
 ```
 P|FILE|LINE|COL|CODE|k=v...
 ```
-Exit code 101. Codes: `idx.oob` (`len= idx=`), `opt.none`, `res.err` (`err=`), `div.zero`,
-`cast.overflow`, `assert` (`msg=`), `oom`.
+Exit code 101. `FILE|LINE|COL` is the frame that detected the fault, usually inside `std`
+(there are no stack traces; find the caller with `llr-grep` on the method name).
+
+| code | fields | source |
+|------|--------|--------|
+| `idx.oob` | `len= idx=` (index) or `len= lo= hi=` (slice) | `vec.get` `vec.get_mut` `vec.set` `vec.remove` `vec.swap` `vec.insert` `str.at` `str.slice` |
+| `opt.none` | | `opt.unwrap` |
+| `res.err` / `res.ok` | | `res.unwrap` / `res.unwrap_err` |
+| `oom` | | `sys.alloc` `sys.grow` |
+| `cli.no_such_opt` / `cli.no_such_flag` | | `cli.get` `cli.has` with an undeclared name |
+| user `(panic "code|k=v")` | as written | any program |
+
+`(assert ...)` failing outside a test prints `F|FILE|LINE|COL|assert` (or `assert_eq|want=|got=`)
+and also exits 101. Integer division by zero is currently a hardware trap (killed by
+`SIGFPE`, no `P|` line); `div.zero` and `cast.overflow` are reserved, not emitted.
 
 ## Code catalogue
 

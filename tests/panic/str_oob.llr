@@ -1,0 +1,1 @@
+(fn main () unit (let b (str.at "abc" 7)))

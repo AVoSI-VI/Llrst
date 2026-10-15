@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out), tests/err/*.llr (stderr must
-# equal .err), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
+# equal .err), tests/panic/*.llr (stderr must equal .err and exit 101), and every
+# std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 llrc="${LLRC:-$root/target/release/llrc}"
@@ -40,6 +41,23 @@ for f in "$root"/tests/err/*.llr; do
     echo "ok|err/$name"
   else
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
+    fails=$((fails+1))
+  fi
+done
+
+for f in "$root"/tests/panic/*.llr; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f" .llr)"
+  want="${f%.llr}.err"
+  [ -e "$want" ] || continue   # helper module
+  if ! ( cd "$root" && "$llrc" build "tests/panic/$name.llr" --std std -o "$tmp/panic_$name" 2>"$tmp/panic_$name.cerr" ); then
+    echo "fail|panic/$name|compile|$(head -1 "$tmp/panic_$name.cerr")"; fails=$((fails+1)); continue
+  fi
+  "$tmp/panic_$name" >/dev/null 2>"$tmp/panic_$name.err"; code=$?
+  if [ "$code" -eq 101 ] && cmp -s "$tmp/panic_$name.err" "$want"; then
+    echo "ok|panic/$name"
+  else
+    echo "fail|panic/$name|code=$code|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/panic_$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
 done

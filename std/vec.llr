@@ -25,7 +25,7 @@
     (ptr.write (ptr.add (. self p) (. self len)) x)
     (set (. self len) (+ (. self len) 1))))
   (fn check ((self (& (vec T))) (i i64)) unit
-    (if (or (< i 0) (>= i (. self len))) (panic "idx.oob")))
+    (if (or (< i 0) (>= i (. self len))) (panic (& (str.oob (. self len) i)))))
   (pub (fn get ((self (& (vec T))) (i i64)) (& T) (vec.check self i) (& (@ (ptr.add (. self p) i)))))
   (pub (fn get_mut ((self (&mut (vec T))) (i i64)) (&mut T)
     (vec.check self i)
@@ -52,7 +52,7 @@
     (set (. self len) (- (. self len) 1))
     x))
   (pub (fn insert ((self (&mut (vec T))) (i i64) (x T)) unit
-    (if (or (< i 0) (> i (. self len))) (panic "idx.oob"))
+    (if (or (< i 0) (> i (. self len))) (panic (& (str.oob (. self len) i))))
     (vec.reserve self 1)
     (let rest (- (. self len) i))
     (if (> rest 0)
