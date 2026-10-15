@@ -310,11 +310,13 @@ impl<'a> Checker<'a> {
             return Ok(mk(ExprKind::Local(l), ty, sp));
         }
         if let Some(c) = self.prog.lookup_const(self.module, n) {
+            self.require_visible(c, sp)?;
             if let DefKind::Const(cd) = &self.prog.def(c).kind {
                 return Ok(mk(ExprKind::Const(c), cd.ty.clone(), sp));
             }
         }
         if let Some(f) = self.prog.lookup_fn(self.module, n) {
+            self.require_visible(f, sp)?;
             let fd = self.prog.fn_def(f);
             if !fd.generics.is_empty() {
                 return Err(Diag::error(sp, "type.generic_fn_value").kv("name", n));

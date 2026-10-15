@@ -47,6 +47,7 @@ pub struct Def {
     pub module: u32,
     pub span: Span,
     pub kind: DefKind,
+    pub is_pub: bool,
 }
 
 pub struct Module {
@@ -102,6 +103,22 @@ impl Program {
     }
     pub fn prelude_type(&self, name: &str) -> Option<DefId> {
         self.prelude.get(name).copied()
+    }
+    /// An item is visible from `from` when it is `pub` or defined in that module.
+    pub fn visible(&self, from: u32, d: DefId) -> bool {
+        let def = self.def(d);
+        def.is_pub || def.module == from
+    }
+    pub fn private_diag(&self, span: Span, d: DefId) -> Diag {
+        let def = self.def(d);
+        let name = match def.kind {
+            DefKind::Fn(_) => self.fn_path(d),
+            _ => def.name.clone(),
+        };
+        Diag::error(span, "name.private")
+            .kv("name", name)
+            .kv("module", self.modules[def.module as usize].path.clone())
+            .kv("fix", "(pub ...)")
     }
     pub fn fn_path(&self, id: DefId) -> String {
         let d = self.def(id);
@@ -255,14 +272,14 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     m.uses.insert(p.last().unwrap().clone(), by_path[&p.join(".")]);
                 }
                 Item::Struct(s) => {
-                    let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), diags);
-                    if *is_std {
+                    let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
+                    if *is_std && s.is_pub {
                         prog.prelude.insert(s.name.clone(), id);
                     }
                 }
                 Item::Enum(e) => {
-                    let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), diags);
-                    if *is_std {
+                    let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), e.is_pub, diags);
+                    if *is_std && e.is_pub {
                         prog.prelude.insert(e.name.clone(), id);
                     }
                 }
@@ -297,11 +314,14 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                 Item::Fn(f) => {
                     let def = make_fn(&prog, mi, f, &[], None)?;
                     let mut m = std::mem::replace(&mut prog.modules[mi as usize], dummy_module());
-                    push_def(&mut prog, &mut m, &f.name, mi, f.span, DefKind::Fn(def), diags);
+                    push_def(&mut prog, &mut m, &f.name, mi, f.span, DefKind::Fn(def), f.is_pub, diags);
                     prog.modules[mi as usize] = m;
                 }
                 Item::Impl(im) => {
                     let owner = prog.lookup_type(mi, &im.ty_name).ok_or_else(|| Diag::error(im.span, "name.not_type").kv("name", im.ty_name.clone()))?;
+                    if !prog.visible(mi, owner) {
+                        return Err(prog.private_diag(im.span, owner));
+                    }
                     let owner_generics = prog.adt_generics(owner).to_vec();
                     if owner_generics.len() != im.generics.types.len() {
                         return Err(Diag::error(im.span, "type.generic_arity").kv("want", owner_generics.len().to_string()).kv("got", im.generics.types.len().to_string()));
@@ -310,7 +330,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                         let def = make_fn(&prog, mi, f, &im.generics.types, Some(owner))?;
                         let id = DefId(prog.defs.len() as u32);
                         let name = format!("{}.{}", im.ty_name, f.name);
-                        prog.defs.push(Def { name: f.name.clone(), module: mi, span: f.span, kind: DefKind::Fn(def) });
+                        prog.defs.push(Def { name: f.name.clone(), module: mi, span: f.span, kind: DefKind::Fn(def), is_pub: f.is_pub });
                         let entry = prog.methods.entry(owner).or_default();
                         if entry.insert(f.name.clone(), id).is_some() {
                             diags.push(Diag::error(f.span, "name.dup").kv("name", name));
@@ -320,7 +340,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                 Item::Const(c) => {
                     let ty = resolve_ty(&prog, mi, &[], &c.ty)?;
                     let mut m = std::mem::replace(&mut prog.modules[mi as usize], dummy_module());
-                    push_def(&mut prog, &mut m, &c.name, mi, c.span, DefKind::Const(ConstDef { ty, value: c.value.clone() }), diags);
+                    push_def(&mut prog, &mut m, &c.name, mi, c.span, DefKind::Const(ConstDef { ty, value: c.value.clone() }), c.is_pub, diags);
                     prog.modules[mi as usize] = m;
                 }
                 Item::Test(t) => prog.modules[mi as usize].tests.push(t.clone()),
@@ -335,9 +355,9 @@ fn dummy_module() -> Module {
     Module { path: String::new(), file: 0, items: HashMap::new(), uses: HashMap::new(), tests: Vec::new(), is_std: false }
 }
 
-fn push_def(prog: &mut Program, m: &mut Module, name: &str, module: u32, span: Span, kind: DefKind, diags: &Diags) -> DefId {
+fn push_def(prog: &mut Program, m: &mut Module, name: &str, module: u32, span: Span, kind: DefKind, is_pub: bool, diags: &Diags) -> DefId {
     let id = DefId(prog.defs.len() as u32);
-    prog.defs.push(Def { name: name.to_string(), module, span, kind });
+    prog.defs.push(Def { name: name.to_string(), module, span, kind, is_pub });
     if m.items.insert(name.to_string(), id).is_some() {
         diags.push(Diag::error(span, "name.dup").kv("name", name));
     }
@@ -379,6 +399,9 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
                 return Ok(Ty::Param(i as u32, n.clone()));
             }
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
+            if !prog.visible(module, d) {
+                return Err(prog.private_diag(*sp, d));
+            }
             let want = prog.adt_generics(d).len();
             if want != 0 {
                 return Err(Diag::error(*sp, "type.generic_arity").kv("name", n.clone()).kv("want", want.to_string()).kv("got", "0"));
@@ -387,6 +410,9 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
         }
         TyExpr::App(n, args, sp) => {
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
+            if !prog.visible(module, d) {
+                return Err(prog.private_diag(*sp, d));
+            }
             let want = prog.adt_generics(d).len();
             if want != args.len() {
                 return Err(Diag::error(*sp, "type.generic_arity").kv("name", n.clone()).kv("want", want.to_string()).kv("got", args.len().to_string()));

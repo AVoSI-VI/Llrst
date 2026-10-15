@@ -1,0 +1,10 @@
+(use proj.pub_lib)
+(use std.io)
+
+(fn main () unit
+  (let p (pub_lib.pt 3 4))
+  (io.puts (& (str.from_int (pub_lib.pt.sum (& p)))))
+  (io.puts (& (str.from_int (. p x))))
+  (io.puts (& (str.from_int (pub_lib.twice pub_lib.base))))
+  (let t (pub_lib.tag.b 5))
+  (match t ((pub_lib.tag.a) (io.puts "a")) ((pub_lib.tag.b n) (io.puts (& (str.from_int n))))))

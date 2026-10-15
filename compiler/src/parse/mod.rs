@@ -33,6 +33,13 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             if n != 1 {
                 return Err(arity(sp, "pub", "1", n));
             }
+            let inner = items[1].head().unwrap_or("");
+            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const") {
+                return Err(Diag::error(items[1].span(), "parse.expect")
+                    .kv("want", "fn extern struct enum const")
+                    .kv("got", inner)
+                    .kv("fix", "(pub (fn ...)) per method"));
+            }
             return parse_item(&items[1], true);
         }
         "use" => {
@@ -60,7 +67,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 })?;
                 fields.push(Field { name: name_of(&l[0])?, ty: parse_ty(&l[1])? });
             }
-            Item::Struct(StructDecl { name, generics, fields, span: sp })
+            Item::Struct(StructDecl { name, generics, fields, is_pub, span: sp })
         }
         "enum" => {
             let name = name_of(items.get(1).ok_or_else(|| arity(sp, "enum", "2+", n))?)?;
@@ -76,7 +83,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             if variants.is_empty() {
                 return Err(arity(sp, "enum", "2+", n));
             }
-            Item::Enum(EnumDecl { name, generics, variants, span: sp })
+            Item::Enum(EnumDecl { name, generics, variants, is_pub, span: sp })
         }
         "impl" => {
             let ty_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "1+", n))?)?;
@@ -97,7 +104,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             if n != 3 {
                 return Err(arity(sp, "const", "3", n));
             }
-            Item::Const(ConstDecl { name: name_of(&items[1])?, ty: parse_ty(&items[2])?, value: parse_expr(&items[3])?, span: sp })
+            Item::Const(ConstDecl { name: name_of(&items[1])?, ty: parse_ty(&items[2])?, value: parse_expr(&items[3])?, is_pub, span: sp })
         }
         "test" => {
             let name = name_of(items.get(1).ok_or_else(|| arity(sp, "test", "1+", n))?)?;

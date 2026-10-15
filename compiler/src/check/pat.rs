@@ -124,6 +124,7 @@ impl<'a> Checker<'a> {
                 let d = enum_def.ok_or_else(|| Diag::error(*span, "match.not_enum").kv("got", self.show(ty)))?;
                 let (tpath, vname) = path.rsplit_once('.').ok_or_else(|| Diag::error(*span, "type.no_variant").kv("variant", path.clone()))?;
                 let pt = self.prog.lookup_type(self.module, tpath);
+                self.require_visible(d, *span)?;
                 if pt != Some(d) {
                     return Err(Diag::error(*span, "type.mismatch").kv("want", self.prog.type_name(d)).kv("got", tpath));
                 }

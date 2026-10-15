@@ -1,0 +1,5 @@
+(use std.map)
+
+(fn peek ((e (& (map.entry i64)))) i64 0)
+
+(fn main () unit ())

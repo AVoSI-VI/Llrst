@@ -26,17 +26,20 @@ impl<'a> Checker<'a> {
         }
         // 2. function or method
         if let Some(f) = self.prog.lookup_fn(self.module, callee) {
+            self.require_visible(f, sp)?;
             return self.check_fn_call(f, &targs, args, want, sp);
         }
         // 3. struct constructor / enum variant
         if let Some(t) = self.prog.lookup_type(self.module, callee) {
             if self.prog.struct_def(t).is_some() {
+                self.require_visible(t, sp)?;
                 return self.check_struct_ctor(t, &targs, args, want, sp);
             }
         }
         if let Some((tpath, variant)) = callee.rsplit_once('.') {
             if let Some(t) = self.prog.lookup_type(self.module, tpath) {
                 if let Some(ed) = self.prog.enum_def(t) {
+                    self.require_visible(t, sp)?;
                     let idx = ed.variants.iter().position(|v| v.0 == variant).ok_or_else(|| {
                         Diag::error(sp, "type.no_variant").kv("ty", self.prog.type_name(t)).kv("variant", variant)
                     })?;

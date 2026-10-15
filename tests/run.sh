@@ -17,6 +17,7 @@ fails=0
 for f in "$root"/tests/run/*.llr; do
   name="$(basename "$f" .llr)"
   want="${f%.llr}.out"
+  [ -e "$want" ] || continue   # helper module for a proj.* test
   if ! "$llrc" build "$f" -o "$tmp/$name" 2>"$tmp/$name.err"; then
     echo "fail|run/$name|compile|$(head -1 "$tmp/$name.err")"; fails=$((fails+1)); continue
   fi
@@ -33,6 +34,7 @@ for f in "$root"/tests/err/*.llr; do
   [ -e "$f" ] || continue
   name="$(basename "$f" .llr)"
   want="${f%.llr}.err"
+  [ -e "$want" ] || continue   # helper module for a proj.* test
   ( cd "$root" && "$llrc" check "tests/err/$name.llr" 2>"$tmp/$name.err" >/dev/null )
   if cmp -s "$tmp/$name.err" "$want"; then
     echo "ok|err/$name"

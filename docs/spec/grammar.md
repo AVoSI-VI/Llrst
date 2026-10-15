@@ -31,7 +31,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (impl TYPE <T> FN...)
 (const NAME TYPE EXPR)                       ; compile-time scalar or string literal
 (test NAME BODY...)                          ; test body, run by llr-test
-(pub FORM)                                   ; export FORM from module
+(pub FORM)                                   ; export; FORM is fn extern struct enum const (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )
 FIELD  := (NAME TYPE)

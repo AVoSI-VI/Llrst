@@ -8,9 +8,9 @@
 (struct alt (seqs (vec seq)))
 
 ;; alts[0] is the top level; groups are appended as they are parsed.
-(struct re (alts (vec alt)))
+(pub (struct re (alts (vec alt))))
 
-(struct mat (lo i64) (hi i64))
+(pub (struct mat (lo i64) (hi i64)))
 
 (struct parser (p str) (i i64) (alts (vec alt)))
 
@@ -131,12 +131,12 @@
   (res.ok (alt seqs)))
 
 (pub (fn compile ((pat (& str))) (res re str)
-       (let mut ps (parser (str.from pat) 0 (vec.new <alt>)))
-       (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
-       (let top (try (parse_alt (&mut ps))))
-       (if (< (. ps i) (str.len (& (. ps p)))) (ret (res.err (perr "unexpected )" (. ps i)))))
-       (vec.set (&mut (. ps alts)) 0 top)
-       (res.ok (re (vec.take (&mut (. ps alts)))))))
+  (let mut ps (parser (str.from pat) 0 (vec.new <alt>)))
+  (vec.push (&mut (. ps alts)) (alt (vec.new <seq>)))
+  (let top (try (parse_alt (&mut ps))))
+  (if (< (. ps i) (str.len (& (. ps p)))) (ret (res.err (perr "unexpected )" (. ps i)))))
+  (vec.set (&mut (. ps alts)) 0 top)
+  (res.ok (re (vec.take (&mut (. ps alts)))))))
 
 (fn push_end ((out (&mut (vec i64))) (e i64)) unit (if (not (vec.has_int out e)) (vec.push out e)))
 
@@ -180,37 +180,33 @@
 
 ;; Leftmost match starting at or after `start`; end is the longest alternative.
 (pub (fn find_from ((r (& re)) (s (& str)) (start i64)) (opt mat)
-       (let mut i start)
-       (while (<= i (str.len s))
-         (let mut ends (vec.new <i64>))
-         (alt_ends r 0 s i (&mut ends))
-         (if (> (vec.len (& ends)) 0)
-           (do
-             (let mut best i)
-             (for j 0 (vec.len (& ends))
-               (let e (@ (vec.get (& ends) j)))
-               (if (> e best) (set best e)))
-             (ret (opt.some (mat i best)))))
-         (set i (+ i 1)))
-       (opt.none)))
+  (let mut i start)
+  (while (<= i (str.len s))
+    (let mut ends (vec.new <i64>))
+    (alt_ends r 0 s i (&mut ends))
+    (if (> (vec.len (& ends)) 0)
+      (do
+        (let mut best i)
+        (for j 0 (vec.len (& ends)) (let e (@ (vec.get (& ends) j))) (if (> e best) (set best e)))
+        (ret (opt.some (mat i best)))))
+    (set i (+ i 1)))
+  (opt.none)))
 
 (pub (fn find ((r (& re)) (s (& str))) (opt mat) (find_from r s 0)))
 
 (pub (fn is_match ((r (& re)) (s (& str))) bool
-       (match (find r s) ((opt.some _) true) ((opt.none) false))))
+  (match (find r s) ((opt.some _) true) ((opt.none) false))))
 
 ;; All non-overlapping matches.
 (pub (fn find_all ((r (& re)) (s (& str))) (vec mat)
-       (let mut out (vec.new <mat>))
-       (let mut i 0)
-       (while (<= i (str.len s))
-         (match (find_from r s i)
-           ((opt.some m)
-             (do
-               (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi)))
-               (vec.push (&mut out) m)))
-           ((opt.none) (brk))))
-       out))
+  (let mut out (vec.new <mat>))
+  (let mut i 0)
+  (while (<= i (str.len s))
+    (match (find_from r s i)
+      ((opt.some m)
+        (do (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi))) (vec.push (&mut out) m)))
+      ((opt.none) (brk))))
+  out))
 
 (fn m ((pat (& str)) (s (& str))) bool (is_match (& (res.unwrap (compile pat))) s))
 

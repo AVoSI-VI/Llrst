@@ -39,7 +39,7 @@
   (if (and (str.eq (sexp.head t n) "pub") (== cnt 2))
     (do
       (str.push out "(pub ")
-      (emit t (sexp.child t n 1) (+ indent 5) out)
+      (emit t (sexp.child t n 1) indent out)
       (str.push_byte out 41u8)
       (ret)))
   (str.push_byte out 40u8)
@@ -52,20 +52,20 @@
 
 ;; Whole file: blank line between forms except use-after-use and form-after-comment.
 (pub (fn format ((t (& sexp.tree))) str
-       (let mut out (str.new))
-       (let n (vec.len (& (. t top))))
-       (let mut prev_use false)
-       (let mut prev_comment false)
-       (for i 0 n
-         (let f (@ (vec.get (& (. t top)) i)))
-         (let is_use (str.eq (sexp.head t f) "use"))
-         (if (and (> i 0) (not prev_comment) (not (and prev_use is_use)))
-           (str.push_byte (&mut out) 10u8))
-         (emit t f 0 (&mut out))
-         (str.push_byte (&mut out) 10u8)
-         (set prev_use is_use)
-         (set prev_comment (== (sexp.kind t f) 3u8)))
-       out))
+  (let mut out (str.new))
+  (let n (vec.len (& (. t top))))
+  (let mut prev_use false)
+  (let mut prev_comment false)
+  (for i 0 n
+    (let f (@ (vec.get (& (. t top)) i)))
+    (let is_use (str.eq (sexp.head t f) "use"))
+    (if (and (> i 0) (not prev_comment) (not (and prev_use is_use)))
+      (str.push_byte (&mut out) 10u8))
+    (emit t f 0 (&mut out))
+    (str.push_byte (&mut out) 10u8)
+    (set prev_use is_use)
+    (set prev_comment (== (sexp.kind t f) 3u8)))
+  out))
 
 (fn main () unit
   (let mut c (cli.new "llr-fmt" "format .llr files; --check reports, --lint checks canon"))

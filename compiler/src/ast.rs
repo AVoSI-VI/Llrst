@@ -55,6 +55,7 @@ pub struct StructDecl {
     pub name: String,
     pub generics: Generics,
     pub fields: Vec<Field>,
+    pub is_pub: bool,
     pub span: Span,
 }
 
@@ -70,6 +71,7 @@ pub struct EnumDecl {
     pub name: String,
     pub generics: Generics,
     pub variants: Vec<Variant>,
+    pub is_pub: bool,
     pub span: Span,
 }
 
@@ -86,6 +88,7 @@ pub struct ConstDecl {
     pub name: String,
     pub ty: TyExpr,
     pub value: Expr,
+    pub is_pub: bool,
     pub span: Span,
 }
 

@@ -1,0 +1,1 @@
+(fn main () unit (let v (vec.new <i64>)) (vec.check (& v) 0))

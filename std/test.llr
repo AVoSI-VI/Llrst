@@ -5,12 +5,12 @@
 
 ;; Prints F|loc|msg and exits 101. The compiler emits calls to this for (assert ...).
 (pub (fn fail ((loc (& str)) (msg (& str))) never
-       (sys.write_all 2 (. "F|" p) 2)
-       (sys.write_str 2 loc)
-       (sys.write_all 2 (. "|" p) 1)
-       (sys.write_str 2 msg)
-       (sys.write_all 2 (. "\n" p) 1)
-       (sys._exit 101)))
+  (sys.write_all 2 (. "F|" p) 2)
+  (sys.write_str 2 loc)
+  (sys.write_all 2 (. "|" p) 1)
+  (sys.write_str 2 msg)
+  (sys.write_all 2 (. "\n" p) 1)
+  (sys._exit 101)))
 
 (fn fail_eq ((loc (& str)) (got (& str)) (want (& str))) never
   (let mut m (str.from "assert_eq|want="))
@@ -20,44 +20,38 @@
   (fail loc (& m)))
 
 (pub (fn eq_str ((loc (& str)) (got (& str)) (want (& str))) unit
-       (if (not (str.eq got want)) (fail_eq loc got want))))
+  (if (not (str.eq got want)) (fail_eq loc got want))))
 
 (pub (fn eq_int ((loc (& str)) (got i64) (want i64)) unit
-       (if (!= got want) (fail_eq loc (& (str.from_int got)) (& (str.from_int want))))))
+  (if (!= got want) (fail_eq loc (& (str.from_int got)) (& (str.from_int want))))))
 
 (pub (fn eq_bool ((loc (& str)) (got bool) (want bool)) unit
-       (if (!= got want) (fail_eq loc (if got "true" "false") (if want "true" "false")))))
+  (if (!= got want) (fail_eq loc (if got "true" "false") (if want "true" "false")))))
 
 ;; Runs one test in a forked child. Returns 1 on failure, 0 on success.
 ;; A first program argument filters tests by substring.
 (pub (fn run ((name (& str)) (f (fn () unit))) i64
-       (match (os.arg 1)
-         ((opt.some filt) (if (not (str.has name (& filt))) (ret 0)))
-         ((opt.none) ()))
-       (let pid (sys.fork))
-       (if (== pid 0) (do (call f) (sys._exit 0)))
-       (let mut status 0i32)
-       (sys.waitpid pid (as (ptr i32) (&mut status)) 0i32)
-       (let sig (band status 127i32))
-       (let code (band (shr status 8i32) 255i32))
-       (let mut line (str.new))
-       (if (and (== sig 0i32) (== code 0i32))
-         (do (str.push (&mut line) "ok|") (str.push (&mut line) name) (io.puts (& line)) (ret 0)))
-       (str.push (&mut line) "fail|")
-       (str.push (&mut line) name)
-       (if (!= sig 0i32)
-         (do
-           (str.push (&mut line) "|signal=")
-           (str.push (&mut line) (& (str.from_int (as i64 sig)))))
-         (do
-           (str.push (&mut line) "|code=")
-           (str.push (&mut line) (& (str.from_int (as i64 code))))))
-       (io.puts (& line))
-       1))
+  (match (os.arg 1) ((opt.some filt) (if (not (str.has name (& filt))) (ret 0))) ((opt.none) ()))
+  (let pid (sys.fork))
+  (if (== pid 0) (do (call f) (sys._exit 0)))
+  (let mut status 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut status)) 0i32)
+  (let sig (band status 127i32))
+  (let code (band (shr status 8i32) 255i32))
+  (let mut line (str.new))
+  (if (and (== sig 0i32) (== code 0i32))
+    (do (str.push (&mut line) "ok|") (str.push (&mut line) name) (io.puts (& line)) (ret 0)))
+  (str.push (&mut line) "fail|")
+  (str.push (&mut line) name)
+  (if (!= sig 0i32)
+    (do (str.push (&mut line) "|signal=") (str.push (&mut line) (& (str.from_int (as i64 sig)))))
+    (do (str.push (&mut line) "|code=") (str.push (&mut line) (& (str.from_int (as i64 code))))))
+  (io.puts (& line))
+  1))
 
 ;; Prints the summary line and exits 2 when anything failed.
 (pub (fn done ((fails i64)) unit
-       (let mut line (str.from "done|fails="))
-       (str.push (&mut line) (& (str.from_int fails)))
-       (io.puts (& line))
-       (sys.exit (if (> fails 0) 2i32 0i32))))
+  (let mut line (str.from "done|fails="))
+  (str.push (&mut line) (& (str.from_int fails)))
+  (io.puts (& line))
+  (sys.exit (if (> fails 0) 2i32 0i32))))

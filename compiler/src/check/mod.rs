@@ -81,6 +81,14 @@ impl<'a> Checker<'a> {
         TyPrinter { names: &|d: DefId| self.prog.type_name(d) }.show(&t)
     }
 
+    pub fn require_visible(&self, d: DefId, span: Span) -> PResult<()> {
+        if self.prog.visible(self.module, d) {
+            Ok(())
+        } else {
+            Err(self.prog.private_diag(span, d))
+        }
+    }
+
     pub fn mismatch(&self, span: Span, want: &Ty, got: &Ty) -> Diag {
         Diag::error(span, "type.mismatch").kv("want", self.show(want)).kv("got", self.show(got))
     }

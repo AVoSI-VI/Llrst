@@ -1,0 +1,13 @@
+(pub (struct pt (x i64) (y i64)))
+
+(impl pt
+  (pub (fn sum ((self (& pt))) i64 (+ (. self x) (. self y))))
+  (fn secret ((self (& pt))) i64 0))
+
+(pub (enum tag (a) (b i64)))
+
+(pub (const base i64 10))
+
+(fn helper ((n i64)) i64 (* n 2))
+
+(pub (fn twice ((n i64)) i64 (helper n)))

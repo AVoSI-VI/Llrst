@@ -3,7 +3,7 @@
 ;; range [lo, hi) into `kids`, which stores node indexes in order.
 (struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64))
 
-(struct tree (nodes (vec node)) (kids (vec i64)) (top (vec i64)))
+(pub (struct tree (nodes (vec node)) (kids (vec i64)) (top (vec i64))))
 
 (struct rd (src str) (i i64) (line i64) (col i64))
 
@@ -84,14 +84,14 @@
   (res.ok (push_node t (node 0u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))
 
 (pub (fn read ((src (& str))) (res tree str)
-       (let mut r (rd (str.from src) 0 0 0))
-       (let mut t (tree (vec.new <node>) (vec.new <i64>) (vec.new <i64>)))
-       (loop
-         (skip_ws (&mut r))
-         (if (== (peek (& r)) 0u8) (brk))
-         (let n (try (form (&mut r) (&mut t))))
-         (vec.push (&mut (. t top)) n))
-       (res.ok t)))
+  (let mut r (rd (str.from src) 0 0 0))
+  (let mut t (tree (vec.new <node>) (vec.new <i64>) (vec.new <i64>)))
+  (loop
+    (skip_ws (&mut r))
+    (if (== (peek (& r)) 0u8) (brk))
+    (let n (try (form (&mut r) (&mut t))))
+    (vec.push (&mut (. t top)) n))
+  (res.ok t)))
 
 (pub (fn kind ((t (& tree)) (n i64)) u8 (. (vec.get (& (. t nodes)) n) kind)))
 
@@ -102,35 +102,35 @@
 (pub (fn col ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) col)))
 
 (pub (fn count ((t (& tree)) (n i64)) i64
-       (let nd (vec.get (& (. t nodes)) n))
-       (if (!= (. nd kind) 2u8) 0 (- (. nd hi) (. nd lo)))))
+  (let nd (vec.get (& (. t nodes)) n))
+  (if (!= (. nd kind) 2u8) 0 (- (. nd hi) (. nd lo)))))
 
 (pub (fn child ((t (& tree)) (n i64) (k i64)) i64
-       (let nd (vec.get (& (. t nodes)) n))
-       (@ (vec.get (& (. t kids)) (+ (. nd lo) k)))))
+  (let nd (vec.get (& (. t nodes)) n))
+  (@ (vec.get (& (. t kids)) (+ (. nd lo) k)))))
 
 ;; Head atom text of a list, or "".
 (pub (fn head ((t (& tree)) (n i64)) (& str)
-       (if (and (== (kind t n) 2u8) (> (count t n) 0) (== (kind t (child t n 0)) 0u8))
-         (text t (child t n 0))
-         "")))
+  (if (and (== (kind t n) 2u8) (> (count t n) 0) (== (kind t (child t n 0)) 0u8))
+    (text t (child t n 0))
+    "")))
 
 ;; Single-line rendering (comments force multi-line in the formatter).
 (pub (fn flat ((t (& tree)) (n i64)) str
-       (let k (kind t n))
-       (if (!= k 2u8) (ret (str.clone (text t n))))
-       (let mut s (str.from "("))
-       (for i 0 (count t n)
-         (if (> i 0) (str.push_byte (&mut s) 32u8))
-         (str.push (&mut s) (& (flat t (child t n i)))))
-       (str.push_byte (&mut s) 41u8)
-       s))
+  (let k (kind t n))
+  (if (!= k 2u8) (ret (str.clone (text t n))))
+  (let mut s (str.from "("))
+  (for i 0 (count t n)
+    (if (> i 0) (str.push_byte (&mut s) 32u8))
+    (str.push (&mut s) (& (flat t (child t n i)))))
+  (str.push_byte (&mut s) 41u8)
+  s))
 
 (pub (fn has_comment ((t (& tree)) (n i64)) bool
-       (if (== (kind t n) 3u8) (ret true))
-       (if (!= (kind t n) 2u8) (ret false))
-       (for i 0 (count t n) (if (has_comment t (child t n i)) (ret true)))
-       false))
+  (if (== (kind t n) 3u8) (ret true))
+  (if (!= (kind t n) 2u8) (ret false))
+  (for i 0 (count t n) (if (has_comment t (child t n i)) (ret true)))
+  false))
 
 (test sexp_read
   (let t (res.unwrap (read "(fn main () unit ;; c\n  (io.puts \"hi\"))\n(x)")))

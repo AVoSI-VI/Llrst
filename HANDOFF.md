@@ -9,7 +9,7 @@ workflow you need in `docs/workflows/`. Everything below is verifiable from the 
 commit|ce284b9|tests: lifetimes, struct escape, move through deref
 suite|tests/run.sh|done|fails=0
 lines|compiler=6018 rs|std=1685 llr|tools=464 llr|max_file=449|budget=500 soft, 1000 hard
-plan_todos|11/11 complete
+plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)
 ```
 
 The bootstrap plan (spec, compiler, std, hello world, tools, install, docs) is finished.
@@ -160,7 +160,11 @@ Resolver (`resolve.rs`)
 - A std file compiled directly (its tests) is registered as both `main` and `std.X`.
 - `type.fn` resolves methods first, then module-level fns of the module defining the type
   (`vec.sort_str`).
-- `pub` is parsed and ignored.
+- Visibility: `Def.is_pub`; `Program::visible(from, d)` is `is_pub || same module`,
+  checked in `resolve_ty`, the impl owner lookup, and the checker's `require_visible` at
+  every fn/ctor/variant/const/pattern resolution. Error `name.private`. Only `pub` std
+  types enter the prelude. `(pub ...)` wraps `fn extern struct enum const` and impl
+  methods; `(pub (impl ...))` is a parse error.
 
 Tools (`tools/`, `docs/tools/`)
 - All output is `tag|field|...`; exit 0 ok, 1 tool error (`E|<tool>|0|0|0|code|k=v` on
@@ -174,7 +178,7 @@ Tools (`tools/`, `docs/tools/`)
 
 | area | limit | impact | where |
 |------|-------|--------|-------|
-| visibility | `pub` not enforced | private fns callable across modules | `resolve.rs lookup_fn/lookup_type` |
+| visibility | struct fields are always public; privacy is per module only (no finer scopes) | encapsulate via methods | `resolve.rs visible` |
 | traits | none; typed helpers instead (`vec.sort_str`, `vec.has_int`), `map` keyed by `str` only | duplication per element type | `std/vec.llr`, `std/map.llr`, `check/call.rs` |
 | moves | whole locals only; no partial moves; `move.field`/`move.deref` errors | use `(& ...)`, `str.clone`, `mem.replace` | `mir/lower.rs as_operand`, `lower_match.rs` |
 | regions | holder sets are flow-insensitive; a local that ever holds a loan holds it wherever live | false positives when a ref local is reassigned in a loop | `borrow/loans.rs` |
@@ -192,18 +196,16 @@ Tools (`tools/`, `docs/tools/`)
 
 ## 8. Suggested next steps, in order
 
-1. Enforce `pub`: filter non-`pub` items in `lookup_fn`/`lookup_type` when the caller
-   module differs; add `name.private` to `docs/spec/errors.md` and a `tests/err` case.
-2. Runtime panics: add `len=`/`idx=` to `idx.oob` messages (`vec.check`, `str.at`), and
+1. Runtime panics: add `len=`/`idx=` to `idx.oob` messages (`vec.check`, `str.at`), and
    `tests/panic/*.llr` with expected stderr + exit 101 in `tests/run.sh`.
-3. Borrowck precision: make holder sets flow-sensitive per point (kill on whole-local
+2. Borrowck precision: make holder sets flow-sensitive per point (kill on whole-local
    reassign); add stress tests for reference-holding structs in loops.
-4. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with `(fn ...)`
+3. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with `(fn ...)`
    predicate, replacing the `_str`/`_int` pairs; update `docs/canon/collections.md`.
-5. `re`: captures (`mat` groups) so `llr-edit` can offer regex replacement.
-6. Self-hosting path: `std/sexp.llr` already reads source; next is an Llrst type
+4. `re`: captures (`mat` groups) so `llr-edit` can offer regex replacement.
+5. Self-hosting path: `std/sexp.llr` already reads source; next is an Llrst type
    checker. Keep `llrc` (Rust) as the reference until parity.
-7. Visibility of std growth: a script (in Llrst) that regenerates `docs/std/*.md` from
+6. Visibility of std growth: a script (in Llrst) that regenerates `docs/std/*.md` from
    signatures; today they were generated once by hand.
 
 ## 9. Conventions to keep

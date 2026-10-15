@@ -1,11 +1,11 @@
 ;; Optional value. Variant order is fixed: some = 0, none = 1 (try relies on it).
-(enum opt <T> (some T) (none))
+(pub (enum opt <T> (some T) (none)))
 
 (impl opt <T>
-  (fn is_some ((self (& (opt T)))) bool (match self ((opt.some _) true) ((opt.none) false)))
-  (fn is_none ((self (& (opt T)))) bool (match self ((opt.some _) false) ((opt.none) true)))
-  (fn unwrap ((self (opt T))) T (match self ((opt.some v) v) ((opt.none) (panic "opt.none"))))
-  (fn or ((self (opt T)) (d T)) T (match self ((opt.some v) v) ((opt.none) d))))
+  (pub (fn is_some ((self (& (opt T)))) bool (match self ((opt.some _) true) ((opt.none) false))))
+  (pub (fn is_none ((self (& (opt T)))) bool (match self ((opt.some _) false) ((opt.none) true))))
+  (pub (fn unwrap ((self (opt T))) T (match self ((opt.some v) v) ((opt.none) (panic "opt.none")))))
+  (pub (fn or ((self (opt T)) (d T)) T (match self ((opt.some v) v) ((opt.none) d)))))
 
 (test opt_basic
   (let a (opt.some 3))

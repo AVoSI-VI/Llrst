@@ -1,8 +1,7 @@
 (use std.io)
+
 (struct view <'a> (s (& 'a str)))
-(fn mk () view
-  (let s (str.from "x"))
-  (view (& s)))
-(fn main () unit
-  (let v (mk))
-  (io.puts (. v s)))
+
+(fn mk () view (let s (str.from "x")) (view (& s)))
+
+(fn main () unit (let v (mk)) (io.puts (. v s)))

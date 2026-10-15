@@ -1,6 +1,5 @@
 (use std.io)
+
 (fn take ((s str)) unit (io.puts (& s)))
-(fn main () unit
-  (let s (str.from "x"))
-  (let r (& s))
-  (take (@ r)))
+
+(fn main () unit (let s (str.from "x")) (let r (& s)) (take (@ r)))
