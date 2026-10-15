@@ -1,0 +1,13 @@
+(use std.io)
+(struct view <'a> (s (& 'a str)))
+(fn pick <'a> ((a (& 'a str)) (b (& 'a str)) (first bool)) (& 'a str)
+  (if first a b))
+(fn longest <'a> ((a (& 'a str)) (b (& 'a str))) (& 'a str)
+  (if (>= (str.len a) (str.len b)) a b))
+(fn main () unit
+  (let x (str.from "short"))
+  (let y (str.from "longer one"))
+  (io.puts (longest (& x) (& y)))
+  (io.puts (pick (& x) (& y) true))
+  (let v (view (& x)))
+  (io.puts (. v s)))

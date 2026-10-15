@@ -1,0 +1,1 @@
+E|tests/err/struct_escape.llr|5|9|5|borrow.escape|name=s|ref=_0|borrowed_at=5:9
