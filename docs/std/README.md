@@ -11,7 +11,7 @@
 | [os](os.md) | Process environment. |
 | [fs](fs.md) | Files and directories. Errors are `res.err` strings like `io.read|path=x`. |
 | [path](path.md) | Path string helpers; `/` only. |
-| [map](map.md) | Hash map `(map V)` with `str` keys. |
+| [map](map.md) | Hash map `(map K V)`. Hash and eq are function pointers. |
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
 | [json](json.md) | Minimal JSON encoding. |
 | [cli](cli.md) | Argument parsing for tools. |

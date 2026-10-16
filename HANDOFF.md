@@ -206,7 +206,7 @@ Tools (`tools/`, `docs/tools/`)
 | area | limit | impact | where |
 |------|-------|--------|-------|
 | visibility | enum variants are always public; there is no `pub` on a variant | | `parse/mod.rs` enum |
-| traits | none; `vec.sort` and `vec.has` take function pointers, `map` keyed by `str` only | a predicate cannot capture a needle | `std/vec.llr`, `std/map.llr`, `check/call.rs` |
+| traits | none; `vec.sort`, `vec.has`, and `map` calls take function pointers | a predicate cannot capture a needle | `std/vec.llr`, `std/map.llr`, `check/call.rs` |
 | moves | whole locals only; no partial moves; `move.field`/`move.deref` errors | use `(& ...)`, `str.clone`, `mem.replace` | `mir/lower.rs as_operand`, `lower_match.rs` |
 | regions | holder pairs are per local, not per field: a field write never releases a loan; a container of refs declared before its referents reports `borrow.escape` at scope end | conservative | `borrow/holders.rs` |
 | integers | wrap by default; `--checked` traps `+ - * neg` and `MIN / -1`; shifts and casts are still unchecked, and `MIN / -1` without the flag is still a hardware trap | | `codegen/ops.rs`, `codegen/ovf.rs` |
@@ -214,7 +214,7 @@ Tools (`tools/`, `docs/tools/`)
 | init | no definite-initialization analysis (every `let` has an init, so unreachable today) | would matter for `let` without init | `borrow/moves.rs` |
 | runtime | POSIX libc only; `readdir` reads the name at dirent byte 19 (Linux); macOS stat is the same C shim but has not been executed here | | `std/fs.llr` `list`, `runtime/llr_stat.c` |
 | regex | backtracking, ASCII, no captures, no non-greedy; `--ic` lowercases pattern and text | fine for tool-sized input | `std/re.llr` |
-| perf | `vec.sort` allocates a scratch buffer; `map` tombstones never compacted; `diff` O(n*m) LCS table | tool-sized inputs only | `std/vec.llr`, `std/map.llr`, `std/diff.llr` |
+| perf | `vec.sort` allocates a scratch buffer; `map` bucket array never shrinks; `diff` O(n*m) LCS table | tool-sized inputs only | `std/vec.llr`, `std/map.llr`, `std/diff.llr` |
 | cross | `--emit-obj` verified for aarch64/riscv64/s390x/apple-darwin; direct `--target` linking needs a clang sysroot | link on target instead | `link.rs` |
 | fmt | width fixed at 100; blank-line policy fixed; comments inside a form force multi-line | by design | `tools/llr-fmt.llr` |
 | grep | no word-boundary `\b` | check hits manually | `std/re.llr` |
@@ -223,53 +223,52 @@ Tools (`tools/`, `docs/tools/`)
 | codegen | all locals in memory, `opt_level=speed` only on IR; no inlining of `str.at`/`vec.get` bounds checks | slower than needed | `codegen/func.rs` |
 
 ## 8. Suggested next steps, in order
-1. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
-   a `str.from_int` wrapper.
-2. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
-3. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
+1. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
+2. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
    `std/sexp.llr` and skips private items; today the tables were generated once by hand.
-4. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
+3. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
    checker in Llrst, checked against `llrc` on `tests/`. Keep `llrc` as the reference.
-5. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
+4. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
     lowering small bodies into the caller; first targets are the `str.at` and `vec.get`
     bounds checks (`codegen/func.rs`).
-6. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
+5. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
     `tests/run.sh` checks it. Today that set compares stdout only.
-7. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
+6. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
     and a note in `docs/tools/llr-fmt.md` that a comment inside a form forces a line break.
-8. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
+7. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
     that builds `--emit-obj` for aarch64, riscv64, s390x, and apple-darwin and checks `file`.
-9. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
+8. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
     for the whole program (`borrow/holders.rs`).
-10. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
+9. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
     in `docs/canon/collections.md` until user traits exist.
-11. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
+10. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
     Cranelift shift counts are otherwise undefined (`codegen/ops.rs`).
-12. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
+11. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
     truncating (`codegen/ops.rs cast`).
-13. Partial moves of copy fields, so one field of a struct can be moved while the rest
+12. Partial moves of copy fields, so one field of a struct can be moved while the rest
     drops (`mir/lower.rs`).
-14. Field-granular loans: writing `(. v s)` releases only loans of that field
+13. Field-granular loans: writing `(. v s)` releases only loans of that field
     (`borrow/holders.rs`).
-15. Definite initialization, so a future `(let mut x T)` can omit the initializer
+14. Definite initialization, so a future `(let mut x T)` can omit the initializer
     (`borrow/moves.rs`).
-16. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
+15. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
     and a Windows file, selected by the target OS.
-17. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
+16. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
     (`std/diff.llr`).
-18. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
-19. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
-20. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
-21. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
-22. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
-23. Unused `(use ...)` and unused private functions (`resolve.rs`).
-24. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
+17. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
+18. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
+19. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
+20. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
+21. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
+22. Unused `(use ...)` and unused private functions (`resolve.rs`).
+23. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
 
-25. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
-26. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
-27. `docs/std` field rows still omit `pub`. The regeneration tool (`tools/llr-doc.llr`, already listed above) should print `(pub (name type))` for public fields.
-28. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
-29. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
+24. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
+25. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
+26. `docs/std` field rows still omit `pub`. The regeneration tool (`tools/llr-doc.llr`, already listed above) should print `(pub (name type))` for public fields.
+27. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
+28. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
+29. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
 
 ## 9. Conventions to keep
 

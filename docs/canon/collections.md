@@ -27,15 +27,15 @@ No map/filter/closures in v1. Write the loop.
 
 ## map
 
-Keys are always `str` (use `(str.from_int n)` for integer keys). Values: any.
+Keys are any `K`. Each call passes `(fn ((& K)) i64)` and `(fn ((& K) (& K)) bool)`. They are not stored. Str uses `map.hash_str` and `map.eq_str`. `i64` uses `map.hash_int` and `map.eq_int`.
 
 | task | form |
 |------|------|
-| create | `(map.new <V>)` |
-| insert | `(map.put (&mut m) k v)` moves `k`, replaces an existing value |
-| get | `(map.get (& m) k)` returns `(opt (& V))` |
-| get mutable | `(map.get_mut (&mut m) k)` returns `(opt (&mut V))` |
-| has | `(map.has (& m) k)` |
-| remove | `(map.del (&mut m) k)` returns `bool` |
+| create | `(map.new <str V>)` or `(map.new <i64 V>)` |
+| insert | `(map.put (&mut m) k v map.hash_str map.eq_str)` moves `k`, replaces an existing value |
+| get | `(map.get (& m) k map.hash_str map.eq_str)` returns `(opt (& V))` |
+| get mutable | `(map.get_mut (&mut m) k map.hash_str map.eq_str)` returns `(opt (&mut V))` |
+| has | `(map.has (& m) k map.hash_str map.eq_str)` |
+| remove | `(map.del (&mut m) k map.hash_str map.eq_str)` returns `bool` |
 | size | `(map.len (& m))` |
-| keys | `(map.keys (& m))` returns `(vec str)` sorted, cloned |
+| keys | `(map.keys (& m) str.clone vec.cmp_str)` returns a sorted `(vec K)`. `i64` keys use `map.clone_int` and `vec.cmp_int` |

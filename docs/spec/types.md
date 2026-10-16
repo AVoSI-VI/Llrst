@@ -59,7 +59,7 @@ explicitly: `(vec.new <str>)`.
 | `(vec T)` | growable array `{ptr len cap}` |
 | `(opt T)` | `(opt.some x)` or `(opt.none)` |
 | `(res T E)` | `(res.ok x)` or `(res.err e)` |
-| `(map K V)` | hash map, K in `{str i64 u64}` |
+| `(map K V)` | hash map; each call passes `(fn ((& K)) i64)` and `(fn ((& K) (& K)) bool)`. Helpers cover `str` and `i64` |
 
 ## Function types
 
