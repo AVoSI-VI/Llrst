@@ -1,0 +1,3 @@
+(pub (struct box (n i64) (pub (tag i64))))
+
+(pub (fn make ((n i64) (tag i64)) box (box n tag)))

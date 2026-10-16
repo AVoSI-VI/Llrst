@@ -62,10 +62,19 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             let (generics, at) = parse_generics(items, 2)?;
             let mut fields = Vec::new();
             for f in &items[at..] {
-                let l = f.list().filter(|l| l.len() == 2).ok_or_else(|| {
-                    Diag::error(f.span(), "parse.expect").kv("want", "(name type)").kv("got", f.show())
+                let (is_pub, inner) = if f.head() == Some("pub") {
+                    let l = f.list().unwrap();
+                    if l.len() != 2 {
+                        return Err(arity(f.span(), "pub", "1", l.len().saturating_sub(1)));
+                    }
+                    (true, &l[1])
+                } else {
+                    (false, f)
+                };
+                let l = inner.list().filter(|l| l.len() == 2).ok_or_else(|| {
+                    Diag::error(inner.span(), "parse.expect").kv("want", "(name type)").kv("got", inner.show())
                 })?;
-                fields.push(Field { name: name_of(&l[0])?, ty: parse_ty(&l[1])? });
+                fields.push(Field { name: name_of(&l[0])?, ty: parse_ty(&l[1])?, is_pub });
             }
             Item::Struct(StructDecl { name, generics, fields, is_pub, span: sp })
         }

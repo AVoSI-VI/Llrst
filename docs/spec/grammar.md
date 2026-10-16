@@ -23,7 +23,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (fn NAME ARGS RET BODY...)                   ; function
 (fn NAME <T U> ARGS RET BODY...)             ; generic function
 (extern NAME ARGS RET)                       ; C ABI import, no body
-(struct NAME FIELD...)                       ; (struct point (x i64) (y i64))
+(struct NAME FIELD...)                       ; (struct point (x i64) (pub (y i64)))
 (struct NAME <T> FIELD...)                   ; generic struct
 (enum NAME VARIANT...)                       ; (enum shape (circle f64) (rect f64 f64) (none))
 (enum NAME <T> VARIANT...)
@@ -34,7 +34,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (pub FORM)                                   ; export; FORM is fn extern struct enum const (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )
-FIELD  := (NAME TYPE)
+FIELD  := (NAME TYPE) | (pub (NAME TYPE))   ; private unless pub
 VARIANT:= (NAME TYPE*)
 ```
 

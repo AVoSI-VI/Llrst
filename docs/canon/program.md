@@ -27,8 +27,11 @@ One file is one module. The module name is the file name without `.llr`.
 Every `fn`, `extern`, `struct`, `enum`, `const`, and `impl` method is private to its
 file unless wrapped: `(pub (fn ...))`, `(pub (struct ...))`, and inside `(impl T ...)`
 each exported method is `(pub (fn ...))`. There is no `(pub (impl ...))`. Using a private
-item from another file is `name.private|name=|module=|fix=(pub ...)`. Struct fields are
-always public. A std type enters the prelude (usable without `use`) only when it is `pub`.
+item from another file is `name.private|name=|module=|fix=(pub ...)`. A struct field is
+private unless it is `(pub (name type))`. Code in the struct's file, including its `impl`,
+may use private fields. Another file gets `name.private_field` on `(. p name)` and on a
+positional constructor. Enum variants stay public. A std type enters the prelude only when
+it is `pub`.
 
 Import a sibling module with `(use proj.name)` where the root is the directory of the file
 holding `main`.

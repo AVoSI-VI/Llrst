@@ -13,6 +13,7 @@ Goal: turn a machine diagnostic into a fix.
 | `parse.*` | parens or arity; `form=`/`want=` say which form and how many items |
 | `name.unknown` | missing `(use std.X)` or typo; `llr-grep "\\(fn NAME"` to find it |
 | `name.private` | item is not `pub` in `module=`; wrap its definition in `(pub ...)` or call a pub wrapper |
+| `name.private_field` | field is private in `module=`; write `(pub (field type))` or call a method in that module |
 | `type.mismatch` | `want=`/`got=`; add a cast `(as T e)`, a borrow `(& e)`, or fix the call |
 | `type.infer` | add explicit type args `(vec.new <T>)` or a `let` type |
 | `type.arity` | argument count; read the signature in `docs/std/` |

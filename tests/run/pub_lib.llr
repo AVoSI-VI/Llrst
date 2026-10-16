@@ -1,4 +1,4 @@
-(pub (struct pt (x i64) (y i64)))
+(pub (struct pt (pub (x i64)) (pub (y i64))))
 
 (impl pt
   (pub (fn sum ((self (& pt))) i64 (+ (. self x) (. self y))))

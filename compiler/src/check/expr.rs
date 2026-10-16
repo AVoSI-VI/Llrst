@@ -333,7 +333,16 @@ impl<'a> Checker<'a> {
         if let Ty::Adt(d, args) = &base {
             if let Some(sd) = self.prog.struct_def(*d) {
                 if let Some(i) = sd.fields.iter().position(|f| f.0 == name) {
-                    return Ok((i as u32, sd.fields[i].1.subst(args)));
+                    let (fname, fty, is_pub) = &sd.fields[i];
+                    if !is_pub && self.prog.def(*d).module != self.module {
+                        let owner = self.prog.def(*d).module;
+                        return Err(Diag::error(sp, "name.private_field")
+                            .kv("field", fname.clone())
+                            .kv("ty", self.prog.type_name(*d))
+                            .kv("module", self.prog.modules[owner as usize].path.clone())
+                            .kv("fix", format!("(pub ({} {}))", fname, self.show(&fty.subst(args)))));
+                    }
+                    return Ok((i as u32, fty.subst(args)));
                 }
             }
         }

@@ -48,6 +48,7 @@ pub struct FnDecl {
 pub struct Field {
     pub name: String,
     pub ty: TyExpr,
+    pub is_pub: bool,
 }
 
 #[derive(Clone, Debug)]

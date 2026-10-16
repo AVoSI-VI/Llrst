@@ -2,7 +2,7 @@
 (use std.sys)
 (use std.vec)
 
-(pub (struct str (p (ptr u8)) (len i64) (cap i64)))
+(pub (struct str (pub (p (ptr u8))) (pub (len i64)) (cap i64)))
 
 (impl str
   (pub (fn new () str (str (ptr.null <u8>) 0 0)))

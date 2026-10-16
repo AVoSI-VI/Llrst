@@ -1,0 +1,4 @@
+(use proj.field_lib)
+(use std.io)
+
+(fn main () unit (let b (field_lib.make 1 2)) (io.puts (& (str.from_int (. b tag)))))

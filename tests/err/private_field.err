@@ -1,0 +1,1 @@
+E|tests/err/private_field.llr|3|54|7|name.private_field|field=n|ty=box|module=proj.field_lib|fix=(pub (n i64))

@@ -3,7 +3,7 @@
 ;; range [lo, hi) into `kids`, which stores node indexes in order.
 (struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64))
 
-(pub (struct tree (nodes (vec node)) (kids (vec i64)) (top (vec i64))))
+(pub (struct tree (nodes (vec node)) (kids (vec i64)) (pub (top (vec i64)))))
 
 (struct rd (src str) (i i64) (line i64) (col i64))
 

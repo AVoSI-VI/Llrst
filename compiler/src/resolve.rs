@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 pub struct StructDef {
     pub generics: Vec<String>,
     pub lifetimes: Vec<String>,
-    pub fields: Vec<(String, Ty)>,
+    /// `(name, type, is_pub)`.
+    pub fields: Vec<(String, Ty, bool)>,
 }
 
 pub struct EnumDef {
@@ -296,7 +297,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
             match it {
                 Item::Struct(s) => {
                     let id = prog.modules[mi as usize].items[&s.name];
-                    let fields = s.fields.iter().map(|f| Ok((f.name.clone(), resolve_ty(&prog, mi, &s.generics.types, &f.ty)?))).collect::<PResult<Vec<_>>>()?;
+                    let fields = s.fields.iter().map(|f| Ok((f.name.clone(), resolve_ty(&prog, mi, &s.generics.types, &f.ty)?, f.is_pub))).collect::<PResult<Vec<_>>>()?;
                     if let DefKind::Struct(sd) = &mut prog.defs[id.0 as usize].kind {
                         sd.fields = fields;
                     }

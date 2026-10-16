@@ -1,0 +1,3 @@
+(use proj.field_lib)
+
+(fn main () unit (let b (field_lib.make 1 2)) (let x (. b n)))

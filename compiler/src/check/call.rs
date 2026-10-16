@@ -104,6 +104,16 @@ impl<'a> Checker<'a> {
         if let Some(w) = want {
             let _ = self.unify(&ty, w);
         }
+        if self.prog.def(t).module != self.module {
+            if let Some((fname, fty, _)) = sd.fields.iter().find(|f| !f.2) {
+                let owner = self.prog.def(t).module;
+                return Err(Diag::error(sp, "name.private_field")
+                    .kv("field", fname.clone())
+                    .kv("ty", self.prog.type_name(t))
+                    .kv("module", self.prog.modules[owner as usize].path.clone())
+                    .kv("fix", format!("(pub ({} {}))", fname, self.show(&fty.subst(&inst)))));
+            }
+        }
         let params: Vec<Ty> = sd.fields.iter().map(|f| f.1.subst(&inst)).collect();
         let fields = self.check_args(args, &params, sp)?;
         Ok(mk(ExprKind::Struct { def: t, fields }, ty, sp))
