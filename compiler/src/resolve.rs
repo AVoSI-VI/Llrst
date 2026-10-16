@@ -164,7 +164,7 @@ impl Program {
                 if let Some(m) = self.methods.get(&t).and_then(|m| m.get(parts[1])) {
                     return Some(*m);
                 }
-                // Module-level fns of the module that defines the type: `vec.sort_str`.
+                // Module-level fns of the module that defines the type: `vec.cmp_str`.
                 let tm = self.def(t).module;
                 self.modules[tm as usize].items.get(parts[1]).copied().filter(|d| matches!(self.def(*d).kind, DefKind::Fn(_)))
             }

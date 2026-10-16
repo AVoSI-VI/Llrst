@@ -68,7 +68,7 @@
     (for i 0 (vec.len (& (. self ents)))
       (let e (vec.get (& (. self ents)) i))
       (if (. e alive) (vec.push (&mut out) (str.clone (& (. e k))))))
-    (vec.sort_str (&mut out))
+    (vec.sort (&mut out) vec.cmp_str)
     out)))
 
 (test map_basic

@@ -138,7 +138,8 @@
   (vec.set (&mut (. ps alts)) 0 top)
   (res.ok (re (vec.take (&mut (. ps alts)))))))
 
-(fn push_end ((out (&mut (vec i64))) (e i64)) unit (if (not (vec.has_int out e)) (vec.push out e)))
+(fn push_end ((out (&mut (vec i64))) (e i64)) unit
+  (if (not (vec.has out (& e) vec.eq_int)) (vec.push out e)))
 
 (fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
   (let k (. a kind))

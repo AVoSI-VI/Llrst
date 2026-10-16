@@ -13,9 +13,9 @@
 | pop | `(vec.pop (&mut v))` returns `(opt T)` |
 | remove | `(vec.remove (&mut v) i)` returns `T`, shifts |
 | iterate | `(for i 0 (vec.len (& v)) (let x (vec.get (& v) i)) ...)` |
-| contains | `(vec.has_str (& v) x)` / `(vec.has_int (& v) x)` |
+| contains | `(vec.has (& v) x vec.eq_str)` or `vec.eq_int` |
 | index of | `(vec.index_str (& v) x)` returns `(opt i64)` |
-| sort | `(vec.sort_str (&mut v))` / `(vec.sort_int (&mut v))`, stable |
+| sort | `(vec.sort (&mut v) vec.cmp_str)` or `vec.cmp_int`, stable. A custom order is a named `(fn ((& T) (& T)) i64)` |
 | clone | `(vec.clone_str (& v))` |
 | reverse | `(vec.reverse (&mut v))` |
 | insert | `(vec.insert (&mut v) i x)` |
