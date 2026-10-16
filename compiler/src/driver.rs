@@ -116,6 +116,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
                 st.mir_dump.push_str(&print_body(&mir));
             }
             borrowck(&prog, diags, sm, &mir);
+            crate::mir::lint::lint(diags, &mir);
             if diags.has_errors() {
                 continue;
             }
@@ -203,6 +204,7 @@ impl<'a> Pipeline<'a> {
             self.mir_dump.push_str(&print_body(&mir));
         }
         borrowck(self.prog, self.diags, self.sm, &mir);
+        crate::mir::lint::lint(self.diags, &mir);
         if codegen && !self.diags.has_errors() {
             cg.compile_body(&mir, inst)?;
         }

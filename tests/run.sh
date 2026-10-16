@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out), tests/err/*.llr (stderr must
-# equal .err), tests/panic/*.llr (stderr must equal .err and exit 101), and every
+# equal .err), tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal .err and exit 0), and every
 # std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -72,6 +72,21 @@ for f in "$root"/tests/panic/*.llr; do
     echo "ok|panic/$name"
   else
     echo "fail|panic/$name|code=$code|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/panic_$name.err" | tr '\n' ' ')"
+    fails=$((fails+1))
+  fi
+done
+
+for f in "$root"/tests/warn/*.llr; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f" .llr)"
+  want="${f%.llr}.err"
+  [ -e "$want" ] || continue
+  ( cd "$root" && "$llrc" check "tests/warn/$name.llr" 2>"$tmp/warn_$name.err" >/dev/null )
+  code=$?
+  if [ "$code" -eq 0 ] && cmp -s "$tmp/warn_$name.err" "$want"; then
+    echo "ok|warn/$name"
+  else
+    echo "fail|warn/$name|code=$code|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/warn_$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
 done

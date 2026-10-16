@@ -9,7 +9,7 @@ workflow you need in `docs/workflows/`. Everything below is verifiable from the 
 commit|ce284b9|tests: lifetimes, struct escape, move through deref
 suite|tests/run.sh|done|fails=0
 lines|compiler=6018 rs|std=1685 llr|tools=464 llr|max_file=449|budget=500 soft, 1000 hard
-plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done|flow-sensitive borrow holders done|div.zero is a P| line via sys.checked_div|--checked traps overflow; wadd/wmul always wrap|fs stat via runtime/llr_stat.c
+plan_todos|11/11 complete|follow_up|pub enforcement done (strict, per module)|panic goldens + idx.oob fields done|flow-sensitive borrow holders done|div.zero is a P| line via sys.checked_div|--checked traps overflow; wadd/wmul always wrap|fs stat via runtime/llr_stat.c|W for unreachable blocks and unused locals
 ```
 
 The bootstrap plan (spec, compiler, std, hello world, tools, install, docs) is finished.
@@ -116,6 +116,11 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
   `link.rs` appends `llr_stat.o` from `$LLRST_RUNTIME`, `$LLRST_STD/..`,
   `<exe>/../share/llrst/`, or `./runtime/`. `install.sh` and `tests/run.sh` compile it.
   With `--checked`, `checked_div` also rejects signed `MIN / -1` and `MIN % -1`.
+- `mir/lint.rs` runs after borrowck. `flow.unreachable` is an unreachable block that
+  contains something other than `Drop`/`StorageDead`/`Nop` (the empty block opened after
+  `(ret)` is skipped). `name.unused` is a local or parameter that is never an operand,
+  borrow, or discriminant; names starting with `_` are skipped. Warnings do not change
+  the exit code. Goldens: `tests/warn/`.
 - `+ - * neg` wrap by default. `llrc --checked` traps them (`codegen/ovf.rs` calls
   `sys.abort` with `int.overflow`) using Cranelift `sadd_overflow` / `uadd_overflow` and
   the sub/mul pairs. `wadd` `wsub` `wmul` `wneg` always wrap; the map hash uses `wmul`.
@@ -211,57 +216,58 @@ Tools (`tools/`, `docs/tools/`)
 | cross | `--emit-obj` verified for aarch64/riscv64/s390x/apple-darwin; direct `--target` linking needs a clang sysroot | link on target instead | `link.rs` |
 | fmt | width fixed at 100; blank-line policy fixed; comments inside a form force multi-line | by design | `tools/llr-fmt.llr` |
 | grep | no word-boundary `\b` | check hits manually | `std/re.llr` |
-| diagnostics | no `W` warnings emitted by the compiler yet (`flow.unreachable` reserved) | | `diag.rs` |
+| diagnostics | warnings are not fatal; there is no `--deny` | a `W` line can be ignored | `diag.rs`, `mir/lint.rs` |
 | tests | `tests/run` compares stdout only (no stderr/exit check for normal runs) | | `tests/run.sh` |
 | codegen | all locals in memory, `opt_level=speed` only on IR; no inlining of `str.at`/`vec.get` bounds checks | slower than needed | `codegen/func.rs` |
 
 ## 8. Suggested next steps, in order
-1. Compiler warnings: `W|...|flow.unreachable` for MIR blocks with no predecessors and
-   `name.unused` for never-read locals; `Diags::flush` already renders `W`.
-2. Field privacy: `(pub (x i64))` field syntax and `name.private_field` on `(. p x)` across
+1. Field privacy: `(pub (x i64))` field syntax and `name.private_field` on `(. p x)` across
    modules (`parse/mod.rs` struct fields, `check/expr.rs field_of`).
-3. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with a predicate,
+2. `vec.sort` with a comparator `(fn ((& T) (& T)) i64)` and `vec.has` with a predicate,
    replacing the `_str`/`_int` pairs; merge sort instead of insertion sort; update
    `docs/canon/collections.md`.
-4. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
+3. `map`: compact tombstones when `del` ratio passes 1/2; `i64` keys via a second struct or
    a `str.from_int` wrapper.
-5. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
-6. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
+4. `re`: captures (`mat` groups) and `\b`; then `llr-grep --word` and regex `llr-edit`.
+5. `docs/std` regeneration tool in Llrst (`tools/llr-doc.llr`) that reads signatures with
    `std/sexp.llr` and skips private items; today the tables were generated once by hand.
-7. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
+6. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
    checker in Llrst, checked against `llrc` on `tests/`. Keep `llrc` as the reference.
-8. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
+7. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
     lowering small bodies into the caller; first targets are the `str.at` and `vec.get`
     bounds checks (`codegen/func.rs`).
-9. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
+8. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
     `tests/run.sh` checks it. Today that set compares stdout only.
-10. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
+9. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
     and a note in `docs/tools/llr-fmt.md` that a comment inside a form forces a line break.
-11. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
+10. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
     that builds `--emit-obj` for aarch64, riscv64, s390x, and apple-darwin and checks `file`.
-12. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
+11. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
     for the whole program (`borrow/holders.rs`).
-13. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
+12. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
     in `docs/canon/collections.md` until user traits exist.
-14. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
+13. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
     Cranelift shift counts are otherwise undefined (`codegen/ops.rs`).
-15. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
+14. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
     truncating (`codegen/ops.rs cast`).
-16. Partial moves of copy fields, so one field of a struct can be moved while the rest
+15. Partial moves of copy fields, so one field of a struct can be moved while the rest
     drops (`mir/lower.rs`).
-17. Field-granular loans: writing `(. v s)` releases only loans of that field
+16. Field-granular loans: writing `(. v s)` releases only loans of that field
     (`borrow/holders.rs`).
-18. Definite initialization, so a future `(let mut x T)` can omit the initializer
+17. Definite initialization, so a future `(let mut x T)` can omit the initializer
     (`borrow/moves.rs`).
-19. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
+18. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
     and a Windows file, selected by the target OS.
-20. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
+19. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
     (`std/diff.llr`).
-21. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
-22. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
-23. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
-24. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
+20. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
+21. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
+22. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
+23. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
 
+24. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
+25. Unused `(use ...)` and unused private functions (`resolve.rs`).
+26. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
 ## 9. Conventions to keep
 
 - Files under 500 lines (`scripts/check-lines.sh` runs in `tests/run.sh`); functions

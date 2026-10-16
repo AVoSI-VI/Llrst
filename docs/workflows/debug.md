@@ -29,6 +29,9 @@ Goal: turn a machine diagnostic into a fix.
 3. `llrc emit-mir FILE` prints the MIR when a borrow error is unclear: find the `&` that
    creates the loan and the last use of its holder.
 
+A `W|` line is not a failure. `name.unused` means delete the binding or use it.
+`flow.unreachable` means the statements after a `(ret)` or an always-taken branch are dead.
+
 ## Runtime panics
 
 `P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101. FILE is usually the std frame that caught

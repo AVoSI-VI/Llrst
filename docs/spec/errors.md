@@ -27,7 +27,12 @@ E|src/main.llr|7|3|1|move.used|name=v|moved_at=6:9
 ```
 
 Compilation stops after the first pass that produced any `E`. Output goes to stderr.
-Exit code 1 on any `E`, 0 otherwise.
+Exit code 1 on any `E`, 0 otherwise. A `W` line does not fail the build.
+
+| warning | meaning |
+|---------|---------|
+| `flow.unreachable` | a MIR block nothing jumps to, and it holds real statements (not only drops) |
+| `name.unused` | a local or parameter is never read; `name=` |
 
 ## Runtime panics
 
