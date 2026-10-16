@@ -33,7 +33,7 @@ needed ones `pub`, add `(use proj.name)` at call sites, run `llr-test`.
 ## Rename
 
 ```
-llr-grep -w OLD DIR            ; list every use
+llr-grep --word OLD DIR        ; list every use
 llr-edit --all FILE OLD NEW    ; per file, exact word replace
 llr-test DIR
 ```

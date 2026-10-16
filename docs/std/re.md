@@ -1,6 +1,6 @@
 # std.re
 
-Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`.
+Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |`. Captures are `mat.groups`.
 
 Source: `std/re.llr`. Import with `(use std.re)` for module functions; types and methods need no import.
 
@@ -10,7 +10,8 @@ Source: `std/re.llr`. Import with `(use std.re)` for module functions; types and
 - `(struct seq (atoms (vec atom)))`
 - `(struct alt (seqs (vec seq)))`
 - `(struct re (alts (vec alt)))`
-- `(struct mat (lo i64) (hi i64))`
+- `(struct grp (lo i64) (hi i64))`
+- `(struct mat (lo i64) (hi i64) (groups (vec grp)))`
 - `(struct parser (p str) (i i64) (alts (vec alt)))`
 
 ## Functions
@@ -22,7 +23,9 @@ Source: `std/re.llr`. Import with `(use std.re)` for module functions; types and
 | `re.find` | `((r (& re)) (s (& str)))` | `(opt mat)` |
 | `re.is_match` | `((r (& re)) (s (& str)))` | `bool` |
 | `re.find_all` | `((r (& re)) (s (& str)))` | `(vec mat)` |
+| `re.boundary` | `((s (& str)) (i i64))` | `bool` |
+| `re.expand` | `((s (& str)) (m (& mat)) (new (& str)))` | `(res str str)` |
 
 ## Tests
 
-`re_basic`, `re_find`
+`re_basic`, `re_find`, `re_cap`, `re_word`, `re_expand`

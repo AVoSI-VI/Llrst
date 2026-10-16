@@ -4,8 +4,8 @@ Order: reuse, refactor, then new code.
 
 ## Rename
 
-1. `llr-grep "OLD" --fixed DIR --max 500` to list every use (word boundaries: use regex
-   `"\\bOLD\\b"` is not supported; check each hit instead).
+1. `llr-grep "OLD" --fixed --word DIR --max 500` to list every use. A regex boundary is
+   `llr-grep "\\bOLD\\b" DIR`.
 2. Per file: `llr-edit FILE OLD NEW --all`.
 3. `llrc check` each changed file, then `llr-test DIR`.
 

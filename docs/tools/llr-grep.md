@@ -3,7 +3,7 @@
 Regex or literal search across files.
 
 ```
-llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--max N]
+llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--word] [--max N]
 ```
 
 | flag | default | meaning |
@@ -12,10 +12,12 @@ llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--max N]
 | `--glob` | `` | only files whose base name (or path when G has `/`) matches G |
 | `--fixed` | off | PATTERN is a literal, not a regex |
 | `--ic` | off | case-insensitive (ASCII) |
+| `--word` | off | match only at word boundaries (`\b`, ASCII `[A-Za-z0-9_]`) |
 | `--max` | 200 | stop after N matches |
 
-Regex syntax: `std.re`: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`. Parentheses in
-Llrst source must be escaped: `"\\(fn main"`.
+Regex syntax: `std.re`: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |`. Parentheses in
+Llrst source must be escaped: `"\\(fn main"`. `--word` compiles `\b(PATTERN)\b`, so `|` stays
+inside the group. `--fixed --word` keeps the literal and checks `re.boundary` at both ends.
 
 Output grammar:
 

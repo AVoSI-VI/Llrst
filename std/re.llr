@@ -1,6 +1,6 @@
-;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |
+;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |
 ;; Leftmost match, longest end among alternatives. ASCII only.
-;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol
+;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol, 6 boundary
 (struct atom (kind u8) (c u8) (set str) (neg bool) (grp i64) (min i64) (max i64))
 
 (struct seq (atoms (vec atom)))
@@ -10,7 +10,12 @@
 ;; alts[0] is the top level; groups are appended as they are parsed.
 (pub (struct re (alts (vec alt))))
 
-(pub (struct mat (pub (lo i64)) (pub (hi i64))))
+(pub (struct grp (pub (lo i64)) (pub (hi i64))))
+
+;; groups[0] is the first `(...)` ($1). Unmatched is lo=-1, hi=-1. $0 is lo/hi.
+(pub (struct mat (pub (lo i64)) (pub (hi i64)) (pub (groups (vec grp)))))
+
+(struct hit (end i64) (slots (vec grp)))
 
 (struct parser (p str) (i i64) (alts (vec alt)))
 
@@ -113,11 +118,14 @@
         (let e (peek ps))
         (if (== e 0u8) (ret (res.err (perr "trailing \\" (. ps i)))))
         (set (. ps i) (+ (. ps i) 1))
-        (let mut set (str.new))
-        (let neg (class_escape e (&mut set)))
-        (if (== (str.len (& set)) 1)
-          (set a (atom 0u8 e (str.new) false 0 1 1))
-          (set a (atom 2u8 0u8 set neg 0 1 1)))))
+        (if (== e 98u8)
+          (set a (atom 6u8 0u8 (str.new) false 0 1 1))
+          (do
+            (let mut set (str.new))
+            (let neg (class_escape e (&mut set)))
+            (if (== (str.len (& set)) 1)
+              (set a (atom 0u8 e (str.new) false 0 1 1))
+              (set a (atom 2u8 0u8 set neg 0 1 1)))))))
     (try (parse_quant ps (&mut a)))
     (vec.push (&mut atoms) a))
   (res.ok (seq atoms)))
@@ -138,58 +146,122 @@
   (vec.set (&mut (. ps alts)) 0 top)
   (res.ok (re (vec.take (&mut (. ps alts)))))))
 
-(fn push_end ((out (&mut (vec i64))) (e i64)) unit
-  (if (not (vec.has out (& e) vec.eq_int)) (vec.push out e)))
+(fn is_word ((c u8)) bool
+  (or (and (>= c 48u8) (<= c 57u8))
+    (or (and (>= c 65u8) (<= c 90u8)) (or (and (>= c 97u8) (<= c 122u8)) (== c 95u8)))))
 
-(fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
+;; True when exactly one neighbor is a word byte. Ends of the string are non-word.
+(pub (fn boundary ((s (& str)) (i i64)) bool
+  (let left (and (> i 0) (is_word (str.at s (- i 1)))))
+  (let right (and (< i (str.len s)) (is_word (str.at s i))))
+  (not (== left right))))
+
+(fn clone_slots ((s (& (vec grp)))) (vec grp)
+  (let mut o (vec.new <grp>))
+  (for i 0 (vec.len s) (let g (vec.get s i)) (vec.push (&mut o) (grp (. g lo) (. g hi))))
+  o)
+
+(fn install ((dst (&mut (vec grp))) (src (& (vec grp)))) unit
+  (for i 0 (vec.len src) (let g (vec.get src i)) (vec.set dst i (grp (. g lo) (. g hi)))))
+
+(fn blank ((n i64)) (vec grp)
+  (let mut v (vec.new <grp>))
+  (for i 0 n (vec.push (&mut v) (grp (neg 1) (neg 1))))
+  v)
+
+(fn set_grp ((s (&mut (vec grp))) (i i64) (lo i64) (hi i64)) unit (vec.set s i (grp lo hi)))
+
+;; First path to an end wins, so a later tie does not replace its captures.
+(fn push_hit ((out (&mut (vec hit))) (e i64) (slots (& (vec grp)))) unit
+  (for i 0 (vec.len out) (if (== (. (vec.get out i) end) e) (ret)))
+  (vec.push out (hit e (clone_slots slots))))
+
+(fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (slots (&mut (vec grp))) (out (&mut (vec hit)))) unit
   (let k (. a kind))
-  (if (== k 4u8) (do (if (== i 0) (push_end out i)) (ret)))
-  (if (== k 5u8) (do (if (== i (str.len s)) (push_end out i)) (ret)))
-  (if (== k 3u8) (do (alt_ends r (. a grp) s i out) (ret)))
+  (if (== k 4u8) (do (if (== i 0) (push_hit out i slots)) (ret)))
+  (if (== k 5u8) (do (if (== i (str.len s)) (push_hit out i slots)) (ret)))
+  (if (== k 6u8) (do (if (boundary s i) (push_hit out i slots)) (ret)))
+  (if (== k 3u8)
+    (do
+      (let saved (clone_slots slots))
+      (let mut sub (vec.new <hit>))
+      (alt_ends r (. a grp) s i slots (&mut sub))
+      (install slots (& saved))
+      (for j 0 (vec.len (& sub))
+        (let h (vec.get (& sub) j))
+        (let mut sl (clone_slots (& (. h slots))))
+        (set_grp (&mut sl) (- (. a grp) 1) i (. h end))
+        (push_hit out (. h end) (& sl)))
+      (ret)))
   (if (>= i (str.len s)) (ret))
   (let c (str.at s i))
   (let ok
     (if (== k 1u8)
       true
       (if (== k 0u8) (== c (. a c)) (!= (str.has_byte (& (. a set)) c) (. a neg)))))
-  (if ok (push_end out (+ i 1))))
+  (if ok (push_hit out (+ i 1) slots)))
 
-(fn rep ((r (& re)) (sq (& seq)) (k i64) (s (& str)) (i i64) (count i64) (out (&mut (vec i64)))) unit
+(fn rep ((r (& re))
+   (sq (& seq))
+   (k i64)
+   (s (& str))
+   (i i64)
+   (count i64)
+   (slots (&mut (vec grp)))
+   (out (&mut (vec hit)))) unit
   (let a (vec.get (& (. sq atoms)) k))
-  (if (or (== (. a kind) 4u8) (== (. a kind) 5u8))
+  (if (or (== (. a kind) 4u8) (== (. a kind) 5u8) (== (. a kind) 6u8))
     (do
-      (let mut z (vec.new <i64>))
-      (atom_ends r a s i (&mut z))
-      (if (> (vec.len (& z)) 0) (seq_ends r sq (+ k 1) s i out))
+      (let mut z (vec.new <hit>))
+      (atom_ends r a s i slots (&mut z))
+      (if (> (vec.len (& z)) 0) (seq_ends r sq (+ k 1) s i slots out))
       (ret)))
   (if (< count (. a max))
     (do
-      (let mut ends (vec.new <i64>))
-      (atom_ends r a s i (&mut ends))
+      (let mut ends (vec.new <hit>))
+      (atom_ends r a s i slots (&mut ends))
+      (let saved (clone_slots slots))
       (for j 0 (vec.len (& ends))
-        (let e (@ (vec.get (& ends) j)))
-        (if (!= e i) (rep r sq k s e (+ count 1) out)))))
-  (if (>= count (. a min)) (seq_ends r sq (+ k 1) s i out)))
+        (let h (vec.get (& ends) j))
+        (let e (. h end))
+        (if (!= e i) (do (install slots (& (. h slots))) (rep r sq k s e (+ count 1) slots out))))
+      (install slots (& saved))))
+  (if (>= count (. a min)) (seq_ends r sq (+ k 1) s i slots out)))
 
-(fn seq_ends ((r (& re)) (sq (& seq)) (k i64) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
-  (if (== k (vec.len (& (. sq atoms)))) (do (push_end out i) (ret)))
-  (rep r sq k s i 0 out))
+(fn seq_ends ((r (& re))
+   (sq (& seq))
+   (k i64)
+   (s (& str))
+   (i i64)
+   (slots (&mut (vec grp)))
+   (out (&mut (vec hit)))) unit
+  (if (== k (vec.len (& (. sq atoms)))) (do (push_hit out i slots) (ret)))
+  (rep r sq k s i 0 slots out))
 
-(fn alt_ends ((r (& re)) (ai i64) (s (& str)) (i i64) (out (&mut (vec i64)))) unit
+(fn alt_ends ((r (& re)) (ai i64) (s (& str)) (i i64) (slots (&mut (vec grp))) (out (&mut (vec hit)))) unit
+  (let saved (clone_slots slots))
   (let a (vec.get (& (. r alts)) ai))
-  (for j 0 (vec.len (& (. a seqs))) (seq_ends r (vec.get (& (. a seqs)) j) 0 s i out)))
+  (for j 0 (vec.len (& (. a seqs)))
+    (install slots (& saved))
+    (seq_ends r (vec.get (& (. a seqs)) j) 0 s i slots out))
+  (install slots (& saved)))
 
-;; Leftmost match starting at or after `start`; end is the longest alternative.
+;; Leftmost match starting at or after `start`. Longest end; ties keep the first path.
 (pub (fn find_from ((r (& re)) (s (& str)) (start i64)) (opt mat)
+  (let mut slots (blank (- (vec.len (& (. r alts))) 1)))
   (let mut i start)
   (while (<= i (str.len s))
-    (let mut ends (vec.new <i64>))
-    (alt_ends r 0 s i (&mut ends))
-    (if (> (vec.len (& ends)) 0)
+    (let mut hits (vec.new <hit>))
+    (alt_ends r 0 s i (&mut slots) (&mut hits))
+    (if (> (vec.len (& hits)) 0)
       (do
-        (let mut best i)
-        (for j 0 (vec.len (& ends)) (let e (@ (vec.get (& ends) j))) (if (> e best) (set best e)))
-        (ret (opt.some (mat i best)))))
+        (let mut best (. (vec.get (& hits) 0) end))
+        (let mut bi 0)
+        (for j 1 (vec.len (& hits))
+          (let e (. (vec.get (& hits) j) end))
+          (if (> e best) (do (set best e) (set bi j))))
+        (let h (vec.get (& hits) bi))
+        (ret (opt.some (mat i best (clone_slots (& (. h slots))))))))
     (set i (+ i 1)))
   (opt.none)))
 
@@ -208,6 +280,45 @@
         (do (set i (if (== (. m hi) (. m lo)) (+ (. m hi) 1) (. m hi))) (vec.push (&mut out) m)))
       ((opt.none) (brk))))
   out))
+
+(fn expand_err ((g i64)) str
+  (let mut m (str.from "re.expand|group="))
+  (str.push (&mut m) (& (str.from_int g)))
+  m)
+
+(fn expand_grp ((s (& str)) (m (& mat)) (g i64)) (res str str)
+  (if (== g 0) (ret (res.ok (str.slice s (. m lo) (. m hi)))))
+  (if (or (< g 1) (> g (vec.len (& (. m groups))))) (ret (res.err (expand_err g))))
+  (let grp (vec.get (& (. m groups)) (- g 1)))
+  (if (< (. grp lo) 0) (ret (res.ok (str.new))))
+  (res.ok (str.slice s (. grp lo) (. grp hi))))
+
+;; `$$` is `$`, `$0` is the whole match, `$N` is groups[N-1]. A bare `$` is literal.
+(fn expand_at ((s (& str)) (m (& mat)) (new (& str)) (i i64) (out (&mut str))) (res i64 str)
+  (let n (str.len new))
+  (if (>= i n) (do (str.push_byte out 36u8) (ret (res.ok i))))
+  (let d (str.at new i))
+  (if (== d 36u8) (do (str.push_byte out 36u8) (ret (res.ok (+ i 1)))))
+  (if (or (< d 48u8) (> d 57u8)) (do (str.push_byte out 36u8) (ret (res.ok i))))
+  (let mut j i)
+  (let mut g 0)
+  (while (and (< j n) (and (>= (str.at new j) 48u8) (<= (str.at new j) 57u8)))
+    (set g (+ (* g 10) (as i64 (- (str.at new j) 48u8))))
+    (set j (+ j 1)))
+  (let piece (try (expand_grp s m g)))
+  (str.push out (& piece))
+  (res.ok j))
+
+(pub (fn expand ((s (& str)) (m (& mat)) (new (& str))) (res str str)
+  (let mut out (str.new))
+  (let mut i 0)
+  (let n (str.len new))
+  (while (< i n)
+    (let c (str.at new i))
+    (if (!= c 36u8)
+      (do (str.push_byte (&mut out) c) (set i (+ i 1)))
+      (do (set i (+ i 1)) (set i (try (expand_at s m new i (&mut out)))))))
+  (res.ok out)))
 
 (fn m ((pat (& str)) (s (& str))) bool (is_match (& (res.unwrap (compile pat))) s))
 
@@ -238,3 +349,62 @@
     ((opt.none) (assert false)))
   (let all (find_all (& r) "abba b"))
   (assert_eq (vec.len (& all)) 2))
+
+(test re_cap
+  (let r (res.unwrap (compile "(a(b))c")))
+  (match (find (& r) "zzabc")
+    ((opt.some m)
+      (do
+        (assert_eq (. m lo) 2)
+        (assert_eq (. m hi) 5)
+        (let g0 (vec.get (& (. m groups)) 0))
+        (assert_eq (. g0 lo) 2)
+        (assert_eq (. g0 hi) 4)
+        (let g1 (vec.get (& (. m groups)) 1))
+        (assert_eq (. g1 lo) 3)
+        (assert_eq (. g1 hi) 4)))
+    ((opt.none) (assert false)))
+  (let r2 (res.unwrap (compile "(a)|(b)")))
+  (match (find (& r2) "b")
+    ((opt.some m)
+      (do
+        (let g0 (vec.get (& (. m groups)) 0))
+        (assert_eq (. g0 lo) (neg 1))
+        (let g1 (vec.get (& (. m groups)) 1))
+        (assert_eq (. g1 lo) 0)
+        (assert_eq (. g1 hi) 1)))
+    ((opt.none) (assert false)))
+  (let r3 (res.unwrap (compile "(a)+")))
+  (match (find (& r3) "aa")
+    ((opt.some m)
+      (do
+        (assert_eq (. m hi) 2)
+        (let g (vec.get (& (. m groups)) 0))
+        (assert_eq (. g lo) 1)
+        (assert_eq (. g hi) 2)))
+    ((opt.none) (assert false))))
+
+(test re_word
+  (assert (m "\\bcat\\b" "cat"))
+  (assert (not (m "\\bcat\\b" "catalog")))
+  (assert (m "\\bcat\\b" "the cat!"))
+  (assert (m "[\\b]" "b"))
+  (assert (boundary "cat" 0))
+  (assert (not (boundary "cat" 1)))
+  (assert (boundary "cat" 3)))
+
+(test re_expand
+  (let r (res.unwrap (compile "(a+)")))
+  (match (find (& r) "xxaaa")
+    ((opt.some m)
+      (do
+        (match (expand "xxaaa" (& m) "($1)")
+          ((res.ok s) (assert_eq (& s) "(aaa)"))
+          ((res.err _) (assert false)))
+        (match (expand "xxaaa" (& m) "$$")
+          ((res.ok s) (assert_eq (& s) "$"))
+          ((res.err _) (assert false)))
+        (match (expand "xxaaa" (& m) "$2")
+          ((res.err e) (assert_eq (& e) "re.expand|group=2"))
+          ((res.ok _) (assert false)))))
+    ((opt.none) (assert false))))

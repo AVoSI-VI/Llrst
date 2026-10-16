@@ -1,4 +1,4 @@
-;; llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--max N]: path|line|col|text.
+;; llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--word] [--max N]: path|line|col|text.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
@@ -7,13 +7,26 @@
 (use std.os)
 (use std.re)
 
-(struct opts (fixed bool) (ic bool) (pat str) (rx (opt re)))
+(struct opts (fixed bool) (ic bool) (word bool) (pat str) (rx (opt re)))
+
+;; Next literal hit whose ends are both word boundaries, or 0.
+(fn word_hit ((line (& str)) (pat (& str))) i64
+  (let mut i 0)
+  (let n (str.len pat))
+  (while (<= i (str.len line))
+    (match (str.find_from line pat i)
+      ((opt.none) (ret 0))
+      ((opt.some at)
+        (if (and (re.boundary line at) (re.boundary line (+ at n))) (ret (+ at 1)) (set i (+ at 1))))))
+  0)
 
 ;; Column (1-based) of the first match in line, or 0.
 (fn hit ((o (& opts)) (line (& str))) i64
   (let l (if (. o ic) (str.lower line) (str.clone line)))
   (if (. o fixed)
-    (match (str.find (& l) (& (. o pat))) ((opt.some i) (+ i 1)) ((opt.none) 0))
+    (if (. o word)
+      (word_hit (& l) (& (. o pat)))
+      (match (str.find (& l) (& (. o pat))) ((opt.some i) (+ i 1)) ((opt.none) 0)))
     (match (& (. o rx))
       ((opt.some r) (match (re.find r (& l)) ((opt.some m) (+ (. m lo) 1)) ((opt.none) 0)))
       ((opt.none) 0))))
@@ -29,6 +42,23 @@
         (set (@ count) (+ (@ count) 1))
         (io.puts (& (fmt.pipe4 path (& (fmt.int (+ i 1))) (& (fmt.int col)) (vec.get (& lines) i))))))))
 
+(fn make_opts ((c (& cli))) opts
+  (let ic (cli.has c "ic"))
+  (let word (cli.has c "word"))
+  (let raw (cli.at c 0))
+  (let pat (if ic (str.lower raw) (str.clone raw)))
+  (let fixed (cli.has c "fixed"))
+  (let mut wrapped (str.from "\\b("))
+  (str.push (&mut wrapped) (& pat))
+  (str.push (&mut wrapped) "\\b)")
+  (let rx
+    (if fixed
+      (opt.none)
+      (match (re.compile (if word (& wrapped) (& pat)))
+        ((res.ok r) (opt.some r))
+        ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<grep>|0|0|0" (& e)))) (os.exit 1))))))
+  (opts fixed ic word pat rx))
+
 (fn main () unit
   (let mut c (cli.new "llr-grep" "search files, output path|line|col|text"))
   (cli.pos (&mut c) "pattern")
@@ -36,18 +66,9 @@
   (cli.opt (&mut c) "max" "200")
   (cli.flag (&mut c) "fixed")
   (cli.flag (&mut c) "ic")
+  (cli.flag (&mut c) "word")
   (cli.parse (&mut c) (os.args))
-  (let ic (cli.has (& c) "ic"))
-  (let raw (cli.at (& c) 0))
-  (let pat (if ic (str.lower raw) (str.clone raw)))
-  (let fixed (cli.has (& c) "fixed"))
-  (let rx
-    (if fixed
-      (opt.none)
-      (match (re.compile (& pat))
-        ((res.ok r) (opt.some r))
-        ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<grep>|0|0|0" (& e)))) (os.exit 1))))))
-  (let o (opts fixed ic pat rx))
+  (let o (make_opts (& c)))
   (let g (cli.get (& c) "glob"))
   (let max (cli.get_int (& c) "max"))
   (let mut roots (vec.new <str>))
