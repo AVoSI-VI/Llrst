@@ -269,6 +269,10 @@ Tools (`tools/`, `docs/tools/`)
 27. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
 28. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
 29. Pattern backreferences (`\1`) are not matched; `$n` works only in the `llr-edit --regex` replacement (`std/re.llr`).
+30. `llr-write PATH` creates or replaces a whole file (`std/fs.llr` `write`). `llr-edit` only replaces a substring.
+31. `llr-ls PATH` lists one directory (`std/fs.llr` `list`). `llr-find` walks a glob.
+32. `llr-rm PATH` deletes a file (`std/fs.llr` `remove`).
+33. `llr-git status|diff|log` reads the repo. No commit.
 
 ## 9. Conventions to keep
 
