@@ -198,8 +198,8 @@ Tools (`tools/`, `docs/tools/`)
   stderr), 2 negative result. Lists end with `more|...` when truncated.
 - `llr-fmt` is idempotent on the whole repo; the repo is formatted with it. `--lint` is
   clean on `std/` and `tools/`. `fmtlint.llr` is a `proj.` module of `llr-fmt`.
-- `std/sexp.llr` is a comment-preserving S-expression reader used by `llr-fmt`; it is
-  the seed for self-hosting.
+- `std/sexp.llr` is a comment-preserving S-expression reader used by `llr-fmt`. `std/ast.llr`
+  is the surface grammar parsed from that tree. `llrc` remains the reference checker.
 
 ## 7. Known limits and gaps
 
@@ -223,8 +223,8 @@ Tools (`tools/`, `docs/tools/`)
 | codegen | all locals in memory, `opt_level=speed` only on IR; no inlining of `str.at`/`vec.get` bounds checks | slower than needed | `codegen/func.rs` |
 
 ## 8. Suggested next steps, in order
-1. Self-hosting: the reader exists (`std/sexp.llr`); next is `std/ast.llr` and a type
-   checker in Llrst, checked against `llrc` on `tests/`. Keep `llrc` as the reference.
+1. A type checker on `std/ast.llr` that matches `llrc check` for `type.*` and `name.*` in
+   `tests/err`. Borrow checking stays in `llrc`.
 2. Inlining: an `(inline (fn ...))` attribute parsed in `parse/mod.rs` and honored by
     lowering small bodies into the caller; first targets are the `str.at` and `vec.get`
     bounds checks (`codegen/func.rs`).

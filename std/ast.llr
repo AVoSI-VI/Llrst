@@ -1,0 +1,291 @@
+;; Surface grammar parsed from a sexp tree. llrc remains the reference checker.
+;; ty kind: 0 name, 1 app, 2 ref, 3 ptr, 4 fn.
+;; expr kind: 0 lit, 1 name, 2 let, 3 set, 4 do, 5 if, 6 while, 7 loop, 8 for,
+;;   9 brk, 10 cont, 11 ret, 12 match, 13 ref, 14 deref, 15 field, 16 cast, 17 bin,
+;;   18 and, 19 or, 20 not, 21 neg, 22 wneg, 23 call, 24 callptr, 25 try, 26 panic,
+;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop.
+;; item kind: 0 use, 1 mod, 2 fn, 3 extern, 4 struct, 5 enum, 6 impl, 7 const, 8 test.
+(use std.ast_expr)
+(use std.sexp)
+(use std.str)
+
+(pub (struct ty (pub (kind u8)) (pub (text str)) (pub (args (vec ty))) (pub (line i64)) (pub (col i64))))
+
+(pub (struct expr
+  (pub (kind u8))
+  (pub (text str))
+  (pub (mut bool))
+  (pub (kids (vec expr)))
+  (pub (tys (vec ty)))
+  (pub (line i64))
+  (pub (col i64))))
+
+(pub (struct param (pub (name str)) (pub (ty ty))))
+
+(pub (struct field (pub (name str)) (pub (ty ty)) (pub (is_pub bool))))
+
+(pub (struct variant (pub (name str)) (pub (tys (vec ty)))))
+
+(pub (struct item
+  (pub (kind u8))
+  (pub (name str))
+  (pub (is_pub bool))
+  (pub (gens (vec str)))
+  (pub (params (vec param)))
+  (pub (fields (vec field)))
+  (pub (variants (vec variant)))
+  (pub (ret ty))
+  (pub (body (vec expr)))
+  (pub (fns (vec item)))
+  (pub (line i64))
+  (pub (col i64))))
+
+(fn blank_ty ((line i64) (col i64)) ty (ty 0u8 (str.new) (vec.new <ty>) line col))
+
+(fn blank_item ((k u8) (name str) (is_pub bool) (line i64) (col i64)) item
+  (item k
+    name
+    is_pub
+    (vec.new <str>)
+    (vec.new <param>)
+    (vec.new <field>)
+    (vec.new <variant>)
+    (blank_ty line col)
+    (vec.new <expr>)
+    (vec.new <item>)
+    line
+    col))
+
+(fn gen_piece ((s (& str)) (gens (&mut (vec str)))) bool
+  (let mut lo 0)
+  (let mut hi (str.len s))
+  (if (and (> hi 0) (== (str.at s 0) 60u8)) (set lo 1))
+  (let mut last false)
+  (if (and (> hi lo) (== (str.at s (- hi 1)) 62u8)) (do (set hi (- hi 1)) (set last true)))
+  (if (> hi lo) (vec.push gens (str.slice s lo hi)))
+  last)
+
+(fn take_gens ((t (& tree)) (ids (& (vec i64))) (at i64) (gens (&mut (vec str)))) (res i64 str)
+  (if (>= at (vec.len ids)) (ret (res.ok at)))
+  (let n (@ (vec.get ids at)))
+  (if (!= (sexp.kind t n) 0u8) (ret (res.ok at)))
+  (if (not (str.starts (sexp.text t n) "<")) (ret (res.ok at)))
+  (let mut i at)
+  (loop
+    (if (>= i (vec.len ids)) (ret (res.err (ast_expr.err_at t n ">" "eof"))))
+    (let m (@ (vec.get ids i)))
+    (if (!= (sexp.kind t m) 0u8) (ret (res.err (ast_expr.err_at t m ">" (sexp.head t m)))))
+    (let close (gen_piece (sexp.text t m) gens))
+    (set i (+ i 1))
+    (if close (ret (res.ok i)))))
+
+(fn parse_params ((t (& tree)) (n i64)) (res (vec param) str)
+  (let ids (ast_expr.forms t n))
+  (let mut ps (vec.new <param>))
+  (for i 0 (vec.len (& ids))
+    (let p (@ (vec.get (& ids) i)))
+    (let fs (ast_expr.forms t p))
+    (if (!= (vec.len (& fs)) 2) (ret (res.err (ast_expr.err_at t p "(name type)" (sexp.head t p)))))
+    (let ty (try (ast_expr.parse_ty t (@ (vec.get (& fs) 1)))))
+    (vec.push (&mut ps) (param (str.clone (sexp.text t (@ (vec.get (& fs) 0)))) ty)))
+  (res.ok ps))
+
+(fn parse_slot ((t (& tree)) (n i64)) (res field str)
+  (let ids (ast_expr.forms t n))
+  (let mut node n)
+  (let mut is_pub false)
+  (if (str.eq (sexp.head t n) "pub")
+    (do
+      (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "(name type)" "pub"))))
+      (set is_pub true)
+      (set node (@ (vec.get (& ids) 1)))))
+  (let fs (ast_expr.forms t node))
+  (if (!= (vec.len (& fs)) 2)
+    (ret (res.err (ast_expr.err_at t node "(name type)" (sexp.head t node)))))
+  (let ty (try (ast_expr.parse_ty t (@ (vec.get (& fs) 1)))))
+  (res.ok (field (str.clone (sexp.text t (@ (vec.get (& fs) 0)))) ty is_pub)))
+
+(fn parse_fields ((t (& tree)) (ids (& (vec i64))) (from i64) (out (&mut (vec field)))) (res unit str)
+  (for i from (vec.len ids) (vec.push out (try (parse_slot t (@ (vec.get ids i))))))
+  (res.ok ()))
+
+(fn parse_variant ((t (& tree)) (n i64)) (res variant str)
+  (let ids (ast_expr.forms t n))
+  (if (== (vec.len (& ids)) 0) (ret (res.err (ast_expr.err_at t n "(name type*)" "()"))))
+  (let mut tys (vec.new <ty>))
+  (for i 1 (vec.len (& ids))
+    (vec.push (&mut tys) (try (ast_expr.parse_ty t (@ (vec.get (& ids) i))))))
+  (res.ok (variant (str.clone (sexp.text t (@ (vec.get (& ids) 0)))) tys)))
+
+(fn parse_variants ((t (& tree)) (ids (& (vec i64))) (from i64) (out (&mut (vec variant)))) (res unit str)
+  (for i from (vec.len ids) (vec.push out (try (parse_variant t (@ (vec.get ids i))))))
+  (res.ok ()))
+
+(fn parse_sig ((t (& tree)) (n i64) (k u8) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 4)
+    (ret (res.err (ast_expr.err_at t n "name ((params)) ret" (sexp.head t n)))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t (& ids) 2 (&mut gens))))
+  (if (>= (+ at 1) (vec.len (& ids))) (ret (res.err (ast_expr.err_at t n "((params)) ret" "eof"))))
+  (let params (try (parse_params t (@ (vec.get (& ids) at)))))
+  (let ret (try (ast_expr.parse_ty t (@ (vec.get (& ids) (+ at 1))))))
+  (let mut body (vec.new <expr>))
+  (try (ast_expr.parse_exprs t (& ids) (+ at 2) (&mut body)))
+  (let mut it
+    (blank_item k
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      is_pub
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it gens) gens)
+  (set (. it params) params)
+  (set (. it ret) ret)
+  (set (. it body) body)
+  (res.ok it))
+
+(fn parse_struct ((t (& tree)) (n i64) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "name" "eof"))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t (& ids) 2 (&mut gens))))
+  (let mut fields (vec.new <field>))
+  (try (parse_fields t (& ids) at (&mut fields)))
+  (let mut it
+    (blank_item 4u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      is_pub
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it gens) gens)
+  (set (. it fields) fields)
+  (res.ok it))
+
+(fn parse_enum ((t (& tree)) (n i64) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 3) (ret (res.err (ast_expr.err_at t n "variant" "eof"))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t (& ids) 2 (&mut gens))))
+  (let mut vs (vec.new <variant>))
+  (try (parse_variants t (& ids) at (&mut vs)))
+  (if (== (vec.len (& vs)) 0) (ret (res.err (ast_expr.err_at t n "variant" "none"))))
+  (let mut it
+    (blank_item 5u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      is_pub
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it gens) gens)
+  (set (. it variants) vs)
+  (res.ok it))
+
+(fn parse_impl ((t (& tree)) (n i64)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "type" "eof"))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t (& ids) 2 (&mut gens))))
+  (let mut fns (vec.new <item>))
+  (for i at (vec.len (& ids))
+    (vec.push (&mut fns) (try (parse_item t (@ (vec.get (& ids) i)) false))))
+  (let mut it
+    (blank_item 6u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      false
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it gens) gens)
+  (set (. it fns) fns)
+  (res.ok it))
+
+(fn parse_named ((t (& tree)) (n i64) (k u8) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "name" "eof"))))
+  (res.ok (blank_item k
+     (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+     is_pub
+     (sexp.line t n)
+     (sexp.col t n))))
+
+(fn parse_const ((t (& tree)) (n i64) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (!= (vec.len (& ids)) 4) (ret (res.err (ast_expr.err_at t n "const" "arity"))))
+  (let mut it
+    (blank_item 7u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      is_pub
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it ret) (try (ast_expr.parse_ty t (@ (vec.get (& ids) 2)))))
+  (vec.push (&mut (. it body)) (try (ast_expr.parse_expr t (@ (vec.get (& ids) 3)))))
+  (res.ok it))
+
+(fn parse_test ((t (& tree)) (n i64)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "name" "eof"))))
+  (let mut it
+    (blank_item 8u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      false
+      (sexp.line t n)
+      (sexp.col t n)))
+  (try (ast_expr.parse_exprs t (& ids) 2 (&mut (. it body))))
+  (res.ok it))
+
+(fn parse_inner ((t (& tree)) (n i64) (h (& str)) (is_pub bool)) (res item str)
+  (if (str.eq h "fn") (ret (parse_sig t n 2u8 is_pub)))
+  (if (str.eq h "extern") (ret (parse_sig t n 3u8 is_pub)))
+  (if (str.eq h "struct") (ret (parse_struct t n is_pub)))
+  (if (str.eq h "enum") (ret (parse_enum t n is_pub)))
+  (if (str.eq h "const") (ret (parse_const t n is_pub)))
+  (if (and (str.eq h "impl") (not is_pub)) (ret (parse_impl t n)))
+  (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
+  (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))
+  (if (and (str.eq h "test") (not is_pub)) (ret (parse_test t n)))
+  (res.err (ast_expr.err_at t n "fn extern struct enum const" h)))
+
+(fn parse_item ((t (& tree)) (n i64) (is_pub bool)) (res item str)
+  (if (!= (sexp.kind t n) 2u8) (ret (res.err (ast_expr.err_at t n "(form)" (sexp.text t n)))))
+  (let h (sexp.head t n))
+  (if (str.eq h "pub")
+    (do
+      (let ids (ast_expr.forms t n))
+      (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "1" "pub"))))
+      (ret (parse_item t (@ (vec.get (& ids) 1)) true))))
+  (parse_inner t n h is_pub))
+
+(pub (fn parse ((t (& tree))) (res (vec item) str)
+  (let mut out (vec.new <item>))
+  (for i 0 (vec.len (& (. t top)))
+    (let n (@ (vec.get (& (. t top)) i)))
+    (if (!= (sexp.kind t n) 3u8) (vec.push (&mut out) (try (parse_item t n false)))))
+  (res.ok out)))
+
+(pub (fn parse_src ((src (& str))) (res (vec item) str) (let t (try (sexp.read src))) (parse (& t))))
+
+(test ast_fn
+  (let r (res.unwrap (parse_src "(fn main () unit (let x 1) (io.puts x))")))
+  (assert_eq (vec.len (& r)) 1)
+  (let it (vec.get (& r) 0))
+  (assert_eq (& (. it name)) "main")
+  (assert_eq (vec.len (& (. it body))) 2)
+  (assert_eq (. (vec.get (& (. it body)) 0) kind) 2u8))
+
+(test ast_struct
+  (let r (res.unwrap (parse_src "(pub (struct point (x i64) (pub (y i64))))")))
+  (let it (vec.get (& r) 0))
+  (assert (. it is_pub))
+  (assert (not (. (vec.get (& (. it fields)) 0) is_pub)))
+  (assert (. (vec.get (& (. it fields)) 1) is_pub)))
+
+(test ast_enum_impl
+  (let r (res.unwrap (parse_src "(enum e (a) (b i64)) (impl e (fn f ((self e)) unit))")))
+  (assert_eq (vec.len (& r)) 2)
+  (assert_eq (. (vec.get (& r) 0) kind) 5u8)
+  (assert_eq (vec.len (& (. (vec.get (& r) 0) variants))) 2)
+  (assert_eq (. (vec.get (& r) 1) kind) 6u8)
+  (assert_eq (vec.len (& (. (vec.get (& r) 1) fns))) 1))
+
+(test ast_bad
+  (match (parse_src "(bogus)")
+    ((res.err e) (assert (str.starts (& e) "parse.expect")))
+    ((res.ok _) (assert false))))
