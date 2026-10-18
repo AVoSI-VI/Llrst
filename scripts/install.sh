@@ -13,6 +13,8 @@ die() { echo "fail|$*"; exit 1; }
 
 command -v cargo >/dev/null || die "setup|cargo=missing|fix=install rustup"
 command -v cc >/dev/null || die "setup|cc=missing|fix=install a C toolchain (used as linker)"
+# --emit-obj does not link. A full `llrc build --target TRIPLE` link runs
+# `clang --target=TRIPLE` and needs a sysroot for that triple.
 
 say "step|build-llrc"
 ( cd "$root" && cargo build --release -q ) || die "build-llrc|cargo build --release"
