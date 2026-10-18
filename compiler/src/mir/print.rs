@@ -77,6 +77,7 @@ fn stmt(s: &Stmt) -> String {
         Stmt::Forget(l) => format!("forget _{}", l),
         Stmt::StorageDead(l) => format!("dead _{}", l),
         Stmt::Nop => "nop".into(),
+        Stmt::InlineLoans { dest, .. } => format!("loans _{}", dest),
     }
 }
 

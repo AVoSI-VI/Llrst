@@ -30,6 +30,8 @@ pub struct Lower<'a> {
     pub scopes: Vec<Scope>,
     pub loops: Vec<LoopCtx>,
     pub ret_ty: Ty,
+    /// Callees currently being substituted. A recursive call stays a real call.
+    pub inline_stack: Vec<crate::ty::DefId>,
 }
 
 pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name: String, lifetimes: Vec<String>, checked: bool) -> Body {
@@ -57,7 +59,7 @@ pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name:
     }
     let raw_div = name == "sys.checked_div";
     let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes };
-    let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone() };
+    let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone(), inline_stack: Vec::new() };
     let entry = lw.new_block();
     lw.cur = entry;
     lw.push_scope();

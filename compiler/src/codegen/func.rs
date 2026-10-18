@@ -267,7 +267,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             Stmt::Assign(dest, rv) => self.assign(dest, rv, span),
             Stmt::Drop(p) => self.drop_place(p),
             Stmt::Forget(l) => self.set_flag(*l, false),
-            Stmt::StorageDead(_) | Stmt::Nop => {}
+            Stmt::StorageDead(_) | Stmt::Nop | Stmt::InlineLoans { .. } => {}
         }
         Ok(())
     }

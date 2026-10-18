@@ -35,7 +35,7 @@ fn warn_unreachable(diags: &Diags, body: &Body) {
 }
 
 fn is_cleanup(s: &Stmt) -> bool {
-    matches!(s, Stmt::Drop(_) | Stmt::StorageDead(_) | Stmt::Nop)
+    matches!(s, Stmt::Drop(_) | Stmt::StorageDead(_) | Stmt::Nop | Stmt::InlineLoans { .. })
 }
 
 fn warn_unused(diags: &Diags, body: &Body) {

@@ -110,6 +110,20 @@ impl<'a> Cx<'a> {
             }
             Stmt::StorageDead(l) => self.kill_local(st, *l),
             Stmt::Drop(_) | Stmt::Forget(_) | Stmt::Nop => {}
+            Stmt::InlineLoans { kill_from, sources, dest } => {
+                for li in 0..self.loans.len() {
+                    if self.loans[li].place.local >= *kill_from {
+                        for loc in 0..self.nloc as LocalIdx {
+                            st.remove(self.bit(li, loc));
+                        }
+                    }
+                }
+                let mut gen = Vec::new();
+                for s in sources {
+                    gen.extend(self.pairs_of(st, *s));
+                }
+                self.add_all(st, &gen, *dest);
+            }
         }
     }
 

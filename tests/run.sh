@@ -32,6 +32,12 @@ for f in "$root"/tests/run/*.llr; do
     echo "fail|run/$name|compile|$(head -1 "$tmp/$name.err")"; fails=$((fails+1)); continue
   fi
   "$tmp/$name" >"$tmp/$name.out" 2>/dev/null
+  if [ "$name" = inline ]; then
+    if "$llrc" emit-mir "$f" 2>/dev/null | grep -E '^fn (str\.at|vec\.get)( |$)' >/dev/null; then
+      echo "fail|run/$name|mir=str.at or vec.get was not substituted"
+      fails=$((fails+1))
+    fi
+  fi
   if cmp -s "$tmp/$name.out" "$want"; then
     echo "ok|run/$name"
   else

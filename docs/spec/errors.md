@@ -68,6 +68,7 @@ dividing the minimum signed value by `-1` is still a hardware trap. Shifts are n
 | `type.*` | `type.mismatch` `type.arity` `type.not_callable` `type.no_field` `type.no_variant` `type.infer` `type.not_numeric` `type.not_bool` `type.generic_arity` |
 | `move.*` `borrow.*` `mut.*` `init.*` | see memory.md |
 | `flow.*` | `flow.brk_outside` `flow.missing_ret` `flow.unreachable` (W) |
+| `inline.reject` | `why=extern` or `why=large\|limit=4\|got=` or `why=form\|got=` or `why=param\|name=` |
 | `link.*` | `link.failed` (`cmd= status=`) |
 | `io.*` | `io.read` (`path=`) |
 

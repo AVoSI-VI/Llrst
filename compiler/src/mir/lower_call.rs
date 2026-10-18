@@ -34,6 +34,9 @@ impl<'a> Lower<'a> {
             Callee::Ptr(e) => Func::Ptr(self.as_operand(e)),
             _ => unreachable!(),
         };
+        if self.inline_call(&func, &ops, &dest, sp) {
+            return;
+        }
         let next = self.new_block();
         self.terminate(Term::Call { func, args: ops, dest, next, span: sp }, sp);
         self.cur = next;

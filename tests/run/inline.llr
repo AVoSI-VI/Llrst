@@ -1,0 +1,8 @@
+(use std.io)
+
+(fn main () unit
+  (io.puts (& (str.from_int (as i64 (str.at "ab" 1)))))
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 7)
+  (vec.push (&mut v) 9)
+  (io.puts (& (str.from_int (@ (vec.get (& v) 1))))))

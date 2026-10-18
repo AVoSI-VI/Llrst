@@ -41,6 +41,8 @@ pub struct FnDecl {
     pub body: Vec<Expr>,
     pub is_extern: bool,
     pub is_pub: bool,
+    /// Body is substituted at each call. Only small copy-parameter functions qualify.
+    pub inline: bool,
     pub span: Span,
 }
 

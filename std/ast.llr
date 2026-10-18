@@ -258,6 +258,11 @@
       (let ids (ast_expr.forms t n))
       (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "1" "pub"))))
       (ret (parse_item t (@ (vec.get (& ids) 1)) true))))
+  (if (str.eq h "inline")
+    (do
+      (let ids (ast_expr.forms t n))
+      (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "1" "inline"))))
+      (ret (parse_item t (@ (vec.get (& ids) 1)) is_pub))))
   (parse_inner t n h is_pub))
 
 (pub (fn parse ((t (& tree))) (res (vec item) str)

@@ -29,6 +29,7 @@ pub struct FnDef {
     pub is_extern: bool,
     pub owner: Option<DefId>,
     pub has_body: bool,
+    pub inline: bool,
 }
 
 pub struct ConstDef {
@@ -314,7 +315,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     }
                 }
                 Item::Fn(f) => {
-                    let def = make_fn(&prog, mi, f, &[], None)?;
+                    let def = finish_fn(&prog, mi, f, &[], None, diags)?;
                     let mut m = std::mem::replace(&mut prog.modules[mi as usize], dummy_module());
                     push_def(&mut prog, &mut m, &f.name, mi, f.span, DefKind::Fn(def), f.is_pub, diags);
                     prog.modules[mi as usize] = m;
@@ -329,7 +330,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                         return Err(Diag::error(im.span, "type.generic_arity").kv("want", owner_generics.len().to_string()).kv("got", im.generics.types.len().to_string()));
                     }
                     for f in &im.fns {
-                        let def = make_fn(&prog, mi, f, &im.generics.types, Some(owner))?;
+                        let def = finish_fn(&prog, mi, f, &im.generics.types, Some(owner), diags)?;
                         let id = DefId(prog.defs.len() as u32);
                         let name = format!("{}.{}", im.ty_name, f.name);
                         prog.defs.push(Def { name: f.name.clone(), module: mi, span: f.span, kind: DefKind::Fn(def), is_pub: f.is_pub });
@@ -380,7 +381,60 @@ fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Op
         is_extern: f.is_extern,
         owner,
         has_body: !f.is_extern,
+        inline: f.inline,
     })
+}
+
+fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Option<DefId>, diags: &Diags) -> PResult<FnDef> {
+    let mut def = make_fn(prog, mi, f, outer, owner)?;
+    if let Some(d) = inline_reject(f, &def.params) {
+        diags.push(d);
+        def.inline = false;
+    }
+    Ok(def)
+}
+
+fn inline_reject(f: &ast::FnDecl, params: &[(String, Ty)]) -> Option<Diag> {
+    if !f.inline {
+        return None;
+    }
+    if f.is_extern {
+        return Some(Diag::error(f.span, "inline.reject").kv("why", "extern"));
+    }
+    if f.body.len() > 4 {
+        return Some(Diag::error(f.span, "inline.reject").kv("why", "large").kv("limit", "4").kv("got", f.body.len().to_string()));
+    }
+    if let Some(got) = bad_form(&f.body) {
+        return Some(Diag::error(f.span, "inline.reject").kv("why", "form").kv("got", got));
+    }
+    params.iter().find(|(_, ty)| !ty.is_scalar()).map(|(name, _)| Diag::error(f.span, "inline.reject").kv("why", "param").kv("name", name.clone()))
+}
+
+fn bad_form(body: &[ast::Expr]) -> Option<&'static str> {
+    body.iter().find_map(bad_expr)
+}
+
+fn bad_expr(e: &ast::Expr) -> Option<&'static str> {
+    use ast::ExprKind::*;
+    match &e.kind {
+        While { .. } => Some("while"),
+        Loop(_) => Some("loop"),
+        For { .. } => Some("for"),
+        Break => Some("brk"),
+        Continue => Some("cont"),
+        Return(_) => Some("ret"),
+        Match { .. } => Some("match"),
+        Let { init, .. } => bad_expr(init),
+        Set { place, value } => bad_expr(place).or_else(|| bad_expr(value)),
+        Do(xs) => bad_form(xs),
+        If { cond, then, els } => bad_expr(cond).or_else(|| bad_expr(then)).or_else(|| els.as_ref().and_then(|x| bad_expr(x))),
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Try(place) | Panic(place) | Assert(place) | Drop(place) => bad_expr(place),
+        Field { base, .. } | Cast { expr: base, .. } => bad_expr(base),
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => bad_expr(l).or_else(|| bad_expr(r)),
+        Call { args, .. } => bad_form(args),
+        CallPtr { callee, args } => bad_expr(callee).or_else(|| bad_form(args)),
+        Lit(_) | Name(_) | Sizeof(_) => None,
+    }
 }
 
 pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) -> PResult<Ty> {

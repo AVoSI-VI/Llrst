@@ -8,9 +8,9 @@
   (pub (fn new () str (str (ptr.null <u8>) 0 0)))
   (fn drop ((self (&mut str))) unit (if (> (. self cap) 0) (sys.free (. self p))))
   (pub (fn len ((self (& str))) i64 (. self len)))
-  (pub (fn at ((self (& str)) (i i64)) u8
-    (if (or (< i 0) (>= i (. self len))) (panic (& (str.oob (. self len) i))))
-    (ptr.read (ptr.add (. self p) i))))
+  (pub (inline (fn at ((self (& str)) (i i64)) u8
+     (if (or (< i 0) (>= i (. self len))) (panic (& (str.oob (. self len) i))))
+     (ptr.read (ptr.add (. self p) i)))))
   (pub (fn reserve ((self (&mut str)) (extra i64)) unit
     (let need (+ (. self len) extra))
     (if (<= need (. self cap)) (ret))

@@ -34,13 +34,19 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "pub", "1", n));
             }
             let inner = items[1].head().unwrap_or("");
-            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const") {
+            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline") {
                 return Err(Diag::error(items[1].span(), "parse.expect")
-                    .kv("want", "fn extern struct enum const")
+                    .kv("want", "fn extern struct enum const inline")
                     .kv("got", inner)
                     .kv("fix", "(pub (fn ...)) per method"));
             }
             return parse_item(&items[1], true);
+        }
+        "inline" => {
+            if n != 1 {
+                return Err(arity(sp, "inline", "1", n));
+            }
+            return Ok(Item::Fn(inline_fn(&items[1], is_pub)?));
         }
         "use" => {
             if n != 1 {
@@ -99,13 +105,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             let (generics, at) = parse_generics(items, 2)?;
             let mut fns = Vec::new();
             for f in &items[at..] {
-                let l = f.list().ok_or_else(|| Diag::error(f.span(), "parse.expect").kv("want", "(fn ...)"))?;
-                let fpub = l.first().map_or(false, |h| h.is_atom("pub"));
-                let l = if fpub { l[1].list().unwrap_or(&[]) } else { l };
-                if !l.first().map_or(false, |h| h.is_atom("fn")) {
-                    return Err(Diag::error(f.span(), "parse.expect").kv("want", "(fn ...)").kv("got", f.show()));
-                }
-                fns.push(parse_fn(l, f.span(), false, fpub)?);
+                fns.push(method_fn(f)?);
             }
             Item::Impl(ImplDecl { ty_name, generics, fns, span: sp })
         }
@@ -143,5 +143,47 @@ fn parse_fn(items: &[Sexpr], sp: Span, is_extern: bool, is_pub: bool) -> PResult
     if is_extern && !body.is_empty() {
         return Err(arity(sp, "extern", "3", n));
     }
-    Ok(FnDecl { name, generics, params, ret, body, is_extern, is_pub, span: sp })
+    Ok(FnDecl { name, generics, params, ret, body, is_extern, is_pub, inline: false, span: sp })
+}
+
+/// `(inline (fn ...))` or `(inline (extern ...))`.
+fn inline_fn(inner: &Sexpr, is_pub: bool) -> PResult<FnDecl> {
+    let head = inner.head().unwrap_or("");
+    if !matches!(head, "fn" | "extern") {
+        return Err(Diag::error(inner.span(), "parse.expect").kv("want", "(fn ...)").kv("got", inner.show()));
+    }
+    let list = inner.list().ok_or_else(|| Diag::error(inner.span(), "parse.expect").kv("want", "(fn ...)"))?;
+    let mut f = parse_fn(list, inner.span(), head == "extern", is_pub)?;
+    f.inline = true;
+    Ok(f)
+}
+
+/// A method is `(fn ...)`, `(pub (fn ...))`, or `(pub (inline (fn ...)))`.
+fn method_fn(s: &Sexpr) -> PResult<FnDecl> {
+    let mut cur = s;
+    let mut is_pub = false;
+    if cur.head() == Some("pub") {
+        cur = peel(cur, "pub")?;
+        is_pub = true;
+    }
+    let mut inline = false;
+    if cur.head() == Some("inline") {
+        cur = peel(cur, "inline")?;
+        inline = true;
+    }
+    let l = cur.list().ok_or_else(|| Diag::error(cur.span(), "parse.expect").kv("want", "(fn ...)"))?;
+    if !l.first().map_or(false, |h| h.is_atom("fn")) {
+        return Err(Diag::error(cur.span(), "parse.expect").kv("want", "(fn ...)").kv("got", cur.show()));
+    }
+    let mut f = parse_fn(l, s.span(), false, is_pub)?;
+    f.inline = inline;
+    Ok(f)
+}
+
+fn peel<'a>(s: &'a Sexpr, form: &str) -> PResult<&'a Sexpr> {
+    let l = s.list().ok_or_else(|| Diag::error(s.span(), "parse.expect").kv("want", form))?;
+    if l.len() != 2 {
+        return Err(arity(s.span(), form, "1", l.len().saturating_sub(1)));
+    }
+    Ok(&l[1])
 }

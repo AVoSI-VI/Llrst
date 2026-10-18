@@ -1,4 +1,5 @@
 //! Mid-level IR: a control-flow graph of basic blocks over places and operands.
+mod inline;
 pub mod lint;
 pub mod lower;
 mod lower_call;
@@ -115,6 +116,8 @@ pub enum Stmt {
     Forget(LocalIdx),
     StorageDead(LocalIdx),
     Nop,
+    /// Drop loans of locals created for an inlined body, then copy the loans of `sources` onto `dest`.
+    InlineLoans { kill_from: LocalIdx, sources: Vec<LocalIdx>, dest: LocalIdx },
 }
 
 #[derive(Clone, Debug)]

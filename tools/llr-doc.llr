@@ -50,10 +50,14 @@
   (str.push tests (sexp.text t (sexp.child t n 1)))
   (str.push tests "`"))
 
+(fn unwrap_inline ((t (& tree)) (n i64)) i64
+  (if (str.eq (sexp.head t n) "inline") (ret (sexp.child t n 1)))
+  n)
+
 (fn take_method ((t (& tree)) (c i64) (ty (& str)) (fns (&mut str))) unit
   (if (!= (sexp.kind t c) 2u8) (ret))
   (if (not (str.eq (sexp.head t c) "pub")) (ret))
-  (let inner (sexp.child t c 1))
+  (let inner (unwrap_inline t (sexp.child t c 1)))
   (if (str.eq (sexp.head t inner) "fn") (add_fn t inner ty fns)))
 
 (fn walk_impl ((t (& tree)) (n i64) (fns (&mut str))) unit
@@ -61,7 +65,7 @@
   (for i 2 (sexp.count t n) (take_method t (sexp.child t n i) (& ty) fns)))
 
 (fn take_pub ((t (& tree)) (n i64) (mod (& str)) (types (&mut str)) (fns (&mut str))) unit
-  (let inner (sexp.child t n 1))
+  (let inner (unwrap_inline t (sexp.child t n 1)))
   (let ih (sexp.head t inner))
   (if (or (str.eq ih "struct") (str.eq ih "enum")) (add_type t inner types))
   (if (or (str.eq ih "fn") (str.eq ih "extern")) (add_fn t inner mod fns)))
