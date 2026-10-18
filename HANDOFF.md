@@ -219,54 +219,53 @@ Tools (`tools/`, `docs/tools/`)
 | fmt | width fixed at 100; blank-line policy fixed; comments inside a form force multi-line | by design | `tools/llr-fmt.llr` |
 | grep | word boundaries are ASCII `[A-Za-z0-9_]` only | `--word` does not split on Unicode | `std/re.llr` `boundary` |
 | diagnostics | warnings are not fatal; there is no `--deny` | a `W` line can be ignored | `diag.rs`, `mir/lint.rs` |
-| tests | `tests/run` compares stdout only (no stderr/exit check for normal runs) | | `tests/run.sh` |
+| tests | `tests/run` compares stderr and the exit status only when `NAME.err` or `NAME.code` exists | a non-zero exit is still ok without `.code` | `tests/run.sh` |
 | codegen | all locals in memory, `opt_level=speed` only on IR; `(inline (fn ...))` substitutes a body of at most 4 copy-parameter expressions (`str.at`, `vec.get`) | other calls stay calls | `mir/inline.rs` |
 
 ## 8. Suggested next steps, in order
-1. `tests/run` stderr and exit goldens: when `tests/run/NAME.err` or `NAME.code` exists,
-    `tests/run.sh` checks it. Today that set compares stdout only.
-2. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
+1. Formatter width: `--width N` on `llr-fmt` (the constant `width` becomes a parameter)
     and a note in `docs/tools/llr-fmt.md` that a comment inside a form forces a line break.
-3. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
+2. Cross linking: document clang sysroots in `scripts/install.sh` and add `tests/cross.sh`
     that builds `--emit-obj` for aarch64, riscv64, s390x, and apple-darwin and checks `file`.
-4. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
+3. `'static`: loans of string literals never conflict, so a `(& str)` literal can be stored
     for the whole program (`borrow/holders.rs`).
-5. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
+4. Operation over `T` without traits: document the canon of passing a `(fn ...)` parameter
     in `docs/canon/collections.md` until user traits exist.
-6. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
+5. `--checked` shifts: `shl` and `shr` by a count outside `0..width` panic `int.overflow`.
     Cranelift shift counts are otherwise undefined (`codegen/ops.rs`).
-7. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
+6. `--checked` casts: an out-of-range `(as T n)` panics `cast.overflow` instead of
     truncating (`codegen/ops.rs cast`).
-8. Partial moves of copy fields, so one field of a struct can be moved while the rest
+7. Partial moves of copy fields, so one field of a struct can be moved while the rest
     drops (`mir/lower.rs`).
-9. Field-granular loans: writing `(. v s)` releases only loans of that field
+8. Field-granular loans: writing `(. v s)` releases only loans of that field
     (`borrow/holders.rs`).
-10. Definite initialization, so a future `(let mut x T)` can omit the initializer
+9. Definite initialization, so a future `(let mut x T)` can omit the initializer
     (`borrow/moves.rs`).
-11. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
+10. Non-Linux runtime: split the POSIX externs in `std/sys.llr` into `std/sys_posix.llr`
     and a Windows file, selected by the target OS.
-12. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
+11. Large diffs: stop allocating the full LCS table; emit a bounded or hunk-limited diff
     (`std/diff.llr`).
-13. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
-14. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
-15. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
-16. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
-17. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
-18. Unused `(use ...)` and unused private functions (`resolve.rs`).
-19. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
+12. `readdir` portability: the name at dirent byte 19 is Linux-only. Extend `runtime/llr_stat.c` with `llr_readdir_name` and use it from `std/fs.llr` `list`.
+13. Always trap `MIN / -1`, not only under `--checked`, so the last hardware `SIGFPE` goes away (`std/sys.llr` `checked_div`).
+14. Panic stack traces: `P|` lines name one frame. A walker needs a frame pointer the codegen does not keep today (`codegen/func.rs`).
+15. Fixed buffers: `os.cwd` uses 4096 bytes and `io.read_fd` reads 65536 at a time. Grow until the call reports the end (`std/os.llr`, `std/io.llr`).
+16. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
+17. Unused `(use ...)` and unused private functions (`resolve.rs`).
+18. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
 
-20. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
-21. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
-22. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
-23. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
-24. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
-25. Pattern backreferences (`\1`) are not matched; `$n` works only in the `llr-edit --regex` replacement (`std/re.llr`).
-26. `llr-write PATH` creates or replaces a whole file (`std/fs.llr` `write`). `llr-edit` only replaces a substring.
-27. `llr-ls PATH` lists one directory (`std/fs.llr` `list`). `llr-find` walks a glob.
-28. `llr-rm PATH` deletes a file (`std/fs.llr` `remove`).
-29. `llr-git status|diff|log` reads the repo. No commit.
-30. The Llrst checker does not yet emit the other `type.*` codes (`type.arity`, `type.no_field`, `type.infer`) or `name.unknown` (`std/check.llr`).
-31. `(inline (fn ...))` only substitutes a body of at most 4 expressions whose parameters are scalars, references, pointers, or function pointers, and which has no `ret`, `loop`, `while`, `for`, `match`, `brk`, or `cont`. A recursive call stays a real call (`compiler/src/mir/inline.rs`).
+19. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
+20. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
+21. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
+22. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
+23. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
+24. Pattern backreferences (`\1`) are not matched; `$n` works only in the `llr-edit --regex` replacement (`std/re.llr`).
+25. `llr-write PATH` creates or replaces a whole file (`std/fs.llr` `write`). `llr-edit` only replaces a substring.
+26. `llr-ls PATH` lists one directory (`std/fs.llr` `list`). `llr-find` walks a glob.
+27. `llr-rm PATH` deletes a file (`std/fs.llr` `remove`).
+28. `llr-git status|diff|log` reads the repo. No commit.
+29. The Llrst checker does not yet emit the other `type.*` codes (`type.arity`, `type.no_field`, `type.infer`) or `name.unknown` (`std/check.llr`).
+30. `(inline (fn ...))` only substitutes a body of at most 4 expressions whose parameters are scalars, references, pointers, or function pointers, and which has no `ret`, `loop`, `while`, `for`, `match`, `brk`, or `cont`. A recursive call stays a real call (`compiler/src/mir/inline.rs`).
+31. A `tests/run` program that exits non-zero is still `ok` unless `NAME.code` is present (`tests/run.sh`).
 
 ## 9. Conventions to keep
 

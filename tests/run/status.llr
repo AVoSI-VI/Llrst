@@ -1,0 +1,7 @@
+(use std.io)
+(use std.os)
+
+(fn main () unit
+  (io.puts "out")
+  (io.eputs "err")
+  (os.exit 3))

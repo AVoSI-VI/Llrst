@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Golden tests: tests/run/*.llr (stdout must equal .out), tests/err/*.llr (stderr must
-# equal .err), tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal .err and exit 0), and every
-# std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
+# Golden tests: tests/run/*.llr (stdout must equal .out; stderr equals .err and the exit
+# status equals .code when those files exist), tests/err/*.llr (stderr must equal .err),
+# tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal
+# .err and exit 0), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 llrc="${LLRC:-$root/target/release/llrc}"
@@ -28,21 +29,35 @@ for f in "$root"/tests/run/*.llr; do
   if [ -f "${f%.llr}.flags" ]; then
     read -r -a flags <"${f%.llr}.flags"
   fi
-  if ! "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.err"; then
-    echo "fail|run/$name|compile|$(head -1 "$tmp/$name.err")"; fails=$((fails+1)); continue
+  if ! "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.cerr"; then
+    echo "fail|run/$name|compile|$(head -1 "$tmp/$name.cerr")"; fails=$((fails+1)); continue
   fi
-  "$tmp/$name" >"$tmp/$name.out" 2>/dev/null
+  "$tmp/$name" >"$tmp/$name.out" 2>"$tmp/$name.stderr"
+  printf '%s\n' "$?" >"$tmp/$name.code"
   if [ "$name" = inline ]; then
     if "$llrc" emit-mir "$f" 2>/dev/null | grep -E '^fn (str\.at|vec\.get)( |$)' >/dev/null; then
       echo "fail|run/$name|mir=str.at or vec.get was not substituted"
       fails=$((fails+1))
     fi
   fi
-  if cmp -s "$tmp/$name.out" "$want"; then
-    echo "ok|run/$name"
-  else
+  ok=1
+  if ! cmp -s "$tmp/$name.out" "$want"; then
     echo "fail|run/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.out" | tr '\n' ' ')"
     fails=$((fails+1))
+    ok=0
+  fi
+  if [ -f "${f%.llr}.err" ] && ! cmp -s "$tmp/$name.stderr" "${f%.llr}.err"; then
+    echo "fail|run/$name|stderr|want=$(head -c 200 "${f%.llr}.err" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.stderr" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ -f "${f%.llr}.code" ] && ! cmp -s "$tmp/$name.code" "${f%.llr}.code"; then
+    echo "fail|run/$name|code|want=$(head -c 200 "${f%.llr}.code" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.code" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    echo "ok|run/$name"
   fi
 done
 
