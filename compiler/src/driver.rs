@@ -117,6 +117,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         if opt.emit_mir {
             print!("{}", st.mir_dump);
         }
+        crate::mir::lint::lint_generics(&prog, diags, &HashSet::new());
         return Ok(());
     }
     // From here on, everything reachable is compiled. User fns were checked but not
@@ -176,6 +177,8 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
             break;
         }
     }
+    let done: HashSet<DefId> = st.seen.iter().map(|(id, _)| *id).collect();
+    crate::mir::lint::lint_generics(&prog, diags, &done);
     if opt.emit_mir {
         print!("{}", st.mir_dump);
     }

@@ -36,6 +36,121 @@ pub fn lint_unused(prog: &crate::resolve::Program, diags: &Diags) {
     }
 }
 
+pub fn lint_generics(prog: &crate::resolve::Program, diags: &Diags, instantiated: &std::collections::HashSet<crate::ty::DefId>) {
+    for (i, d) in prog.defs.iter().enumerate() {
+        if prog.modules[d.module as usize].is_std {
+            continue;
+        }
+        let id = crate::ty::DefId(i as u32);
+        let crate::resolve::DefKind::Fn(f) = &d.kind else { continue };
+        if f.is_extern || f.generics.is_empty() || instantiated.contains(&id) {
+            continue;
+        }
+        lint_generic(diags, f, d.span);
+    }
+}
+
+struct Bind {
+    name: String,
+    span: crate::diag::Span,
+    used: bool,
+}
+
+fn lint_generic(diags: &Diags, f: &crate::resolve::FnDef, span: crate::diag::Span) {
+    let mut scope: Vec<Bind> = f.params.iter().filter(|(n, _)| n != "_").map(|(n, _)| Bind { name: n.clone(), span, used: false }).collect();
+    for e in &f.body {
+        walk_expr(diags, e, &mut scope);
+    }
+    warn_binds(diags, &mut scope, 0);
+}
+
+fn warn_binds(diags: &Diags, scope: &mut Vec<Bind>, keep: usize) {
+    while scope.len() > keep {
+        let b = scope.pop().unwrap();
+        if !b.used && !b.name.starts_with('_') {
+            diags.push(Diag::warn(b.span, "name.unused").kv("name", b.name));
+        }
+    }
+}
+
+fn mark_bind(scope: &mut [Bind], name: &str) {
+    if let Some(b) = scope.iter_mut().rev().find(|b| b.name == name) {
+        b.used = true;
+    }
+}
+
+fn walk_seq(diags: &Diags, xs: &[crate::ast::Expr], scope: &mut Vec<Bind>) {
+    let n = scope.len();
+    for e in xs {
+        walk_expr(diags, e, scope);
+    }
+    warn_binds(diags, scope, n);
+}
+
+fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
+    use crate::ast::ExprKind::*;
+    match &e.kind {
+        Name(n) => mark_bind(scope, n),
+        Call { callee, .. } => mark_bind(scope, callee),
+        Let { name, init, .. } => {
+            if let Some(init) = init {
+                walk_expr(diags, init, scope);
+            }
+            if name != "_" {
+                scope.push(Bind { name: name.clone(), span: e.span, used: false });
+            }
+            return;
+        }
+        _ => {}
+    }
+    match &e.kind {
+        Let { .. } | Name(_) | Lit(_) | Break | Continue | Sizeof(_) => {}
+        Set { place, value } => {
+            walk_expr(diags, place, scope);
+            walk_expr(diags, value, scope);
+        }
+        Do(xs) | Loop(xs) => walk_seq(diags, xs, scope),
+        If { cond, then, els } => {
+            walk_expr(diags, cond, scope);
+            walk_expr(diags, then, scope);
+            if let Some(els) = els {
+                walk_expr(diags, els, scope);
+            }
+        }
+        While { cond, body } => {
+            walk_expr(diags, cond, scope);
+            walk_seq(diags, body, scope);
+        }
+        For { lo, hi, body, .. } => {
+            walk_expr(diags, lo, scope);
+            walk_expr(diags, hi, scope);
+            walk_seq(diags, body, scope);
+        }
+        Return(x) => {
+            if let Some(x) = x {
+                walk_expr(diags, x, scope);
+            }
+        }
+        Match { scrut, arms } => {
+            walk_expr(diags, scrut, scope);
+            for a in arms {
+                walk_expr(diags, &a.body, scope);
+            }
+        }
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
+        | Panic(place) | Assert(place) | Drop(place) => walk_expr(diags, place, scope),
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => {
+            walk_expr(diags, l, scope);
+            walk_expr(diags, r, scope);
+        }
+        Call { args, .. } => args.iter().for_each(|x| walk_expr(diags, x, scope)),
+        CallPtr { callee, args } => {
+            walk_expr(diags, callee, scope);
+            args.iter().for_each(|x| walk_expr(diags, x, scope));
+        }
+    }
+}
+
 fn warn_unreachable(diags: &Diags, body: &Body) {
     let n = body.blocks.len();
     let mut seen = vec![false; n];

@@ -33,7 +33,7 @@ A warning whose code was not denied stays a `W` and does not fail the build.
 | warning | meaning |
 |---------|---------|
 | `flow.unreachable` | a MIR block nothing jumps to, and it holds real statements (not only drops) |
-| `name.unused` | a local or parameter is never read; `name=` |
+| `name.unused` | a local or parameter is never read; `name=`. A user generic body is linted even when nothing instantiates it |
 | `use.unused` | a `(use ...)` alias is never looked up; `name=` |
 | `fn.unused` | a private function is never called; `name=` |
 
