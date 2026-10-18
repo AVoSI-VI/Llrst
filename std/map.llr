@@ -64,6 +64,16 @@
     (for i 0 n (vec.push (&mut heads) (neg 1)))
     (set (. self heads) heads)
     (map.relink self hash))
+  ;; Halve while live keys are at most one eighth of the buckets. Stop at 16.
+  (fn shrink ((self (&mut (map K V))) (hash (fn ((& K)) i64))) unit
+    (let mut n (vec.len (& (. self heads))))
+    (let have n)
+    (while (and (> n 16) (<= (* (. self len) 8) n)) (set n (/ n 2)))
+    (if (== n have) (ret))
+    (let mut heads (vec.new <i64>))
+    (for i 0 n (vec.push (&mut heads) (neg 1)))
+    (set (. self heads) heads)
+    (map.relink self hash))
   ;; Drop tombstones when they are more than half the stored entries. vec.pop clears len first.
   (fn compact ((self (&mut (map K V))) (hash (fn ((& K)) i64))) unit
     (if (<= (vec.len (& (. self ents))) (* 2 (. self len))) (ret))
@@ -92,6 +102,7 @@
     (set (. (vec.get_mut (&mut (. self ents)) i) alive) false)
     (set (. self len) (- (. self len) 1))
     (if (> (vec.len (& (. self ents))) (* 2 (. self len))) (map.compact self hash))
+    (map.shrink self hash)
     true))
   ;; Live keys, cloned and sorted. clone and cmp are named functions; there is no trait.
   (pub (fn keys ((self (& (map K V))) (clone (fn ((& K)) K)) (cmp (fn ((& K) (& K)) i64))) (vec K)
@@ -155,4 +166,17 @@
   (let back (str.from "0"))
   (match (map.get (& m) (& back) map.hash_str map.eq_str)
     ((opt.some v) (assert_eq (@ v) 7))
+    ((opt.none) (assert false))))
+
+;; 66 inserts grow heads to 64. Deleting down to 8 live keys halves them to 32.
+(test map_shrink
+  (let mut m (map.new <str i64>))
+  (for i 0 66 (map.put (&mut m) (str.from_int i) i map.hash_str map.eq_str))
+  (assert_eq (vec.len (& (. m heads))) 64)
+  (for i 0 58 (let s (str.from_int i)) (assert (map.del (&mut m) (& s) map.hash_str map.eq_str)))
+  (assert_eq (map.len (& m)) 8)
+  (assert_eq (vec.len (& (. m heads))) 32)
+  (let keep (str.from "65"))
+  (match (map.get (& m) (& keep) map.hash_str map.eq_str)
+    ((opt.some v) (assert_eq (@ v) 65))
     ((opt.none) (assert false))))
