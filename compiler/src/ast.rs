@@ -178,7 +178,7 @@ pub struct Expr {
 pub enum ExprKind {
     Lit(Lit),
     Name(String),
-    Let { name: String, mutable: bool, ty: Option<TyExpr>, init: Box<Expr> },
+    Let { name: String, mutable: bool, ty: Option<TyExpr>, init: Option<Box<Expr>> },
     Set { place: Box<Expr>, value: Box<Expr> },
     Do(Vec<Expr>),
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },

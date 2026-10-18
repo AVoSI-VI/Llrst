@@ -424,7 +424,7 @@ fn bad_expr(e: &ast::Expr) -> Option<&'static str> {
         Continue => Some("cont"),
         Return(_) => Some("ret"),
         Match { .. } => Some("match"),
-        Let { init, .. } => bad_expr(init),
+        Let { init, .. } => init.as_deref().and_then(bad_expr),
         Set { place, value } => bad_expr(place).or_else(|| bad_expr(value)),
         Do(xs) => bad_form(xs),
         If { cond, then, els } => bad_expr(cond).or_else(|| bad_expr(then)).or_else(|| els.as_ref().and_then(|x| bad_expr(x))),

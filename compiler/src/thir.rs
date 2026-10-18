@@ -94,7 +94,7 @@ pub enum ExprKind {
     Lit(Lit),
     Local(LocalId),
     Const(DefId),
-    Let { local: LocalId, init: Box<Expr> },
+    Let { local: LocalId, init: Option<Box<Expr>> },
     Assign { place: Box<Expr>, value: Box<Expr> },
     Block(Vec<Expr>),
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },

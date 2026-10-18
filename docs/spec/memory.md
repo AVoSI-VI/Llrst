@@ -62,4 +62,4 @@ Programs outside `std` should not use them; `llr-fmt --lint` flags them.
 | `borrow.assign` | write to borrowed place |
 | `borrow.escape` | reference outlives referent |
 | `mut.required` | mutate or `&mut` a non-`mut` binding |
-| `init.missing` | read before assignment |
+| `init.uninit` | use before every path assigns the local |

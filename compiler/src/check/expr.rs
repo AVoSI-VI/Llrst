@@ -18,19 +18,28 @@ impl<'a> Checker<'a> {
             A::Name(n) => self.check_name(n, sp)?,
             A::Let { name, mutable, ty, init } => {
                 let declared = ty.as_ref().map(|t| self.resolve_ty(t)).transpose()?;
-                let init = self.check_expr(init, declared.as_ref())?;
-                let ty = match declared {
-                    Some(t) => {
-                        self.expect(&init, &t)?;
-                        t
+                let (ty, init_ex) = match init {
+                    Some(init) => {
+                        let init = self.check_expr(init, declared.as_ref())?;
+                        let ty = match declared {
+                            Some(t) => {
+                                self.expect(&init, &t)?;
+                                t
+                            }
+                            None => init.ty.clone(),
+                        };
+                        (ty, Some(Box::new(init)))
                     }
-                    None => init.ty.clone(),
+                    None => {
+                        let t = declared.ok_or_else(|| Diag::error(sp, "parse.expect").kv("want", "type"))?;
+                        (t, None)
+                    }
                 };
                 if matches!(self.shallow(&ty), Ty::Unit) {
                     return Err(Diag::error(sp, "type.unit_bind").kv("name", name.clone()));
                 }
                 let local = self.declare(name, ty, *mutable, sp)?;
-                mk(ExprKind::Let { local, init: Box::new(init) }, Ty::Unit, sp)
+                mk(ExprKind::Let { local, init: init_ex }, Ty::Unit, sp)
             }
             A::Set { place, value } => {
                 let place = self.check_expr(place, None)?;
@@ -449,7 +458,7 @@ fn has_break(e: &Expr) -> bool {
         ExprKind::Break => true,
         ExprKind::While { .. } | ExprKind::Loop(_) | ExprKind::For { .. } => false,
         ExprKind::Block(items) => items.iter().any(has_break),
-        ExprKind::Let { init, .. } => has_break(init),
+        ExprKind::Let { init, .. } => init.as_ref().map(|e| has_break(e)).unwrap_or(false),
         ExprKind::Assign { place, value } => has_break(place) || has_break(value),
         ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
         ExprKind::Match { scrut, arms, .. } => has_break(scrut) || arms.iter().any(|a| has_break(&a.body)),

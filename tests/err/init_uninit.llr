@@ -1,0 +1,5 @@
+(use std.io)
+
+(fn main () unit
+  (let mut n i64)
+  (io.puts (& (str.from_int n))))

@@ -16,6 +16,49 @@ fn bx(e: Expr) -> Box<Expr> {
     Box::new(e)
 }
 
+fn is_type_name(head: &str) -> bool {
+    let mut chars = head.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !matches!(
+            head,
+            "let" | "set" | "do" | "if" | "while" | "loop" | "for" | "brk" | "cont" | "ret" | "match" | "as" | "and"
+                | "or" | "not" | "neg" | "wneg" | "try" | "panic" | "assert" | "assert_eq" | "drop" | "sizeof" | "call"
+        )
+}
+
+fn ref_tail(items: &[Sexpr]) -> &[Sexpr] {
+    let rest = &items[1..];
+    match rest.first() {
+        Some(Sexpr::Atom(a, _)) if a.starts_with('\'') => &rest[1..],
+        _ => rest,
+    }
+}
+
+fn is_type_form(s: &Sexpr) -> bool {
+    match s {
+        Sexpr::Atom(a, _) => matches!(
+            a.as_str(),
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64" | "bool" | "str" | "unit"
+        ),
+        Sexpr::List(items, _) => {
+            let Some(head) = items.first().and_then(|h| h.atom()) else { return false };
+            if matches!(head, "ptr" | "fn") {
+                return true;
+            }
+            if matches!(head, "&" | "&mut") {
+                let rest = ref_tail(items);
+                return !rest.is_empty() && rest.iter().all(is_type_form);
+            }
+            is_type_name(head) && items.len() > 1 && items[1..].iter().all(is_type_form)
+        }
+        Sexpr::Str(_, _) => false,
+    }
+}
+
 pub fn parse_body(items: &[Sexpr]) -> PResult<Vec<Expr>> {
     items.iter().map(parse_expr).collect()
 }
@@ -93,12 +136,19 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
             let mutable = items.get(1).map_or(false, |x| x.is_atom("mut"));
             let rest = &items[1 + mutable as usize..];
             let name = rest.first().and_then(|x| x.atom()).ok_or_else(|| arity(sp, "let", "2..3", n))?;
-            let (ty, init) = match rest.len() {
-                2 => (None, &rest[1]),
-                3 => (Some(parse_ty(&rest[1])?), &rest[2]),
-                _ => return Err(arity(sp, "let", "2..3", n)),
-            };
-            ExprKind::Let { name: name.to_string(), mutable, ty, init: bx(parse_expr(init)?) }
+            if rest.len() == 2 && is_type_form(&rest[1]) {
+                if !mutable {
+                    return Err(Diag::error(sp, "mut.required").kv("name", name).kv("fix", format!("(let mut {name} ...)")));
+                }
+                ExprKind::Let { name: name.to_string(), mutable, ty: Some(parse_ty(&rest[1])?), init: None }
+            } else {
+                let (ty, init) = match rest.len() {
+                    2 => (None, &rest[1]),
+                    3 => (Some(parse_ty(&rest[1])?), &rest[2]),
+                    _ => return Err(arity(sp, "let", "2..3", n)),
+                };
+                ExprKind::Let { name: name.to_string(), mutable, ty, init: Some(bx(parse_expr(init)?)) }
+            }
         }
         "set" => {
             let (p, v) = two(items, sp, "set")?;

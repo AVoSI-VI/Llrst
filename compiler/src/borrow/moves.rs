@@ -6,22 +6,26 @@ use std::collections::{HashMap, HashSet};
 struct Moved {
     whole: BitSet,
     fields: HashSet<(LocalIdx, u32)>,
+    uninit: BitSet,
 }
 
 impl Moved {
     fn new(n: usize) -> Moved {
-        Moved { whole: BitSet::new(n), fields: HashSet::new() }
+        Moved { whole: BitSet::new(n), fields: HashSet::new(), uninit: BitSet::new(n) }
     }
     fn clone_at(&self, n: usize) -> Moved {
         let mut whole = BitSet::new(n);
         whole.union_with(&self.whole);
-        Moved { whole, fields: self.fields.clone() }
+        let mut uninit = BitSet::new(n);
+        uninit.union_with(&self.uninit);
+        Moved { whole, fields: self.fields.clone(), uninit }
     }
     fn union_with(&mut self, o: &Moved) -> bool {
         let w = self.whole.union_with(&o.whole);
+        let u = self.uninit.union_with(&o.uninit);
         let before = self.fields.len();
         self.fields.extend(o.fields.iter().copied());
-        w || self.fields.len() != before
+        w || u || self.fields.len() != before
     }
 }
 
@@ -30,14 +34,18 @@ pub fn check_moves(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body) {
     let n = body.locals.len();
     let nb = body.blocks.len();
     let mut moved_in: Vec<Moved> = (0..nb).map(|_| Moved::new(n)).collect();
+    for i in (body.arg_count + 1)..n {
+        moved_in[0].uninit.insert(i as u32);
+    }
     let mut moved_at: HashMap<LocalIdx, Span> = HashMap::new();
     let mut field_at: HashMap<(LocalIdx, u32), Span> = HashMap::new();
+    let mut init_errs: Vec<(LocalIdx, Span)> = Vec::new();
     let mut changed = true;
     while changed {
         changed = false;
         for bb in 0..nb {
             let mut state = moved_in[bb].clone_at(n);
-            transfer(body, bb as BlockId, &mut state, &mut moved_at, &mut field_at, None);
+            transfer(body, bb as BlockId, &mut state, &mut moved_at, &mut field_at, None, None);
             for s in body.successors(bb as BlockId) {
                 if moved_in[s as usize].union_with(&state) {
                     changed = true;
@@ -49,7 +57,9 @@ pub fn check_moves(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body) {
     for bb in 0..nb {
         let mut state = moved_in[bb].clone_at(n);
         let mut errs = Vec::new();
-        transfer(body, bb as BlockId, &mut state, &mut moved_at, &mut field_at, Some(&mut errs));
+        let mut inits = Vec::new();
+        transfer(body, bb as BlockId, &mut state, &mut moved_at, &mut field_at, Some(&mut errs), Some(&mut inits));
+        init_errs.append(&mut inits);
         for (l, sp, at) in errs {
             if reported.contains(&(l, sp)) {
                 continue;
@@ -64,6 +74,15 @@ pub fn check_moves(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body) {
             diags.push(d);
         }
     }
+    let mut seen_init: Vec<(LocalIdx, Span)> = Vec::new();
+    for (l, sp) in init_errs {
+        if seen_init.contains(&(l, sp)) {
+            continue;
+        }
+        seen_init.push((l, sp));
+        let name = body.locals[l as usize].name.clone();
+        diags.push(Diag::error(sp, "init.uninit").kv("name", name));
+    }
 }
 
 fn transfer(
@@ -73,6 +92,7 @@ fn transfer(
     moved_at: &mut HashMap<LocalIdx, Span>,
     field_at: &mut HashMap<(LocalIdx, u32), Span>,
     mut errs: Option<&mut Vec<(LocalIdx, Span, Option<Span>)>>,
+    mut init_errs: Option<&mut Vec<(LocalIdx, Span)>>,
 ) {
     let blk = &body.blocks[bb as usize];
     let mut all: Vec<Vec<Access>> = blk.stmts.iter().map(|(s, sp)| stmt_accesses(s, *sp)).collect();
@@ -85,6 +105,11 @@ fn transfer(
             if let Some(at) = moved_span(state, moved_at, field_at, &a.place) {
                 if let Some(e) = errs.as_mut() {
                     e.push((a.place.local, a.span, at));
+                }
+            }
+            if uses_moved(a.kind) && state.uninit.contains(a.place.local) {
+                if let Some(e) = init_errs.as_mut() {
+                    e.push((a.place.local, a.span));
                 }
             }
         }
@@ -103,6 +128,7 @@ fn transfer(
                 AccessKind::Write if a.place.is_local() => {
                     state.whole.remove(l);
                     state.fields.retain(|(ll, _)| *ll != l);
+                    state.uninit.remove(l);
                 }
                 _ => {}
             }

@@ -1,0 +1,9 @@
+(use std.io)
+
+(fn main () unit
+  (let mut n i64)
+  (set n 4)
+  (io.puts (& (str.from_int n)))
+  (let mut s str)
+  (set s (str.from "hi"))
+  (io.puts (& s)))

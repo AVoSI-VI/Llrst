@@ -37,7 +37,13 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
     let bx = |c: &mut Checker, x: Box<Expr>| -> PResult<Box<Expr>> { Ok(Box::new(zonk_expr(c, *x)?)) };
     let kind = match e.kind {
         ExprKind::Lit(_) | ExprKind::Local(_) | ExprKind::Const(_) | ExprKind::Break | ExprKind::Continue | ExprKind::FnRef(_) => e.kind,
-        ExprKind::Let { local, init } => ExprKind::Let { local, init: bx(c, init)? },
+        ExprKind::Let { local, init } => ExprKind::Let {
+            local,
+            init: match init {
+                Some(x) => Some(bx(c, x)?),
+                None => None,
+            },
+        },
         ExprKind::Assign { place, value } => ExprKind::Assign { place: bx(c, place)?, value: bx(c, value)? },
         ExprKind::Block(items) => ExprKind::Block(items.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()?),
         ExprKind::If { cond, then, els } => ExprKind::If {

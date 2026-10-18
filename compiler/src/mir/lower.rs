@@ -220,10 +220,14 @@ impl<'a> Lower<'a> {
                 let l = self.local(*local);
                 let sc = self.scopes.last_mut().unwrap();
                 sc.all.push(l);
-                if needs_drop(self.prog, &init.ty) {
+                if let Some(init) = init {
+                    if needs_drop(self.prog, &init.ty) {
+                        sc.drops.push(l);
+                    }
+                    self.expr_into(init, Place::local(l), e.span);
+                } else if needs_drop(self.prog, self.body.local_ty(l)) {
                     sc.drops.push(l);
                 }
-                self.expr_into(init, Place::local(l), e.span);
             }
             ExprKind::Assign { place, value } => {
                 let v = self.as_operand(value);
