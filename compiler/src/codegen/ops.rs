@@ -85,12 +85,15 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             BinOp::BitAnd => self.b.ins().band(x, y),
             BinOp::BitOr => self.b.ins().bor(x, y),
             BinOp::BitXor => self.b.ins().bxor(x, y),
-            BinOp::Shl => self.b.ins().ishl(x, y),
-            BinOp::Shr => {
-                if signed {
+            BinOp::Shl | BinOp::Shr => {
+                if self.cg.checked {
+                    self.checked_shift(op, x, y, t, span)
+                } else if op == BinOp::Shr && signed {
                     self.b.ins().sshr(x, y)
-                } else {
+                } else if op == BinOp::Shr {
                     self.b.ins().ushr(x, y)
+                } else {
+                    self.b.ins().ishl(x, y)
                 }
             }
         }

@@ -1,5 +1,6 @@
 //! `--checked` overflow traps: branch to `sys.abort(loc, "int.overflow")`.
 use super::func::FnCx;
+use crate::ast::BinOp;
 use crate::diag::Span;
 use crate::ty::{IntTy, Ty};
 use cranelift_codegen::ir::condcodes::IntCC;
@@ -16,6 +17,35 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         self.abort_overflow(span);
         self.b.switch_to_block(ok);
         value
+    }
+
+    /// Panics when the shift count is outside `0..bitwidth`, then shifts on the continuing path.
+    pub fn checked_shift(&mut self, op: BinOp, x: Value, y: Value, t: &Ty, span: Span) -> Value {
+        let Ty::Int(it) = t else { return self.emit_shift(op, x, y, false) };
+        let ct = int_clif(*it);
+        let lim = self.b.ins().iconst(ct, (it.bytes() as i64) * 8);
+        let ge = self.b.ins().icmp(if it.signed() { IntCC::SignedGreaterThanOrEqual } else { IntCC::UnsignedGreaterThanOrEqual }, y, lim);
+        let flag = if it.signed() {
+            let neg = self.b.ins().icmp_imm_s(IntCC::SignedLessThan, y, 0);
+            self.b.ins().bor(neg, ge)
+        } else {
+            ge
+        };
+        let bad = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.ins().brif(flag, bad, &[], ok, &[]);
+        self.b.switch_to_block(bad);
+        self.abort_overflow(span);
+        self.b.switch_to_block(ok);
+        self.emit_shift(op, x, y, it.signed())
+    }
+
+    fn emit_shift(&mut self, op: BinOp, x: Value, y: Value, signed: bool) -> Value {
+        match op {
+            BinOp::Shr if signed => self.b.ins().sshr(x, y),
+            BinOp::Shr => self.b.ins().ushr(x, y),
+            _ => self.b.ins().ishl(x, y),
+        }
     }
 
     /// Negation that panics on signed MIN and on any non-zero unsigned value.

@@ -75,8 +75,8 @@ No global inference; every `fn` signature is fully annotated.
 
 `+` `-` `*` and `neg` wrap in two's complement. `llrc build --checked` makes those four trap
 with `P|FILE|LINE|COL|int.overflow` at the expression, and does the same for signed
-`MIN / -1` and `MIN % -1`. `wadd` `wsub` `wmul` `wneg` wrap either way. Shifts and casts
-are not checked.
+`MIN / -1` and `MIN % -1`, and for `shl` and `shr` whose count is outside `0..bitwidth`.
+`wadd` `wsub` `wmul` `wneg` wrap either way. Casts are not checked.
 
 ## Casts
 
