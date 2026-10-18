@@ -1,16 +1,14 @@
-//! Module loading and item collection. Produces a `Program` with resolved signatures.
 use crate::ast::{self, Item, TyExpr};
 use crate::diag::{Diag, Diags, PResult, SourceMap, Span};
 use crate::parse::parse_items;
 use crate::sexpr::read_file;
 use crate::ty::{DefId, IntTy, Ty};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-
 pub struct StructDef {
     pub generics: Vec<String>,
     pub lifetimes: Vec<String>,
-    /// `(name, type, is_pub)`.
     pub fields: Vec<(String, Ty, bool)>,
 }
 
@@ -57,6 +55,7 @@ pub struct Module {
     pub file: u32,
     pub items: HashMap<String, DefId>,
     pub uses: HashMap<String, u32>,
+    pub use_span: HashMap<String, Span>,
     pub tests: Vec<ast::TestDecl>,
     pub is_std: bool,
 }
@@ -67,8 +66,9 @@ pub struct Program {
     pub methods: HashMap<DefId, HashMap<String, DefId>>,
     pub main_module: u32,
     pub prelude: HashMap<String, DefId>,
-    /// Target architecture name, exposed as `(sys.arch)`.
     pub target_arch: String,
+    pub used_fns: RefCell<HashSet<DefId>>,
+    pub used_uses: RefCell<HashSet<(u32, String)>>,
 }
 
 impl Program {
@@ -106,7 +106,6 @@ impl Program {
     pub fn prelude_type(&self, name: &str) -> Option<DefId> {
         self.prelude.get(name).copied()
     }
-    /// An item is visible from `from` when it is `pub` or defined in that module.
     pub fn visible(&self, from: u32, d: DefId) -> bool {
         let def = self.def(d);
         def.is_pub || def.module == from
@@ -132,13 +131,13 @@ impl Program {
             _ => d.name.clone(),
         }
     }
-    /// Resolve a (possibly dotted) type name in the scope of a module.
     pub fn lookup_type(&self, module: u32, name: &str) -> Option<DefId> {
-        let m = &self.modules[module as usize];
         if let Some((a, b)) = name.split_once('.') {
-            let mi = *m.uses.get(a)?;
+            let mi = *self.modules[module as usize].uses.get(a)?;
+            self.used_uses.borrow_mut().insert((module, a.to_string()));
             return self.modules[mi as usize].items.get(b).copied().filter(|d| self.is_type(*d));
         }
+        let m = &self.modules[module as usize];
         if let Some(d) = m.items.get(name).copied().filter(|d| self.is_type(*d)) {
             return Some(d);
         }
@@ -147,41 +146,42 @@ impl Program {
     pub fn is_type(&self, d: DefId) -> bool {
         matches!(self.def(d).kind, DefKind::Struct(_) | DefKind::Enum(_))
     }
-    /// Resolve a function path `name`, `mod.name`, `type.name`, `mod.type.name`.
     pub fn lookup_fn(&self, module: u32, path: &str) -> Option<DefId> {
-        let m = &self.modules[module as usize];
         let parts: Vec<&str> = path.split('.').collect();
-        match parts.len() {
-            1 => m.items.get(parts[0]).copied().filter(|d| matches!(self.def(*d).kind, DefKind::Fn(_))),
-            2 => {
-                if let Some(&mi) = m.uses.get(parts[0]) {
-                    if let Some(d) = self.modules[mi as usize].items.get(parts[1]) {
-                        if matches!(self.def(*d).kind, DefKind::Fn(_)) {
-                            return Some(*d);
-                        }
-                    }
-                }
-                let t = self.lookup_type(module, parts[0])?;
-                if let Some(m) = self.methods.get(&t).and_then(|m| m.get(parts[1])) {
-                    return Some(*m);
-                }
-                // Module-level fns of the module that defines the type: `vec.cmp_str`.
-                let tm = self.def(t).module;
-                self.modules[tm as usize].items.get(parts[1]).copied().filter(|d| matches!(self.def(*d).kind, DefKind::Fn(_)))
-            }
+        let found = match parts.len() {
+            1 => self.mod_fn(module, parts[0]),
+            2 => self.import_fn(module, parts[0], parts[1]).or_else(|| self.fn_tail(module, &parts)),
             3 => {
                 let t = self.lookup_type(module, &format!("{}.{}", parts[0], parts[1]))?;
                 self.methods.get(&t)?.get(parts[2]).copied()
             }
             _ => None,
+        };
+        found.inspect(|d| { self.used_fns.borrow_mut().insert(*d); })
+    }
+    fn mod_fn(&self, module: u32, name: &str) -> Option<DefId> {
+        self.modules[module as usize].items.get(name).copied().filter(|d| matches!(self.def(*d).kind, DefKind::Fn(_)))
+    }
+    fn import_fn(&self, module: u32, alias: &str, name: &str) -> Option<DefId> {
+        let mi = self.modules[module as usize].uses.get(alias).copied()?;
+        let d = self.mod_fn(mi, name)?;
+        self.used_uses.borrow_mut().insert((module, alias.to_string()));
+        Some(d)
+    }
+    fn fn_tail(&self, module: u32, parts: &[&str]) -> Option<DefId> {
+        let t = self.lookup_type(module, parts[0])?;
+        if let Some(id) = self.methods.get(&t).and_then(|m| m.get(parts[1])).copied() {
+            return Some(id);
         }
+        self.mod_fn(self.def(t).module, parts[1])
     }
     pub fn lookup_const(&self, module: u32, path: &str) -> Option<DefId> {
-        let m = &self.modules[module as usize];
         let d = if let Some((a, b)) = path.split_once('.') {
-            let mi = *m.uses.get(a)?;
+            let mi = *self.modules[module as usize].uses.get(a)?;
+            self.used_uses.borrow_mut().insert((module, a.to_string()));
             *self.modules[mi as usize].items.get(b)?
         } else {
+            let m = &self.modules[module as usize];
             *m.items.get(path)?
         };
         matches!(self.def(d).kind, DefKind::Const(_)).then_some(d)
@@ -217,7 +217,6 @@ impl<'a> Loader<'a> {
         Ok(idx)
     }
 
-    /// Loads the main file, all of std, and any `proj.*` modules reachable via `use`.
     pub fn load(mut self, main: &Path, target: Option<&str>) -> PResult<Program> {
         let os_file = crate::driver::os_extern_file(target)?;
         let main_idx = self.load_file("main", main, false)?;
@@ -279,14 +278,16 @@ impl<'a> Loader<'a> {
 }
 
 fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
-    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), target_arch: String::new() };
+    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), target_arch: String::new(), used_fns: RefCell::new(HashSet::new()), used_uses: RefCell::new(HashSet::new()) };
     for (path, file, items, is_std) in &parsed {
         let mi = prog.modules.len() as u32;
-        let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), tests: Vec::new(), is_std: *is_std };
+        let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), tests: Vec::new(), is_std: *is_std };
         for it in items {
             match it {
-                Item::Use(p, _) => {
-                    m.uses.insert(p.last().unwrap().clone(), by_path[&p.join(".")]);
+                Item::Use(p, sp) => {
+                    let alias = p.last().unwrap().clone();
+                    m.uses.insert(alias.clone(), by_path[&p.join(".")]);
+                    m.use_span.insert(alias, *sp);
                 }
                 Item::Struct(s) => {
                     let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
@@ -305,7 +306,6 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
         }
         prog.modules.push(m);
     }
-    // Phase 2: field types, signatures, consts, methods.
     for (mi, (_, _, items, _)) in parsed.iter().enumerate() {
         let mi = mi as u32;
         for it in items {
@@ -369,7 +369,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
 }
 
 fn dummy_module() -> Module {
-    Module { path: String::new(), file: 0, items: HashMap::new(), uses: HashMap::new(), tests: Vec::new(), is_std: false }
+    Module { path: String::new(), file: 0, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), tests: Vec::new(), is_std: false }
 }
 
 fn push_def(prog: &mut Program, m: &mut Module, name: &str, module: u32, span: Span, kind: DefKind, is_pub: bool, diags: &Diags) -> DefId {

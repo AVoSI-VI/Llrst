@@ -110,6 +110,9 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
             diags.push(d);
         }
     }
+    if !opt.test {
+        crate::mir::lint::lint_unused(&prog, diags);
+    }
     if diags.has_errors() || opt.check_only {
         if opt.emit_mir {
             print!("{}", st.mir_dump);
@@ -137,6 +140,10 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
             let id = cg.declare_test_fn(i);
             cg.compile_body_with_id(&mir, id)?;
             test_fns.push((t.name.clone(), id));
+        }
+        crate::mir::lint::lint_unused(&prog, diags);
+        if diags.has_errors() {
+            return Ok(());
         }
         let run = std_fn(&prog, "test", "run")?;
         let done = std_fn(&prog, "test", "done")?;

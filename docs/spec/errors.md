@@ -34,6 +34,8 @@ A warning whose code was not denied stays a `W` and does not fail the build.
 |---------|---------|
 | `flow.unreachable` | a MIR block nothing jumps to, and it holds real statements (not only drops) |
 | `name.unused` | a local or parameter is never read; `name=` |
+| `use.unused` | a `(use ...)` alias is never looked up; `name=` |
+| `fn.unused` | a private function is never called; `name=` |
 
 ## Runtime panics
 

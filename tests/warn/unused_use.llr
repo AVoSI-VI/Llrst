@@ -1,0 +1,3 @@
+(use std.sys)
+
+(fn main () unit ())
