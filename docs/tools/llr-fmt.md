@@ -3,7 +3,7 @@
 Canonical layout for `.llr` files and the canon linter.
 
 ```
-llr-fmt FILE... [--check] [--stdout] [--lint]
+llr-fmt FILE... [--width N] [--check] [--stdout] [--lint]
 ```
 
 | mode | effect |
@@ -13,9 +13,10 @@ llr-fmt FILE... [--check] [--stdout] [--lint]
 | `--stdout` | prints the formatted text |
 | `--lint` | prints canon warnings `W|FILE|LINE|COL|0|CODE|k=v`; exit 2 if any |
 
-Layout rules: a form is one line when it fits in 100 columns and holds no comment;
-otherwise the header stays on the first line and each remaining item goes on its own line
-indented by 2. Header sizes: `fn` 4 (5 with generics), `struct`/`enum`/`impl` 2, `if`
+Layout rules: a form is one line when it fits in `N` columns (`--width`, default 100) and
+holds no comment. A comment anywhere inside a form forces a line break even when the flat
+text would fit. Otherwise the header stays on the first line and each remaining item goes
+on its own line indented by 2. Header sizes: `fn` 4 (5 with generics), `struct`/`enum`/`impl` 2, `if`
 `while` `match` `set` `test` 2, `for` 4, `let` 2 (3 with `mut`), `do` `loop` 1, calls 2.
 Top-level forms are separated by one blank line except consecutive `use` forms and a form
 after a comment. Comments are kept verbatim on their own line.

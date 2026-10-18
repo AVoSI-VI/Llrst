@@ -1,4 +1,4 @@
-;; llr-fmt FILE... [--check] [--stdout] [--lint]: canonical layout and canon lint for .llr.
+;; llr-fmt FILE... [--width N] [--check] [--stdout] [--lint]: canonical layout and canon lint.
 (use proj.fmtlint)
 (use std.cli)
 (use std.fmt)
@@ -6,8 +6,6 @@
 (use std.io)
 (use std.os)
 (use std.sexp)
-
-(const width i64 100)
 
 ;; Items kept on the first line for a form with this head.
 (fn header_len ((t (& sexp.tree)) (n i64)) i64
@@ -26,7 +24,7 @@
 
 (fn spaces ((n i64) (out (&mut str))) unit (for i 0 n (str.push_byte out 32u8)))
 
-(fn emit ((t (& sexp.tree)) (n i64) (indent i64) (out (&mut str))) unit
+(fn emit ((t (& sexp.tree)) (n i64) (indent i64) (width i64) (out (&mut str))) unit
   (let k (sexp.kind t n))
   (if (!= k 2u8) (do (str.push out (sexp.text t n)) (ret)))
   (let flat (sexp.flat t n))
@@ -39,19 +37,21 @@
   (if (and (str.eq (sexp.head t n) "pub") (== cnt 2))
     (do
       (str.push out "(pub ")
-      (emit t (sexp.child t n 1) indent out)
+      (emit t (sexp.child t n 1) indent width out)
       (str.push_byte out 41u8)
       (ret)))
   (str.push_byte out 40u8)
-  (for i 0 hdr (if (> i 0) (str.push_byte out 32u8)) (emit t (sexp.child t n i) (+ indent 1) out))
+  (for i 0 hdr
+    (if (> i 0) (str.push_byte out 32u8))
+    (emit t (sexp.child t n i) (+ indent 1) width out))
   (for i hdr cnt
     (str.push_byte out 10u8)
     (spaces (+ indent 2) out)
-    (emit t (sexp.child t n i) (+ indent 2) out))
+    (emit t (sexp.child t n i) (+ indent 2) width out))
   (str.push_byte out 41u8))
 
 ;; Whole file: blank line between forms except use-after-use and form-after-comment.
-(pub (fn format ((t (& sexp.tree))) str
+(pub (fn format ((t (& sexp.tree)) (width i64)) str
   (let mut out (str.new))
   (let n (vec.len (& (. t top))))
   (let mut prev_use false)
@@ -61,7 +61,7 @@
     (let is_use (str.eq (sexp.head t f) "use"))
     (if (and (> i 0) (not prev_comment) (not (and prev_use is_use)))
       (str.push_byte (&mut out) 10u8))
-    (emit t f 0 (&mut out))
+    (emit t f 0 width (&mut out))
     (str.push_byte (&mut out) 10u8)
     (set prev_use is_use)
     (set prev_comment (== (sexp.kind t f) 3u8)))
@@ -70,10 +70,12 @@
 (fn main () unit
   (let mut c (cli.new "llr-fmt" "format .llr files; --check reports, --lint checks canon"))
   (cli.pos (&mut c) "file")
+  (cli.opt (&mut c) "width" "100")
   (cli.flag (&mut c) "check")
   (cli.flag (&mut c) "stdout")
   (cli.flag (&mut c) "lint")
   (cli.parse (&mut c) (os.args))
+  (let width (cli.get_int (& c) "width"))
   (let mut bad 0)
   (for i 0 (cli.count (& c))
     (let path (cli.at (& c) i))
@@ -86,7 +88,7 @@
         ((res.ok t) t)
         ((res.err e) (do (io.eputs (& (fmt.pipe3 "E" path (& e)))) (os.exit 1)))))
     (if (cli.has (& c) "lint") (do (set bad (+ bad (fmtlint.lint path (& src) (& t)))) (cont)))
-    (let out (format (& t)))
+    (let out (format (& t) width))
     (let same (str.eq (& out) (& src)))
     (if (cli.has (& c) "stdout") (do (io.put (& out)) (cont)))
     (if (cli.has (& c) "check")
