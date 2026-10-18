@@ -66,6 +66,7 @@ pub struct StructDecl {
 pub struct Variant {
     pub name: String,
     pub fields: Vec<TyExpr>,
+    pub is_pub: bool,
     pub span: Span,
 }
 

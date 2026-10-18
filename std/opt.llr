@@ -1,5 +1,5 @@
 ;; Optional value. Variant order is fixed: some = 0, none = 1 (try relies on it).
-(pub (enum opt <T> (some T) (none)))
+(pub (enum opt <T> (pub (some T)) (pub (none))))
 
 (impl opt <T>
   (pub (fn is_some ((self (& (opt T)))) bool (match self ((opt.some _) true) ((opt.none) false))))

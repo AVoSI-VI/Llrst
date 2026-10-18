@@ -43,6 +43,7 @@ impl<'a> Checker<'a> {
                     let idx = ed.variants.iter().position(|v| v.0 == variant).ok_or_else(|| {
                         Diag::error(sp, "type.no_variant").kv("ty", self.prog.type_name(t)).kv("variant", variant)
                     })?;
+                    self.require_variant(t, idx as u32, sp)?;
                     return self.check_variant_ctor(t, idx as u32, &targs, args, want, sp);
                 }
             }

@@ -15,7 +15,7 @@ pub struct StructDef {
 pub struct EnumDef {
     pub generics: Vec<String>,
     pub lifetimes: Vec<String>,
-    pub variants: Vec<(String, Vec<Ty>)>,
+    pub variants: Vec<(String, Vec<Ty>, bool)>,
 }
 
 pub struct FnDef {
@@ -322,7 +322,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     let mut variants = Vec::new();
                     for v in &e.variants {
                         let tys = v.fields.iter().map(|t| resolve_ty(&prog, mi, &e.generics.types, t)).collect::<PResult<Vec<_>>>()?;
-                        variants.push((v.name.clone(), tys));
+                        variants.push((v.name.clone(), tys, v.is_pub));
                     }
                     if let DefKind::Enum(ed) = &mut prog.defs[id.0 as usize].kind {
                         ed.variants = variants;

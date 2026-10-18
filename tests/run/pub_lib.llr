@@ -4,7 +4,7 @@
   (pub (fn sum ((self (& pt))) i64 (+ (. self x) (. self y))))
   (fn secret ((self (& pt))) i64 0))
 
-(pub (enum tag (a) (b i64)))
+(pub (enum tag (pub (a)) (pub (b i64))))
 
 (pub (const base i64 10))
 

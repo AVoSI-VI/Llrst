@@ -37,7 +37,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 
 ARGS   := ( (NAME TYPE)* )
 FIELD  := (NAME TYPE) | (pub (NAME TYPE))   ; private unless pub
-VARIANT:= (NAME TYPE*)
+VARIANT:= (NAME TYPE*) | (pub (NAME TYPE*))   ; private unless pub
 ```
 
 ## Types

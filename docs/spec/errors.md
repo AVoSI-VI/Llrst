@@ -67,7 +67,7 @@ and also exits 101. Without `--checked`, dividing the minimum signed value by `-
 |--------|-----------|
 | `lex.*` | `lex.unterminated_string` `lex.bad_escape` `lex.bad_char` |
 | `parse.*` | `parse.unbalanced` `parse.expect` (`want=`) `parse.arity` (`form= want= got=`) `parse.bad_head` |
-| `name.*` | `name.unknown` (`name=`) `name.dup` `name.not_module` `name.not_type` `name.not_fn` `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) |
+| `name.*` | `name.unknown` (`name=`) `name.dup` `name.not_module` `name.not_type` `name.not_fn` `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) `name.private_variant` (`variant= ty= module= fix=(pub (name type*))`) |
 | `type.*` | `type.mismatch` `type.arity` `type.not_callable` `type.no_field` `type.no_variant` `type.infer` `type.not_numeric` `type.not_bool` `type.generic_arity` |
 | `move.*` `borrow.*` `mut.*` `init.*` | see memory.md |
 | `flow.*` | `flow.brk_outside` `flow.missing_ret` `flow.unreachable` (W) |

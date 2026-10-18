@@ -132,6 +132,7 @@ impl<'a> Checker<'a> {
                 let idx = ed.variants.iter().position(|v| v.0 == vname).ok_or_else(|| {
                     Diag::error(*span, "type.no_variant").kv("ty", self.prog.type_name(d)).kv("variant", vname)
                 })?;
+                self.require_variant(d, idx as u32, *span)?;
                 let args = match ty {
                     Ty::Adt(_, a) => a.clone(),
                     _ => Vec::new(),

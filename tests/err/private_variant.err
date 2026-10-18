@@ -1,0 +1,1 @@
+E|tests/err/private_variant.llr|3|24|28|name.private_variant|variant=circle|ty=shape|module=proj.shape_lib|fix=(pub (circle f64))

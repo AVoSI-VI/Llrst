@@ -31,7 +31,7 @@
 
 (pub (struct field (pub (name str)) (pub (ty ty)) (pub (is_pub bool))))
 
-(pub (struct variant (pub (name str)) (pub (tys (vec ty)))))
+(pub (struct variant (pub (name str)) (pub (tys (vec ty))) (pub (is_pub bool))))
 
 (pub (struct item
   (pub (kind u8))
@@ -118,11 +118,19 @@
 
 (fn parse_variant ((t (& tree)) (n i64)) (res variant str)
   (let ids (ast_expr.forms t n))
-  (if (== (vec.len (& ids)) 0) (ret (res.err (ast_expr.err_at t n "(name type*)" "()"))))
+  (let mut node n)
+  (let mut is_pub false)
+  (if (str.eq (sexp.head t n) "pub")
+    (do
+      (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "(name type*)" "pub"))))
+      (set is_pub true)
+      (set node (@ (vec.get (& ids) 1)))))
+  (let fs (ast_expr.forms t node))
+  (if (== (vec.len (& fs)) 0) (ret (res.err (ast_expr.err_at t node "(name type*)" "()"))))
   (let mut tys (vec.new <ty>))
-  (for i 1 (vec.len (& ids))
-    (vec.push (&mut tys) (try (ast_expr.parse_ty t (@ (vec.get (& ids) i))))))
-  (res.ok (variant (str.clone (sexp.text t (@ (vec.get (& ids) 0)))) tys)))
+  (for i 1 (vec.len (& fs))
+    (vec.push (&mut tys) (try (ast_expr.parse_ty t (@ (vec.get (& fs) i))))))
+  (res.ok (variant (str.clone (sexp.text t (@ (vec.get (& fs) 0)))) tys is_pub)))
 
 (fn parse_variants ((t (& tree)) (ids (& (vec i64))) (from i64) (out (&mut (vec variant)))) (res unit str)
   (for i from (vec.len ids) (vec.push out (try (parse_variant t (@ (vec.get ids i))))))

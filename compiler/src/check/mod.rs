@@ -263,6 +263,26 @@ impl<'a> Checker<'a> {
         Ty::Ref { mutable: false, lt: None, inner: Box::new(self.str_ty()) }
     }
 
+    pub fn require_variant(&self, t: DefId, idx: u32, sp: Span) -> PResult<()> {
+        let ed = self.prog.enum_def(t).unwrap();
+        let (name, tys, is_pub) = &ed.variants[idx as usize];
+        if *is_pub || self.prog.def(t).module == self.module {
+            return Ok(());
+        }
+        let owner = self.prog.def(t).module;
+        let mut fix = format!("(pub ({name}");
+        for ty in tys {
+            fix.push(' ');
+            fix.push_str(&self.show(ty));
+        }
+        fix.push_str("))");
+        Err(Diag::error(sp, "name.private_variant")
+            .kv("variant", name.clone())
+            .kv("ty", self.prog.type_name(t))
+            .kv("module", self.prog.modules[owner as usize].path.clone())
+            .kv("fix", fix))
+    }
+
     /// Source location prefix for runtime diagnostics: `file|line|col`.
     pub fn loc_lit(&self, span: Span) -> Expr {
         let (line, col) = self.sm.line_col(span);

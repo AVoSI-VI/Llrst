@@ -1,0 +1,3 @@
+(use proj.shape_lib)
+
+(fn main () unit (drop (shape_lib.shape.circle 1.0)))

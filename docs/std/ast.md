@@ -10,7 +10,7 @@ Source: `std/ast.llr`. Import with `(use std.ast)` for module functions; types a
 - `(struct expr (pub (kind u8)) (pub (text str)) (pub (mut bool)) (pub (kids (vec expr))) (pub (tys (vec ty))) (pub (line i64)) (pub (col i64)) (pub (len i64)))`
 - `(struct param (pub (name str)) (pub (ty ty)))`
 - `(struct field (pub (name str)) (pub (ty ty)) (pub (is_pub bool)))`
-- `(struct variant (pub (name str)) (pub (tys (vec ty))))`
+- `(struct variant (pub (name str)) (pub (tys (vec ty))) (pub (is_pub bool)))`
 - `(struct item (pub (kind u8)) (pub (name str)) (pub (is_pub bool)) (pub (gens (vec str))) (pub (params (vec param))) (pub (fields (vec field))) (pub (variants (vec variant))) (pub (ret ty)) (pub (body (vec expr))) (pub (fns (vec item))) (pub (line i64)) (pub (col i64)))`
 
 ## Functions

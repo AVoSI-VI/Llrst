@@ -89,11 +89,20 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             let (generics, at) = parse_generics(items, 2)?;
             let mut variants = Vec::new();
             for v in &items[at..] {
-                let l = v.list().filter(|l| !l.is_empty()).ok_or_else(|| {
-                    Diag::error(v.span(), "parse.expect").kv("want", "(name type*)").kv("got", v.show())
+                let (is_pub, inner) = if v.head() == Some("pub") {
+                    let l = v.list().unwrap();
+                    if l.len() != 2 {
+                        return Err(arity(v.span(), "pub", "1", l.len().saturating_sub(1)));
+                    }
+                    (true, &l[1])
+                } else {
+                    (false, v)
+                };
+                let l = inner.list().filter(|l| !l.is_empty()).ok_or_else(|| {
+                    Diag::error(inner.span(), "parse.expect").kv("want", "(name type*)").kv("got", inner.show())
                 })?;
                 let fields = l[1..].iter().map(parse_ty).collect::<PResult<Vec<_>>>()?;
-                variants.push(Variant { name: name_of(&l[0])?, fields, span: v.span() });
+                variants.push(Variant { name: name_of(&l[0])?, fields, is_pub, span: inner.span() });
             }
             if variants.is_empty() {
                 return Err(arity(sp, "enum", "2+", n));

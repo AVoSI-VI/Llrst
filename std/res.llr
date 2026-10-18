@@ -1,5 +1,5 @@
 ;; Result value. Variant order is fixed: ok = 0, err = 1 (try relies on it).
-(pub (enum res <T E> (ok T) (err E)))
+(pub (enum res <T E> (pub (ok T)) (pub (err E))))
 
 (impl res <T
   E>
