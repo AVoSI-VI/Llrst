@@ -219,54 +219,54 @@ Tools (`tools/`, `docs/tools/`)
 | cross | `tests/cross.sh` checks `--emit-obj` machine type for aarch64, riscv64, s390x, and apple-darwin; a full `--target` link still needs a clang sysroot | link on target instead | `tests/cross.sh`, `link.rs` |
 | fmt | `--width N` (default 100); blank-line policy fixed; comments inside a form force multi-line | by design | `tools/llr-fmt.llr` |
 | grep | word boundaries are ASCII `[A-Za-z0-9_]` only | `--word` does not split on Unicode | `std/re.llr` `boundary` |
-| diagnostics | warnings are not fatal; there is no `--deny` | a `W` line can be ignored | `diag.rs`, `mir/lint.rs` |
+| diagnostics | `--deny CODE` prints that warning as `E` and exits 1; the flag may be repeated | a warning whose code was not denied still exits 0 | `diag.rs`, `main.rs` |
 | tests | `tests/run` compares stderr and the exit status only when `NAME.err` or `NAME.code` exists | a non-zero exit is still ok without `.code` | `tests/run.sh` |
 | codegen | all locals in memory, `opt_level=speed` only on IR; `(inline (fn ...))` substitutes a body of at most 4 copy-parameter expressions (`str.at`, `vec.get`) | other calls stay calls | `mir/inline.rs` |
 
 ## 8. Suggested next steps, in order
-1. `--deny CODE` turns that warning into an error (`diag.rs`, `main.rs`).
-2. Unused `(use ...)` and unused private functions (`resolve.rs`).
-3. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
+1. Unused `(use ...)` and unused private functions (`resolve.rs`).
+2. `name.unused` does not see a generic body until it is instantiated. User generic functions are linted only for the instances the driver compiles (`mir/lint.rs`).
 
-4. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
-5. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
-6. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
-7. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
-8. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
-9. Pattern backreferences (`\1`) are not matched; `$n` works only in the `llr-edit --regex` replacement (`std/re.llr`).
-10. `llr-write PATH` creates or replaces a whole file (`std/fs.llr` `write`). `llr-edit` only replaces a substring.
-11. `llr-ls PATH` lists one directory (`std/fs.llr` `list`). `llr-find` walks a glob.
-12. `llr-rm PATH` deletes a file (`std/fs.llr` `remove`).
-13. `llr-git status|diff|log` reads the repo. No commit.
-14. The Llrst checker does not yet emit the other `type.*` codes (`type.arity`, `type.no_field`, `type.infer`) or `name.unknown` (`std/check.llr`).
-15. `(inline (fn ...))` only substitutes a body of at most 4 expressions whose parameters are scalars, references, pointers, or function pointers, and which has no `ret`, `loop`, `while`, `for`, `match`, `brk`, or `cont`. A recursive call stays a real call (`compiler/src/mir/inline.rs`).
-16. A `tests/run` program that exits non-zero is still `ok` unless `NAME.code` is present (`tests/run.sh`).
-17. `llr-fmt` blank lines stay fixed: one blank line between top-level forms, except consecutive `use` forms and a form after a comment (`tools/llr-fmt.llr`).
+3. Variant privacy: `(pub (circle f64))` and `name.private_variant` on `shape.circle` from another module (`parse/mod.rs`, `check/call.rs`).
+4. `mem.replace` of a whole struct copies private fields. That stays the escape; document it next to the field rule in `docs/canon/program.md` if a caller is surprised.
+5. `vec.index` with the same equality function, replacing `index_str` (`std/cli.llr` is the caller).
+6. A unary `vec.any` waits until the language has closures. Function pointers cannot capture the needle.
+7. The bucket array never shrinks after deletes (`std/map.llr` `rehash`).
+8. Pattern backreferences (`\1`) are not matched; `$n` works only in the `llr-edit --regex` replacement (`std/re.llr`).
+9. `llr-write PATH` creates or replaces a whole file (`std/fs.llr` `write`). `llr-edit` only replaces a substring.
+10. `llr-ls PATH` lists one directory (`std/fs.llr` `list`). `llr-find` walks a glob.
+11. `llr-rm PATH` deletes a file (`std/fs.llr` `remove`).
+12. `llr-git status|diff|log` reads the repo. No commit.
+13. The Llrst checker does not yet emit the other `type.*` codes (`type.arity`, `type.no_field`, `type.infer`) or `name.unknown` (`std/check.llr`).
+14. `(inline (fn ...))` only substitutes a body of at most 4 expressions whose parameters are scalars, references, pointers, or function pointers, and which has no `ret`, `loop`, `while`, `for`, `match`, `brk`, or `cont`. A recursive call stays a real call (`compiler/src/mir/inline.rs`).
+15. A `tests/run` program that exits non-zero is still `ok` unless `NAME.code` is present (`tests/run.sh`).
+16. `llr-fmt` blank lines stay fixed: one blank line between top-level forms, except consecutive `use` forms and a form after a comment (`tools/llr-fmt.llr`).
 
-18. `tests/cross.sh` checks the object machine type only. It does not link.
-19. POSIX `socket`, `bind`, `listen`, `accept`, `send`, `recv`, `close` in `std/sys.llr`, wrapped by `std/net.llr`. One blocking connection.
-20. A `poll` loop in `std/net.llr` so one thread can hold several thousand connections. Not one thread per request.
-21. A fixed pthread pool in `std/thread.llr`. A worker is a function pointer.
-22. HTTP/1.1 request and response in `std/http.llr`.
-23. `llr-http` serves files and a route table `(method, path, handler)`. REST is that table. The acceptance check is several thousand concurrent connections.
-24. WebSocket as an HTTP upgrade and framed messages on that server.
-25. GraphQL as one `POST /graphql` handler: query text in, JSON out. A documented subset, not a schema compiler.
-26. SOAP as one POST handler for a single XML envelope and a single XML response.
-27. gRPC as HTTP/2 with a length-prefixed frame. Document the subset; no protobuf compiler.
-28. MQTT as its own TCP listener in `std/mqtt.llr`: connect, publish, subscribe.
-29. The lifetime name `'static` is still not a region for any type other than a string literal (`borrow/holders.rs`).
-30. A function pointer still cannot capture a needle. User traits do not exist (`docs/canon/collections.md`).
-31. Without `--checked`, a `shl` or `shr` count outside `0..bitwidth` is still undefined (`codegen/ops.rs`).
-32. Float-to-int `(as T n)` still saturates under `--checked`. Int-to-float is not checked (`codegen/ops.rs`).
-33. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
-34. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
-35. A field write does not initialize the struct (`borrow/moves.rs`).
-36. The Windows extern file is selected but not linked, and `fork` stays the POSIX symbol (`std/sys_windows.llr`).
-37. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
-38. `llr_readdir_name` has been run on Linux only (`runtime/llr_stat.c`).
-39. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
-40. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
-41. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
+17. `tests/cross.sh` checks the object machine type only. It does not link.
+18. POSIX `socket`, `bind`, `listen`, `accept`, `send`, `recv`, `close` in `std/sys.llr`, wrapped by `std/net.llr`. One blocking connection.
+19. A `poll` loop in `std/net.llr` so one thread can hold several thousand connections. Not one thread per request.
+20. A fixed pthread pool in `std/thread.llr`. A worker is a function pointer.
+21. HTTP/1.1 request and response in `std/http.llr`.
+22. `llr-http` serves files and a route table `(method, path, handler)`. REST is that table. The acceptance check is several thousand concurrent connections.
+23. WebSocket as an HTTP upgrade and framed messages on that server.
+24. GraphQL as one `POST /graphql` handler: query text in, JSON out. A documented subset, not a schema compiler.
+25. SOAP as one POST handler for a single XML envelope and a single XML response.
+26. gRPC as HTTP/2 with a length-prefixed frame. Document the subset; no protobuf compiler.
+27. MQTT as its own TCP listener in `std/mqtt.llr`: connect, publish, subscribe.
+28. The lifetime name `'static` is still not a region for any type other than a string literal (`borrow/holders.rs`).
+29. A function pointer still cannot capture a needle. User traits do not exist (`docs/canon/collections.md`).
+30. Without `--checked`, a `shl` or `shr` count outside `0..bitwidth` is still undefined (`codegen/ops.rs`).
+31. Float-to-int `(as T n)` still saturates under `--checked`. Int-to-float is not checked (`codegen/ops.rs`).
+32. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
+33. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
+34. A field write does not initialize the struct (`borrow/moves.rs`).
+35. The Windows extern file is selected but not linked, and `fork` stays the POSIX symbol (`std/sys_windows.llr`).
+36. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
+37. `llr_readdir_name` has been run on Linux only (`runtime/llr_stat.c`).
+38. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
+39. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
+40. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
+41. A warning whose code was not denied still exits 0 (`diag.rs`).
 
 ## 9. Conventions to keep
 

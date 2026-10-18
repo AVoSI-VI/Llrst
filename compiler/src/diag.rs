@@ -1,5 +1,6 @@
 //! Diagnostics: structured, one line each, pipe separated. See docs/spec/errors.md.
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -115,10 +116,17 @@ pub fn escape(v: &str) -> String {
 #[derive(Default)]
 pub struct Diags {
     items: RefCell<Vec<Diag>>,
+    deny: RefCell<HashSet<String>>,
 }
 
 impl Diags {
-    pub fn push(&self, d: Diag) {
+    pub fn set_deny(&self, codes: &[String]) {
+        *self.deny.borrow_mut() = codes.iter().cloned().collect();
+    }
+    pub fn push(&self, mut d: Diag) {
+        if d.level == Level::Warn && self.deny.borrow().contains(d.code) {
+            d.level = Level::Error;
+        }
         self.items.borrow_mut().push(d);
     }
     pub fn err(&self, span: Span, code: &'static str) -> Diag {

@@ -20,6 +20,7 @@ pub struct Options {
     pub emit_mir: bool,
     pub check_only: bool,
     pub checked: bool,
+    pub deny: Vec<String>,
 }
 
 pub fn find_std(opt: &Options) -> PResult<PathBuf> {
@@ -62,6 +63,7 @@ pub fn os_extern_file(target: Option<&str>) -> PResult<&'static str> {
 pub fn run(opt: Options) -> i32 {
     let mut sm = SourceMap::default();
     let diags = Diags::default();
+    diags.set_deny(&opt.deny);
     let code = match pipeline(&opt, &mut sm, &diags) {
         Ok(()) if !diags.has_errors() => 0,
         Ok(()) => 1,

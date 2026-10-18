@@ -27,7 +27,8 @@ E|src/main.llr|7|3|1|move.used|name=v|moved_at=6:9
 ```
 
 Compilation stops after the first pass that produced any `E`. Output goes to stderr.
-Exit code 1 on any `E`, 0 otherwise. A `W` line does not fail the build.
+Exit code 1 on any `E`, 0 otherwise. `--deny CODE` prints that warning as `E` and exits 1.
+A warning whose code was not denied stays a `W` and does not fail the build.
 
 | warning | meaning |
 |---------|---------|

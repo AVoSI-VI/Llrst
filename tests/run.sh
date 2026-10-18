@@ -116,13 +116,32 @@ for f in "$root"/tests/warn/*.llr; do
   name="$(basename "$f" .llr)"
   want="${f%.llr}.err"
   [ -e "$want" ] || continue
-  ( cd "$root" && "$llrc" check "tests/warn/$name.llr" 2>"$tmp/warn_$name.err" >/dev/null )
+  flags=()
+  if [ -f "${f%.llr}.flags" ]; then
+    read -r -a flags <"${f%.llr}.flags"
+  fi
+  ( cd "$root" && "$llrc" check "tests/warn/$name.llr" "${flags[@]}" 2>"$tmp/warn_$name.err" >/dev/null )
   code=$?
-  if [ "$code" -eq 0 ] && cmp -s "$tmp/warn_$name.err" "$want"; then
-    echo "ok|warn/$name"
-  else
-    echo "fail|warn/$name|code=$code|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/warn_$name.err" | tr '\n' ' ')"
+  printf '%s\n' "$code" >"$tmp/warn_$name.code"
+  ok=1
+  if ! cmp -s "$tmp/warn_$name.err" "$want"; then
+    echo "fail|warn/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/warn_$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
+    ok=0
+  fi
+  if [ -f "${f%.llr}.code" ]; then
+    if ! cmp -s "$tmp/warn_$name.code" "${f%.llr}.code"; then
+      echo "fail|warn/$name|code=$code|want=$(cat "${f%.llr}.code")"
+      fails=$((fails+1))
+      ok=0
+    fi
+  elif [ "$code" -ne 0 ]; then
+    echo "fail|warn/$name|code=$code"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    echo "ok|warn/$name"
   fi
 done
 
