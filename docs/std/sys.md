@@ -40,7 +40,7 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |
 | `sys.alloc` | `((n i64))` | `(ptr u8)` |
 | `sys.grow` | `((p (ptr u8)) (n i64))` | `(ptr u8)` |
-| `sys.checked_div` | `((loc (& str)) (a i64) (b i64) (rem bool) (trap_ovf bool))` | `i64` |
+| `sys.checked_div` | `((loc (& str)) (a i64) (b i64) (rem bool))` | `i64` |
 | `sys.abort` | `((loc (& str)) (msg (& str)))` | `never` |
 | `sys.panic` | `((loc (& str)) (msg (& str)))` | `never` |
 

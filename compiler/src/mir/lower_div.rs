@@ -1,4 +1,5 @@
-//! Integer `/` and `%` become a call to `sys.checked_div`, which panics on a zero divisor.
+//! Integer `/` and `%` become a call to `sys.checked_div`, which panics on a zero divisor
+//! and on signed minimum divided or remaindered by `-1`.
 //! The function's own division is lowered raw (`Lower::raw_div`) so the rewrite does not recurse.
 use super::lower::Lower;
 use super::*;
@@ -15,10 +16,9 @@ impl<'a> Lower<'a> {
         let loc = format!("{}|{}|{}", self.sm.path(span.file), line, col);
         let loc_op = Operand::Const(Const::Str(loc.into_bytes()), self.ref_str());
         let rem = Operand::Const(Const::Bool(op == BinOp::Rem), Ty::Bool);
-        let trap = Operand::Const(Const::Bool(self.checked), Ty::Bool);
         let tmp = self.temp(Ty::Int(IntTy::I64), span);
         let next = self.new_block();
-        self.terminate(Term::Call { func: Func::Def(def, Vec::new()), args: vec![loc_op, a, b, rem, trap], dest: Place::local(tmp), next, span }, span);
+        self.terminate(Term::Call { func: Func::Def(def, Vec::new()), args: vec![loc_op, a, b, rem], dest: Place::local(tmp), next, span }, span);
         self.cur = next;
         let wide = Operand::Move(Place::local(tmp));
         if ty == Ty::Int(IntTy::I64) {

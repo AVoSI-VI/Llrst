@@ -39,10 +39,11 @@ A `W|` line is not a failure. `name.unused` means delete the binding or use it.
 the fault (`std/vec.llr` for `vec.get`), not your call site: `llr-grep "vec\\.get" FILE` in
 your code to find candidates, then compare `len=`/`idx=` (or `len= lo= hi=` for slices)
 with the values you passed. `opt.none` / `res.err` come from `unwrap`: match instead.
-`div.zero` is a `P|` line at the `/` or `%` expression. `int.overflow` means the program
-was built with `--checked` and a `+` `-` `*` `neg` or `MIN / -1` overflowed; use
+`div.zero` is a `P|` line at the `/` or `%` expression. Signed `MIN / -1` and `MIN % -1`
+always panic `int.overflow` at that expression. Other `int.overflow` lines mean the program
+was built with `--checked` and a `+` `-` `*` `neg` or an out-of-range shift overflowed; use
 `wadd` `wsub` `wmul` `wneg` when the wrap is intended. A process killed by a signal
-with no `P|` line is a bug in std, or `MIN / -1` in a build without `--checked`.
+with no `P|` line is a bug in std.
 
 ## Test failures
 
