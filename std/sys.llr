@@ -86,8 +86,7 @@
 ;; `panic` is a keyword form, so the runtime entry is `abort`.
 (pub (fn checked_div ((loc (& str)) (a i64) (b i64) (rem bool) (trap_ovf bool)) i64
   (if (== b 0) (abort loc "div.zero"))
-  (if trap_ovf
-    (do (let min (as i64 (shl 1u64 63))) (if (and (== a min) (== b -1)) (abort loc "int.overflow"))))
+  (if trap_ovf (do (let min (shl 1 63)) (if (and (== a min) (== b -1)) (abort loc "int.overflow"))))
   (if rem (% a b) (/ a b))))
 
 ;; Prints P|loc|msg and exits 101. The compiler's (panic ...) form calls this.

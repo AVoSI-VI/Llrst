@@ -50,13 +50,13 @@ Exit code 101. `FILE|LINE|COL` is the frame that detected the fault, usually ins
 | `res.err` / `res.ok` | | `res.unwrap` / `res.unwrap_err` |
 | `div.zero` | | integer `/` and `%`, every width; floats stay IEEE and do not panic |
 | `int.overflow` | | `--checked` only: `+` `-` `*` `neg`, signed `MIN / -1` and `MIN % -1`, and `shl` `shr` with a count outside `0..bitwidth` |
+| `cast.overflow` | | `--checked` only: integer `(as T n)` when `n` does not fit in `T` |
 | `oom` | | `sys.alloc` `sys.grow` |
 | `cli.no_such_opt` / `cli.no_such_flag` | | `cli.get` `cli.has` with an undeclared name |
 | user `(panic "code|k=v")` | as written | any program |
 
 `(assert ...)` failing outside a test prints `F|FILE|LINE|COL|assert` (or `assert_eq|want=|got=`)
-and also exits 101. `cast.overflow` is reserved, not emitted. Without `--checked`,
-dividing the minimum signed value by `-1` is still a hardware trap. Shifts are not checked.
+and also exits 101. Without `--checked`, dividing the minimum signed value by `-1` is still a hardware trap.
 
 ## Code catalogue
 

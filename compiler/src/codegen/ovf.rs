@@ -1,4 +1,4 @@
-//! `--checked` overflow traps: branch to `sys.abort(loc, "int.overflow")`.
+//! `--checked` overflow traps: branch to `sys.abort` with `int.overflow` or `cast.overflow`.
 use super::func::FnCx;
 use crate::ast::BinOp;
 use crate::diag::Span;
@@ -14,7 +14,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         let ok = self.b.create_block();
         self.b.ins().brif(flag, bad, &[], ok, &[]);
         self.b.switch_to_block(bad);
-        self.abort_overflow(span);
+        self.abort_overflow(span, b"int.overflow");
         self.b.switch_to_block(ok);
         value
     }
@@ -35,9 +35,59 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         let ok = self.b.create_block();
         self.b.ins().brif(flag, bad, &[], ok, &[]);
         self.b.switch_to_block(bad);
-        self.abort_overflow(span);
+        self.abort_overflow(span, b"int.overflow");
         self.b.switch_to_block(ok);
         self.emit_shift(op, x, y, it.signed())
+    }
+
+    /// Panics when an integer value does not fit in `to`, then casts on the continuing path.
+    pub fn checked_int_cast(&mut self, x: Value, from: IntTy, to: IntTy, span: Span) -> Value {
+        let Some(flag) = self.cast_oob(x, from, to) else {
+            return self.int_bits(x, from, to);
+        };
+        let bad = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.ins().brif(flag, bad, &[], ok, &[]);
+        self.b.switch_to_block(bad);
+        self.abort_overflow(span, b"cast.overflow");
+        self.b.switch_to_block(ok);
+        self.int_bits(x, from, to)
+    }
+
+    fn cast_oob(&mut self, x: Value, from: IntTy, to: IntTy) -> Option<Value> {
+        if from.signed() == to.signed() && to.bytes() >= from.bytes() {
+            return None;
+        }
+        if !from.signed() && to.signed() && to.bytes() > from.bytes() {
+            return None;
+        }
+        let ct = int_clif(from);
+        if from.signed() && !to.signed() {
+            let neg = self.b.ins().icmp_imm_s(IntCC::SignedLessThan, x, 0);
+            if to.bytes() >= from.bytes() {
+                return Some(neg);
+            }
+            let lim = self.b.ins().iconst(ct, 1i64 << (to.bytes() * 8));
+            let hi = self.b.ins().icmp(IntCC::SignedGreaterThanOrEqual, x, lim);
+            return Some(self.b.ins().bor(neg, hi));
+        }
+        if !from.signed() && to.signed() {
+            if to.bytes() == from.bytes() {
+                return Some(self.b.ins().icmp_imm_s(IntCC::SignedLessThan, x, 0));
+            }
+            let max = self.b.ins().iconst(ct, (1i64 << ((to.bytes() * 8) - 1)) - 1);
+            return Some(self.b.ins().icmp(IntCC::UnsignedGreaterThan, x, max));
+        }
+        if !to.signed() {
+            let lim = self.b.ins().iconst(ct, 1i64 << (to.bytes() * 8));
+            return Some(self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, x, lim));
+        }
+        let bits = (to.bytes() * 8) - 1;
+        let min = self.b.ins().iconst(ct, -(1i64 << bits));
+        let max = self.b.ins().iconst(ct, (1i64 << bits) - 1);
+        let lo = self.b.ins().icmp(IntCC::SignedLessThan, x, min);
+        let hi = self.b.ins().icmp(IntCC::SignedGreaterThan, x, max);
+        Some(self.b.ins().bor(lo, hi))
     }
 
     fn emit_shift(&mut self, op: BinOp, x: Value, y: Value, signed: bool) -> Value {
@@ -64,7 +114,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         self.guard(result, flag, span)
     }
 
-    fn abort_overflow(&mut self, span: Span) {
+    fn abort_overflow(&mut self, span: Span, msg: &[u8]) {
         let (path, starts) = &self.cg.locs[span.file as usize];
         let line = match starts.binary_search(&span.lo) {
             Ok(i) => i,
@@ -72,7 +122,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         };
         let loc = format!("{}|{}|{}", path, line + 1, span.lo - starts[line] + 1);
         let loc_p = self.str_ptr(loc.as_bytes());
-        let msg_p = self.str_ptr(b"int.overflow");
+        let msg_p = self.str_ptr(msg);
         let id = self.abort_func();
         let fr = self.cg.module.declare_func_in_func(id, self.b.func);
         self.b.ins().call(fr, &[loc_p, msg_p]);

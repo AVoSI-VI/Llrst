@@ -99,17 +99,13 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         }
     }
 
-    pub fn cast(&mut self, x: Value, from: &Ty, to: &Ty) -> Value {
+    pub fn cast(&mut self, x: Value, from: &Ty, to: &Ty, span: crate::diag::Span) -> Value {
         match (from, to) {
             (Ty::Int(f), Ty::Int(t)) => {
-                if f.bytes() == t.bytes() {
-                    x
-                } else if f.bytes() > t.bytes() {
-                    self.b.ins().ireduce(clif_type(to).unwrap(), x)
-                } else if f.signed() {
-                    self.b.ins().sextend(clif_type(to).unwrap(), x)
+                if self.cg.checked {
+                    self.checked_int_cast(x, *f, *t, span)
                 } else {
-                    self.b.ins().uextend(clif_type(to).unwrap(), x)
+                    self.int_bits(x, *f, *t)
                 }
             }
             (Ty::Bool, Ty::Int(t)) => {
@@ -138,6 +134,19 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             (Ty::F32, Ty::F64) => self.b.ins().fpromote(types::F64, x),
             (Ty::F64, Ty::F32) => self.b.ins().fdemote(types::F32, x),
             _ => x,
+        }
+    }
+
+    pub fn int_bits(&mut self, x: Value, f: crate::ty::IntTy, t: crate::ty::IntTy) -> Value {
+        let to = Ty::Int(t);
+        if f.bytes() == t.bytes() {
+            x
+        } else if f.bytes() > t.bytes() {
+            self.b.ins().ireduce(clif_type(&to).unwrap(), x)
+        } else if f.signed() {
+            self.b.ins().sextend(clif_type(&to).unwrap(), x)
+        } else {
+            self.b.ins().uextend(clif_type(&to).unwrap(), x)
         }
     }
 

@@ -352,7 +352,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             }
             Rvalue::Cast(a, to) => {
                 let (x, from) = self.scalar(a);
-                Val::Scalar(self.cast(x, &from, to))
+                Val::Scalar(self.cast(x, &from, to, span))
             }
             Rvalue::Discr(p) => {
                 let (addr, _) = self.place_addr(p);
