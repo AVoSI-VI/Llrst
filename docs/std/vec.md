@@ -13,12 +13,10 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 | name | params | returns |
 |------|--------|---------|
 | `vec.new` | `()` | `(vec T)` |
-| `vec.drop` | `((self (&mut (vec T))))` | `unit` |
 | `vec.len` | `((self (& (vec T))))` | `i64` |
 | `vec.is_empty` | `((self (& (vec T))))` | `bool` |
 | `vec.reserve` | `((self (&mut (vec T))) (extra i64))` | `unit` |
 | `vec.push` | `((self (&mut (vec T))) (x T))` | `unit` |
-| `vec.check` | `((self (& (vec T))) (i i64))` | `unit` |
 | `vec.get` | `((self (& (vec T))) (i i64))` | `(& T)` |
 | `vec.get_mut` | `((self (&mut (vec T))) (i i64))` | `(&mut T)` |
 | `vec.last` | `((self (& (vec T))))` | `(opt (& T))` |
@@ -33,11 +31,11 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 | `vec.reverse` | `((self (&mut (vec T))))` | `unit` |
 | `vec.has` | `((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool)))` | `bool` |
 | `vec.sort` | `((self (&mut (vec T))) (cmp (fn ((& T) (& T)) i64)))` | `unit` |
+| `vec.index_str` | `((v (& (vec str))) (x (& str)))` | `(opt i64)` |
 | `vec.cmp_str` | `((a (& str)) (b (& str)))` | `i64` |
 | `vec.cmp_int` | `((a (& i64)) (b (& i64)))` | `i64` |
 | `vec.eq_str` | `((a (& str)) (b (& str)))` | `bool` |
 | `vec.eq_int` | `((a (& i64)) (b (& i64)))` | `bool` |
-| `vec.index_str` | `((v (& (vec str))) (x (& str)))` | `(opt i64)` |
 | `vec.clone_str` | `((v (& (vec str))))` | `(vec str)` |
 
 ## Tests

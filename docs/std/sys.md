@@ -28,7 +28,8 @@ Source: `std/sys.llr`. Import with `(use std.sys)` for module functions; types a
 | `sys.opendir` | `((path (ptr u8)))` | `(ptr u8)` |
 | `sys.readdir` | `((d (ptr u8)))` | `(ptr u8)` |
 | `sys.closedir` | `((d (ptr u8)))` | `i32` |
-| `sys.stat` | `((path (ptr u8)) (buf (ptr u8)))` | `i32` |
+| `sys.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys.unlink` | `((path (ptr u8)))` | `i32` |
 | `sys.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
 | `sys.rename` | `((a (ptr u8)) (b (ptr u8)))` | `i32` |
@@ -38,4 +39,10 @@ Source: `std/sys.llr`. Import with `(use std.sys)` for module functions; types a
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |
 | `sys.alloc` | `((n i64))` | `(ptr u8)` |
 | `sys.grow` | `((p (ptr u8)) (n i64))` | `(ptr u8)` |
+| `sys.checked_div` | `((loc (& str)) (a i64) (b i64) (rem bool) (trap_ovf bool))` | `i64` |
+| `sys.abort` | `((loc (& str)) (msg (& str)))` | `never` |
 | `sys.panic` | `((loc (& str)) (msg (& str)))` | `never` |
+
+## Tests
+
+`checked_div`

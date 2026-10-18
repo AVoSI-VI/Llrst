@@ -1,0 +1,158 @@
+;; llr-doc FILE.llr... [--out DIR]: std page from pub signatures.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.path)
+(use std.sexp)
+
+(fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<doc>|0|0|0" e))) (os.exit 1))
+
+;; Flat print that skips comment children.
+(fn sig ((t (& tree)) (n i64)) str
+  (if (!= (sexp.kind t n) 2u8) (ret (str.clone (sexp.text t n))))
+  (let mut s (str.from "("))
+  (let mut gap false)
+  (for i 0 (sexp.count t n)
+    (let c (sexp.child t n i))
+    (if (!= (sexp.kind t c) 3u8)
+      (do (if gap (str.push_byte (&mut s) 32u8)) (set gap true) (str.push (&mut s) (& (sig t c))))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+;; Index of the param list: atoms after the name are generics.
+(fn params_at ((t (& tree)) (n i64)) i64
+  (let mut i 2)
+  (while (and (< i (sexp.count t n)) (!= (sexp.kind t (sexp.child t n i)) 2u8)) (set i (+ i 1)))
+  i)
+
+(fn add_fn ((t (& tree)) (n i64) (prefix (& str)) (fns (&mut str))) unit
+  (let at (params_at t n))
+  (str.push fns "| `")
+  (str.push fns prefix)
+  (str.push fns ".")
+  (str.push fns (sexp.text t (sexp.child t n 1)))
+  (str.push fns "` | `")
+  (str.push fns (& (sig t (sexp.child t n at))))
+  (str.push fns "` | `")
+  (str.push fns (& (sig t (sexp.child t n (+ at 1)))))
+  (str.push fns "` |\n"))
+
+(fn add_type ((t (& tree)) (n i64) (types (&mut str))) unit
+  (str.push types "- `")
+  (str.push types (& (sig t n)))
+  (str.push types "`\n"))
+
+(fn add_test ((t (& tree)) (n i64) (tests (&mut str))) unit
+  (if (> (str.len tests) 0) (str.push tests ", "))
+  (str.push tests "`")
+  (str.push tests (sexp.text t (sexp.child t n 1)))
+  (str.push tests "`"))
+
+(fn take_method ((t (& tree)) (c i64) (ty (& str)) (fns (&mut str))) unit
+  (if (!= (sexp.kind t c) 2u8) (ret))
+  (if (not (str.eq (sexp.head t c) "pub")) (ret))
+  (let inner (sexp.child t c 1))
+  (if (str.eq (sexp.head t inner) "fn") (add_fn t inner ty fns)))
+
+(fn walk_impl ((t (& tree)) (n i64) (fns (&mut str))) unit
+  (let ty (str.clone (sexp.text t (sexp.child t n 1))))
+  (for i 2 (sexp.count t n) (take_method t (sexp.child t n i) (& ty) fns)))
+
+(fn take_pub ((t (& tree)) (n i64) (mod (& str)) (types (&mut str)) (fns (&mut str))) unit
+  (let inner (sexp.child t n 1))
+  (let ih (sexp.head t inner))
+  (if (or (str.eq ih "struct") (str.eq ih "enum")) (add_type t inner types))
+  (if (or (str.eq ih "fn") (str.eq ih "extern")) (add_fn t inner mod fns)))
+
+(fn walk ((t (& tree)) (mod (& str)) (types (&mut str)) (fns (&mut str)) (tests (&mut str))) unit
+  (for i 0 (vec.len (& (. t top)))
+    (let n (@ (vec.get (& (. t top)) i)))
+    (if (== (sexp.kind t n) 3u8) (cont))
+    (let h (sexp.head t n))
+    (if (str.eq h "test") (add_test t n tests))
+    (if (str.eq h "impl") (walk_impl t n fns))
+    (if (str.eq h "pub") (take_pub t n mod types fns))))
+
+(fn trim_comment ((s (& str))) str
+  (let mut i 0)
+  (while (and (< i (str.len s)) (== (str.at s i) 59u8)) (set i (+ i 1)))
+  (if (and (< i (str.len s)) (== (str.at s i) 32u8)) (set i (+ i 1)))
+  (str.slice s i (str.len s)))
+
+(fn first_comment ((t (& tree))) str
+  (for i 0 (vec.len (& (. t top)))
+    (let n (@ (vec.get (& (. t top)) i)))
+    (if (== (sexp.kind t n) 3u8) (ret (trim_comment (sexp.text t n)))))
+  (str.new))
+
+(fn default_head ((src (& str)) (mod (& str)) (comment (& str))) str
+  (let mut s (str.from "# std."))
+  (str.push (&mut s) mod)
+  (str.push (&mut s) "\n\n")
+  (str.push (&mut s) comment)
+  (str.push (&mut s) "\n\nSource: `")
+  (str.push (&mut s) src)
+  (str.push (&mut s) "`. Import with `(use std.")
+  (str.push (&mut s) mod)
+  (str.push (&mut s) ")` for module functions; types and methods need no import.\n\n")
+  s)
+
+(fn head ((src (& str)) (mod (& str)) (comment (& str)) (old (& str))) str
+  (if (== (str.len old) 0) (ret (default_head src mod comment)))
+  (match (str.find old "\n## ")
+    ((opt.some i) (str.slice old 0 (+ i 1)))
+    ((opt.none)
+      (do
+        (let mut s (str.from old))
+        (if (not (str.ends (& s) "\n")) (str.push_byte (&mut s) 10u8))
+        s))))
+
+(fn sections ((types (& str)) (fns (& str)) (tests (& str))) str
+  (let mut s (str.new))
+  (if (> (str.len types) 0)
+    (do (str.push (&mut s) "## Types\n\n") (str.push (&mut s) types) (str.push (&mut s) "\n")))
+  (str.push (&mut s) "## Functions\n\n| name | params | returns |\n|------|--------|---------|\n")
+  (str.push (&mut s) fns)
+  (if (> (str.len tests) 0)
+    (do
+      (str.push (&mut s) "\n## Tests\n\n")
+      (str.push (&mut s) tests)
+      (str.push_byte (&mut s) 10u8)))
+  s)
+
+(fn render ((src (& str)) (text (& str)) (old (& str))) str
+  (let t (match (sexp.read text) ((res.ok tree) tree) ((res.err e) (die (& e)))))
+  (let mod (path.stem (& (path.base src))))
+  (let mut types (str.new))
+  (let mut fns (str.new))
+  (let mut tests (str.new))
+  (walk (& t) (& mod) (&mut types) (&mut fns) (&mut tests))
+  (let mut out (head src (& mod) (& (first_comment (& t))) old))
+  (str.push (&mut out) (& (sections (& types) (& fns) (& tests))))
+  out)
+
+(fn dest ((dir (& str)) (src (& str))) str
+  (let mut name (path.stem (& (path.base src))))
+  (str.push (&mut name) ".md")
+  (path.join dir (& name)))
+
+(fn one ((src (& str)) (out (& str))) unit
+  (let text (match (fs.read src) ((res.ok s) s) ((res.err e) (die (& e)))))
+  (let old
+    (if (== (str.len out) 0)
+      (str.new)
+      (match (fs.read (& (dest out src))) ((res.ok s) s) ((res.err _) (str.new)))))
+  (let page (render src (& text) (& old)))
+  (if (== (str.len out) 0)
+    (io.puts (& page))
+    (match (fs.write (& (dest out src)) (& page)) ((res.ok _) ()) ((res.err e) (die (& e))))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-doc" "regenerate a std page from pub signatures"))
+  (cli.pos (&mut c) "file")
+  (cli.opt (&mut c) "out" "")
+  (cli.parse (&mut c) (os.args))
+  (let out (cli.get (& c) "out"))
+  (for i 0 (cli.count (& c)) (one (cli.at (& c) i) out)))

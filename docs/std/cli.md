@@ -6,7 +6,7 @@ Source: `std/cli.llr`. Import with `(use std.cli)` for module functions; types a
 
 ## Types
 
-- `(struct cli)`
+- `(struct cli (name str) (about str) (pos_names (vec str)) (opt_names (vec str)) (opt_vals (vec str)) (flag_names (vec str)) (flag_set (vec bool)) (pos (vec str)))`
 
 ## Functions
 
@@ -16,9 +16,7 @@ Source: `std/cli.llr`. Import with `(use std.cli)` for module functions; types a
 | `cli.pos` | `((self (&mut cli)) (name (& str)))` | `unit` |
 | `cli.opt` | `((self (&mut cli)) (name (& str)) (default (& str)))` | `unit` |
 | `cli.flag` | `((self (&mut cli)) (name (& str)))` | `unit` |
-| `cli.usage` | `((self (& cli)))` | `str` |
 | `cli.parse` | `((self (&mut cli)) (args (vec str)))` | `unit` |
-| `cli.die` | `((self (& cli)) (code (& str)) (what (& str)))` | `never` |
 | `cli.get` | `((self (& cli)) (name (& str)))` | `(& str)` |
 | `cli.get_int` | `((self (& cli)) (name (& str)))` | `i64` |
 | `cli.has` | `((self (& cli)) (name (& str)))` | `bool` |

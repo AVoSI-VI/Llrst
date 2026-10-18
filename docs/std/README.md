@@ -15,9 +15,10 @@
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
 | [json](json.md) | Minimal JSON encoding. |
 | [cli](cli.md) | Argument parsing for tools. |
+| [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`. |
 | [diff](diff.md) | Line diff by LCS, pipe records. |
 | [test](test.md) | Test harness used by `llrc build --test` and `llr-test`. |
 
-Rules: one module per file, every pub fn has a test form in its file, docs regenerate from signatures (see docs/workflows/std.md).
+Rules: one module per file, every pub fn has a test form in its file, `llr-doc` regenerates the signature tables (see docs/workflows/std.md).

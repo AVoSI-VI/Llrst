@@ -4,10 +4,6 @@ Line diff by LCS, pipe records.
 
 Source: `std/diff.llr`. Import with `(use std.diff)` for module functions; types and methods need no import.
 
-## Types
-
-- `(struct op (kind u8) (a i64) (b i64))`
-
 ## Functions
 
 | name | params | returns |

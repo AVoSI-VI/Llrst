@@ -6,14 +6,13 @@ Source: `std/str.llr`. Import with `(use std.str)` for module functions; types a
 
 ## Types
 
-- `(struct str (p (ptr u8)) (len i64) (cap i64))`
+- `(struct str (pub (p (ptr u8))) (pub (len i64)) (cap i64))`
 
 ## Functions
 
 | name | params | returns |
 |------|--------|---------|
 | `str.new` | `()` | `str` |
-| `str.drop` | `((self (&mut str)))` | `unit` |
 | `str.len` | `((self (& str)))` | `i64` |
 | `str.at` | `((self (& str)) (i i64))` | `u8` |
 | `str.reserve` | `((self (&mut str)) (extra i64))` | `unit` |
@@ -34,7 +33,6 @@ Source: `std/str.llr`. Import with `(use std.str)` for module functions; types a
 | `str.ends` | `((self (& str)) (p (& str)))` | `bool` |
 | `str.split` | `((self (& str)) (sep u8))` | `(vec str)` |
 | `str.lines` | `((self (& str)))` | `(vec str)` |
-| `str.is_space` | `((b u8))` | `bool` |
 | `str.trim` | `((self (& str)))` | `str` |
 | `str.from_int` | `((n i64))` | `str` |
 | `str.to_int` | `((self (& str)))` | `(opt i64)` |
@@ -46,6 +44,8 @@ Source: `std/str.llr`. Import with `(use std.str)` for module functions; types a
 | `str.cstr` | `((self (& str)))` | `str` |
 | `str.from_raw` | `((p (ptr u8)) (n i64))` | `str` |
 | `str.from_cstr` | `((p (ptr u8)))` | `str` |
+| `str.oob` | `((len i64) (idx i64))` | `str` |
+| `str.oob_range` | `((len i64) (lo i64) (hi i64))` | `str` |
 
 ## Tests
 
