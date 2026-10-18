@@ -12,12 +12,13 @@
 ;; Reads a whole fd into an owned str.
 (pub (fn read_fd ((fd i32)) str
   (let mut s (str.new))
-  (let chunk 65536)
+  (let mut chunk 64)
   (loop
     (str.reserve (&mut s) chunk)
     (let n (sys.read fd (ptr.add (. s p) (. s len)) (as u64 chunk)))
     (if (<= n 0) (brk))
-    (set (. s len) (+ (. s len) n)))
+    (set (. s len) (+ (. s len) n))
+    (if (== n chunk) (set chunk (* chunk 2))))
   s))
 
 (pub (fn stdin () str (read_fd 0)))

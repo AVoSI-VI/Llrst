@@ -118,3 +118,13 @@
   (assert_eq (vec.get (& names) 1) "b.txt")
   (res.unwrap (remove "/tmp/llr_fs_list/a.txt"))
   (res.unwrap (remove "/tmp/llr_fs_list/b.txt")))
+
+(test fs_read_grow
+  (let p (str.from "/tmp/llr_fs_grow.txt"))
+  (let mut data (str.new))
+  (for i 0 200 (str.push_byte (&mut data) 97u8))
+  (res.unwrap (write (& p) (& data)))
+  (let got (res.unwrap (read (& p))))
+  (assert_eq (str.len (& got)) 200)
+  (assert_eq (& got) (& data))
+  (res.unwrap (remove (& p))))

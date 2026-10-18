@@ -1,6 +1,6 @@
 # std.io
 
-Standard streams.
+Standard streams. `io.read_fd` starts at 64 bytes and doubles after each full read until `read` returns the end.
 
 Source: `std/io.llr`. Import with `(use std.io)` for module functions; types and methods need no import.
 

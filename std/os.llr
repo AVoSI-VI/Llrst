@@ -22,11 +22,14 @@
 
 (pub (fn cwd () str
   (let mut buf (str.new))
-  (str.reserve (&mut buf) 4096)
-  (let p (sys.getcwd (. buf p) 4096u64))
-  (if (ptr.eq p (ptr.null <u8>)) (ret (str.new)))
-  (set (. buf len) (as i64 (sys.strlen (. buf p))))
-  buf))
+  (let mut n 1)
+  (loop
+    (str.reserve (&mut buf) (- n (. buf len)))
+    (let p (sys.getcwd (. buf p) (as u64 n)))
+    (if (not (ptr.eq p (ptr.null <u8>)))
+      (do (set (. buf len) (as i64 (sys.strlen (. buf p)))) (ret buf)))
+    (if (>= n 1048576) (ret (str.new)))
+    (set n (* n 2)))))
 
 ;; Runs a shell command, returns its exit code.
 (pub (fn shell ((cmd (& str))) i64
@@ -37,6 +40,10 @@
 (pub (fn arch () (& str) (sys.arch)))
 
 (pub (fn is_tty ((fd i64)) bool (!= (sys.isatty (as i32 fd)) 0i32)))
+
+(test os_cwd
+  (let c (cwd))
+  (assert (> (str.len (& c)) 0)))
 
 (test os_args
   (let a (args))

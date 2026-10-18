@@ -24,4 +24,4 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 
 ## Tests
 
-`fs_roundtrip`, `fs_list`
+`fs_roundtrip`, `fs_list`, `fs_read_grow`

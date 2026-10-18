@@ -1,6 +1,6 @@
 # std.os
 
-Process environment.
+Process environment. `os.cwd` starts at 1 byte and doubles until `getcwd` succeeds, or returns an empty string at 1 MiB.
 
 Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and methods need no import.
 
@@ -19,4 +19,4 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 
 ## Tests
 
-`os_args`
+`os_args`, `os_cwd`
