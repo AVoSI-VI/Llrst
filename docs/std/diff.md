@@ -1,6 +1,6 @@
 # std.diff
 
-Line diff by LCS, pipe records.
+Line diff. Shared ends are exact. The middle is an LCS when it is at most 4096 cells, otherwise one replace hunk.
 
 Source: `std/diff.llr`. Import with `(use std.diff)` for module functions; types and methods need no import.
 
@@ -14,4 +14,4 @@ Source: `std/diff.llr`. Import with `(use std.diff)` for module functions; types
 
 ## Tests
 
-`diff_lines`
+`diff_lines`, `diff_middle`, `diff_bound`

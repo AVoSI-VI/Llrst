@@ -1,19 +1,44 @@
-;; Line diff by LCS. Output records: =|i|j|text  -|i|text  +|j|text  (1-based lines).
-;; kind: 61 '=', 45 '-', 43 '+'
+;; Line diff. Output records: =|i|j|text  -|i|text  +|j|text  (1-based lines).
+;; Shared ends are exact. The middle is an LCS when (na+1)*(nb+1) <= budget,
+;; otherwise one replace hunk. kind: 61 '=', 45 '-', 43 '+'
 (struct op (kind u8) (a i64) (b i64))
 
-(fn lcs_table ((a (& (vec str))) (b (& (vec str)))) (vec i64)
-  (let n (vec.len a))
-  (let m (vec.len b))
-  (let w (+ m 1))
+(const budget i64 4096)
+
+(fn prefix ((a (& (vec str))) (b (& (vec str)))) i64
+  (let lim (if (< (vec.len a) (vec.len b)) (vec.len a) (vec.len b)))
+  (let mut n 0)
+  (while (and (< n lim) (str.eq (vec.get a n) (vec.get b n))) (set n (+ n 1)))
+  n)
+
+(fn suffix ((a (& (vec str))) (b (& (vec str))) (p i64)) i64
+  (let lim (- (if (< (vec.len a) (vec.len b)) (vec.len a) (vec.len b)) p))
+  (let mut n 0)
+  (while (and (< n lim)
+      (str.eq (vec.get a (- (- (vec.len a) 1) n)) (vec.get b (- (- (vec.len b) 1) n))))
+    (set n (+ n 1)))
+  n)
+
+(fn equals ((ia i64) (ib i64) (n i64) (out (&mut (vec op)))) unit
+  (let mut k 0)
+  (while (< k n) (do (vec.push out (op 61u8 (+ ia k) (+ ib k))) (set k (+ k 1)))))
+
+(fn replace ((ia i64) (na i64) (ib i64) (nb i64) (out (&mut (vec op)))) unit
+  (let mut i 0)
+  (while (< i na) (do (vec.push out (op 45u8 (+ ia i) ib)) (set i (+ i 1))))
+  (let mut j 0)
+  (while (< j nb) (do (vec.push out (op 43u8 ia (+ ib j))) (set j (+ j 1)))))
+
+(fn lcs_table ((a (& (vec str))) (b (& (vec str))) (ia i64) (na i64) (ib i64) (nb i64)) (vec i64)
+  (let w (+ nb 1))
   (let mut t (vec.new <i64>))
-  (for i 0 (* (+ n 1) w) (vec.push (&mut t) 0))
-  (let mut i (- n 1))
+  (for i 0 (* (+ na 1) w) (vec.push (&mut t) 0))
+  (let mut i (- na 1))
   (while (>= i 0)
-    (let mut j (- m 1))
+    (let mut j (- nb 1))
     (while (>= j 0)
       (let v
-        (if (str.eq (vec.get a i) (vec.get b j))
+        (if (str.eq (vec.get a (+ ia i)) (vec.get b (+ ib j)))
           (+ 1 (@ (vec.get (& t) (+ (* (+ i 1) w) (+ j 1)))))
           (do
             (let x (@ (vec.get (& t) (+ (* (+ i 1) w) j))))
@@ -24,23 +49,32 @@
     (set i (- i 1)))
   t)
 
-;; Edit script as ops over a and b.
-(pub (fn ops ((a (& (vec str))) (b (& (vec str)))) (vec op)
-  (let n (vec.len a))
-  (let m (vec.len b))
-  (let w (+ m 1))
-  (let t (lcs_table a b))
-  (let mut out (vec.new <op>))
+(fn lcs_walk ((a (& (vec str))) (b (& (vec str))) (ia i64) (na i64) (ib i64) (nb i64) (out (&mut (vec op)))) unit
+  (let w (+ nb 1))
+  (let t (lcs_table a b ia na ib nb))
   (let mut i 0)
   (let mut j 0)
-  (while (and (< i n) (< j m))
-    (if (str.eq (vec.get a i) (vec.get b j))
-      (do (vec.push (&mut out) (op 61u8 i j)) (set i (+ i 1)) (set j (+ j 1)))
+  (while (and (< i na) (< j nb))
+    (if (str.eq (vec.get a (+ ia i)) (vec.get b (+ ib j)))
+      (do (vec.push out (op 61u8 (+ ia i) (+ ib j))) (set i (+ i 1)) (set j (+ j 1)))
       (if (>= (@ (vec.get (& t) (+ (* (+ i 1) w) j))) (@ (vec.get (& t) (+ (* i w) (+ j 1)))))
-        (do (vec.push (&mut out) (op 45u8 i j)) (set i (+ i 1)))
-        (do (vec.push (&mut out) (op 43u8 i j)) (set j (+ j 1))))))
-  (while (< i n) (do (vec.push (&mut out) (op 45u8 i j)) (set i (+ i 1))))
-  (while (< j m) (do (vec.push (&mut out) (op 43u8 i j)) (set j (+ j 1))))
+        (do (vec.push out (op 45u8 (+ ia i) (+ ib j))) (set i (+ i 1)))
+        (do (vec.push out (op 43u8 (+ ia i) (+ ib j))) (set j (+ j 1))))))
+  (while (< i na) (do (vec.push out (op 45u8 (+ ia i) (+ ib j))) (set i (+ i 1))))
+  (while (< j nb) (do (vec.push out (op 43u8 (+ ia i) (+ ib j))) (set j (+ j 1)))))
+
+;; Edit script as ops over a and b.
+(pub (fn ops ((a (& (vec str))) (b (& (vec str)))) (vec op)
+  (let p (prefix a b))
+  (let s (suffix a b p))
+  (let na (- (vec.len a) (+ p s)))
+  (let nb (- (vec.len b) (+ p s)))
+  (let mut out (vec.new <op>))
+  (equals 0 0 p (&mut out))
+  (if (or (> na 4095) (or (> nb 4095) (> (* (+ na 1) (+ nb 1)) budget)))
+    (replace p na p nb (&mut out))
+    (lcs_walk a b p na p nb (&mut out)))
+  (equals (- (vec.len a) s) (- (vec.len b) s) s (&mut out))
   out))
 
 ;; One pipe record for an op.
@@ -114,3 +148,34 @@
   (assert_eq (@ (vec.get (& st) 1)) 2)
   (let ctx (lines (& a) (& b) 0))
   (assert_eq (vec.len (& ctx)) 3))
+
+(fn row ((tag (& str)) (i i64)) str
+  (let mut s (str.from tag))
+  (str.push (&mut s) (& (str.from_int i)))
+  s)
+
+(fn push_rows ((v (&mut (vec str))) (tag (& str)) (n i64)) unit
+  (for i 0 n (vec.push v (row tag i))))
+
+(test diff_middle
+  (let mut a (vec.new <str>))
+  (let mut b (vec.new <str>))
+  (push_rows (&mut a) "s" 80)
+  (push_rows (&mut b) "s" 80)
+  (vec.set (&mut b) 40 (str.from "x"))
+  (let st (stat (& a) (& b)))
+  (assert_eq (@ (vec.get (& st) 0)) 1)
+  (assert_eq (@ (vec.get (& st) 1)) 1))
+
+(test diff_bound
+  (let mut a (vec.new <str>))
+  (let mut b (vec.new <str>))
+  (push_rows (&mut a) "a" 40)
+  (push_rows (&mut b) "b" 40)
+  (vec.push (&mut a) (str.from "SAME"))
+  (vec.push (&mut b) (str.from "SAME"))
+  (push_rows (&mut a) "c" 40)
+  (push_rows (&mut b) "d" 40)
+  (let st (stat (& a) (& b)))
+  (assert_eq (@ (vec.get (& st) 0)) 81)
+  (assert_eq (@ (vec.get (& st) 1)) 81))

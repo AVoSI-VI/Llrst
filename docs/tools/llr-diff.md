@@ -15,6 +15,6 @@ stat|removed=R|added=A
 +|J|text
 ```
 
-`--context N` (default 2) keeps N equal lines around each change; `-1` prints everything.
+`--context N` (default 2) keeps N equal lines around each change; `-1` prints everything. A middle of more than 4096 LCS cells is one replace hunk, not a minimal edit.
 
 Exit: 0 identical, 2 different, 1 unreadable input.

@@ -20,7 +20,7 @@
 | [check](check.md) | Type and name errors. Borrow checking stays in `llrc`. |
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`. |
-| [diff](diff.md) | Line diff by LCS, pipe records. |
+| [diff](diff.md) | Line diff. Middle LCS is capped at 4096 cells; a larger middle is one replace hunk. |
 | [test](test.md) | Test harness used by `llrc build --test` and `llr-test`. |
 
 Rules: one module per file, every pub fn has a test form in its file, `llr-doc` regenerates the signature tables (see docs/workflows/std.md).
