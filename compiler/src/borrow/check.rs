@@ -7,6 +7,7 @@ use crate::diag::{Diag, SourceMap};
 
 pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body, loans: &[Loan], holders: &Holders, live: &Liveness) {
     let _ = prog;
+    let static_l = super::holders::static_locals(body);
     let mut reported: Vec<(usize, Span, &'static str)> = Vec::new();
     for (bi, blk) in body.blocks.iter().enumerate() {
         let mut all: Vec<(Vec<Access>, Point)> = blk
@@ -18,7 +19,7 @@ pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Bod
         all.push((term_accesses(&blk.term, blk.term_span), Point { bb: bi as BlockId, idx: blk.stmts.len() }));
         for (accs, point) in all {
             for (li, loan) in loans.iter().enumerate() {
-                if loan.point == point {
+                if loan.point == point || static_l[loan.place.local as usize] {
                     continue;
                 }
                 // A loan is in force at `point` when a holder is live after the borrow and

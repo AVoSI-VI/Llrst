@@ -1,0 +1,14 @@
+(use std.io)
+
+(struct slot (s (& str)))
+
+(fn word () (& str) "static")
+
+(fn main () unit
+  (io.puts (word))
+  (let mut hold (vec.new < (& str) >))
+  (vec.push (&mut hold) "a")
+  (vec.push (&mut hold) "b")
+  (io.puts (@ (vec.get (& hold) 0)))
+  (let kept (slot "kept"))
+  (io.puts (. kept s)))

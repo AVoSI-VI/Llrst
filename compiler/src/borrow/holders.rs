@@ -218,3 +218,45 @@ pub fn compute(prog: &Program, body: &Body, loans: &[Loan]) -> Holders {
     }
     Holders { nloc, at }
 }
+
+/// A local is static when every whole-local write is a string literal or a copy of one.
+pub fn static_locals(body: &Body) -> Vec<bool> {
+    let n = body.locals.len();
+    let mut bad = vec![false; n];
+    let mut seen = vec![false; n];
+    let mut src: Vec<Vec<Option<LocalIdx>>> = (0..n).map(|_| Vec::new()).collect();
+    for blk in &body.blocks {
+        for (s, _) in &blk.stmts {
+            let Stmt::Assign(dest, rv) = s else { continue };
+            if !dest.is_local() {
+                continue;
+            }
+            let i = dest.local as usize;
+            seen[i] = true;
+            match rv {
+                Rvalue::Use(Operand::Const(Const::Str(_), _)) => src[i].push(None),
+                Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.is_local() => src[i].push(Some(p.local)),
+                _ => bad[i] = true,
+            }
+        }
+    }
+    let mut stat = vec![false; n];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for i in 0..n {
+            if bad[i] || !seen[i] || stat[i] {
+                continue;
+            }
+            let ok = src[i].iter().all(|s| match s {
+                None => true,
+                Some(l) => stat[*l as usize],
+            });
+            if ok {
+                stat[i] = true;
+                changed = true;
+            }
+        }
+    }
+    stat
+}
