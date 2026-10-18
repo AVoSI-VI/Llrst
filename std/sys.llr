@@ -43,6 +43,7 @@
   (write_all 2 (. "|" p) 1)
   (write_str 2 msg)
   (write_all 2 (. "\n" p) 1)
+  (llr_panic_frames)
   (_exit 101)))
 
 (pub (fn panic ((loc (& str)) (msg (& str))) never (abort loc msg)))

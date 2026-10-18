@@ -39,9 +39,9 @@ Exit code 1 on any `E`, 0 otherwise. A `W` line does not fail the build.
 ```
 P|FILE|LINE|COL|CODE|k=v...
 ```
-Exit code 101. `FILE|LINE|COL` is the frame that detected the fault, usually inside `std`
-(there are no stack traces; find the caller with `llr-grep` on the method name).
-`div.zero` is the exception: its location is the `/` or `%` expression itself.
+Exit code 101. `FILE|LINE|COL` is the expression that detected the fault. Later `P|name`
+lines are live callers, innermost first. `sys.abort` and `sys.panic` are omitted. An
+inlined body does not get its own frame.
 
 | code | fields | source |
 |------|--------|--------|

@@ -1,1 +1,2 @@
 P|tests/panic/cast_neg.llr|1|25|cast.overflow
+P|main.main

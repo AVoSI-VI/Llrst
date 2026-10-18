@@ -1,1 +1,3 @@
 P|tests/panic/rem_zero.llr|1|25|div.zero
+P|sys.checked_div
+P|main.main

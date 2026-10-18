@@ -35,10 +35,11 @@ A `W|` line is not a failure. `name.unused` means delete the binding or use it.
 
 ## Runtime panics
 
-`P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101. FILE is usually the std frame that caught
-the fault (`std/vec.llr` for `vec.get`), not your call site: `llr-grep "vec\\.get" FILE` in
-your code to find candidates, then compare `len=`/`idx=` (or `len= lo= hi=` for slices)
-with the values you passed. `opt.none` / `res.err` come from `unwrap`: match instead.
+`P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101, then one `P|name` line per live caller,
+innermost first. `sys.abort` and `sys.panic` are omitted, and an inlined body stays in its
+caller. FILE is often the std file that detected the fault (`std/vec.llr` for an out-of-line
+`vec.insert`), so the following `P|name` lines name the callers. `opt.none` / `res.err` come
+from `unwrap`: match instead.
 `div.zero` is a `P|` line at the `/` or `%` expression. Signed `MIN / -1` and `MIN % -1`
 always panic `int.overflow` at that expression. Other `int.overflow` lines mean the program
 was built with `--checked` and a `+` `-` `*` `neg` or an out-of-range shift overflowed; use

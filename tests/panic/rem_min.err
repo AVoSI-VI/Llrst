@@ -1,1 +1,3 @@
 P|tests/panic/rem_min.llr|1|25|int.overflow
+P|sys.checked_div
+P|main.main

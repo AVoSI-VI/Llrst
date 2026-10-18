@@ -33,6 +33,9 @@ pub struct Codegen<'a> {
     pub pending_drops: Vec<Ty>,
     pub argc: DataId,
     pub argv: DataId,
+    /// Head of the panic frame list. Each frame is `{prev, name}`.
+    pub trace: DataId,
+    pub name_syms: usize,
     pub call_conv: CallConv,
     pub ptr_ty: types::Type,
     pub frontend: TargetFrontendConfig,
@@ -70,7 +73,8 @@ impl<'a> Codegen<'a> {
         let mut module = ObjectModule::new(builder);
         let argc = module.declare_data("llr_argc", Linkage::Local, true, false).unwrap();
         let argv = module.declare_data("llr_argv", Linkage::Local, true, false).unwrap();
-        for d in [argc, argv] {
+        let trace = module.declare_data("llr_trace", Linkage::Export, true, false).unwrap();
+        for d in [argc, argv, trace] {
             let mut desc = DataDescription::new();
             desc.define_zeroinit(8);
             desc.set_align(8);
@@ -87,6 +91,8 @@ impl<'a> Codegen<'a> {
             pending_drops: Vec::new(),
             argc,
             argv,
+            trace,
+            name_syms: 0,
             call_conv,
             ptr_ty,
             frontend,
@@ -193,6 +199,20 @@ impl<'a> Codegen<'a> {
         self.module.define_data(str_id, &sd).unwrap();
         self.strs.insert(bytes.to_vec(), str_id);
         str_id
+    }
+
+    /// NUL-terminated bytes for a panic frame name.
+    pub fn cstr_data(&mut self, bytes: &[u8]) -> DataId {
+        let n = self.name_syms;
+        self.name_syms += 1;
+        let id = self.module.declare_data(&format!("llr_nm{}", n), Linkage::Local, false, false).unwrap();
+        let mut bd = DataDescription::new();
+        let mut content = bytes.to_vec();
+        content.push(0);
+        bd.define(content.into_boxed_slice());
+        bd.set_align(1);
+        self.module.define_data(id, &bd).unwrap();
+        id
     }
 
     /// Drop glue function for a type, declared on first use and generated later.

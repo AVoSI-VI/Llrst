@@ -1,0 +1,5 @@
+(fn gone () unit (let x 1))
+
+(fn mid () unit (let x (/ 1 0)))
+
+(fn main () unit (gone) (mid))

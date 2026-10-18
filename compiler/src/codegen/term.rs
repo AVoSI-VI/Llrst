@@ -94,6 +94,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             }
             Term::Call { func, args, dest, next, .. } => self.call(func, args, dest, *next, span)?,
             Term::Return => {
+                self.pop_trace();
                 let ret_ty = self.body.locals[0].ty.clone();
                 if ret_ty.is_unit() {
                     self.b.ins().return_(&[]);
@@ -113,6 +114,15 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             }
         }
         Ok(())
+    }
+
+    fn pop_trace(&mut self) {
+        let Some(slot) = self.trace else { return };
+        let ptr = self.cg.ptr_ty;
+        let prev = self.b.ins().stack_load(ptr, ptr, slot, 0);
+        let gv = self.cg.module.declare_data_in_func(self.cg.trace, self.b.func);
+        let head = self.b.ins().symbol_value(ptr, gv);
+        self.b.ins().store(mf(), prev, head, 0);
     }
 
     pub fn call(&mut self, func: &Func, args: &[Operand], dest: &Place, next: BlockId, span: Span) -> PResult<()> {

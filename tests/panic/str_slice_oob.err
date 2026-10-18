@@ -1,1 +1,3 @@
 P|std/str.llr|54|53|idx.oob|len=3|lo=1|hi=9
+P|str.slice
+P|main.main
