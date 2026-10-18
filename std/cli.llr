@@ -62,10 +62,10 @@
       (if (and (not only_pos) (str.starts a "--"))
         (do
           (let name (str.slice a 2 (str.len a)))
-          (match (vec.index_str (& (. self flag_names)) (& name))
+          (match (vec.index (& (. self flag_names)) (& name) vec.eq_str)
             ((opt.some fi) (do (vec.set (&mut (. self flag_set)) fi true) (set i (+ i 1)) (cont)))
             ((opt.none) ()))
-          (match (vec.index_str (& (. self opt_names)) (& name))
+          (match (vec.index (& (. self opt_names)) (& name) vec.eq_str)
             ((opt.some oi)
               (do
                 (if (>= (+ i 1) n) (cli.die self "cli.missing_value" (& name)))
@@ -87,14 +87,14 @@
     (io.eputs (& (cli.usage self)))
     (os.exit 1))
   (pub (fn get ((self (& cli)) (name (& str))) (& str)
-    (match (vec.index_str (& (. self opt_names)) name)
+    (match (vec.index (& (. self opt_names)) name vec.eq_str)
       ((opt.some i) (vec.get (& (. self opt_vals)) i))
       ((opt.none) (panic "cli.no_such_opt")))))
   (pub (fn get_int ((self (& cli)) (name (& str))) i64
     (let v (cli.get self name))
     (match (str.to_int v) ((opt.some n) n) ((opt.none) (cli.die self "cli.not_int" name)))))
   (pub (fn has ((self (& cli)) (name (& str))) bool
-    (match (vec.index_str (& (. self flag_names)) name)
+    (match (vec.index (& (. self flag_names)) name vec.eq_str)
       ((opt.some i) (@ (vec.get (& (. self flag_set)) i)))
       ((opt.none) (panic "cli.no_such_flag")))))
   ;; Positional argument by index (declared ones first, then extras).

@@ -87,6 +87,9 @@
   (pub (fn has ((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool))) bool
     (for i 0 (vec.len self) (if (call eq (vec.get self i) x) (ret true)))
     false))
+  (pub (fn index ((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool))) (opt i64)
+    (for i 0 (vec.len self) (if (call eq (vec.get self i) x) (ret (opt.some i))))
+    (opt.none)))
   (pub (fn sort ((self (&mut (vec T))) (cmp (fn ((& T) (& T)) i64))) unit
     (let n (vec.len self))
     (if (< n 2) (ret))
@@ -103,10 +106,6 @@
       (set in_scratch (not in_scratch))
       (set w (* w 2)))
     (if in_scratch (swap_buf <T> self (&mut scratch))))))
-
-(pub (fn index_str ((v (& (vec str))) (x (& str))) (opt i64)
-  (for i 0 (vec.len v) (if (str.eq (vec.get v i) x) (ret (opt.some i))))
-  (opt.none)))
 
 ;; Bottom-up merge sort. `cmp` is negative when the first argument comes first; 0 keeps the left run.
 (fn swap_buf <T> ((a (&mut (vec T))) (b (&mut (vec T)))) unit
@@ -207,3 +206,10 @@
   (assert_eq (. (vec.get (& v) 0) ord) 0)
   (assert_eq (. (vec.get (& v) 1) ord) 2)
   (assert_eq (. (vec.get (& v) 2) k) 2))
+
+(test vec_index
+  (let mut v (vec.new <str>))
+  (vec.push (&mut v) (str.from "a"))
+  (vec.push (&mut v) (str.from "b"))
+  (match (vec.index (& v) "b" vec.eq_str) ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
+  (match (vec.index (& v) "z" vec.eq_str) ((opt.some _) (assert false)) ((opt.none) (assert true))))

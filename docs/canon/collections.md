@@ -7,6 +7,7 @@ There are no traits. An operation that depends on `T` or `K` takes a named `(fn 
 | operation | pointer | helpers |
 |-----------|---------|---------|
 | `vec.has` | `(fn ((& T) (& T)) bool)` | `vec.eq_str`, `vec.eq_int` |
+| `vec.index` | `(fn ((& T) (& T)) bool)` | `vec.eq_str`, `vec.eq_int` |
 | `vec.sort` | `(fn ((& T) (& T)) i64)`. Negative or zero means the first argument comes first; zero keeps the earlier element | `vec.cmp_str`, `vec.cmp_int` |
 | map hash | `(fn ((& K)) i64)` | `map.hash_str`, `map.hash_int` |
 | map eq | `(fn ((& K) (& K)) bool)` | `map.eq_str`, `map.eq_int` |
@@ -26,7 +27,7 @@ There are no traits. An operation that depends on `T` or `K` takes a named `(fn 
 | remove | `(vec.remove (&mut v) i)` returns `T`, shifts |
 | iterate | `(for i 0 (vec.len (& v)) (let x (vec.get (& v) i)) ...)` |
 | contains | `(vec.has (& v) x vec.eq_str)` or `vec.eq_int` |
-| index of | `(vec.index_str (& v) x)` returns `(opt i64)` |
+| index of | `(vec.index (& v) x vec.eq_str)` returns `(opt i64)` |
 | sort | `(vec.sort (&mut v) vec.cmp_str)` or `vec.cmp_int`, stable. A custom order is a named `(fn ((& T) (& T)) i64)` |
 | clone | `(vec.clone_str (& v))` |
 | reverse | `(vec.reverse (&mut v))` |
