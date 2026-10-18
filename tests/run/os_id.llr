@@ -1,0 +1,4 @@
+(use std.io)
+(use std.sys)
+
+(fn main () unit (io.puts (& (str.from_int sys.os_id))))

@@ -46,6 +46,18 @@ pub fn find_std(opt: &Options) -> PResult<PathBuf> {
     Err(Diag::error(Span::default(), "io.read").kv("path", "std").kv("fix", "set LLRST_STD"))
 }
 
+/// `sys_windows.llr` on a Windows triple, otherwise `sys_posix.llr`.
+pub fn os_extern_file(target: Option<&str>) -> PResult<&'static str> {
+    let os = match target {
+        None => target_lexicon::HOST.operating_system,
+        Some(t) => t
+            .parse::<target_lexicon::Triple>()
+            .map_err(|_| Diag::error(Span::default(), "target.unsupported").kv("got", t))?
+            .operating_system,
+    };
+    Ok(if os == target_lexicon::OperatingSystem::Windows { "sys_windows.llr" } else { "sys_posix.llr" })
+}
+
 /// Runs the pipeline. Returns the process exit code.
 pub fn run(opt: Options) -> i32 {
     let mut sm = SourceMap::default();
@@ -65,7 +77,7 @@ pub fn run(opt: Options) -> i32 {
 fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     let std_dir = find_std(opt)?;
     let proj_dir = opt.input.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let mut prog = Loader::new(sm, diags, std_dir, proj_dir).load(&opt.input)?;
+    let mut prog = Loader::new(sm, diags, std_dir, proj_dir).load(&opt.input, opt.target.as_deref())?;
     if diags.has_errors() {
         return Ok(());
     }

@@ -1,0 +1,56 @@
+;; POSIX libc externs, appended to std.sys on every non-Windows target.
+(pub (const os_id i64 1))
+
+(pub (extern write ((fd i32) (buf (ptr u8)) (n u64)) i64))
+
+(pub (extern read ((fd i32) (buf (ptr u8)) (n u64)) i64))
+
+(pub (extern open ((path (ptr u8)) (flags i32) (mode i32)) i32))
+
+(pub (extern close ((fd i32)) i32))
+
+(pub (extern malloc ((n u64)) (ptr u8)))
+
+(pub (extern realloc ((p (ptr u8)) (n u64)) (ptr u8)))
+
+(pub (extern free ((p (ptr u8))) unit))
+
+(pub (extern memcpy ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8)))
+
+(pub (extern memmove ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8)))
+
+(pub (extern memcmp ((a (ptr u8)) (b (ptr u8)) (n u64)) i32))
+
+(pub (extern exit ((code i32)) never))
+
+(pub (extern _exit ((code i32)) never))
+
+(pub (extern fork () i32))
+
+(pub (extern waitpid ((pid i32) (status (ptr i32)) (opts i32)) i32))
+
+(pub (extern getenv ((name (ptr u8))) (ptr u8)))
+
+(pub (extern getcwd ((buf (ptr u8)) (n u64)) (ptr u8)))
+
+(pub (extern strlen ((s (ptr u8))) u64))
+
+(pub (extern opendir ((path (ptr u8))) (ptr u8)))
+
+(pub (extern readdir ((d (ptr u8))) (ptr u8)))
+
+(pub (extern closedir ((d (ptr u8))) i32))
+
+(pub (extern llr_stat_mtime ((path (ptr u8)) (out (ptr i64))) i64))
+
+(pub (extern llr_stat_size ((path (ptr u8)) (out (ptr i64))) i64))
+
+(pub (extern unlink ((path (ptr u8))) i32))
+
+(pub (extern mkdir ((path (ptr u8)) (mode i32)) i32))
+
+(pub (extern rename ((a (ptr u8)) (b (ptr u8))) i32))
+
+(pub (extern system ((cmd (ptr u8))) i32))
+
+(pub (extern isatty ((fd i32)) i32))

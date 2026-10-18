@@ -218,7 +218,8 @@ impl<'a> Loader<'a> {
     }
 
     /// Loads the main file, all of std, and any `proj.*` modules reachable via `use`.
-    pub fn load(mut self, main: &Path) -> PResult<Program> {
+    pub fn load(mut self, main: &Path, target: Option<&str>) -> PResult<Program> {
+        let os_file = crate::driver::os_extern_file(target)?;
         let main_idx = self.load_file("main", main, false)?;
         let mut std_files: Vec<PathBuf> = std::fs::read_dir(&self.std_dir)
             .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", self.std_dir.display().to_string()))?
@@ -229,7 +230,9 @@ impl<'a> Loader<'a> {
         let main_canon = std::fs::canonicalize(main).ok();
         for f in std_files {
             let name = f.file_stem().unwrap().to_string_lossy().to_string();
-            // Compiling a std file directly (e.g. its tests): it is both main and std.X.
+            if name == "sys_posix" || name == "sys_windows" {
+                continue;
+            }
             if std::fs::canonicalize(&f).ok() == main_canon {
                 self.by_path.insert(format!("std.{}", name), main_idx);
                 self.parsed[main_idx as usize].0 = format!("std.{}", name);
@@ -238,6 +241,7 @@ impl<'a> Loader<'a> {
             }
             self.load_file(&format!("std.{}", name), &f, true)?;
         }
+        self.append_os(os_file)?;
         let mut i = 0;
         while i < self.parsed.len() {
             let uses: Vec<(Vec<String>, Span)> = self.parsed[i]
@@ -261,11 +265,21 @@ impl<'a> Loader<'a> {
         }
         collect(self.parsed, self.by_path, main_idx, self.diags)
     }
+
+    fn append_os(&mut self, name: &str) -> PResult<()> {
+        let file = self.std_dir.join(name);
+        let text = std::fs::read_to_string(&file)
+            .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", file.display().to_string()))?;
+        let fid = self.sm.add(file.display().to_string(), text);
+        let extra = parse_items(&read_file(fid, self.sm.text(fid))?)?;
+        let idx = *self.by_path.get("std.sys").ok_or_else(|| Diag::error(Span::default(), "io.read").kv("path", "std/sys.llr"))?;
+        self.parsed[idx as usize].2.extend(extra);
+        Ok(())
+    }
 }
 
 fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
     let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), target_arch: String::new() };
-    // Phase 1: modules, type names, uses.
     for (path, file, items, is_std) in &parsed {
         let mi = prog.modules.len() as u32;
         let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), tests: Vec::new(), is_std: *is_std };

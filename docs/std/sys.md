@@ -2,7 +2,7 @@
 
 libc externs and the panic runtime. Not for programs; std only.
 
-Source: `std/sys.llr`. Import with `(use std.sys)` for module functions; types and methods need no import.
+Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows.llr`. Import with `(use std.sys)` for module functions; types and methods need no import.
 
 ## Functions
 

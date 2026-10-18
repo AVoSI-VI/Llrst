@@ -40,5 +40,20 @@ check aarch64-unknown-linux-gnu "ARM aarch64"
 check riscv64gc-unknown-linux-gnu "RISC-V"
 check s390x-unknown-linux-gnu "S/390"
 check aarch64-apple-darwin "arm64"
+
+mir="$("$llrc" emit-mir --target x86_64-pc-windows-gnu "$root/tests/run/os_id.llr" 2>"$tmp/err")" || {
+  echo "fail|cross|target=x86_64-pc-windows-gnu|got=$(head -1 "$tmp/err")"
+  fails=$((fails+1))
+  mir=""
+}
+if [ -n "$mir" ]; then
+  main="$(printf '%s\n' "$mir" | awk 'BEGIN{p=0} /^fn main\.main /{p=1; next} /^fn /{p=0} p')"
+  if printf '%s\n' "$main" | grep -q '2i64'; then
+    echo "ok|cross|x86_64-pc-windows-gnu"
+  else
+    echo "fail|cross|target=x86_64-pc-windows-gnu|got=os_id"
+    fails=$((fails+1))
+  fi
+fi
 echo "done|fails=$fails"
 [ "$fails" -eq 0 ]

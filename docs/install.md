@@ -25,4 +25,4 @@ Cross compiling: `llrc build f.llr --target aarch64-unknown-linux-gnu --emit-obj
 `f.o`; link it on the target with `cc f.o -o f`. Direct linking with `--target` uses
 `clang --target=...` and needs a matching sysroot.
 
-Windows: not supported by the runtime (`std/sys.llr` binds POSIX libc).
+Windows: `--target` with a Windows OS selects `std/sys_windows.llr` and is not linked here.
