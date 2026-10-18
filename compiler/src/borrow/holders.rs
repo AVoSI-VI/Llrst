@@ -41,6 +41,30 @@ impl Holders {
     }
 }
 
+#[derive(Clone)]
+struct Flow {
+    bits: BitSet,
+    /// Loan ids stored in each `(local, field)`.
+    fields: HashMap<(LocalIdx, u32), Vec<usize>>,
+}
+
+impl Flow {
+    fn union_with(&mut self, o: &Flow) -> bool {
+        let bits = self.bits.union_with(&o.bits);
+        let mut extra = false;
+        for (k, vs) in &o.fields {
+            let e = self.fields.entry(*k).or_default();
+            for loan in vs {
+                if !e.contains(loan) {
+                    e.push(*loan);
+                    extra = true;
+                }
+            }
+        }
+        bits || extra
+    }
+}
+
 struct Cx<'a> {
     prog: &'a Program,
     body: &'a Body,
@@ -80,56 +104,117 @@ impl<'a> Cx<'a> {
         }
     }
 
-    fn stmt(&self, st: &mut BitSet, s: &Stmt, point: Point) {
+    fn kill_field(&self, st: &mut Flow, local: LocalIdx, field: u32) {
+        let Some(gone) = st.fields.remove(&(local, field)) else { return };
+        for li in gone {
+            let held = st.fields.iter().any(|((l, _), vs)| *l == local && vs.contains(&li));
+            if !held {
+                st.bits.remove(self.bit(li, local));
+            }
+        }
+    }
+
+    fn note_field(&self, st: &mut Flow, local: LocalIdx, field: u32, loans: &[usize]) {
+        if loans.is_empty() {
+            return;
+        }
+        let e = st.fields.entry((local, field)).or_default();
+        for li in loans {
+            if !e.contains(li) {
+                e.push(*li);
+            }
+        }
+    }
+
+    fn clear_fields(&self, st: &mut Flow, local: LocalIdx) {
+        st.fields.retain(|(l, _), _| *l != local);
+    }
+
+    fn loans_of(&self, pre: &BitSet, rv: &Rvalue, to: LocalIdx, point: Point) -> Vec<usize> {
+        let mut gen = Vec::new();
+        match rv {
+            Rvalue::Ref { place, .. } => {
+                if let Some(&li) = self.loan_at.get(&point) {
+                    gen.push(li);
+                }
+                gen.extend(self.pairs_of(pre, place.local));
+            }
+            Rvalue::Use(op) | Rvalue::Cast(op, _) => gen.extend(self.flow_operand(pre, op, to)),
+            Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
+                for o in ops {
+                    gen.extend(self.flow_operand(pre, o, to));
+                }
+            }
+            _ => {}
+        }
+        gen
+    }
+
+    fn stmt(&self, st: &mut Flow, s: &Stmt, point: Point) {
         match s {
             Stmt::Assign(dest, rv) => {
-                let pre = st.clone();
-                let to = dest.local;
-                // reads before the write
-                let mut gen: Vec<usize> = Vec::new();
-                match rv {
-                    Rvalue::Ref { place, .. } => {
-                        if let Some(&li) = self.loan_at.get(&point) {
-                            gen.push(li);
-                        }
-                        // A reference into a holder can reach everything the holder holds.
-                        gen.extend(self.pairs_of(&pre, place.local));
-                    }
-                    Rvalue::Use(op) | Rvalue::Cast(op, _) => gen.extend(self.flow_operand(&pre, op, to)),
-                    Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
-                        for o in ops {
-                            gen.extend(self.flow_operand(&pre, o, to));
-                        }
-                    }
-                    _ => {}
+                if dest.has_deref() {
+                    let gen = self.loans_of(&st.bits, rv, dest.local, point);
+                    self.add_all(&mut st.bits, &gen, dest.local);
+                    return;
+                }
+                if let Some(field) = dest.lone_field() {
+                    let gen = self.loans_of(&st.bits.clone(), rv, dest.local, point);
+                    self.kill_field(st, dest.local, field);
+                    self.note_field(st, dest.local, field, &gen);
+                    self.add_all(&mut st.bits, &gen, dest.local);
+                    return;
                 }
                 if dest.is_local() {
-                    self.kill_local(st, to);
+                    let pre = st.bits.clone();
+                    self.kill_local(&mut st.bits, dest.local);
+                    self.clear_fields(st, dest.local);
+                    match rv {
+                        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
+                            for (i, o) in ops.iter().enumerate() {
+                                let g = self.flow_operand(&pre, o, dest.local);
+                                self.note_field(st, dest.local, i as u32, &g);
+                                self.add_all(&mut st.bits, &g, dest.local);
+                            }
+                        }
+                        _ => {
+                            let gen = self.loans_of(&pre, rv, dest.local, point);
+                            self.add_all(&mut st.bits, &gen, dest.local);
+                        }
+                    }
+                    return;
                 }
-                self.add_all(st, &gen, to);
+                let gen = self.loans_of(&st.bits, rv, dest.local, point);
+                self.add_all(&mut st.bits, &gen, dest.local);
             }
-            Stmt::StorageDead(l) => self.kill_local(st, *l),
+            Stmt::StorageDead(l) => {
+                self.kill_local(&mut st.bits, *l);
+                self.clear_fields(st, *l);
+            }
             Stmt::Drop(_) | Stmt::Forget(_) | Stmt::Nop => {}
             Stmt::InlineLoans { kill_from, sources, dest } => {
                 for li in 0..self.loans.len() {
                     if self.loans[li].place.local >= *kill_from {
                         for loc in 0..self.nloc as LocalIdx {
-                            st.remove(self.bit(li, loc));
+                            st.bits.remove(self.bit(li, loc));
+                        }
+                        for vs in st.fields.values_mut() {
+                            vs.retain(|x| *x != li);
                         }
                     }
                 }
                 let mut gen = Vec::new();
                 for s in sources {
-                    gen.extend(self.pairs_of(st, *s));
+                    gen.extend(self.pairs_of(&st.bits, *s));
                 }
-                self.add_all(st, &gen, *dest);
+                self.add_all(&mut st.bits, &gen, *dest);
             }
         }
     }
 
-    fn term(&self, st: &mut BitSet, t: &Term) {
+    fn term(&self, st: &mut Flow, t: &Term) {
         let Term::Call { func, args, dest, .. } = t else { return };
-        let pre = st.clone();
+        let pre = st.bits.clone();
         let roots: Vec<Option<LocalIdx>> = args.iter().map(|a| a.place().map(|p| p.local)).collect();
         // Result derives from the eligible arguments.
         let mut gen: Vec<usize> = Vec::new();
@@ -167,25 +252,26 @@ impl<'a> Cx<'a> {
             }
         }
         if dest.is_local() {
-            self.kill_local(st, dest.local);
+            self.kill_local(&mut st.bits, dest.local);
+            self.clear_fields(st, dest.local);
         }
-        self.add_all(st, &gen, dest.local);
+        self.add_all(&mut st.bits, &gen, dest.local);
         for (sink, stored) in sinks {
-            self.add_all(st, &stored, sink);
+            self.add_all(&mut st.bits, &stored, sink);
         }
     }
 
-    fn transfer_block(&self, bb: BlockId, input: &BitSet, mut record: Option<&mut Vec<BitSet>>) -> BitSet {
+    fn transfer_block(&self, bb: BlockId, input: &Flow, mut record: Option<&mut Vec<BitSet>>) -> Flow {
         let blk = &self.body.blocks[bb as usize];
         let mut st = input.clone();
         for (si, (s, _)) in blk.stmts.iter().enumerate() {
             if let Some(r) = record.as_mut() {
-                r.push(st.clone());
+                r.push(st.bits.clone());
             }
             self.stmt(&mut st, s, Point { bb, idx: si });
         }
         if let Some(r) = record.as_mut() {
-            r.push(st.clone());
+            r.push(st.bits.clone());
         }
         self.term(&mut st, &blk.term);
         st
@@ -197,7 +283,7 @@ pub fn compute(prog: &Program, body: &Body, loans: &[Loan]) -> Holders {
     let loan_at: HashMap<Point, usize> = loans.iter().enumerate().map(|(i, l)| (l.point, i)).collect();
     let cx = Cx { prog, body, loans, loan_at, nloc };
     let nb = body.blocks.len();
-    let mut inp: Vec<BitSet> = (0..nb).map(|_| cx.new_state()).collect();
+    let mut inp: Vec<Flow> = (0..nb).map(|_| Flow { bits: cx.new_state(), fields: HashMap::new() }).collect();
     let mut changed = true;
     while changed {
         changed = false;

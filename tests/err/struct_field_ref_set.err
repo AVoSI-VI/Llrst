@@ -1,1 +1,0 @@
-E|tests/err/struct_field_ref_set.llr|10|13|8|borrow.mut_shared|name=a|ref=v|borrowed_at=8:20

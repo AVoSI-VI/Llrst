@@ -1,0 +1,12 @@
+(use std.io)
+
+(struct two <'a> (s (& 'a str)) (t (& 'a str)))
+
+(fn main () unit
+  (let mut a (str.from "a"))
+  (let mut c (str.from "c"))
+  (let b (str.from "b"))
+  (let mut v (two (& a) (& c)))
+  (set (. v s) (& b))
+  (str.push (&mut c) "y")
+  (io.puts (. v t)))

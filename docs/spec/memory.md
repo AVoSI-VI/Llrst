@@ -27,7 +27,7 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
    after the arguments are evaluated.
 7. Reassigning a reference variable, or a struct holding references, as a whole
    (`(set r (& b))`, `(set v (view (& b)))`) releases the loans it held. Writing a single
-   field (`(set (. v s) (& b))`) releases nothing.
+   field (`(set (. v s) (& b))`) releases the loans stored in that field only.
 8. Storing a reference into a container through `(&mut c)` (for example `vec.push`) makes
    the container a holder: the referent stays borrowed while `c` is live. Declare such a
    container after its referents so it is dropped first; otherwise `borrow.escape`.
