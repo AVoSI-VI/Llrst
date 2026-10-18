@@ -1,5 +1,17 @@
 # Canon: collections
 
+## Operations over T
+
+There are no traits. An operation that depends on `T` or `K` takes a named `(fn ...)` on that call. The pointer is not stored and cannot capture a value. Invoke it with `(call f a b)`.
+
+| operation | pointer | helpers |
+|-----------|---------|---------|
+| `vec.has` | `(fn ((& T) (& T)) bool)` | `vec.eq_str`, `vec.eq_int` |
+| `vec.sort` | `(fn ((& T) (& T)) i64)`. Negative or zero means the first argument comes first; zero keeps the earlier element | `vec.cmp_str`, `vec.cmp_int` |
+| map hash | `(fn ((& K)) i64)` | `map.hash_str`, `map.hash_int` |
+| map eq | `(fn ((& K) (& K)) bool)` | `map.eq_str`, `map.eq_int` |
+| `map.keys` | `(fn ((& K)) K)` plus the sort pointer | `str.clone` or `map.clone_int`, and `vec.cmp_str` or `vec.cmp_int` |
+
 ## vec
 
 | task | form |
