@@ -174,7 +174,7 @@ impl<'a> Lower<'a> {
                 if self.is_copy(&e.ty) {
                     Operand::Copy(p)
                 } else {
-                    if !p.is_local() {
+                    if !p.is_local() && !self.can_move_field(&p) {
                         let code = if p.has_deref() { "move.deref" } else { "move.field" };
                         self.diags.push(Diag::error(e.span, code).kv("fix", "(& ...) or mem.replace"));
                     }
@@ -198,6 +198,19 @@ impl<'a> Lower<'a> {
         let t = self.temp(ty.clone(), span);
         self.assign(&Place::local(t), Rvalue::Ref { mutable: true, place: p.deref(), two_phase }, span);
         Operand::Move(Place::local(t))
+    }
+
+    /// One field of a struct local that has no user `drop` method.
+    fn can_move_field(&self, p: &Place) -> bool {
+        if p.lone_field().is_none() {
+            return false;
+        }
+        let ty = self.body.local_ty(p.local);
+        if drop_method(self.prog, ty).is_some() {
+            return false;
+        }
+        let Ty::Adt(d, _) = ty else { return false };
+        matches!(self.prog.def(*d).kind, crate::resolve::DefKind::Struct(_))
     }
 
     /// Evaluates for effect only; drops any produced value.

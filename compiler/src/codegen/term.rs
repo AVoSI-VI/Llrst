@@ -10,6 +10,10 @@ use cranelift_module::Module;
 
 impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     pub fn drop_place(&mut self, p: &Place) {
+        if p.is_local() && self.field_flags[p.local as usize].iter().any(|s| s.is_some()) {
+            self.drop_fields(p.local);
+            return;
+        }
         let ty = place_ty(self.cg.prog, self.body, p);
         if !needs_drop(self.cg.prog, &ty) {
             return;
@@ -33,6 +37,38 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         }
         let (addr, _) = self.place_addr(p);
         self.b.ins().call(fr, &[addr]);
+    }
+
+    fn drop_fields(&mut self, local: LocalIdx) {
+        let ty = self.body.local_ty(local).clone();
+        let lay = self.cg.layouts.of(&ty);
+        let Ty::Adt(d, args) = &ty else { return };
+        let crate::resolve::DefKind::Struct(s) = &self.cg.prog.def(*d).kind else { return };
+        let parts: Vec<(usize, Ty, u32)> = s
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (i, f.1.subst(args), lay.fields[i]))
+            .collect();
+        let base = self.local_addr(local);
+        for (i, ft, off) in parts {
+            let Some(slot) = self.field_flags[local as usize].get(i).copied().flatten() else { continue };
+            if !needs_drop(self.cg.prog, &ft) {
+                continue;
+            }
+            let flag = self.b.ins().stack_load(self.cg.ptr_ty, types::I8, slot, 0);
+            let do_drop = self.b.create_block();
+            let cont = self.b.create_block();
+            self.b.ins().brif(flag, do_drop, &[], cont, &[]);
+            self.b.switch_to_block(do_drop);
+            let glue = self.cg.drop_glue(&ft);
+            let fr = self.cg.module.declare_func_in_func(glue, self.b.func);
+            let fa = self.b.ins().iadd_imm_s(base, off as i64);
+            self.b.ins().call(fr, &[fa]);
+            self.set_field_flag(local, i as u32, false);
+            self.b.ins().jump(cont, &[]);
+            self.b.switch_to_block(cont);
+        }
     }
 
     // ----- terminators -----

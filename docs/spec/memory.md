@@ -10,6 +10,9 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 4. When an owner goes out of scope and still holds the value, `drop` runs. `str`, `vec`,
    `map` free their heap memory; structs and enums drop their fields.
 5. Drop order: reverse declaration order within a scope.
+6. One field of a struct that has no `drop` method can be moved. That field is not dropped
+   again; the other fields still are. A move through `&` or `ptr`, or out of a struct that
+   has `drop`, is `move.field` or `move.deref`.
 
 ## Borrowing
 

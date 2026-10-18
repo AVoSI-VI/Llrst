@@ -59,6 +59,16 @@ impl Place {
     pub fn has_deref(&self) -> bool {
         self.proj.iter().any(|p| matches!(p, Proj::Deref))
     }
+    /// The index when this place is exactly one field of its local.
+    pub fn lone_field(&self) -> Option<u32> {
+        if self.has_deref() || self.proj.len() != 1 {
+            return None;
+        }
+        match self.proj[0] {
+            Proj::Field(i) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

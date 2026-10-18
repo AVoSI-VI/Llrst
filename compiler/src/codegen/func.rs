@@ -23,12 +23,25 @@ pub struct FnCx<'a, 'b, 'c> {
     pub body: &'a Body,
     pub slots: Vec<Option<StackSlot>>,
     pub flags: Vec<Option<StackSlot>>,
+    /// Per-field drop flags for a struct local that has no user `drop` method.
+    pub field_flags: Vec<Vec<Option<StackSlot>>>,
     pub blocks: Vec<ir::Block>,
     pub sret: Option<Value>,
 }
 
 pub fn mf() -> MemFlagsData {
     MemFlagsData::new()
+}
+
+/// Drop-needed fields of a struct that has no user `drop` method.
+fn field_drops(prog: &crate::resolve::Program, ty: &Ty) -> Option<Vec<bool>> {
+    if drop_method(prog, ty).is_some() {
+        return None;
+    }
+    let Ty::Adt(d, args) = ty else { return None };
+    let crate::resolve::DefKind::Struct(s) = &prog.def(*d).kind else { return None };
+    let mask: Vec<bool> = s.fields.iter().map(|f| needs_drop(prog, &f.1.subst(args))).collect();
+    if mask.iter().any(|n| *n) { Some(mask) } else { None }
 }
 
 pub fn compile(cg: &mut Codegen, body: &Body, id: FuncId) -> PResult<()> {
@@ -40,7 +53,7 @@ pub fn compile(cg: &mut Codegen, body: &Body, id: FuncId) -> PResult<()> {
     let mut fbc = FunctionBuilderContext::new();
     {
         let b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
-        let mut cx = FnCx { cg, b, body, slots: Vec::new(), flags: Vec::new(), blocks: Vec::new(), sret: None };
+        let mut cx = FnCx { cg, b, body, slots: Vec::new(), flags: Vec::new(), field_flags: Vec::new(), blocks: Vec::new(), sret: None };
         cx.run()?;
         let cfg = cx.cg.frontend;
         let FnCx { b, .. } = cx;
@@ -65,12 +78,27 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 Some(self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, lay.size, shift)))
             };
             self.slots.push(slot);
-            let flag = if needs_drop(self.cg.prog, &l.ty) {
-                Some(self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0)))
+            let parts = field_drops(self.cg.prog, &l.ty);
+            if let Some(mask) = parts {
+                let mut row = Vec::new();
+                for needs in mask {
+                    row.push(if needs {
+                        Some(self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0)))
+                    } else {
+                        None
+                    });
+                }
+                self.field_flags.push(row);
+                self.flags.push(None);
             } else {
-                None
-            };
-            self.flags.push(flag);
+                let flag = if needs_drop(self.cg.prog, &l.ty) {
+                    Some(self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 1, 0)))
+                } else {
+                    None
+                };
+                self.field_flags.push(Vec::new());
+                self.flags.push(flag);
+            }
         }
         for _ in &self.body.blocks {
             let blk = self.b.create_block();
@@ -92,6 +120,12 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             if let Some(f) = self.flags[l] {
                 let z = self.b.ins().iconst(types::I8, 0);
                 self.b.ins().stack_store(self.cg.ptr_ty, z, f, 0);
+            }
+            for f in self.field_flags[l].clone() {
+                if let Some(s) = f {
+                    let z = self.b.ins().iconst(types::I8, 0);
+                    self.b.ins().stack_store(self.cg.ptr_ty, z, s, 0);
+                }
             }
         }
         for i in 1..=self.body.arg_count {
@@ -195,7 +229,20 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     pub fn set_flag(&mut self, l: LocalIdx, on: bool) {
-        if let Some(f) = self.flags[l as usize] {
+        self.store_flag(self.flags[l as usize], on);
+        let row = self.field_flags[l as usize].clone();
+        for s in row {
+            self.store_flag(s, on);
+        }
+    }
+
+    pub fn set_field_flag(&mut self, l: LocalIdx, field: u32, on: bool) {
+        let slot = self.field_flags[l as usize].get(field as usize).copied().flatten();
+        self.store_flag(slot, on);
+    }
+
+    fn store_flag(&mut self, slot: Option<StackSlot>, on: bool) {
+        if let Some(f) = slot {
             let v = self.b.ins().iconst(types::I8, on as i64);
             self.b.ins().stack_store(self.cg.ptr_ty, v, f, 0);
         }
@@ -208,7 +255,11 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             Operand::Copy(p) | Operand::Move(p) => {
                 let (addr, ty) = self.place_addr(p);
                 if matches!(op, Operand::Move(_)) && !p.has_deref() {
-                    self.set_flag(p.local, false);
+                    if let Some(i) = p.lone_field() {
+                        self.set_field_flag(p.local, i, false);
+                    } else {
+                        self.set_flag(p.local, false);
+                    }
                 }
                 (self.load(&ty, addr), ty)
             }
@@ -303,6 +354,8 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         }
         if dest.is_local() {
             self.set_flag(dest.local, true);
+        } else if let Some(i) = dest.lone_field() {
+            self.set_field_flag(dest.local, i, true);
         }
     }
 
