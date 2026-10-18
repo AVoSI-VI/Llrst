@@ -1,7 +1,7 @@
 ;; S-expression reader and printer for tools (llr-fmt, linters). Keeps comments.
 ;; Node kinds: 0 atom, 1 string, 2 list, 3 comment. Children of a list are the index
 ;; range [lo, hi) into `kids`, which stores node indexes in order.
-(struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64))
+(struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64) (byte i64) (end i64))
 
 (pub (struct tree (nodes (vec node)) (kids (vec i64)) (pub (top (vec i64)))))
 
@@ -45,6 +45,7 @@
 
 ;; Reads one form; returns its node index or an error.
 (fn form ((r (&mut rd)) (t (&mut tree))) (res i64 str)
+  (let byte (. r i))
   (let line (+ (. r line) 1))
   (let col (+ (. r col) 1))
   (let c (peek r))
@@ -52,7 +53,7 @@
     (do
       (let start (. r i))
       (while (and (!= (peek r) 10u8) (!= (peek r) 0u8)) (adv r))
-      (ret (res.ok (push_node t (node 3u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))))
+      (ret (res.ok (push_node t (node 3u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))))
   (if (== c 34u8)
     (do
       (let start (. r i))
@@ -63,7 +64,7 @@
         (if (== d 92u8) (do (adv r) (adv r) (cont)))
         (adv r)
         (if (== d 34u8) (brk)))
-      (ret (res.ok (push_node t (node 1u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))))
+      (ret (res.ok (push_node t (node 1u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))))
   (if (== c 40u8)
     (do
       (adv r)
@@ -77,11 +78,11 @@
       (let lo (vec.len (& (. t kids))))
       (for k 0 (vec.len (& items)) (vec.push (&mut (. t kids)) (@ (vec.get (& items) k))))
       (let hi (vec.len (& (. t kids))))
-      (ret (res.ok (push_node t (node 2u8 (str.new) lo hi line col))))))
+      (ret (res.ok (push_node t (node 2u8 (str.new) lo hi line col byte (. r i)))))))
   (if (== c 41u8) (ret (res.err (rerr "unexpected )" line col))))
   (let start (. r i))
   (while (not (is_delim (peek r))) (adv r))
-  (res.ok (push_node t (node 0u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col))))
+  (res.ok (push_node t (node 0u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))
 
 (pub (fn read ((src (& str))) (res tree str)
   (let mut r (rd (str.from src) 0 0 0))
@@ -100,6 +101,10 @@
 (pub (fn line ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) line)))
 
 (pub (fn col ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) col)))
+
+(pub (fn byte ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) byte)))
+
+(pub (fn end ((t (& tree)) (n i64)) i64 (. (vec.get (& (. t nodes)) n) end)))
 
 (pub (fn count ((t (& tree)) (n i64)) i64
   (let nd (vec.get (& (. t nodes)) n))

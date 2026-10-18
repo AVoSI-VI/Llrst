@@ -16,6 +16,7 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | 7 | formatter / linter | normalize layout, enforce canon | [llr-fmt](llr-fmt.md) |
 | 8 | diff | compare two files | [llr-diff](llr-diff.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
+| | type check | `type.*` and `name.*` errors | [llr-check](llr-check.md) |
 
 Every tool is a single `.llr` file under `tools/` built by `scripts/install.sh`. Shared
 behaviour lives in `std` (`cli`, `fmt`, `fs`, `glob`, `re`, `diff`, `sexp`), so a tool is

@@ -1,0 +1,16 @@
+;; llr-check FILE: first type or name error, same E| line as llrc check.
+(use std.check)
+(use std.cli)
+(use std.fmt)
+(use std.io)
+(use std.os)
+
+(fn main () unit
+  (let mut c (cli.new "llr-check" "type and name check; borrow errors stay in llrc"))
+  (cli.pos (&mut c) "file")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.at (& c) 0))
+  (match (check.check path)
+    ((opt.some d)
+      (do (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& d)))) (os.exit 1)))
+    ((opt.none) ())))

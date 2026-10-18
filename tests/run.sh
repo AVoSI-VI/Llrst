@@ -40,6 +40,11 @@ for f in "$root"/tests/run/*.llr; do
   fi
 done
 
+"$llrc" build "$root/tools/llr-check.llr" -o "$tmp/llr-check" 2>"$tmp/llr-check.err" || {
+  echo "fail|setup|llr-check=$(head -1 "$tmp/llr-check.err")"
+  exit 1
+}
+
 for f in "$root"/tests/err/*.llr; do
   [ -e "$f" ] || continue
   name="$(basename "$f" .llr)"
@@ -51,6 +56,15 @@ for f in "$root"/tests/err/*.llr; do
   else
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
+  fi
+  if grep -Eq '\|(type|name)\.' "$want"; then
+    ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
+    if cmp -s "$tmp/$name.lerr" "$want"; then
+      echo "ok|err/$name|llr-check"
+    else
+      echo "fail|err/$name|llr-check|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.lerr" | tr '\n' ' ')"
+      fails=$((fails+1))
+    fi
   fi
 done
 

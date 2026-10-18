@@ -17,6 +17,8 @@ Source: `std/sexp.llr`. Import with `(use std.sexp)` for module functions; types
 | `sexp.text` | `((t (& tree)) (n i64))` | `(& str)` |
 | `sexp.line` | `((t (& tree)) (n i64))` | `i64` |
 | `sexp.col` | `((t (& tree)) (n i64))` | `i64` |
+| `sexp.byte` | `((t (& tree)) (n i64))` | `i64` |
+| `sexp.end` | `((t (& tree)) (n i64))` | `i64` |
 | `sexp.count` | `((t (& tree)) (n i64))` | `i64` |
 | `sexp.child` | `((t (& tree)) (n i64) (k i64))` | `i64` |
 | `sexp.head` | `((t (& tree)) (n i64))` | `(& str)` |

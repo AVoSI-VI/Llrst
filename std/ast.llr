@@ -9,7 +9,13 @@
 (use std.sexp)
 (use std.str)
 
-(pub (struct ty (pub (kind u8)) (pub (text str)) (pub (args (vec ty))) (pub (line i64)) (pub (col i64))))
+(pub (struct ty
+  (pub (kind u8))
+  (pub (text str))
+  (pub (args (vec ty)))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
 
 (pub (struct expr
   (pub (kind u8))
@@ -18,7 +24,8 @@
   (pub (kids (vec expr)))
   (pub (tys (vec ty)))
   (pub (line i64))
-  (pub (col i64))))
+  (pub (col i64))
+  (pub (len i64))))
 
 (pub (struct param (pub (name str)) (pub (ty ty))))
 
@@ -40,7 +47,7 @@
   (pub (line i64))
   (pub (col i64))))
 
-(fn blank_ty ((line i64) (col i64)) ty (ty 0u8 (str.new) (vec.new <ty>) line col))
+(fn blank_ty ((line i64) (col i64)) ty (ty 0u8 (str.new) (vec.new <ty>) line col 0))
 
 (fn blank_item ((k u8) (name str) (is_pub bool) (line i64) (col i64)) item
   (item k

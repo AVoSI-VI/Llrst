@@ -17,6 +17,7 @@
 | [cli](cli.md) | Argument parsing for tools. |
 | [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
 | [ast](ast.md) | Surface grammar parsed from a sexp tree. `llrc` remains the checker. |
+| [check](check.md) | Type and name errors. Borrow checking stays in `llrc`. |
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`. |
 | [diff](diff.md) | Line diff by LCS, pipe records. |

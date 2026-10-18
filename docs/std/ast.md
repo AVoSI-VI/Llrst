@@ -6,8 +6,8 @@ Source: `std/ast.llr`. Import with `(use std.ast)` for module functions; types a
 
 ## Types
 
-- `(struct ty (pub (kind u8)) (pub (text str)) (pub (args (vec ty))) (pub (line i64)) (pub (col i64)))`
-- `(struct expr (pub (kind u8)) (pub (text str)) (pub (mut bool)) (pub (kids (vec expr))) (pub (tys (vec ty))) (pub (line i64)) (pub (col i64)))`
+- `(struct ty (pub (kind u8)) (pub (text str)) (pub (args (vec ty))) (pub (line i64)) (pub (col i64)) (pub (len i64)))`
+- `(struct expr (pub (kind u8)) (pub (text str)) (pub (mut bool)) (pub (kids (vec expr))) (pub (tys (vec ty))) (pub (line i64)) (pub (col i64)) (pub (len i64)))`
 - `(struct param (pub (name str)) (pub (ty ty)))`
 - `(struct field (pub (name str)) (pub (ty ty)) (pub (is_pub bool)))`
 - `(struct variant (pub (name str)) (pub (tys (vec ty))))`

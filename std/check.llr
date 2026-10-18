@@ -1,0 +1,450 @@
+;; Type and name checker over std.ast. Borrow checking stays in llrc.
+;; Reports the first error as LINE|COL|LEN|CODE|k=v, or none.
+(use std.ast)
+(use std.fs)
+(use std.os)
+(use std.path)
+(use std.str)
+
+(struct info (show str) (module str) (tname str))
+
+(struct def
+  (name str)
+  (qname str)
+  (is_type bool)
+  (is_method bool)
+  (is_pub bool)
+  (module str)
+  (si i64)
+  (ii i64)
+  (fi i64)
+  (gens (vec str)))
+
+(struct source (module str) (items (vec item)))
+
+(struct loc (name str) (ty info))
+
+(fn last_seg ((s (& str))) str
+  (let mut i (- (str.len s) 1))
+  (while (>= i 0)
+    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
+    (set i (- i 1)))
+  (str.clone s))
+
+(fn dot_at ((s (& str))) i64
+  (let mut i 0)
+  (while (< i (str.len s)) (if (== (str.at s i) 46u8) (ret i)) (set i (+ i 1)))
+  (neg 1))
+
+(fn join2 ((a (& str)) (b (& str))) str
+  (let mut s (str.from a))
+  (str.push (&mut s) ".")
+  (str.push (&mut s) b)
+  s)
+
+(fn span ((line i64) (col i64) (len i64) (code (& str)) (rest (& str))) str
+  (let mut m (str.from_int line))
+  (str.push_byte (&mut m) 124u8)
+  (str.push (&mut m) (& (str.from_int col)))
+  (str.push_byte (&mut m) 124u8)
+  (str.push (&mut m) (& (str.from_int len)))
+  (str.push_byte (&mut m) 124u8)
+  (str.push (&mut m) code)
+  (str.push_byte (&mut m) 124u8)
+  (str.push (&mut m) rest)
+  m)
+
+(fn copy_strs ((v (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (str.clone (vec.get v i))))
+  o)
+
+(fn gen_at ((gens (& (vec str))) (name (& str))) i64
+  (for i 0 (vec.len gens) (if (str.eq (vec.get gens i) name) (ret i)))
+  (neg 1))
+
+(fn show_ty ((t (& ty)) (gens (& (vec str))) (args (& (vec info)))) str
+  (if (== (. t kind) 0u8)
+    (do
+      (let i (gen_at gens (& (. t text))))
+      (if (>= i 0) (ret (str.clone (& (. (vec.get args i) show)))))
+      (ret (str.clone (& (. t text))))))
+  (if (== (. t kind) 2u8)
+    (do
+      (let inner (show_ty (vec.get (& (. t args)) 0) gens args))
+      (let mut s (if (str.eq (& (. t text)) "mut") (str.from "(&mut ") (str.from "(& ")))
+      (str.push (&mut s) (& inner))
+      (str.push_byte (&mut s) 41u8)
+      (ret s)))
+  (if (== (. t kind) 1u8)
+    (do
+      (let mut s (str.from "("))
+      (str.push (&mut s) (& (. t text)))
+      (for i 0 (vec.len (& (. t args)))
+        (str.push_byte (&mut s) 32u8)
+        (str.push (&mut s) (& (show_ty (vec.get (& (. t args)) i) gens args))))
+      (str.push_byte (&mut s) 41u8)
+      (ret s)))
+  (str.clone (& (. t text))))
+
+(fn load_file ((srcs (&mut (vec source))) (path (& str)) (module str)) (res i64 str)
+  (let text (try (fs.read path)))
+  (let items (try (ast.parse_src (& text))))
+  (vec.push srcs (source module items))
+  (res.ok (- (vec.len srcs) 1)))
+
+(fn load_std ((dir (& str)) (srcs (&mut (vec source)))) (res unit str)
+  (let names (try (fs.list dir)))
+  (for i 0 (vec.len (& names))
+    (let name (vec.get (& names) i))
+    (if (str.ends name ".llr")
+      (do
+        (let stem (path.stem name))
+        (let mut module (str.from "std."))
+        (str.push (&mut module) (& stem))
+        (try (load_file srcs (& (path.join dir name)) module)))))
+  (res.ok ()))
+
+(fn use_target ((s (& source)) (alias (& str))) str
+  (for i 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) i))
+    (if (and (== (. it kind) 0u8) (str.eq (& (last_seg (& (. it name)))) alias))
+      (ret (str.clone (& (. it name))))))
+  (str.new))
+
+(fn add_def ((defs (&mut (vec def))) (d def)) unit (vec.push defs d))
+
+(fn reg_item ((defs (&mut (vec def)))
+   (si i64)
+   (ii i64)
+   (module (& str))
+   (it (& item))
+   (gens (& (vec str)))
+   (method bool)
+   (owner (& str))) unit
+  (let q (if method (join2 owner (& (. it name))) (join2 (& (last_seg module)) (& (. it name)))))
+  (let mut g (copy_strs gens))
+  (for i 0 (vec.len (& (. it gens))) (vec.push (&mut g) (str.clone (vec.get (& (. it gens)) i))))
+  (add_def defs
+    (def (str.clone (& (. it name)))
+      q
+      (or (== (. it kind) 4u8) (== (. it kind) 5u8))
+      method
+      (. it is_pub)
+      (str.clone module)
+      si
+      ii
+      (if method ii (neg 1))
+      g)))
+
+(fn register ((srcs (& (vec source))) (defs (&mut (vec def)))) unit
+  (for si 0 (vec.len srcs)
+    (let s (vec.get srcs si))
+    (for ii 0 (vec.len (& (. s items)))
+      (let it (vec.get (& (. s items)) ii))
+      (let k (. it kind))
+      (if (or (== k 4u8) (== k 5u8))
+        (reg_item defs si ii (& (. s module)) it (& (. it gens)) false ""))
+      (if (or (== k 2u8) (== k 3u8))
+        (reg_item defs si ii (& (. s module)) it (& (. it gens)) false ""))
+      (if (== k 6u8)
+        (for fi 0 (vec.len (& (. it fns)))
+          (let f (vec.get (& (. it fns)) fi))
+          (add_def defs
+            (def (str.clone (& (. f name)))
+              (join2 (& (. it name)) (& (. f name)))
+              false
+              true
+              (. f is_pub)
+              (str.clone (& (. s module)))
+              si
+              ii
+              fi
+              (copy_strs (& (. it gens))))))))))
+
+(fn find_def ((defs (& (vec def))) (module (& str)) (name (& str)) (want_type bool)) i64
+  (for i 0 (vec.len defs)
+    (let d (vec.get defs i))
+    (if (and (str.eq (& (. d module)) module)
+       (str.eq (& (. d name)) name)
+       (== (. d is_type) want_type))
+      (ret i)))
+  (neg 1))
+
+(fn prelude_type ((defs (& (vec def))) (name (& str))) i64
+  (for i 0 (vec.len defs)
+    (let d (vec.get defs i))
+    (if (and (. d is_type)
+       (. d is_pub)
+       (str.starts (& (. d module)) "std.")
+       (str.eq (& (. d name)) name))
+      (ret i)))
+  (neg 1))
+
+(fn find_type ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (path (& str))) i64
+  (let dot (dot_at path))
+  (if (>= dot 0)
+    (do
+      (let a (str.slice path 0 dot))
+      (let b (str.slice path (+ dot 1) (str.len path)))
+      (let target (use_target (vec.get srcs from) (& a)))
+      (if (> (str.len (& target)) 0) (ret (find_def defs (& target) (& b) true)))
+      (let ti (prelude_type defs (& a)))
+      (if (< ti 0) (ret (neg 1)))
+      (ret (find_def defs (& (. (vec.get defs ti) module)) (& b) true))))
+  (let here (& (. (vec.get srcs from) module)))
+  (let i (find_def defs here path true))
+  (if (>= i 0) (ret i))
+  (prelude_type defs path))
+
+(fn find_fn ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (path (& str))) i64
+  (let dot (dot_at path))
+  (if (< dot 0) (ret (find_def defs (& (. (vec.get srcs from) module)) path false)))
+  (let a (str.slice path 0 dot))
+  (let b (str.slice path (+ dot 1) (str.len path)))
+  (let target (use_target (vec.get srcs from) (& a)))
+  (if (> (str.len (& target)) 0)
+    (do (let i (find_def defs (& target) (& b) false)) (if (>= i 0) (ret i))))
+  (let ti (find_type defs srcs from (& a)))
+  (if (< ti 0) (ret (neg 1)))
+  (find_def defs (& (. (vec.get defs ti) module)) (& b) false))
+
+(fn ret_of ((srcs (& (vec source))) (d (& def))) (& ty)
+  (let s (vec.get srcs (. d si)))
+  (let it (vec.get (& (. s items)) (. d ii)))
+  (if (>= (. d fi) 0) (ret (& (. (vec.get (& (. it fns)) (. d fi)) ret))))
+  (& (. it ret)))
+
+(fn priv ((line i64) (col i64) (len i64) (name (& str)) (module (& str))) str
+  (let mut rest (str.from "name="))
+  (str.push (&mut rest) name)
+  (str.push (&mut rest) "|module=")
+  (str.push (&mut rest) module)
+  (str.push (&mut rest) "|fix=(pub ...)")
+  (span line col len "name.private" (& rest)))
+
+(fn lit_info ((text (& str))) info
+  (if (str.starts text "\"") (ret (info (str.from "(& str)") (str.new) (str.new))))
+  (if (or (str.eq text "true") (str.eq text "false"))
+    (ret (info (str.from "bool") (str.new) (str.from "bool"))))
+  (info (str.from "i64") (str.new) (str.from "i64")))
+
+(fn check_ty ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (t (& ty))) (opt str)
+  (if (or (== (. t kind) 0u8) (== (. t kind) 1u8))
+    (do
+      (let di (find_type defs srcs from (& (. t text))))
+      (if (>= di 0)
+        (do
+          (let d (vec.get defs di))
+          (if (not (or (. d is_pub) (str.eq (& (. d module)) (& (. (vec.get srcs from) module)))))
+            (ret (opt.some (priv (. t line) (. t col) (. t len) (& (. d name)) (& (. d module))))))))))
+  (for i 0 (vec.len (& (. t args)))
+    (match (check_ty defs srcs from (vec.get (& (. t args)) i))
+      ((opt.some e) (ret (opt.some e)))
+      ((opt.none) ())))
+  (opt.none))
+
+(fn loc_of ((locs (& (vec loc))) (name (& str))) i64
+  (let mut i (- (vec.len locs) 1))
+  (while (>= i 0) (if (str.eq (& (. (vec.get locs i) name)) name) (ret i)) (set i (- i 1)))
+  (neg 1))
+
+(fn unit_info () info (info (str.from "unit") (str.new) (str.new)))
+
+(fn check_expr ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let k (. e kind))
+  (if (== k 0u8) (ret (res.ok (lit_info (& (. e text))))))
+  (if (== k 1u8)
+    (do
+      (let i (loc_of locs (& (. e text))))
+      (if (>= i 0)
+        (do
+          (let ty (& (. (vec.get locs i) ty)))
+          (ret (res.ok (info (str.clone (& (. ty show)))
+              (str.clone (& (. ty module)))
+              (str.clone (& (. ty tname))))))))
+      (ret (res.ok (info (str.clone (& (. e text))) (str.new) (str.clone (& (. e text))))))))
+  (if (== k 2u8) (ret (check_let defs srcs from e locs)))
+  (if (== k 15u8) (ret (check_field defs srcs from e locs)))
+  (if (== k 23u8) (ret (check_call defs srcs from e locs)))
+  (let mut last (unit_info))
+  (for i 0 (vec.len (& (. e kids)))
+    (set last (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs))))
+  (res.ok last))
+
+(fn check_let ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let init (vec.get (& (. e kids)) 0))
+  (let got (try (check_expr defs srcs from init locs)))
+  (if (> (vec.len (& (. e tys))) 0)
+    (do
+      (let want (show_ty (vec.get (& (. e tys)) 0) (& (vec.new <str>)) (& (vec.new <info>))))
+      (if (not (str.eq (& want) (& (. got show))))
+        (ret (res.err (span (. init line)
+            (. init col)
+            (. init len)
+            "type.mismatch"
+            (& (join_kv "want" (& want) "got" (& (. got show))))))))))
+  (vec.push locs (loc (str.clone (& (. e text))) (clone_info (& got))))
+  (res.ok got))
+
+(fn join_kv ((a (& str)) (av (& str)) (b (& str)) (bv (& str))) str
+  (let mut s (str.from a))
+  (str.push_byte (&mut s) 61u8)
+  (str.push (&mut s) av)
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) b)
+  (str.push_byte (&mut s) 61u8)
+  (str.push (&mut s) bv)
+  s)
+
+(fn check_call ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let di (find_fn defs srcs from (& (. e text))))
+  (if (< di 0)
+    (ret (res.err (span (. e line) (. e col) (. e len) "name.unknown" (& (join2 "name" (& (. e text))))))))
+  (let d (vec.get defs di))
+  (let from_mod (& (. (vec.get srcs from) module)))
+  (if (not (or (. d is_pub) (str.eq (& (. d module)) from_mod)))
+    (ret (res.err (priv (. e line) (. e col) (. e len) (& (. d qname)) (& (. d module))))))
+  (let mut args (vec.new <info>))
+  (for i 0 (vec.len (& (. e tys)))
+    (vec.push (&mut args)
+      (info_ty defs
+        srcs
+        (& (. d module))
+        from
+        (vec.get (& (. e tys)) i)
+        (& (. d gens))
+        (& (vec.new <info>)))))
+  (for i 0 (vec.len (& (. e kids)))
+    (do (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs)) ()))
+  (res.ok (info_ty defs srcs (& (. d module)) from (ret_of srcs d) (& (. d gens)) (& args))))
+
+(fn info_ty ((defs (& (vec def)))
+   (srcs (& (vec source)))
+   (scope (& str))
+   (from i64)
+   (t (& ty))
+   (gens (& (vec str)))
+   (args (& (vec info)))) info
+  (if (== (. t kind) 0u8)
+    (do
+      (let gi (gen_at gens (& (. t text))))
+      (if (>= gi 0) (ret (clone_info (vec.get args gi))))
+      (let mut di (find_type defs srcs from (& (. t text))))
+      (if (< di 0) (set di (find_type defs srcs (mod_si srcs scope) (& (. t text)))))
+      (if (>= di 0)
+        (ret (info (str.clone (& (. t text)))
+           (str.clone (& (. (vec.get defs di) module)))
+           (str.clone (& (. t text))))))
+      (ret (info (str.clone (& (. t text))) (str.new) (str.clone (& (. t text)))))))
+  (if (== (. t kind) 1u8)
+    (do
+      (let show (show_ty t gens args))
+      (let mut di (find_type defs srcs from (& (. t text))))
+      (if (< di 0) (set di (find_type defs srcs (mod_si srcs scope) (& (. t text)))))
+      (if (>= di 0)
+        (ret (info show (str.clone (& (. (vec.get defs di) module))) (str.clone (& (. t text))))))
+      (ret (info show (str.new) (str.clone (& (. t text)))))))
+  (info (show_ty t gens args) (str.new) (str.new)))
+
+(fn clone_info ((a (& info))) info
+  (info (str.clone (& (. a show))) (str.clone (& (. a module))) (str.clone (& (. a tname)))))
+
+(fn mod_si ((srcs (& (vec source))) (module (& str))) i64
+  (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) module)) module) (ret i)))
+  0)
+
+(fn check_field ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let base (try (check_expr defs srcs from (vec.get (& (. e kids)) 0) locs)))
+  (let di (find_def defs (& (. base module)) (& (. base tname)) true))
+  (if (< di 0) (ret (res.ok base)))
+  (let d (vec.get defs di))
+  (let s (vec.get srcs (. d si)))
+  (let it (vec.get (& (. s items)) (. d ii)))
+  (let mut fi (neg 1))
+  (for i 0 (vec.len (& (. it fields)))
+    (if (str.eq (& (. (vec.get (& (. it fields)) i) name)) (& (. e text))) (set fi i)))
+  (if (< fi 0)
+    (ret (res.err (span (. e line) (. e col) (. e len) "type.no_field" (& (join2 "field" (& (. e text))))))))
+  (let f (vec.get (& (. it fields)) fi))
+  (let from_mod (& (. (vec.get srcs from) module)))
+  (if (not (or (. f is_pub) (str.eq (& (. d module)) from_mod)))
+    (do
+      (let ft (show_ty (& (. f ty)) (& (vec.new <str>)) (& (vec.new <info>))))
+      (let mut rest (str.from "field="))
+      (str.push (&mut rest) (& (. f name)))
+      (str.push (&mut rest) "|ty=")
+      (str.push (&mut rest) (& (. d name)))
+      (str.push (&mut rest) "|module=")
+      (str.push (&mut rest) (& (. d module)))
+      (str.push (&mut rest) "|fix=(pub (")
+      (str.push (&mut rest) (& (. f name)))
+      (str.push_byte (&mut rest) 32u8)
+      (str.push (&mut rest) (& ft))
+      (str.push (&mut rest) "))")
+      (ret (res.err (span (. e line) (. e col) (. e len) "name.private_field" (& rest))))))
+  (res.ok (info_ty defs srcs (& (. d module)) from (& (. f ty)) (& (vec.new <str>)) (& (vec.new <info>)))))
+
+(fn check_item ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (it (& item))) (opt str)
+  (for i 0 (vec.len (& (. it params)))
+    (match (check_ty defs srcs from (& (. (vec.get (& (. it params)) i) ty)))
+      ((opt.some e) (ret (opt.some e)))
+      ((opt.none) ())))
+  (let mut locs (vec.new <loc>))
+  (for i 0 (vec.len (& (. it body)))
+    (match (check_expr defs srcs from (vec.get (& (. it body)) i) (&mut locs))
+      ((res.err e) (ret (opt.some e)))
+      ((res.ok _) ())))
+  (opt.none))
+
+(fn check_main ((defs (& (vec def))) (srcs (& (vec source))) (from i64)) (opt str)
+  (let s (vec.get srcs from))
+  (for i 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) i))
+    (if (or (== (. it kind) 2u8) (== (. it kind) 8u8))
+      (match (check_item defs srcs from it) ((opt.some e) (ret (opt.some e))) ((opt.none) ()))))
+  (opt.none))
+
+(fn proj_mods ((srcs (& (vec source))) (from i64)) (vec str)
+  (let mut out (vec.new <str>))
+  (let s (vec.get srcs from))
+  (for i 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) i))
+    (if (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj."))
+      (vec.push (&mut out) (str.clone (& (. it name))))))
+  out)
+
+(fn load_proj ((srcs (&mut (vec source))) (from i64) (dir (& str))) (res unit str)
+  (let mods (proj_mods srcs from))
+  (for i 0 (vec.len (& mods))
+    (let name (vec.get (& mods) i))
+    (let mut file (str.clone dir))
+    (if (not (str.ends (& file) "/")) (str.push_byte (&mut file) 47u8))
+    (str.push (&mut file) (& (last_seg name)))
+    (str.push (&mut file) ".llr")
+    (do (try (load_file srcs (& file) (str.clone name))) ()))
+  (res.ok ()))
+
+(fn std_dir () str (match (os.env "LLRST_STD") ((opt.some s) s) ((opt.none) (str.from "std"))))
+
+(pub (fn check ((path (& str))) (opt str)
+  (let mut srcs (vec.new <source>))
+  (match (load_std (& (std_dir)) (&mut srcs)) ((res.err e) (ret (opt.some e))) ((res.ok _) ()))
+  (let main
+    (match (load_file (&mut srcs) path (str.from "main"))
+      ((res.ok i) i)
+      ((res.err e) (ret (opt.some e)))))
+  (match (load_proj (&mut srcs) main (& (path.dir path)))
+    ((res.err e) (ret (opt.some e)))
+    ((res.ok _) ()))
+  (let mut defs (vec.new <def>))
+  (register (& srcs) (&mut defs))
+  (check_main (& defs) (& srcs) main)))
+
+(test check_mismatch
+  (let p (str.from "/tmp/llrst-mismatch.llr"))
+  (let src (str.from "(fn main () unit (let n i64 \"x\"))"))
+  (match (fs.write (& p) (& src)) ((res.ok _) ()) ((res.err _) (assert false)))
+  (match (check (& p))
+    ((opt.some d) (assert (str.has (& d) "type.mismatch|want=i64|got=(& str)")))
+    ((opt.none) (assert false))))
