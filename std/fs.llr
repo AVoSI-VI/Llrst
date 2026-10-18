@@ -64,7 +64,7 @@
   (if (!= (sys.rename (. a p) (. b p)) 0i32) (ret (res.err (err "io.rename" from))))
   (res.ok ())))
 
-;; Entry names (no . or ..), sorted. Linux dirent: d_name at byte 19.
+;; Entry names (no . or ..), sorted. The name pointer comes from llr_readdir_name.
 (pub (fn list ((path (& str))) (res (vec str) str)
   (let c (str.cstr path))
   (let d (sys.opendir (. c p)))
@@ -73,7 +73,7 @@
   (loop
     (let e (sys.readdir d))
     (if (ptr.eq e (ptr.null <u8>)) (brk))
-    (let name (str.from_cstr (ptr.add e 19)))
+    (let name (str.from_cstr (sys.llr_readdir_name e)))
     (if (not (or (str.eq (& name) ".") (str.eq (& name) ".."))) (vec.push (&mut out) name)))
   (sys.closedir d)
   (vec.sort (&mut out) vec.cmp_str)
@@ -106,3 +106,15 @@
   (assert (> (res.unwrap (mtime (& p))) 0))
   (res.unwrap (remove (& p)))
   (assert (not (exists (& p)))))
+
+(test fs_list
+  (let p (str.from "/tmp/llr_fs_list"))
+  (if (not (is_dir (& p))) (res.unwrap (mkdir (& p))))
+  (res.unwrap (write "/tmp/llr_fs_list/a.txt" "a"))
+  (res.unwrap (write "/tmp/llr_fs_list/b.txt" "b"))
+  (let names (res.unwrap (list (& p))))
+  (assert_eq (vec.len (& names)) 2)
+  (assert_eq (vec.get (& names) 0) "a.txt")
+  (assert_eq (vec.get (& names) 1) "b.txt")
+  (res.unwrap (remove "/tmp/llr_fs_list/a.txt"))
+  (res.unwrap (remove "/tmp/llr_fs_list/b.txt")))

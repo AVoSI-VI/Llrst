@@ -2,7 +2,7 @@
 
 Files and directories. Errors are `res.err` strings like `io.read|path=x`.
 `fs.mtime` and `fs.size` call `runtime/llr_stat.c`, which reads `st_mtime` and `st_size`
-through the host C compiler.
+through the host C compiler. `fs.list` takes each name from `llr_readdir_name`.
 
 Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and methods need no import.
 
@@ -24,4 +24,4 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 
 ## Tests
 
-`fs_roundtrip`
+`fs_roundtrip`, `fs_list`

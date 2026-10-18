@@ -30,6 +30,7 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.closedir` | `((d (ptr u8)))` | `i32` |
 | `sys.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys.llr_readdir_name` | `((ent (ptr u8)))` | `(ptr u8)` |
 | `sys.unlink` | `((path (ptr u8)))` | `i32` |
 | `sys.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
 | `sys.rename` | `((a (ptr u8)) (b (ptr u8)))` | `i32` |

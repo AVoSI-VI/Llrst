@@ -45,6 +45,8 @@
 
 (pub (extern llr_stat_size ((path (ptr u8)) (out (ptr i64))) i64))
 
+(pub (extern llr_readdir_name ((ent (ptr u8))) (ptr u8)))
+
 (pub (extern unlink ((path (ptr u8))) i32))
 
 (pub (extern mkdir ((path (ptr u8)) (mode i32)) i32))
