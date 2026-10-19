@@ -20,6 +20,13 @@
 | env | `(os.env (& name))` returns `(opt str)` |
 | exit | `(os.exit code)` |
 | cwd | `(os.cwd)` |
+| listen | `(net.listen port)` returns `(res i64 str)`, the listening fd. Port 0 is any port. Backlog 1 |
+| local port | `(net.local_port fd)` returns `(res i64 str)` |
+| accept | `(net.accept fd)` blocks and returns `(res i64 str)` |
+| connect | `(net.connect port)` returns `(res i64 str)` to 127.0.0.1 |
+| recv | `(net.recv fd n)` returns `(res str str)`. An empty string is end of stream |
+| send | `(net.send fd (& data))` returns `(res unit str)` and writes every byte |
+| close socket | `(net.close fd)` |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

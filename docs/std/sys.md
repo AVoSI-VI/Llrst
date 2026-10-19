@@ -40,6 +40,14 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.fileno` | `((f (ptr u8)))` | `i32` |
 | `sys.pclose` | `((f (ptr u8)))` | `i32` |
 | `sys.isatty` | `((fd i32))` | `i32` |
+| `sys.socket` | `((domain i32) (ty i32) (proto i32))` | `i32` |
+| `sys.bind` | `((fd i32) (addr (ptr u8)) (len u32))` | `i32` |
+| `sys.listen` | `((fd i32) (backlog i32))` | `i32` |
+| `sys.accept` | `((fd i32) (addr (ptr u8)) (len (ptr u32)))` | `i32` |
+| `sys.connect` | `((fd i32) (addr (ptr u8)) (len u32))` | `i32` |
+| `sys.getsockname` | `((fd i32) (addr (ptr u8)) (len (ptr u32)))` | `i32` |
+| `sys.send` | `((fd i32) (buf (ptr u8)) (n u64) (flags i32))` | `i64` |
+| `sys.recv` | `((fd i32) (buf (ptr u8)) (n u64) (flags i32))` | `i64` |
 | `sys.write_all` | `((fd i32) (p (ptr u8)) (n i64))` | `unit` |
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |
 | `sys.alloc` | `((n i64))` | `(ptr u8)` |

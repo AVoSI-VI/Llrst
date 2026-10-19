@@ -64,3 +64,19 @@
 (pub (extern pclose ((f (ptr u8))) i32))
 
 (pub (extern isatty ((fd i32)) i32))
+
+(pub (extern socket ((domain i32) (ty i32) (proto i32)) i32))
+
+(pub (extern bind ((fd i32) (addr (ptr u8)) (len u32)) i32))
+
+(pub (extern listen ((fd i32) (backlog i32)) i32))
+
+(pub (extern accept ((fd i32) (addr (ptr u8)) (len (ptr u32))) i32))
+
+(pub (extern connect ((fd i32) (addr (ptr u8)) (len u32)) i32))
+
+(pub (extern getsockname ((fd i32) (addr (ptr u8)) (len (ptr u32))) i32))
+
+(pub (extern send ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64))
+
+(pub (extern recv ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64))
