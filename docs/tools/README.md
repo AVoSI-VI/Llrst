@@ -15,6 +15,7 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | 6 | test runner | run tests, read failures | [llr-test](llr-test.md) |
 | 7 | formatter / linter | normalize layout, enforce canon | [llr-fmt](llr-fmt.md) |
 | 8 | diff | compare two files | [llr-diff](llr-diff.md) |
+| | write file | create or replace a whole file from stdin | [llr-write](llr-write.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
 | | type check | `type.*` and `name.*` errors | [llr-check](llr-check.md) |
 
