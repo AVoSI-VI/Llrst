@@ -1,6 +1,6 @@
 ;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |
 ;; Leftmost match, longest end among alternatives. ASCII only.
-;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol, 6 boundary
+;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol, 6 boundary, 7 backref
 (struct atom (kind u8) (c u8) (set str) (neg bool) (grp i64) (min i64) (max i64))
 
 (struct seq (atoms (vec atom)))
@@ -93,6 +93,22 @@
   (set (. a max) (if (< m 0) n m))
   (res.ok ()))
 
+;; `\b` is a boundary. `\1`–`\9` start a backreference. Other escapes are classes or one byte.
+(fn parse_escape ((ps (&mut parser)) (e u8)) atom
+  (if (== e 98u8) (ret (atom 6u8 0u8 (str.new) false 0 1 1)))
+  (if (and (>= e 49u8) (<= e 57u8))
+    (do
+      (let mut g (as i64 (- e 48u8)))
+      (while (and (>= (peek ps) 48u8) (<= (peek ps) 57u8))
+        (set g (+ (* g 10) (as i64 (- (peek ps) 48u8))))
+        (set (. ps i) (+ (. ps i) 1)))
+      (ret (atom 7u8 0u8 (str.new) false g 1 1))))
+  (let mut set (str.new))
+  (let neg (class_escape e (&mut set)))
+  (if (== (str.len (& set)) 1)
+    (atom 0u8 e (str.new) false 0 1 1)
+    (atom 2u8 0u8 set neg 0 1 1)))
+
 (fn parse_seq ((ps (&mut parser))) (res seq str)
   (let mut atoms (vec.new <atom>))
   (loop
@@ -118,14 +134,7 @@
         (let e (peek ps))
         (if (== e 0u8) (ret (res.err (perr "trailing \\" (. ps i)))))
         (set (. ps i) (+ (. ps i) 1))
-        (if (== e 98u8)
-          (set a (atom 6u8 0u8 (str.new) false 0 1 1))
-          (do
-            (let mut set (str.new))
-            (let neg (class_escape e (&mut set)))
-            (if (== (str.len (& set)) 1)
-              (set a (atom 0u8 e (str.new) false 0 1 1))
-              (set a (atom 2u8 0u8 set neg 0 1 1)))))))
+        (set a (parse_escape ps e))))
     (try (parse_quant ps (&mut a)))
     (vec.push (&mut atoms) a))
   (res.ok (seq atoms)))
@@ -176,11 +185,29 @@
   (for i 0 (vec.len out) (if (== (. (vec.get out i) end) e) (ret)))
   (vec.push out (hit e (clone_slots slots))))
 
+;; End after matching group g at i, or -1. An unset group does not match.
+(fn back_end ((s (& str)) (slots (& (vec grp))) (g i64) (i i64)) i64
+  (if (or (< g 1) (> g (vec.len slots))) (ret (neg 1)))
+  (let grp (vec.get slots (- g 1)))
+  (if (< (. grp lo) 0) (ret (neg 1)))
+  (let n (- (. grp hi) (. grp lo)))
+  (if (> (+ i n) (str.len s)) (ret (neg 1)))
+  (let mut k 0)
+  (while (< k n)
+    (if (!= (str.at s (+ (. grp lo) k)) (str.at s (+ i k))) (ret (neg 1)))
+    (set k (+ k 1)))
+  (+ i n))
+
 (fn atom_ends ((r (& re)) (a (& atom)) (s (& str)) (i i64) (slots (&mut (vec grp))) (out (&mut (vec hit)))) unit
   (let k (. a kind))
   (if (== k 4u8) (do (if (== i 0) (push_hit out i slots)) (ret)))
   (if (== k 5u8) (do (if (== i (str.len s)) (push_hit out i slots)) (ret)))
   (if (== k 6u8) (do (if (boundary s i) (push_hit out i slots)) (ret)))
+  (if (== k 7u8)
+    (do
+      (let e (back_end s slots (. a grp) i))
+      (if (>= e 0) (push_hit out e slots))
+      (ret)))
   (if (== k 3u8)
     (do
       (let saved (clone_slots slots))
@@ -224,7 +251,10 @@
       (for j 0 (vec.len (& ends))
         (let h (vec.get (& ends) j))
         (let e (. h end))
-        (if (!= e i) (do (install slots (& (. h slots))) (rep r sq k s e (+ count 1) slots out))))
+        (install slots (& (. h slots)))
+        (if (!= e i)
+          (rep r sq k s e (+ count 1) slots out)
+          (if (== count 0) (seq_ends r sq (+ k 1) s i slots out))))
       (install slots (& saved))))
   (if (>= count (. a min)) (seq_ends r sq (+ k 1) s i slots out)))
 
@@ -408,3 +438,15 @@
           ((res.err e) (assert_eq (& e) "re.expand|group=2"))
           ((res.ok _) (assert false)))))
     ((opt.none) (assert false))))
+
+(test re_backref
+  (let r (res.unwrap (compile "(a|b)\\1")))
+  (match (find (& r) "xxaa")
+    ((opt.some m) (do (assert_eq (. m lo) 2) (assert_eq (. m hi) 4)))
+    ((opt.none) (assert false)))
+  (assert (not (is_match (& r) "ab")))
+  (let r2 (res.unwrap (compile "(a*)\\1")))
+  (match (find (& r2) "aa")
+    ((opt.some m) (assert_eq (. m hi) 2))
+    ((opt.none) (assert false)))
+  (assert (is_match (& r2) "")))

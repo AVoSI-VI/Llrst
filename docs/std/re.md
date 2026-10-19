@@ -1,6 +1,6 @@
 # std.re
 
-Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |`. Captures are `mat.groups`.
+Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b \N ( ) |`. Captures are `mat.groups`. `\N` matches the text of capture N. An unset group does not match.
 
 Source: `std/re.llr`. Import with `(use std.re)` for module functions; types and methods need no import.
 
@@ -24,4 +24,4 @@ Source: `std/re.llr`. Import with `(use std.re)` for module functions; types and
 
 ## Tests
 
-`re_basic`, `re_find`, `re_cap`, `re_word`, `re_expand`
+`re_basic`, `re_find`, `re_cap`, `re_word`, `re_expand`, `re_backref`
