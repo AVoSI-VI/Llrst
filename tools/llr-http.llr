@@ -1,6 +1,7 @@
-;; llr-http ROOT PORT: files under ROOT plus GET /health.
+;; llr-http ROOT PORT: files under ROOT, GET /health, and POST /graphql.
 (use std.cli)
 (use std.fmt)
+(use std.gql)
 (use std.http)
 (use std.io)
 (use std.net)
@@ -9,10 +10,13 @@
 
 (fn health ((_ (& http.req)) (_ (ptr u8))) http.resp (http.respond 200 "ok" "text/plain" "ok"))
 
+(fn graphql ((r (& http.req)) (_ (ptr u8))) http.resp
+  (http.respond 200 "ok" "application/json" (& (gql.exec (& (. r body))))))
+
 (fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<http>|0|0|0" e))) (os.exit 1))
 
 (fn main () unit
-  (let mut c (cli.new "llr-http" "serve files and GET /health"))
+  (let mut c (cli.new "llr-http" "serve files, GET /health, and POST /graphql"))
   (cli.pos (&mut c) "root")
   (cli.pos (&mut c) "port")
   (cli.parse (&mut c) (os.args))
@@ -24,5 +28,6 @@
   (io.puts (& (fmt.pipe2 "ok" (& (fmt.kv "port" (cli.at (& c) 1))))))
   (let mut routes (vec.new <http.route>))
   (vec.push (&mut routes) (http.route (str.from "GET") (str.from "/health") health))
+  (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/graphql") graphql))
   (let ran (http.serve (res.unwrap l) root (& routes) 0))
   (if (res.is_err (& ran)) (die (& (res.unwrap_err ran)))))

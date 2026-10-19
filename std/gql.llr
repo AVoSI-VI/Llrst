@@ -1,0 +1,149 @@
+;; Fixed GraphQL subset. Query text in, JSON out. No schema.
+(use std.http)
+(use std.json)
+(use std.net)
+(use std.str)
+(use std.sys)
+
+(fn is_space ((b u8)) bool (or (== b 32u8) (or (== b 9u8) (or (== b 10u8) (== b 13u8)))))
+
+(fn is_name ((b u8)) bool
+  (or (and (>= b 65u8) (<= b 90u8))
+    (or (and (>= b 97u8) (<= b 122u8)) (or (== b 95u8) (and (>= b 48u8) (<= b 57u8))))))
+
+(fn skip ((q (& str)) (i (&mut i64))) unit
+  (while (and (< (@ i) (str.len q)) (is_space (str.at q (@ i)))) (set (@ i) (+ (@ i) 1))))
+
+(fn read_name ((q (& str)) (i (&mut i64))) str
+  (skip q i)
+  (let start (@ i))
+  (if (>= start (str.len q)) (ret (str.new)))
+  (let b (str.at q start))
+  (if (and (>= b 48u8) (<= b 57u8)) (ret (str.new)))
+  (while (and (< (@ i) (str.len q)) (is_name (str.at q (@ i)))) (set (@ i) (+ (@ i) 1)))
+  (str.slice q start (@ i)))
+
+(fn read_int ((q (& str)) (i (&mut i64))) (opt i64)
+  (skip q i)
+  (let start (@ i))
+  (if (and (< (@ i) (str.len q)) (== (str.at q (@ i)) 45u8)) (set (@ i) (+ (@ i) 1)))
+  (let mut any false)
+  (while (and (< (@ i) (str.len q)) (and (>= (str.at q (@ i)) 48u8) (<= (str.at q (@ i)) 57u8)))
+    (set any true)
+    (set (@ i) (+ (@ i) 1)))
+  (if (not any) (ret (opt.none)))
+  (str.to_int (& (str.slice q start (@ i)))))
+
+(fn read_args ((q (& str)) (i (&mut i64)) (a (&mut i64)) (b (&mut i64))) bool
+  (let _ra (@ a))
+  (let _rb (@ b))
+  (loop
+    (skip q i)
+    (if (and (< (@ i) (str.len q)) (== (str.at q (@ i)) 41u8)) (ret true))
+    (let n (read_name q i))
+    (if (== (str.len (& n)) 0) (ret false))
+    (skip q i)
+    (if (or (>= (@ i) (str.len q)) (!= (str.at q (@ i)) 58u8)) (ret false))
+    (set (@ i) (+ (@ i) 1))
+    (let v (read_int q i))
+    (if (opt.is_none (& v)) (ret false))
+    (let nval (opt.unwrap v))
+    (if (str.eq (& n) "a") (set (@ a) nval))
+    (if (str.eq (& n) "b") (set (@ b) nval))
+    (skip q i)
+    (if (and (< (@ i) (str.len q)) (== (str.at q (@ i)) 44u8)) (set (@ i) (+ (@ i) 1)))))
+
+(fn field_err ((name (& str))) str
+  (let mut m (str.from "gql.field|name="))
+  (str.push (&mut m) name)
+  m)
+
+(fn eval_field ((q (& str)) (i (&mut i64)) (name (& str))) (res str str)
+  (skip q i)
+  (let mut a 0)
+  (let mut b 0)
+  (if (and (< (@ i) (str.len q)) (== (str.at q (@ i)) 40u8))
+    (do
+      (set (@ i) (+ (@ i) 1))
+      (if (not (read_args q i (&mut a) (&mut b))) (ret (res.err (str.from "gql.parse"))))
+      (if (or (>= (@ i) (str.len q)) (!= (str.at q (@ i)) 41u8))
+        (ret (res.err (str.from "gql.parse"))))
+      (set (@ i) (+ (@ i) 1))))
+  (if (str.eq name "hello") (ret (res.ok (json.quote "world"))))
+  (if (str.eq name "ping") (ret (res.ok (json.quote "pong"))))
+  (if (str.eq name "add") (ret (res.ok (str.from_int (+ a b)))))
+  (res.err (field_err name)))
+
+(fn data ((keys (& (vec str))) (vals (& (vec str)))) str
+  (let mut k (vec.new <str>))
+  (vec.push (&mut k) (str.from "data"))
+  (let mut v (vec.new <str>))
+  (vec.push (&mut v) (json.obj keys vals))
+  (json.obj (& k) (& v)))
+
+(fn errors ((msg (& str))) str
+  (let mut mk (vec.new <str>))
+  (vec.push (&mut mk) (str.from "message"))
+  (let mut mv (vec.new <str>))
+  (vec.push (&mut mv) (json.quote msg))
+  (let one (json.obj (& mk) (& mv)))
+  (let mut arr (vec.new <str>))
+  (vec.push (&mut arr) one)
+  (let mut k (vec.new <str>))
+  (vec.push (&mut k) (str.from "errors"))
+  (let mut v (vec.new <str>))
+  (vec.push (&mut v) (json.arr (& arr)))
+  (json.obj (& k) (& v)))
+
+(pub (fn exec ((q (& str))) str
+  (let mut i 0)
+  (skip q (&mut i))
+  (if (or (>= i (str.len q)) (!= (str.at q i) 123u8)) (ret (errors "gql.parse")))
+  (set i (+ i 1))
+  (let mut keys (vec.new <str>))
+  (let mut vals (vec.new <str>))
+  (loop
+    (skip q (&mut i))
+    (if (and (< i (str.len q)) (== (str.at q i) 125u8))
+      (do
+        (set i (+ i 1))
+        (skip q (&mut i))
+        (if (< i (str.len q)) (ret (errors "gql.parse")))
+        (ret (data (& keys) (& vals)))))
+    (let name (read_name q (&mut i)))
+    (if (== (str.len (& name)) 0) (ret (errors "gql.parse")))
+    (let got (eval_field q (&mut i) (& name)))
+    (if (res.is_err (& got)) (ret (errors (& (res.unwrap_err got)))))
+    (vec.push (&mut keys) name)
+    (vec.push (&mut vals) (res.unwrap got)))))
+
+(fn graphql ((r (& http.req)) (_ (ptr u8))) http.resp
+  (http.respond 200 "ok" "application/json" (& (exec (& (. r body))))))
+
+(fn gql_client ((port i64)) never
+  (let c (res.unwrap (net.connect port)))
+  (res.unwrap (net.send c "POST /graphql HTTP/1.1\r\nHost: x\r\nContent-Length: 9\r\n\r\n{ hello }"))
+  (let body (res.unwrap (net.recv c 256)))
+  (net.close c)
+  (if (str.has (& body) "\"hello\":\"world\"") (sys._exit 0i32))
+  (sys._exit 1i32))
+
+(test gql_fields
+  (assert_eq (& (exec "{ hello }")) "{\"data\":{\"hello\":\"world\"}}")
+  (assert_eq (& (exec "{ add(a: 2, b: 3) }")) "{\"data\":{\"add\":5}}")
+  (assert_eq (& (exec "{ no }")) "{\"errors\":[{\"message\":\"gql.field|name=no\"}]}"))
+
+(test gql_http
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (gql_client port))
+  (let mut routes (vec.new <http.route>))
+  (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/graphql") graphql))
+  (let n (res.unwrap (http.serve l "/tmp" (& routes) 1)))
+  (assert_eq n 1)
+  (net.close l)
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
