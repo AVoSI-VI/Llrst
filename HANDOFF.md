@@ -286,3 +286,75 @@ Tools (`tools/`, `docs/tools/`)
 - Before committing: `llr-fmt <changed .llr>`, `llr-fmt --lint std/*.llr tools/*.llr`,
   `tests/run.sh`. Commit per milestone with a one-line message.
 - No prose in diagnostics or tool output; one record per line, `|` separated.
+
+## 10. Self-hosting roadmap
+
+Goal: a compiler for Llrst written in Llrst that emits native x86-64 objects, builds
+itself, and passes `tests/run.sh` and `tests/run.ps1`. `llrc` (Rust, Cranelift) stays the
+reference compiler until stage 2 reproduces itself byte for byte; every step below is
+verified by comparing against `llrc` output, never by inspection.
+
+Starting point: the reader (`std/sexp.llr`), the parser (`std/ast.llr`, `std/ast_expr.llr`)
+and a first-error name/type checker (`std/check.llr`, 500 lines, 8 codes, see
+`docs/tools/llr-check.md`) exist. `tests/run.sh` already compares `llr-check` with
+`llrc check` on `type.*` and `name.*` goldens. Nothing after the checker exists in Llrst.
+
+Layout: a new flat `self/` directory of `proj.` modules (`proj.X` loads `X.llr` beside the
+main file, flat only), entry `self/llrs.llr`. The name `llrs` is a placeholder. Files under
+500 lines and functions under 40 lines, as section 9. The system C compiler leaves the
+codegen path and remains only as the linker driver, as `link.rs` uses it now. The
+`runtime/*.c` shims stay C and are prebuilt by install.
+
+Steps, in order. Each names what to build, where, and the check that closes it.
+
+1. Differential harness. `tests/self.sh` (and `tests/self.ps1`) runs a stage binary and
+   `llrc` on the same inputs and prints `ok|self/NAME` or `fail|self/NAME|want=...|got=...`.
+   First mode: `check` over every `tests/err` and `tests/warn` golden. Seed from the
+   `llr-check` loop in `tests/run.sh`. Verify: the harness runs `llr-check` as the stage
+   binary and reports the same set of `ok` lines `tests/run.sh` does today.
+2. Typed tree. Split `std/check.llr` into `check_ty` and `check_expr` modules, then make it
+   build a THIR mirroring `compiler/src/thir.rs` (a type on every expression, the resolved
+   callee, the builtin id) instead of returning a first-error string. Add the five codes
+   from section 8 item 25. Verify: `llr-check` equals `llrc check` on every `tests/err`
+   case whose code is not `borrow.*`, `move.*`, or `init.*`.
+3. Instances. A mono worklist from `main` (or the tests) as in `driver.rs`: check a generic
+   body once per concrete `targs`. Verify: the sorted `^fn ` header lines of
+   `llrs emit-mir F` equal those of `llrc emit-mir F` for every `tests/run/*.llr`.
+4. MIR. `self/mir.llr`, `self/lower*.llr`, `self/mir_print.llr` mirroring `mir/mod.rs`,
+   `mir/lower*.rs`, `mir/inline.rs`, `mir/lower_div.rs`: locals, blocks, Place, Operand,
+   Rvalue, Stmt, Term, drop flags, scopes, the `sys.checked_div` rewrite, inline
+   substitution. Verify: `llrs emit-mir F` is byte-equal to `llrc emit-mir F` for every
+   `tests/run/*.llr` and `std/*.llr`.
+5. Borrowck and lint. `self/moves.llr`, `self/loans.llr`, `self/holders.llr`,
+   `self/liveness.llr`, `self/borrow.llr`, `self/lint.llr` from the rules in section 6.
+   Verify: `llrs check` stderr is byte-equal to `llrc check` on all of `tests/err` and
+   `tests/warn`, including `--deny`.
+6. x86-64 encoder. `self/x64.llr`: the integer, SSE2, and control-flow subset the MIR
+   needs, labels and fixups, SysV and Win64 calling conventions. Verify: `(test ...)`
+   forms with expected byte strings per instruction; `llr-test self/x64.llr` passes.
+7. Object writers. `self/elf.llr` (ELF64 relocatable: text, data, rodata, bss, symtab,
+   strtab, PC32, PLT32, and 64 relocations), later `self/coff.llr` (x86-64 COFF, REL32 and
+   ADDR64). Verify: a hand-built object exporting `main` that calls `write` links with the
+   same `cc` command `link.rs` runs and prints one record.
+8. Codegen. `self/cg*.llr` reproducing the ABI in section 6: scalars by value, aggregates
+   by pointer copied in the prologue, sret, every local a stack slot, drop glue, `llr_trace`
+   panic frames, 24-byte static `str` records, `main` storing `llr_argc` and `llr_argv`,
+   the `--test` entry, `--checked` traps, shift masking, saturating float-to-int. The CLI
+   is identical to `llrc` (`build run check emit-mir`, `-o --std --test --checked --deny`).
+   Verify: `LLRC=self/llrs tests/run.sh` reports `done|fails=0` on Linux.
+9. Stage bootstrap. `scripts/self.sh`: stage 0 `llrc` builds `llrs0`; `llrs0` builds
+   `llrs1`; `llrs1` builds `llrs2`; `cmp llrs1 llrs2` is byte-equal (deterministic symbol
+   order, no timestamps); then `LLRC=llrs2 tests/run.sh`. Add a `self|stage2=equal` record
+   to the section 1 status block once it holds.
+10. Windows. The COFF writer, the Win64 ABI, `cl ... /link /STACK:8388608`, and the
+    prebuilt `llr_win.obj` and `llr_wsa.obj` (install compiles them once). Verify:
+    `tests/run.ps1` with `$env:LLRC` pointing at `llrs2` ends `done|fails=0`.
+11. Retire. `install.sh` and `install.ps1` build `llrc` only as stage 0 and install `llrs2`;
+    update sections 3, 4, and 5 and `docs/install.md`; move anything `llrs` cannot do to
+    section 8. Keep `llrc` in the tree until two releases agree.
+
+Notes. A language gap found while writing `self/` is a section 8 item first (reuse, then
+refactor, then new code); do not widen the language only for the compiler. Expect roughly
+the Rust line count, about 6000 lines in 15 to 20 files. `std/map.llr` iterates in
+insertion order and `std/fs.llr` writes raw bytes, so deterministic object output needs
+no new std.
