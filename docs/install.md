@@ -22,7 +22,8 @@ next to `$LLRST_STD`, `<exe>/../share/llrst/`, and `./runtime/`.
 `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`.
 
 Cross compiling: `llrc build f.llr --target aarch64-unknown-linux-gnu --emit-obj` writes
-`f.o`; link it on the target with `cc f.o -o f`. Direct linking with `--target` uses
-`clang --target=...` and needs a matching sysroot.
+`f.o`. `tests/cross.sh` links that object, plus riscv64 and s390x, with `lld` and
+`-nostdlib`. Direct linking with `--target` uses `clang --target=...` and needs a
+matching sysroot. apple-darwin is checked as an object and is not linked.
 
 Windows: `--target` with a Windows OS selects `std/sys_windows.llr` and is not linked here.
