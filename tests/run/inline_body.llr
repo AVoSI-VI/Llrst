@@ -1,0 +1,39 @@
+(use std.io)
+
+(inline (fn add ((a i64) (b i64)) i64
+  (let s (+ a b))
+  (let t (+ s 1))
+  (let u (+ t 1))
+  (let v (+ u 1))
+  v))
+
+(inline (fn early ((n i64)) i64
+  (if (== n 0) (ret 7))
+  (+ n 1)))
+
+(inline (fn sum_to ((n i64)) i64
+  (let mut s 0)
+  (for i 0 n (set s (+ s i)))
+  s))
+
+(enum bit (off) (on))
+
+(inline (fn bit_n ((b bit)) i64
+  (match b ((bit.off) 1) ((bit.on) 2))))
+
+(inline (fn slen ((s str)) i64
+  (str.len (& s))))
+
+(inline (fn nest ((n i64)) i64
+  (if (== n 0) (ret 0))
+  (+ n (nest (- n 1)))))
+
+(fn main () unit
+  (io.puts (& (str.from_int (add 1 2))))
+  (io.puts (& (str.from_int (early 0))))
+  (io.puts (& (str.from_int (early 3))))
+  (io.puts (& (str.from_int (sum_to 4))))
+  (io.puts (& (str.from_int (bit_n (bit.off)))))
+  (io.puts (& (str.from_int (bit_n (bit.on)))))
+  (io.puts (& (str.from_int (slen (str.from "hi")))))
+  (io.puts (& (str.from_int (nest 3)))))

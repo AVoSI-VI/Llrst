@@ -32,6 +32,10 @@ pub struct Lower<'a> {
     pub ret_ty: Ty,
     /// Callees currently being substituted. A recursive call stays a real call.
     pub inline_stack: Vec<crate::ty::DefId>,
+    /// Exit block and scope depth of the body being substituted, if any.
+    pub inline_exit: Option<(BlockId, usize)>,
+    /// Where an inlined `(ret ...)` writes, instead of the caller's return slot.
+    pub inline_dest: Option<Place>,
 }
 
 pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name: String, lifetimes: Vec<String>, checked: bool) -> Body {
@@ -59,7 +63,7 @@ pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name:
     }
     let raw_div = name == "sys.checked_div";
     let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes, closures: Vec::new() };
-    let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone(), inline_stack: Vec::new() };
+    let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone(), inline_stack: Vec::new(), inline_exit: None, inline_dest: None };
     let entry = lw.new_block();
     lw.cur = entry;
     lw.push_scope();
@@ -124,6 +128,19 @@ impl<'a> Lower<'a> {
         }
     }
     /// Emits drops for scopes above `depth` without popping them (for brk/cont/ret).
+    fn ret_inline(&mut self, v: &Option<Box<Expr>>, exit: BlockId, depth: usize, sp: Span) {
+        if let Some(v) = v {
+            let op = self.as_operand(v);
+            if !v.ty.is_unit() {
+                let dest = self.inline_dest.clone().unwrap();
+                self.assign(&dest, Rvalue::Use(op), sp);
+            }
+        }
+        self.drops_to_depth(depth, sp);
+        self.terminate(Term::Goto(exit), sp);
+        self.cur = self.new_block();
+    }
+
     pub fn drops_to_depth(&mut self, depth: usize, span: Span) {
         for s in self.scopes[depth..].iter().rev() {
             for l in s.drops.iter().rev() {
@@ -370,15 +387,19 @@ impl<'a> Lower<'a> {
                 self.cur = self.new_block();
             }
             ExprKind::Return(v) => {
-                if let Some(v) = v {
-                    let op = self.as_operand(v);
-                    if !v.ty.is_unit() {
-                        self.assign(&Place::local(0), Rvalue::Use(op), sp);
+                if let Some((exit, depth)) = self.inline_exit {
+                    self.ret_inline(v, exit, depth, sp);
+                } else {
+                    if let Some(v) = v {
+                        let op = self.as_operand(v);
+                        if !v.ty.is_unit() {
+                            self.assign(&Place::local(0), Rvalue::Use(op), sp);
+                        }
                     }
+                    self.drops_to_depth(0, sp);
+                    self.terminate(Term::Return, sp);
+                    self.cur = self.new_block();
                 }
-                self.drops_to_depth(0, sp);
-                self.terminate(Term::Return, sp);
-                self.cur = self.new_block();
             }
             ExprKind::Match { scrut, arms, by_ref } => self.lower_match(scrut, arms, *by_ref, dest, sp),
             ExprKind::Ref { mutable, place } => {

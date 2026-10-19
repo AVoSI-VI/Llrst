@@ -19,16 +19,43 @@ impl<'a> Lower<'a> {
                 return false;
             }
         };
-        let kill_from = self.body.locals.len() as LocalIdx;
-        let saved = self.local_map.clone();
-        self.install_locals(&body);
-        self.bind_args(&body, args, sp);
-        let sources = self.loan_sources(func, &body, dest);
-        self.expr_into(&body.body, dest.clone(), sp);
-        self.local_map = saved;
-        self.push(Stmt::InlineLoans { kill_from, sources, dest: dest.local }, sp);
+        self.subst(&body, func, args, dest, sp);
         self.inline_stack.pop();
         true
+    }
+
+    /// Substitutes `body` at the current block. `(ret ...)` jumps to a local exit.
+    fn subst(&mut self, body: &FnBody, func: &Func, args: &[Operand], dest: &Place, sp: Span) {
+        let kill_from = self.body.locals.len() as LocalIdx;
+        let saved_map = self.local_map.clone();
+        let saved_exit = self.inline_exit;
+        let saved_dest = self.inline_dest.clone();
+        let exit = self.new_block();
+        let depth = self.scopes.len();
+        self.push_scope();
+        self.install_locals(body);
+        self.bind_args(body, args, sp);
+        self.keep_params(body);
+        self.inline_exit = Some((exit, depth));
+        self.inline_dest = Some(dest.clone());
+        let sources = self.loan_sources(func, body, dest);
+        self.expr_into(&body.body, dest.clone(), sp);
+        self.pop_scope(sp);
+        self.terminate(Term::Goto(exit), sp);
+        self.cur = exit;
+        self.inline_exit = saved_exit;
+        self.inline_dest = saved_dest;
+        self.local_map = saved_map;
+        self.push(Stmt::InlineLoans { kill_from, sources, dest: dest.local }, sp);
+    }
+
+    fn keep_params(&mut self, body: &FnBody) {
+        for p in &body.params {
+            let l = self.local_map[p.0 as usize];
+            if needs_drop(self.prog, self.body.local_ty(l)) {
+                self.scopes.last_mut().unwrap().drops.push(l);
+            }
+        }
     }
 
     /// Parameter locals that hold the loans a call result would keep.

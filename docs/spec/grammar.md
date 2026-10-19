@@ -22,7 +22,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (use PATH)                                   ; import module; PATH = std.io | my.mod
 (fn NAME ARGS RET BODY...)                   ; function
 (fn NAME <T U> ARGS RET BODY...)             ; generic function
-(inline (fn ...))                            ; substitute a body of at most 4 expressions
+(inline (fn ...))                            ; substitute the body; a recursive call stays a call
 (pub (inline (fn ...)))                      ; public form of the same
 (extern NAME ARGS RET)                       ; C ABI import, no body
 (struct NAME FIELD...)                       ; (struct point (x i64) (pub (y i64)))

@@ -1,0 +1,3 @@
+(inline (fn bad () unit (clos () unit)))
+
+(fn main () unit)

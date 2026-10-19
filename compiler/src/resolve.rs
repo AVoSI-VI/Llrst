@@ -401,53 +401,45 @@ fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Op
 
 fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Option<DefId>, diags: &Diags) -> PResult<FnDef> {
     let mut def = make_fn(prog, mi, f, outer, owner)?;
-    if let Some(d) = inline_reject(f, &def.params) {
+    if let Some(d) = inline_reject(f) {
         diags.push(d);
         def.inline = false;
     }
     Ok(def)
 }
-fn inline_reject(f: &ast::FnDecl, params: &[(String, Ty)]) -> Option<Diag> {
+fn inline_reject(f: &ast::FnDecl) -> Option<Diag> {
     if !f.inline {
         return None;
     }
     if f.is_extern {
         return Some(Diag::error(f.span, "inline.reject").kv("why", "extern"));
     }
-    if f.body.len() > 4 {
-        return Some(Diag::error(f.span, "inline.reject").kv("why", "large").kv("limit", "4").kv("got", f.body.len().to_string()));
+    if has_clos(&f.body) {
+        return Some(Diag::error(f.span, "inline.reject").kv("why", "form").kv("got", "clos"));
     }
-    if let Some(got) = bad_form(&f.body) {
-        return Some(Diag::error(f.span, "inline.reject").kv("why", "form").kv("got", got));
-    }
-    params.iter().find(|(_, ty)| !ty.is_scalar()).map(|(name, _)| Diag::error(f.span, "inline.reject").kv("why", "param").kv("name", name.clone()))
+    None
 }
 
-fn bad_form(body: &[ast::Expr]) -> Option<&'static str> {
-    body.iter().find_map(bad_expr)
+fn has_clos(xs: &[ast::Expr]) -> bool {
+    xs.iter().any(expr_clos)
 }
 
-fn bad_expr(e: &ast::Expr) -> Option<&'static str> {
+fn expr_clos(e: &ast::Expr) -> bool {
     use ast::ExprKind::*;
     match &e.kind {
-        While { .. } => Some("while"),
-        Loop(_) => Some("loop"),
-        For { .. } => Some("for"),
-        Break => Some("brk"),
-        Continue => Some("cont"),
-        Return(_) => Some("ret"),
-        Match { .. } => Some("match"),
-        Let { init, .. } => init.as_deref().and_then(bad_expr),
-        Set { place, value } => bad_expr(place).or_else(|| bad_expr(value)),
-        Do(xs) => bad_form(xs),
-        If { cond, then, els } => bad_expr(cond).or_else(|| bad_expr(then)).or_else(|| els.as_ref().and_then(|x| bad_expr(x))),
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Try(place) | Panic(place) | Assert(place) | Drop(place) => bad_expr(place),
-        Field { base, .. } | Cast { expr: base, .. } => bad_expr(base),
-        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => bad_expr(l).or_else(|| bad_expr(r)),
-        Call { args, .. } => bad_form(args),
-        CallPtr { callee, args } => bad_expr(callee).or_else(|| bad_form(args)),
-        Clos { body, .. } => bad_form(body).or(Some("clos")),
-        Lit(_) | Name(_) | Sizeof(_) => None,
+        Clos { .. } => true,
+        Let { init, .. } => init.as_deref().map(expr_clos).unwrap_or(false),
+        Set { place, value } | Bin { l: place, r: value, .. } | And(place, value) | Or(place, value) | AssertEq(place, value) => expr_clos(place) || expr_clos(value),
+        Do(xs) | Loop(xs) => has_clos(xs),
+        While { cond, body } => expr_clos(cond) || has_clos(body),
+        For { lo, hi, body, .. } => expr_clos(lo) || expr_clos(hi) || has_clos(body),
+        If { cond, then, els } => expr_clos(cond) || expr_clos(then) || els.as_deref().map(expr_clos).unwrap_or(false),
+        Return(v) => v.as_deref().map(expr_clos).unwrap_or(false),
+        Match { scrut, arms } => expr_clos(scrut) || arms.iter().any(|a| expr_clos(&a.body)),
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Try(place) | Panic(place) | Assert(place) | Drop(place) | Field { base: place, .. } | Cast { expr: place, .. } => expr_clos(place),
+        Call { args, .. } => has_clos(args),
+        CallPtr { callee, args } => expr_clos(callee) || has_clos(args),
+        Break | Continue | Lit(_) | Name(_) | Sizeof(_) => false,
     }
 }
 
