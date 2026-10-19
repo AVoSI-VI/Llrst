@@ -18,8 +18,8 @@ Failure prints `F|FILE|LINE|COL|assert|want=..|got=..` and the test is marked fa
 
 `tests/run/NAME.llr` with `tests/run/NAME.out`: compile, run, compare stdout.
 When `NAME.err` exists, stderr must match it. When `NAME.code` exists, it is the exit
-status as one integer plus a newline. Without those files, stderr and the exit status
-are not checked.
+status as one integer plus a newline. Without `NAME.code`, the exit status must be 0.
+Without `NAME.err`, stderr is not checked.
 `tests/err/NAME.llr` with `tests/err/NAME.err`: compile, compare stderr lines exactly.
 `tests/panic/NAME.llr` with `tests/panic/NAME.err`: compile, run, stderr must equal `.err`
 and the exit code must be 101.
