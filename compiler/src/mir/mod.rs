@@ -118,6 +118,8 @@ pub enum Rvalue {
     Sizeof(Ty),
     /// Address of the vtable for `(trait, self type)`.
     Vtable(DefId, Ty),
+    /// Address of a const scalar in static memory.
+    Static(Const),
     /// Closure value. `idx` selects `Body::closures`. `caps` are stored into the heap env.
     Closure { idx: u32, caps: Vec<Operand> },
 }

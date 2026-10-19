@@ -31,6 +31,7 @@ pub struct Codegen<'a> {
     pub funcs: HashMap<Instance, FuncId>,
     pub externs: HashMap<DefId, FuncId>,
     pub strs: HashMap<Vec<u8>, DataId>,
+    pub scalars: HashMap<Vec<u8>, DataId>,
     pub drops: HashMap<Ty, FuncId>,
     pub pending_drops: Vec<Ty>,
     /// `{body.name}` of a closure -> (trampoline, env drop).
@@ -92,6 +93,7 @@ impl<'a> Codegen<'a> {
             funcs: HashMap::new(),
             externs: HashMap::new(),
             strs: HashMap::new(),
+            scalars: HashMap::new(),
             drops: HashMap::new(),
             pending_drops: Vec::new(),
             clos_ids: HashMap::new(),
@@ -206,6 +208,22 @@ impl<'a> Codegen<'a> {
         self.module.define_data(str_id, &sd).unwrap();
         self.strs.insert(bytes.to_vec(), str_id);
         str_id
+    }
+
+    /// Addressable bytes of a const scalar.
+    pub fn scalar_data(&mut self, c: &crate::mir::Const) -> DataId {
+        let (bytes, align) = scalar_bytes(c, self.big_endian);
+        if let Some(id) = self.scalars.get(&bytes) {
+            return *id;
+        }
+        let n = self.scalars.len();
+        let id = self.module.declare_data(&format!("llr_k{}", n), Linkage::Local, false, false).unwrap();
+        let mut bd = DataDescription::new();
+        bd.define(bytes.clone().into_boxed_slice());
+        bd.set_align(align);
+        self.module.define_data(id, &bd).unwrap();
+        self.scalars.insert(bytes, id);
+        id
     }
 
     /// NUL-terminated bytes for a panic frame name.
@@ -331,5 +349,29 @@ impl<'a> Codegen<'a> {
     pub fn emit_object(self) -> PResult<Vec<u8>> {
         let product = self.module.finish();
         product.emit().map_err(|e| Diag::error(Span::default(), "codegen.emit").kv("got", e.to_string()))
+    }
+}
+
+fn scalar_bytes(c: &crate::mir::Const, big: bool) -> (Vec<u8>, u64) {
+    use crate::mir::Const;
+    match c {
+        Const::Bool(b) => (vec![*b as u8], 1),
+        Const::Int(v, ty) => {
+            let n = ty.bytes() as usize;
+            let raw = if big { (*v as u128).to_be_bytes() } else { (*v as u128).to_le_bytes() };
+            let bytes = if big { raw[16 - n..].to_vec() } else { raw[..n].to_vec() };
+            (bytes, n as u64)
+        }
+        Const::Float(v, is32) => {
+            if *is32 {
+                let f = *v as f32;
+                let b = if big { f.to_be_bytes().to_vec() } else { f.to_le_bytes().to_vec() };
+                (b, 4)
+            } else {
+                let b = if big { v.to_be_bytes().to_vec() } else { v.to_le_bytes().to_vec() };
+                (b, 8)
+            }
+        }
+        _ => (vec![0], 1),
     }
 }

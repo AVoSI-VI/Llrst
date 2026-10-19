@@ -403,8 +403,12 @@ impl<'a> Lower<'a> {
             }
             ExprKind::Match { scrut, arms, by_ref } => self.lower_match(scrut, arms, *by_ref, dest, sp),
             ExprKind::Ref { mutable, place } => {
-                let p = self.as_place(place);
-                self.assign(&dest, Rvalue::Ref { mutable: *mutable, place: p, two_phase: false }, sp);
+                if let Some(c) = const_static(self.prog, place) {
+                    self.assign(&dest, Rvalue::Static(c), sp);
+                } else {
+                    let p = self.as_place(place);
+                    self.assign(&dest, Rvalue::Ref { mutable: *mutable, place: p, two_phase: false }, sp);
+                }
             }
             ExprKind::Cast(inner) => {
                 let op = self.as_operand(inner);
@@ -457,6 +461,17 @@ impl<'a> Lower<'a> {
         }
     }
 
+}
+
+fn const_static(prog: &Program, place: &Expr) -> Option<Const> {
+    let ExprKind::Const(d) = &place.kind else { return None };
+    let crate::resolve::DefKind::Const(c) = &prog.def(*d).kind else { return None };
+    let crate::ast::ExprKind::Lit(l) = &c.value.kind else { return None };
+    let k = lit_const(l, &c.ty);
+    match k {
+        Const::Int(..) | Const::Bool(_) | Const::Float(..) => Some(k),
+        _ => None,
+    }
 }
 
 pub fn lit_const(l: &Lit, ty: &Ty) -> Const {

@@ -43,10 +43,10 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 3. Struct fields may hold references: `(struct view <'a> (s (& 'a str)))`. The struct is live
    at most as long as the referents.
 4. A returned reference derived from a local is an error `borrow.escape`.
-5. A string literal is `(& str)` and points at static data. A loan of a local that holds only
-   that pointer never conflicts, so the literal may be stored for the whole program. A
-   reference to a heap `str` still ends when that `str` does. The name `'static` is not a
-   region for any other type.
+5. A string literal is `(& str)` and points at static data. The name `'static` is that
+   region for any type. A `'static` reference comes from a literal, a const, or another
+   `'static` reference. Borrowing a `let` binding as `'static` is `borrow.escape|lt=static`.
+   Any other named lifetime is only the cross-function flow in `eligible_args`.
 
 ## Raw memory
 

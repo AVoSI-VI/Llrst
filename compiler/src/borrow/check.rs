@@ -7,7 +7,7 @@ use crate::diag::{Diag, SourceMap};
 
 pub fn check_conflicts(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body, loans: &[Loan], holders: &Holders, live: &Liveness) {
     let _ = prog;
-    let static_l = super::holders::static_locals(body);
+    let static_l = super::holders::static_locals(diags, body);
     let mut reported: Vec<(usize, Span, &'static str)> = Vec::new();
     for (bi, blk) in body.blocks.iter().enumerate() {
         let mut all: Vec<(Vec<Access>, Point)> = blk

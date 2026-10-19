@@ -4,7 +4,9 @@
 use super::liveness::Liveness;
 use super::loans::{eligible_args, mut_ref_sink_args, Loan};
 use super::*;
+use crate::diag::{Diag, Diags};
 use crate::mir::place_ty;
+use crate::ty::Ty;
 use std::collections::HashMap;
 
 pub struct Holders {
@@ -305,24 +307,40 @@ pub fn compute(prog: &Program, body: &Body, loans: &[Loan]) -> Holders {
     Holders { nloc, at }
 }
 
-/// A local is static when every whole-local write is a string literal or a copy of one.
-pub fn static_locals(body: &Body) -> Vec<bool> {
+/// A local is static when it holds a `'static` pointer: a string literal, the address of
+/// a const, a copy of one of those, a `'static` parameter, or a call that returns `'static`.
+pub fn static_locals(diags: &Diags, body: &Body) -> Vec<bool> {
     let n = body.locals.len();
     let mut bad = vec![false; n];
     let mut seen = vec![false; n];
     let mut src: Vec<Vec<Option<LocalIdx>>> = (0..n).map(|_| Vec::new()).collect();
+    let mut wrote: Vec<Option<Span>> = vec![None; n];
+    for i in 1..=body.arg_count.min(n.saturating_sub(1)) {
+        if is_static_ref(&body.locals[i].ty) {
+            seen[i] = true;
+            src[i].push(None);
+        }
+    }
     for blk in &body.blocks {
-        for (s, _) in &blk.stmts {
+        for (s, sp) in &blk.stmts {
             let Stmt::Assign(dest, rv) = s else { continue };
             if !dest.is_local() {
                 continue;
             }
-            let i = dest.local as usize;
-            seen[i] = true;
-            match rv {
-                Rvalue::Use(Operand::Const(Const::Str(_), _)) => src[i].push(None),
-                Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.is_local() => src[i].push(Some(p.local)),
-                _ => bad[i] = true,
+            note_write(body, &mut bad, &mut seen, &mut src, &mut wrote, dest.local, rv, *sp);
+        }
+        if let Term::Call { dest, .. } = &blk.term {
+            if dest.is_local() {
+                let i = dest.local as usize;
+                seen[i] = true;
+                if wrote[i].is_none() {
+                    wrote[i] = Some(blk.term_span);
+                }
+                if is_static_ref(body.local_ty(dest.local)) {
+                    src[i].push(None);
+                } else {
+                    bad[i] = true;
+                }
             }
         }
     }
@@ -344,5 +362,33 @@ pub fn static_locals(body: &Body) -> Vec<bool> {
             }
         }
     }
+    for i in 0..n {
+        if is_static_ref(&body.locals[i].ty) && !stat[i] {
+            let sp = wrote[i].unwrap_or(body.locals[i].span);
+            diags.push(Diag::error(sp, "borrow.escape").kv("lt", "static"));
+        }
+    }
     stat
+}
+
+fn note_write(body: &Body, bad: &mut [bool], seen: &mut [bool], src: &mut [Vec<Option<LocalIdx>>], wrote: &mut [Option<Span>], local: LocalIdx, rv: &Rvalue, sp: Span) {
+    let i = local as usize;
+    seen[i] = true;
+    if wrote[i].is_none() {
+        wrote[i] = Some(sp);
+    }
+    let static_dest = is_static_ref(body.local_ty(local));
+    match rv {
+        Rvalue::Use(Operand::Const(Const::Str(_), _)) | Rvalue::Static(_) => src[i].push(None),
+        Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.is_local() => src[i].push(Some(p.local)),
+        Rvalue::Use(Operand::Copy(_) | Operand::Move(_)) if static_dest => src[i].push(None),
+        _ => bad[i] = true,
+    }
+}
+
+fn is_static_ref(t: &Ty) -> bool {
+    match t {
+        Ty::Ref { lt: Some(l), .. } => l == "static" || l == "'static",
+        _ => false,
+    }
 }

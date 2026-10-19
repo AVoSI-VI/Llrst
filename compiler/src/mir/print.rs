@@ -68,6 +68,7 @@ fn rvalue(r: &Rvalue) -> String {
         Rvalue::Argv => "argv".into(),
         Rvalue::Sizeof(t) => format!("sizeof {}", t),
         Rvalue::Vtable(..) => "vtable".into(),
+        Rvalue::Static(_) => "static".into(),
         Rvalue::Closure { idx, caps } => format!("clos{} {{{}}}", idx, ops(caps)),
     }
 }

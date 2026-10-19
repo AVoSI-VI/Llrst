@@ -466,6 +466,11 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let gv = self.cg.module.declare_data_in_func(id, self.b.func);
                 Val::Scalar(self.b.ins().symbol_value(self.cg.ptr_ty, gv))
             }
+            Rvalue::Static(c) => {
+                let id = self.cg.scalar_data(c);
+                let gv = self.cg.module.declare_data_in_func(id, self.b.func);
+                Val::Scalar(self.b.ins().symbol_value(self.cg.ptr_ty, gv))
+            }
             Rvalue::Struct(..) | Rvalue::Variant(..) | Rvalue::Closure { .. } => unreachable!(),
         }
     }

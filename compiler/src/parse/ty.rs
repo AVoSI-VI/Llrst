@@ -34,7 +34,7 @@ pub fn parse_ty(s: &Sexpr) -> PResult<TyExpr> {
                 "&" | "&mut" => {
                     let mutable = head == "&mut";
                     let (lt, rest) = match items.get(1).and_then(|x| x.atom()) {
-                        Some(a) if a.starts_with('\'') => (Some(a.to_string()), &items[2..]),
+                        Some(a) if a.starts_with('\'') => (Some(a.trim_start_matches('\'').to_string()), &items[2..]),
                         _ => (None, &items[1..]),
                     };
                     if rest.len() != 1 {
@@ -94,7 +94,9 @@ pub fn parse_generics(items: &[Sexpr], at: usize) -> PResult<(Generics, usize)> 
         name = name.trim_end_matches('>');
         if !name.is_empty() {
             if let Some(lt) = name.strip_prefix('\'') {
-                g.lifetimes.push(lt.to_string());
+                if lt != "static" {
+                    g.lifetimes.push(lt.to_string());
+                }
             } else {
                 let (ty, bounds) = split_bound(name);
                 g.types.push(ty);

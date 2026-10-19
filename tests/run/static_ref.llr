@@ -1,0 +1,11 @@
+(use std.io)
+
+(const n i64 7)
+
+(fn num () (& 'static i64) (& n))
+
+(fn main () unit
+  (let mut v (vec.new < (& 'static i64) >))
+  (vec.push (&mut v) (num))
+  (assert_eq (@ (@ (vec.get (& v) 0))) 7)
+  (io.puts "7"))
