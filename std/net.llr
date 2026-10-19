@@ -1,4 +1,4 @@
-;; One blocking IPv4 connection on 127.0.0.1. No poll.
+;; IPv4 on 127.0.0.1. poll_serve reads many connections on one thread.
 (use std.sys)
 
 (fn err_port ((code (& str)) (port i64)) str
@@ -82,6 +82,96 @@
 
 (pub (fn close ((fd i64)) unit (sys.close (as i32 fd)) ()))
 
+(fn errno () i32 (ptr.read (sys.__errno_location)))
+
+(fn set_nonblock ((fd i32)) bool
+  (let fl (sys.fcntl fd 3i32 0i32))
+  (if (< fl 0i32) (ret false))
+  (>= (sys.fcntl fd 4i32 (bor fl 2048i32)) 0i32))
+
+(fn put_fd ((base (ptr u8)) (i i64) (fd i32)) unit
+  (let q (ptr.add base (* i 8)))
+  (ptr.write (as (ptr i32) q) fd)
+  (ptr.write (as (ptr i16) (ptr.add q 4)) 17i16)
+  (ptr.write (as (ptr i16) (ptr.add q 6)) 0i16))
+
+(fn ready ((base (ptr u8)) (i i64)) bool
+  (!= (ptr.read (as (ptr i16) (ptr.add (ptr.add base (* i 8)) 6))) 0i16))
+
+(fn take_clients ((lfd i32) (clients (&mut (vec i64))) (cap i64)) bool
+  (loop
+    (let mut n 16u32)
+    (let p (sys.alloc 16))
+    (let c (sys.accept lfd p (as (ptr u32) (&mut n))))
+    (let err (errno))
+    (sys.free p)
+    (if (< c 0i32) (do (if (== err 11i32) (ret true)) (if (== err 4i32) (cont)) (ret false)))
+    (if (>= (vec.len clients) cap) (do (sys.close c) (cont)))
+    (if (not (set_nonblock c)) (do (sys.close c) (ret false)))
+    (vec.push clients (as i64 c))))
+
+(fn read_one ((fd i64) (each (fn (i64 (& str) (ptr u8)) bool)) (ctx (ptr u8)) (reads (ptr i64))) i64
+  (let p (sys.alloc 256))
+  (let r (sys.recv (as i32 fd) p (as u64 256) 0i32))
+  (let err (errno))
+  (if (< r 0) (do (sys.free p) (if (or (== err 11i32) (== err 4i32)) (ret 0)) (ret -1)))
+  (if (== r 0) (do (sys.free p) (close fd) (ret 2)))
+  (let s (str.from_raw p r))
+  (sys.free p)
+  (ptr.write reads (+ (ptr.read reads) 1))
+  (if (call each fd (& s) ctx) 0 1))
+
+(fn sweep ((base (ptr u8))
+   (clients (&mut (vec i64)))
+   (each (fn (i64 (& str) (ptr u8)) bool))
+   (ctx (ptr u8))
+   (reads (ptr i64))) i64
+  (let mut i (- (vec.len clients) 1))
+  (while (>= i 0)
+    (if (ready base (+ i 1))
+      (do
+        (let fd (@ (vec.get clients i)))
+        (let k (read_one fd each ctx reads))
+        (if (== k 2) (vec.remove clients i))
+        (if (and (!= k 0) (!= k 2)) (ret k))))
+    (set i (- i 1)))
+  0)
+
+(fn build_set ((lfd i32) (clients (& (vec i64)))) (ptr u8)
+  (let n (+ (vec.len clients) 1))
+  (let base (sys.alloc (* n 8)))
+  (put_fd base 0 lfd)
+  (for i 0 (vec.len clients) (put_fd base (+ i 1) (as i32 (@ (vec.get clients i)))))
+  base)
+
+(fn poll_set ((base (ptr u8)) (n i64) (listen_fd i64)) (res i32 str)
+  (let mut pr (sys.poll base (as u64 n) -1i32))
+  (while (and (< pr 0i32) (== (errno) 4i32)) (set pr (sys.poll base (as u64 n) -1i32)))
+  (if (< pr 0i32) (ret (res.err (err_fd "io.poll" listen_fd))))
+  (res.ok pr))
+
+(pub (fn poll_serve ((listen_fd i64) (max i64) (each (fn (i64 (& str) (ptr u8)) bool)) (ctx (ptr u8))) (res i64 str)
+  (let lfd (as i32 listen_fd))
+  (if (not (set_nonblock lfd)) (ret (res.err (err_fd "io.poll" listen_fd))))
+  (if (< (sys.listen lfd 128i32) 0i32) (ret (res.err (err_fd "io.poll" listen_fd))))
+  (let mut cap max)
+  (if (> cap 4095) (set cap 4095))
+  (if (< cap 0) (set cap 0))
+  (let mut clients (vec.new <i64>))
+  (let mut reads 0)
+  (loop
+    (let base (build_set lfd (& clients)))
+    (let n (+ (vec.len (& clients)) 1))
+    (let pr (poll_set base n listen_fd))
+    (if (res.is_err (& pr)) (do (sys.free base) (ret (res.err (res.unwrap_err pr)))))
+    (if (ready base 0)
+      (if (not (take_clients lfd (&mut clients) cap))
+        (do (sys.free base) (ret (res.err (err_fd "io.accept" listen_fd))))))
+    (let k (sweep base (&mut clients) each ctx (as (ptr i64) (&mut reads))))
+    (sys.free base)
+    (if (== k -1) (ret (res.err (err_fd "io.recv" listen_fd))))
+    (if (== k 1) (ret (res.ok reads))))))
+
 (fn client ((port i64)) never
   (let c (res.unwrap (connect port)))
   (res.unwrap (send c "ping"))
@@ -100,6 +190,32 @@
   (assert_eq (& got) "ping")
   (res.unwrap (send c "pong"))
   (close c)
+  (close l)
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
+
+(fn on_x ((fd i64) (data (& str)) (ctx (ptr u8))) bool
+  (if (or (< fd 0) (== (str.len data) 0)) (ret false))
+  (let p (as (ptr i64) ctx))
+  (let n (+ (ptr.read p) 1))
+  (ptr.write p n)
+  (< n 64))
+
+(fn many ((port i64)) never
+  (for i 0 64 (let c (res.unwrap (connect port))) (res.unwrap (send c "x")) (close c))
+  (sys._exit 0i32))
+
+(test net_poll
+  (let l (res.unwrap (listen 0)))
+  (let port (res.unwrap (local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (many port))
+  (let mut count 0)
+  (let n (res.unwrap (poll_serve l 64 on_x (as (ptr u8) (&mut count)))))
+  (assert_eq n 64)
+  (assert_eq count 64)
   (close l)
   (let mut st 0i32)
   (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)

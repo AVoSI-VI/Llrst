@@ -80,3 +80,9 @@
 (pub (extern send ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64))
 
 (pub (extern recv ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64))
+
+(pub (extern poll ((fds (ptr u8)) (n u64) (timeout i32)) i32))
+
+(pub (extern fcntl ((fd i32) (cmd i32) (arg i32)) i32))
+
+(pub (extern __errno_location () (ptr i32)))

@@ -27,6 +27,7 @@
 | recv | `(net.recv fd n)` returns `(res str str)`. An empty string is end of stream |
 | send | `(net.send fd (& data))` returns `(res unit str)` and writes every byte |
 | close socket | `(net.close fd)` |
+| poll serve | `(net.poll_serve fd max each ctx)` returns `(res i64 str)`, the number of reads. `each` is `(fn (i64 (& str) (ptr u8)) bool)` |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

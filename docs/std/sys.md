@@ -48,6 +48,9 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.getsockname` | `((fd i32) (addr (ptr u8)) (len (ptr u32)))` | `i32` |
 | `sys.send` | `((fd i32) (buf (ptr u8)) (n u64) (flags i32))` | `i64` |
 | `sys.recv` | `((fd i32) (buf (ptr u8)) (n u64) (flags i32))` | `i64` |
+| `sys.poll` | `((fds (ptr u8)) (n u64) (timeout i32))` | `i32` |
+| `sys.fcntl` | `((fd i32) (cmd i32) (arg i32))` | `i32` |
+| `sys.__errno_location` | `()` | `(ptr i32)` |
 | `sys.write_all` | `((fd i32) (p (ptr u8)) (n i64))` | `unit` |
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |
 | `sys.alloc` | `((n i64))` | `(ptr u8)` |
