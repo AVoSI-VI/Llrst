@@ -1,0 +1,22 @@
+;; llr-ls PATH [--max N]: one directory, sorted names.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+
+(fn main () unit
+  (let mut c (cli.new "llr-ls" "list one directory, sorted"))
+  (cli.pos (&mut c) "path")
+  (cli.opt (&mut c) "max" "200")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.at (& c) 0))
+  (let max (cli.get_int (& c) "max"))
+  (let names
+    (match (fs.list path)
+      ((res.ok v) v)
+      ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<ls>|0|0|0" (& e)))) (os.exit 1)))))
+  (let n (vec.len (& names)))
+  (let shown (if (> n max) max n))
+  (for i 0 shown (io.puts (& (fmt.field (vec.get (& names) i)))))
+  (if (> n shown) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n shown))))))))
