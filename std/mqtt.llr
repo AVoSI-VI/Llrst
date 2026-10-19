@@ -171,19 +171,19 @@
   (str.push (&mut out) (& body))
   out)
 
-(fn mqtt_client ((port i64)) never
+(fn mqtt_client ((port i64)) i32
   (let c (res.unwrap (net.connect port)))
   (res.unwrap (net.send c (& (connect_pkt "c"))))
   (let ack (res.unwrap (net.recv c 16)))
-  (if (!= (str.len (& ack)) 4) (sys._exit 1i32))
+  (if (!= (str.len (& ack)) 4) (ret 1))
   (res.unwrap (net.send c (& (subscribe_pkt 1 "a"))))
   (let sub (res.unwrap (net.recv c 16)))
-  (if (!= (str.len (& sub)) 5) (sys._exit 1i32))
+  (if (!= (str.len (& sub)) 5) (ret 1))
   (res.unwrap (net.send c (& (publish_pkt "a" "world"))))
   (let body (res.unwrap (net.recv c 64)))
   (net.close c)
-  (if (str.has (& body) "world") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.has (& body) "world") (ret 0))
+  (ret 1))
 
 (test mqtt_packets
   (let mut s (sess 0u8 (str.new) false))
@@ -207,8 +207,7 @@
 (test mqtt_http
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (mqtt_client port))
+  (let pid (sys.llr_call_child mqtt_client port))
   (let n (res.unwrap (serve l)))
   (assert_eq n 1)
   (net.close l)

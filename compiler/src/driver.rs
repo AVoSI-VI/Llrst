@@ -193,6 +193,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         std::fs::write(&p, &obj).map_err(|e| Diag::error(Span::default(), "io.write").kv("path", p.display().to_string()).kv("got", e.to_string()))?;
         return Ok(());
     }
+    let out = crate::link::host_exe(&out, opt.target.as_deref());
     crate::link::link(&obj, &out, opt.target.as_deref())
 }
 

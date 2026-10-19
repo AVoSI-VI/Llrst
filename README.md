@@ -25,7 +25,7 @@ machine-readable line.
 | `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff` (Llrst) |
 | `tests/` | golden tests; `tests/run.sh` |
 
-Install: `scripts/install.sh` (see `docs/install.md`). Build only: `cargo build --release`.
+Install: `scripts/install.sh` on Linux or macOS, `scripts/install.ps1` on Windows (see `docs/install.md`). Build only: `cargo build --release`.
 Try it: `llrc run examples/hello.llr`.
 
 License: MIT (see `LICENSE`).

@@ -104,7 +104,10 @@ fn main() {
     opt.check_only = cmd == "check" || cmd == "emit-mir";
     opt.emit_mir = cmd == "emit-mir";
     if cmd == "run" {
-        let tmp = std::env::temp_dir().join(format!("llr_run_{}", std::process::id()));
+        let tmp = link::host_exe(
+            &std::env::temp_dir().join(format!("llr_run_{}", std::process::id())),
+            opt.target.as_deref(),
+        );
         opt.output = Some(tmp.clone());
         let code = driver::run(opt);
         if code != 0 {

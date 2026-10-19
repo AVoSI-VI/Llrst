@@ -208,13 +208,13 @@
               (if (res.is_err (& sent)) (ret (res.err (res.unwrap_err sent))))
               (ret (res.ok 1))))))))))
 
-(fn grpc_client ((port i64)) never
+(fn grpc_client ((port i64)) i32
   (let c (res.unwrap (net.connect port)))
   (res.unwrap (net.send c (& (client "/hello" "hello"))))
   (let body (res.unwrap (net.recv c 512)))
   (net.close c)
-  (if (str.has (& body) "world") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.has (& body) "world") (ret 0))
+  (ret 1))
 
 (test grpc_fields
   (assert_eq (& (res.unwrap (exec "/hello" (& (res.unwrap (unpack (& (pack "hello")))))))) "world")
@@ -224,8 +224,7 @@
 (test grpc_http
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (grpc_client port))
+  (let pid (sys.llr_call_child grpc_client port))
   (let n (res.unwrap (serve l)))
   (assert_eq n 1)
   (net.close l)

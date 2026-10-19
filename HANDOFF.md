@@ -80,6 +80,7 @@ cargo build                                   # debug llrc
 cargo build --release
 cargo metadata --format-version 1 | ...target_directory   # sandbox may redirect via CARGO_TARGET_DIR
 LLRC=<path to llrc> tests/run.sh              # goldens + every std test + line check
+powershell -File tests/run.ps1                # same suite on Windows
 <llrc> run tests/run/hello.llr --std std
 <llrc> build std/re.llr --test --std std -o /tmp/t && /tmp/t [FILTER]
 <llrc> check tests/err/X.llr --std std 2> tests/err/X.err   # regenerate a golden after a deliberate change
@@ -115,8 +116,10 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
   Goldens: `tests/panic/div_zero*`, `tests/panic/div_min`, `tests/panic/rem_min`, `tests/run/div_ok`.
 - `fs.mtime` and `fs.size` call `llr_stat_mtime` / `llr_stat_size` in `runtime/llr_stat.c`.
   `fs.list` calls `llr_readdir_name` there for `d_name`.
-  `link.rs` appends `llr_stat.o` from `$LLRST_RUNTIME`, `$LLRST_STD/..`,
-  `<exe>/../share/llrst/`, or `./runtime/`. `install.sh` and `tests/run.sh` compile it.
+  `link.rs` appends `llr_stat.o` on Unix, or compiles and links `llr_win.c` and `llr_wsa.c` on Windows,
+  from `$LLRST_RUNTIME`, `$LLRST_STD/..`, `<exe>/../share/llrst/`, or `./runtime/`.
+  `install.sh` and `tests/run.sh` compile the Unix object. `tests/run.ps1` does not;
+  `llrc` compiles the Windows object.
 - `mir/lint.rs` runs after borrowck. `flow.unreachable` is an unreachable block that
   contains something other than `Drop`/`StorageDead`/`Nop` (the empty block opened after
   `(ret)` is skipped). `name.unused` is a local or parameter that is never an operand,
@@ -213,9 +216,9 @@ Tools (`tools/`, `docs/tools/`)
 | integers | wrap by default; `--checked` traps `+ - * neg`, `shl` `shr` outside `0..bitwidth`, and an integer cast that does not fit; `MIN / -1` and `MIN % -1` always panic `int.overflow`; float casts still saturate or stay unchecked | without `--checked`, a shift count outside `0..bitwidth` is undefined and an integer cast truncates | `codegen/ops.rs`, `codegen/ovf.rs`, `std/sys.llr` `checked_div` |
 | lifetimes | `'static` is a region for any type; a `'static` reference comes from a literal, a const, or another `'static` reference | any other named lifetime is only the cross-function flow in `eligible_args` | `borrow/holders.rs`, `borrow/loans.rs` |
 | init | `(let mut x T)` is checked; a use before every path assigns it is `init.uninit`. A field write does not initialize the struct | drop flags stay off until a whole-local assignment | `borrow/moves.rs` |
-| runtime | externs come from the OS file merged into `std.sys` (`sys_posix.llr`, or `sys_windows.llr` on Windows). Directory names come from `llr_readdir_name`. macOS stat and readdir use the same C shim but have not been executed here | the Windows file is selected, not linked | `resolve.rs`, `std/fs.llr` `list`, `runtime/llr_stat.c` |
-| net | `poll_serve` holds up to 4096 fds on one thread; the callback is a function pointer plus a context pointer | `connect` is 127.0.0.1; Windows socket names are declared and not linked | `std/net.llr` |
-| thread | a pool of `n` pthreads created at `start`; a job is `(fn ((ptr u8)) unit)` plus a context pointer | the count does not grow; a worker cannot capture a binding; Windows pthread names are declared and not linked | `std/thread.llr` |
+| runtime | externs come from the OS file merged into `std.sys` (`sys_posix.llr`, or `sys_windows.llr` on Windows). Directory names come from `llr_readdir_name`. macOS stat and readdir use the same C shim but have not been executed here | `fork` does not copy an address space; Windows clients run on a thread and each std test is re-execed | `resolve.rs`, `std/fs.llr` `list`, `runtime/llr_stat.c`, `runtime/llr_win.c` |
+| net | `poll_serve` holds up to 4096 fds on one thread; the callback is a function pointer plus a context pointer | `connect` is 127.0.0.1; the Windows shim translates the 8-byte pollfd and errno 11 and 4 | `std/net.llr`, `runtime/llr_win.c` |
+| thread | a pool of `n` pthreads created at `start`; a job is `(fn ((ptr u8)) unit)` plus a context pointer | the count does not grow; a worker cannot capture a binding; the Windows shim maps the pthread names onto Win32 | `std/thread.llr`, `runtime/llr_win.c` |
 | http | `llr-http` serves files, exact routes, and a WebSocket text echo on one poll loop | a route path is exact; chunked bodies are rejected; a WebSocket payload must be one text frame under 126 bytes; at most 4095 clients | `std/http.llr`, `tools/llr-http.llr` |
 | gql | `POST /graphql` takes the query text and returns JSON for `hello`, `ping`, and `add` | no schema, no variables, and no nested selection sets | `std/gql.llr` |
 | xml | one element document of elements and text | no attributes, namespaces, comments, or declarations; entities are `&lt;` `&gt;` `&amp;` | `std/xml.llr` |
@@ -237,9 +240,9 @@ Tools (`tools/`, `docs/tools/`)
 3. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
 4. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
 5. A field write does not initialize the struct (`borrow/moves.rs`).
-6. The Windows extern file is selected but not linked, and `fork` stays the POSIX symbol (`std/sys_windows.llr`).
+6. `fork` still cannot resume a Cranelift stack. Windows runs a client on a thread via `llr_call_child` and re-execs each std test (`std/test.llr`, `runtime/llr_win.c`).
 7. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
-8. `llr_readdir_name` has been run on Linux only (`runtime/llr_stat.c`).
+8. `llr_readdir_name` reads `dirent` on Unix and `WIN32_FIND_DATA` on Windows (`runtime/llr_stat.c`, `runtime/llr_win.c`).
 9. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
 10. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
 11. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
@@ -262,9 +265,9 @@ Tools (`tools/`, `docs/tools/`)
 28. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
 29. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
 30. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
-31. `net.connect` is 127.0.0.1 only, and the Windows file declares the POSIX socket names and is not linked (`std/net.llr`, `std/sys_windows.llr`).
+31. `net.connect` is 127.0.0.1 only (`std/net.llr`).
 32. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
-33. The pool size is fixed at start, a worker cannot capture a binding, and the Windows file declares the pthread names and is not linked (`std/thread.llr`, `std/sys_windows.llr`).
+33. The pool size is fixed at start and a worker cannot capture a binding (`std/thread.llr`).
 34. Chunked transfer and trailers are not parsed (`std/http.llr`).
 35. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
 36. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).

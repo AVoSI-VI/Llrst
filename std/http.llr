@@ -369,13 +369,13 @@
 
 (fn health ((_ (& req)) (_ (ptr u8))) resp (respond 200 "ok" "text/plain" "ok"))
 
-(fn file_client ((port i64)) never
+(fn file_client ((port i64)) i32
   (let c (res.unwrap (net.connect port)))
   (res.unwrap (net.send c "GET /hello.txt HTTP/1.1\r\nHost: x\r\n\r\n"))
   (let body (res.unwrap (net.recv c 512)))
   (net.close c)
-  (if (str.has (& body) "hello-body") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.has (& body) "hello-body") (ret 0))
+  (ret 1))
 
 (fn raise_nofile () unit
   (let p (sys.alloc 16))
@@ -390,7 +390,7 @@
   (while (and (res.is_err (& c)) (< tries 1000)) (set tries (+ tries 1)) (set c (net.connect port)))
   (res.unwrap c))
 
-(fn many_clients ((port i64)) never
+(fn many_clients ((port i64)) i32
   (let mut fds (vec.new <i64>))
   (for i 0 3072 (vec.push (&mut fds) (dial port)))
   (for i 0 3072
@@ -398,7 +398,7 @@
   (for i 0 3072
     (res.unwrap (net.recv (@ (vec.get (& fds) i)) 128))
     (net.close (@ (vec.get (& fds) i))))
-  (sys._exit 0i32))
+  (ret 0))
 
 (fn wait_child ((pid i32)) unit
   (let mut st 0i32)
@@ -411,8 +411,7 @@
   (res.unwrap (fs.write "/tmp/llr_http_dir/hello.txt" "hello-body"))
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (file_client port))
+  (let pid (sys.llr_call_child file_client port))
   (let mut routes (vec.new <route>))
   (let n (res.unwrap (serve l "/tmp/llr_http_dir" (& routes) 1)))
   (assert_eq n 1)
@@ -423,8 +422,7 @@
   (raise_nofile)
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (many_clients port))
+  (let pid (sys.llr_call_child many_clients port))
   (let mut routes (vec.new <route>))
   (vec.push (&mut routes) (route (str.from "GET") (str.from "/health") health))
   (let n (res.unwrap (serve l "/tmp" (& routes) 3072)))
@@ -447,23 +445,22 @@
   (str.push_byte (&mut s) 110u8)
   s)
 
-(fn ws_client ((port i64)) never
+(fn ws_client ((port i64)) i32
   (let c (res.unwrap (net.connect port)))
   (res.unwrap (net.send c
      "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
   (let resp (res.unwrap (net.recv c 256)))
-  (if (not (str.has (& resp) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")) (sys._exit 1i32))
+  (if (not (str.has (& resp) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")) (ret 1))
   (res.unwrap (net.send c (& (masked_hello))))
   (let echo (res.unwrap (net.recv c 32)))
   (net.close c)
-  (if (str.has (& echo) "hello") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.has (& echo) "hello") (ret 0))
+  (ret 1))
 
 (test http_ws
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (ws_client port))
+  (let pid (sys.llr_call_child ws_client port))
   (let mut routes (vec.new <route>))
   (let n (res.unwrap (serve l "/tmp" (& routes) 1)))
   (assert_eq n 1)

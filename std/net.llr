@@ -31,7 +31,7 @@
   (let b (sys.bind fd p 16u32))
   (sys.free p)
   (if (< b 0i32) (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
-  (if (< (sys.listen fd 1i32) 0i32) (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
+  (if (< (sys.listen fd 128i32) 0i32) (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
   (res.ok (as i64 fd))))
 
 (pub (fn local_port ((fd i64)) (res i64 str)
@@ -172,19 +172,18 @@
     (if (== k -1) (ret (res.err (err_fd "io.recv" listen_fd))))
     (if (== k 1) (ret (res.ok reads))))))
 
-(fn client ((port i64)) never
+(fn client ((port i64)) i32
   (let c (res.unwrap (connect port)))
   (res.unwrap (send c "ping"))
   (let got (res.unwrap (recv c 8)))
   (close c)
-  (if (str.eq (& got) "pong") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.eq (& got) "pong") (ret 0))
+  (ret 1))
 
 (test net_one
   (let l (res.unwrap (listen 0)))
   (let port (res.unwrap (local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (client port))
+  (let pid (sys.llr_call_child client port))
   (let c (res.unwrap (accept l)))
   (let got (res.unwrap (recv c 8)))
   (assert_eq (& got) "ping")
@@ -203,15 +202,14 @@
   (ptr.write p n)
   (< n 64))
 
-(fn many ((port i64)) never
+(fn many ((port i64)) i32
   (for i 0 64 (let c (res.unwrap (connect port))) (res.unwrap (send c "x")) (close c))
-  (sys._exit 0i32))
+  (ret 0))
 
 (test net_poll
   (let l (res.unwrap (listen 0)))
   (let port (res.unwrap (local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (many port))
+  (let pid (sys.llr_call_child many port))
   (let mut count 0)
   (let n (res.unwrap (poll_serve l 64 on_x (as (ptr u8) (&mut count)))))
   (assert_eq n 64)

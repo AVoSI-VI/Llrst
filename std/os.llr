@@ -64,6 +64,7 @@
   (match (arg 99) ((opt.some _) (assert false)) ((opt.none) (assert true))))
 
 (test os_capture
-  (let r (capture "printf hi"))
+  (let cmd (if (== sys.os_id 2) "<nul set /p=hi&exit /b 0" "printf hi"))
+  (let r (capture cmd))
   (assert_eq (. r code) 0)
   (assert_eq (& (. r out)) "hi"))

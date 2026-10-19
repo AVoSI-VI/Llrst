@@ -109,3 +109,7 @@
 
 (pub (extern setrlimit ((resource i32) (lim (ptr u8))) i32))
 
+(pub (extern llr_call_child ((f (fn (i64) i32)) (arg i64)) i32))
+
+(pub (extern llr_spawn_self ((arg (ptr u8))) i32))
+

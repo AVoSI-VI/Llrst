@@ -65,14 +65,14 @@
 (fn soap ((r (& http.req)) (_ (ptr u8))) http.resp
   (http.respond 200 "ok" "text/xml" (& (exec (& (. r body))))))
 
-(fn soap_client ((port i64)) never
+(fn soap_client ((port i64)) i32
   (let c (res.unwrap (net.connect port)))
   (res.unwrap (net.send c
      "POST /soap HTTP/1.1\r\nHost: x\r\nContent-Length: 49\r\n\r\n<Envelope><Body><hello></hello></Body></Envelope>"))
   (let body (res.unwrap (net.recv c 512)))
   (net.close c)
-  (if (str.has (& body) "<result>world</result>") (sys._exit 0i32))
-  (sys._exit 1i32))
+  (if (str.has (& body) "<result>world</result>") (ret 0))
+  (ret 1))
 
 (test soap_fields
   (assert_eq (& (exec "<Envelope><Body><hello></hello></Body></Envelope>"))
@@ -86,8 +86,7 @@
 (test soap_http
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.fork))
-  (if (== pid 0i32) (soap_client port))
+  (let pid (sys.llr_call_child soap_client port))
   (let mut routes (vec.new <http.route>))
   (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/soap") soap))
   (let n (res.unwrap (http.serve l "/tmp" (& routes) 1)))

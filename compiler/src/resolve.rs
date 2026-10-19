@@ -223,7 +223,8 @@ impl<'a> Loader<'a> {
         }
         let text = std::fs::read_to_string(file)
             .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", file.display().to_string()))?;
-        let fid = self.sm.add(file.display().to_string(), text);
+        let shown = file.display().to_string().replace('\\', "/");
+        let fid = self.sm.add(shown, text);
         let forms = read_file(fid, self.sm.text(fid))?;
         let items = parse_items(&forms)?;
         let idx = self.parsed.len() as u32;
@@ -284,7 +285,8 @@ impl<'a> Loader<'a> {
         let file = self.std_dir.join(name);
         let text = std::fs::read_to_string(&file)
             .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", file.display().to_string()))?;
-        let fid = self.sm.add(file.display().to_string(), text);
+        let shown = file.display().to_string().replace('\\', "/");
+        let fid = self.sm.add(shown, text);
         let extra = parse_items(&read_file(fid, self.sm.text(fid))?)?;
         let idx = *self.by_path.get("std.sys").ok_or_else(|| Diag::error(Span::default(), "io.read").kv("path", "std/sys.llr"))?;
         self.parsed[idx as usize].2.extend(extra);

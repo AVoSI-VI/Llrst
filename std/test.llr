@@ -28,10 +28,32 @@
 (pub (fn eq_bool ((loc (& str)) (got bool) (want bool)) unit
   (if (!= got want) (fail_eq loc (if got "true" "false") (if want "true" "false")))))
 
+;; Windows cannot fork a Cranelift stack, so each test is a fresh process.
+(fn run_win ((name (& str)) (f (fn () unit))) i64
+  (match (os.env "LLR_TEST_CHILD")
+    ((opt.some want)
+      (do
+        (if (not (str.eq name (& want))) (ret 0))
+        (call f)
+        (sys._exit 0)))
+    ((opt.none) ()))
+  (let c (str.cstr name))
+  (let code (sys.llr_spawn_self (. c p)))
+  (let mut line (str.new))
+  (if (== code 0)
+    (do (str.push (&mut line) "ok|") (str.push (&mut line) name) (io.puts (& line)) (ret 0)))
+  (str.push (&mut line) "fail|")
+  (str.push (&mut line) name)
+  (str.push (&mut line) "|code=")
+  (str.push (&mut line) (& (str.from_int (as i64 code))))
+  (io.puts (& line))
+  1)
+
 ;; Runs one test in a forked child. Returns 1 on failure, 0 on success.
 ;; A first program argument filters tests by substring.
 (pub (fn run ((name (& str)) (f (fn () unit))) i64
   (match (os.arg 1) ((opt.some filt) (if (not (str.has name (& filt))) (ret 0))) ((opt.none) ()))
+  (if (== sys.os_id 2) (ret (run_win name f)))
   (let pid (sys.fork))
   (if (== pid 0) (do (call f) (sys._exit 0)))
   (let mut status 0i32)

@@ -1,0 +1,7 @@
+# The Windows main thread starts at 1 MiB. Compiling the larger programs overflows it.
+# Linux and macOS start at 8 MiB.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:16777216"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--stack,16777216"]

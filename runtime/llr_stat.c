@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 int64_t llr_stat_mtime(const char *path, int64_t *out) {
@@ -40,6 +41,19 @@ extern struct llr_frame *llr_trace;
 
 static int skip_frame(const char *name) {
     return strcmp(name, "sys.abort") == 0 || strcmp(name, "sys.panic") == 0;
+}
+
+int32_t llr_call_child(int32_t (*fn)(int64_t), int64_t arg) {
+    int pid = fork();
+    if (pid == 0) {
+        _exit(fn(arg));
+    }
+    return pid;
+}
+
+int32_t llr_spawn_self(const char *arg) {
+    (void)arg;
+    return -1;
 }
 
 void llr_panic_frames(void) {
