@@ -1,0 +1,235 @@
+;; One unary gRPC call. HTTP/2 preface, literal headers, one length-prefixed message.
+(use std.net)
+(use std.sys)
+
+(struct st (i i64) (method str) (path str) (body str) (phase u8))
+
+(fn push24 ((out (&mut str)) (n i64)) unit
+  (let u (as u32 n))
+  (str.push_byte out (as u8 (shr u 16u32)))
+  (str.push_byte out (as u8 (shr u 8u32)))
+  (str.push_byte out (as u8 u)))
+
+(fn push32 ((out (&mut str)) (n i64)) unit
+  (let u (as u32 n))
+  (str.push_byte out (as u8 (shr u 24u32)))
+  (str.push_byte out (as u8 (shr u 16u32)))
+  (str.push_byte out (as u8 (shr u 8u32)))
+  (str.push_byte out (as u8 u)))
+
+(fn be24 ((s (& str)) (i i64)) i64
+  (as i64
+    (bor (shl (as u32 (str.at s i)) 16u32)
+      (bor (shl (as u32 (str.at s (+ i 1))) 8u32) (as u32 (str.at s (+ i 2)))))))
+
+(fn be32 ((s (& str)) (i i64)) i64
+  (as i64
+    (bor (shl (as u32 (str.at s i)) 24u32)
+      (bor (shl (as u32 (str.at s (+ i 1))) 16u32)
+        (bor (shl (as u32 (str.at s (+ i 2))) 8u32) (as u32 (str.at s (+ i 3))))))))
+
+(fn frame ((ty u8) (flags u8) (stream i64) (payload (& str))) str
+  (let mut out (str.new))
+  (push24 (&mut out) (str.len payload))
+  (str.push_byte (&mut out) ty)
+  (str.push_byte (&mut out) flags)
+  (push32 (&mut out) stream)
+  (str.push (&mut out) payload)
+  out)
+
+(fn lit ((name (& str)) (value (& str))) str
+  (let mut out (str.new))
+  (str.push_byte (&mut out) (as u8 (str.len name)))
+  (str.push (&mut out) name)
+  (str.push_byte (&mut out) (as u8 (str.len value)))
+  (str.push (&mut out) value)
+  out)
+
+(pub (fn pack ((msg (& str))) str
+  (let mut out (str.new))
+  (str.push_byte (&mut out) 0u8)
+  (push32 (&mut out) (str.len msg))
+  (str.push (&mut out) msg)
+  out))
+
+(fn unpack ((payload (& str))) (res str str)
+  (if (or (< (str.len payload) 5) (!= (str.at payload 0) 0u8))
+    (ret (res.err (str.from "grpc.frame"))))
+  (let n (be32 payload 1))
+  (if (!= n (- (str.len payload) 5)) (ret (res.err (str.from "grpc.frame"))))
+  (res.ok (str.slice payload 5 (+ 5 n))))
+
+(fn side ((s (& str))) (res i64 str)
+  (if (== (str.len s) 0) (ret (res.ok 0)))
+  (match (str.to_int s) ((opt.some n) (res.ok n)) ((opt.none) (res.err (str.from "grpc.arg")))))
+
+(fn add_msg ((msg (& str))) (res str str)
+  (match (str.find msg " ")
+    ((opt.none) (res.ok (str.from_int (try (side msg)))))
+    ((opt.some i)
+      (do
+        (let a (try (side (& (str.slice msg 0 i)))))
+        (let b (try (side (& (str.slice msg (+ i 1) (str.len msg))))))
+        (res.ok (str.from_int (+ a b)))))))
+
+(pub (fn exec ((path (& str)) (msg (& str))) (res str str)
+  (if (str.eq path "/hello") (ret (res.ok (str.from "world"))))
+  (if (str.eq path "/ping") (ret (res.ok (str.from "pong"))))
+  (if (str.eq path "/add") (ret (add_msg msg)))
+  (let mut m (str.from "grpc.method|name="))
+  (str.push (&mut m) path)
+  (res.err m)))
+
+(fn frame_end ((buf (& str)) (i i64)) i64
+  (if (< (- (str.len buf) i) 9) (ret -1))
+  (let ln (be24 buf i))
+  (if (> ln 4096) (ret -2))
+  (let end (+ (+ i 9) ln))
+  (if (> end (str.len buf)) -1 end))
+
+(fn one_lit ((block (& str)) (i i64) (s (&mut st))) (res i64 str)
+  (let _ph (. s phase))
+  (let n (str.len block))
+  (if (>= i n) (ret (res.err (str.from "h2.headers"))))
+  (let nl (as i64 (str.at block i)))
+  (if (>= nl 127) (ret (res.err (str.from "h2.headers"))))
+  (let ne (+ (+ i 1) nl))
+  (if (> ne n) (ret (res.err (str.from "h2.headers"))))
+  (let name (str.slice block (+ i 1) ne))
+  (if (>= ne n) (ret (res.err (str.from "h2.headers"))))
+  (let vl (as i64 (str.at block ne)))
+  (if (>= vl 127) (ret (res.err (str.from "h2.headers"))))
+  (let ve (+ (+ ne 1) vl))
+  (if (> ve n) (ret (res.err (str.from "h2.headers"))))
+  (let value (str.slice block (+ ne 1) ve))
+  (if (str.eq (& name) ":method") (set (. s method) (str.clone (& value))))
+  (if (str.eq (& name) ":path") (set (. s path) (str.clone (& value))))
+  (res.ok ve))
+
+(fn read_block ((block (& str)) (s (&mut st))) (res unit str)
+  (let mut i 0)
+  (loop (if (>= i (str.len block)) (brk)) (set i (try (one_lit block i s))))
+  (if (not (str.eq (& (. s method)) "POST")) (ret (res.err (str.from "h2.headers"))))
+  (if (== (str.len (& (. s path))) 0) (ret (res.err (str.from "h2.headers"))))
+  (res.ok ()))
+
+(fn want_settings ((s (&mut st)) (ty u8) (flags u8) (id i64) (payload (& str))) (res i64 str)
+  (let _ph (. s phase))
+  (if (or (!= ty 4u8) (or (!= flags 0u8) (or (!= id 0) (!= (str.len payload) 0))))
+    (ret (res.err (str.from "h2.frame"))))
+  (set (. s phase) 1u8)
+  (res.ok 1))
+
+(fn want_call ((s (&mut st)) (ty u8) (flags u8) (id i64) (payload str)) (res i64 str)
+  (if (or (== ty 6u8) (== ty 8u8)) (ret (res.ok 1)))
+  (if (and (== ty 1u8) (== (. s phase) 1u8))
+    (do
+      (if (or (!= id 1) (!= flags 4u8)) (ret (res.err (str.from "h2.headers"))))
+      (try (read_block (& payload) s))
+      (set (. s phase) 2u8)
+      (ret (res.ok 1))))
+  (if (and (== ty 0u8) (== (. s phase) 2u8))
+    (do
+      (if (or (!= id 1) (!= flags 1u8)) (ret (res.err (str.from "h2.frame"))))
+      (set (. s body) payload)
+      (ret (res.ok 2))))
+  (res.err (str.from "h2.frame")))
+
+(fn step ((buf (& str)) (s (&mut st))) (res i64 str)
+  (let end (frame_end buf (. s i)))
+  (if (== end -1) (ret (res.ok 0)))
+  (if (== end -2) (ret (res.err (str.from "h2.frame"))))
+  (let at (. s i))
+  (if (>= (str.at buf (+ at 5)) 128u8) (ret (res.err (str.from "h2.frame"))))
+  (let payload (str.slice buf (+ at 9) end))
+  (set (. s i) end)
+  (if (== (. s phase) 0u8)
+    (ret (want_settings s (str.at buf (+ at 3)) (str.at buf (+ at 4)) (be32 buf (+ at 5)) (& payload))))
+  (want_call s (str.at buf (+ at 3)) (str.at buf (+ at 4)) (be32 buf (+ at 5)) payload))
+
+(fn answer ((status (& str)) (msg (& str))) str
+  (let mut block (lit ":status" "200"))
+  (str.push (&mut block) (& (lit "content-type" "application/grpc")))
+  (str.push (&mut block) (& (lit "grpc-status" status)))
+  (let mut out (frame 4u8 0u8 0 ""))
+  (str.push (&mut out) (& (frame 4u8 1u8 0 "")))
+  (str.push (&mut out) (& (frame 1u8 4u8 1 (& block))))
+  (str.push (&mut out) (& (frame 0u8 1u8 1 (& (pack msg)))))
+  out)
+
+(fn finish ((s (& st))) (res str str)
+  (match (unpack (& (. s body)))
+    ((res.err e) (res.err e))
+    ((res.ok text)
+      (match (exec (& (. s path)) (& text))
+        ((res.err e) (res.ok (answer "12" (& e))))
+        ((res.ok v) (res.ok (answer "0" (& v))))))))
+
+(fn reply ((buf (& str))) (res (opt str) str)
+  (if (< (str.len buf) 24) (ret (res.ok (opt.none))))
+  (if (not (str.eq (& (str.slice buf 0 24)) "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+    (ret (res.err (str.from "h2.preface"))))
+  (let mut s (st 24 (str.new) (str.new) (str.new) 0u8))
+  (loop
+    (let n (try (step buf (&mut s))))
+    (if (== n 0) (ret (res.ok (opt.none))))
+    (if (== n 2)
+      (ret (match (finish (& s)) ((res.ok b) (res.ok (opt.some b))) ((res.err e) (res.err e)))))))
+
+(fn client ((path (& str)) (msg (& str))) str
+  (let mut out (str.from "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+  (str.push (&mut out) (& (frame 4u8 0u8 0 "")))
+  (let mut block (lit ":method" "POST"))
+  (str.push (&mut block) (& (lit ":path" path)))
+  (str.push (&mut out) (& (frame 1u8 4u8 1 (& block))))
+  (str.push (&mut out) (& (frame 0u8 1u8 1 (& (pack msg)))))
+  out)
+
+(pub (fn serve ((fd i64)) (res i64 str)
+  (let c (try (net.accept fd)))
+  (let mut buf (str.new))
+  (loop
+    (let chunk (try (net.recv c 512)))
+    (if (== (str.len (& chunk)) 0)
+      (do
+        (net.close c)
+        (if (< (str.len (& buf)) 24) (ret (res.err (str.from "h2.preface"))))
+        (ret (res.err (str.from "h2.frame")))))
+    (str.push (&mut buf) (& chunk))
+    (match (reply (& buf))
+      ((res.err e) (do (net.close c) (ret (res.err e))))
+      ((res.ok hit)
+        (match hit
+          ((opt.none) ())
+          ((opt.some body)
+            (do
+              (let sent (net.send c (& body)))
+              (net.close c)
+              (if (res.is_err (& sent)) (ret (res.err (res.unwrap_err sent))))
+              (ret (res.ok 1))))))))))
+
+(fn grpc_client ((port i64)) never
+  (let c (res.unwrap (net.connect port)))
+  (res.unwrap (net.send c (& (client "/hello" "hello"))))
+  (let body (res.unwrap (net.recv c 512)))
+  (net.close c)
+  (if (str.has (& body) "world") (sys._exit 0i32))
+  (sys._exit 1i32))
+
+(test grpc_fields
+  (assert_eq (& (res.unwrap (exec "/hello" (& (res.unwrap (unpack (& (pack "hello")))))))) "world")
+  (assert_eq (& (res.unwrap (exec "/add" (& (res.unwrap (unpack (& (pack "2 3")))))))) "5")
+  (assert_eq (& (res.unwrap_err (unpack "xx"))) "grpc.frame"))
+
+(test grpc_http
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (grpc_client port))
+  (let n (res.unwrap (serve l)))
+  (assert_eq n 1)
+  (net.close l)
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))

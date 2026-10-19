@@ -17,6 +17,7 @@
 | [gql](gql.md) | Fixed GraphQL subset. Query text in, JSON out. |
 | [xml](xml.md) | One XML document of elements and text. |
 | [soap](soap.md) | One SOAP envelope in, one XML envelope out. |
+| [grpc](grpc.md) | One unary gRPC call. Length-prefixed text, no protobuf. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Hash and eq are function pointers. |
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |

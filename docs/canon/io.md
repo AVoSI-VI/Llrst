@@ -50,6 +50,7 @@
 | websocket | `Upgrade: websocket` and `Sec-WebSocket-Version: 13` answers `101`. A masked text frame under 126 bytes is echoed |
 | graphql | `POST /graphql` body is the query text. `(gql.exec (& q))` returns JSON |
 | soap | `POST /soap` body is one XML envelope. `(soap.exec (& q))` returns XML |
+| grpc | `(grpc.serve fd)` accepts one connection and answers one unary call |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.
