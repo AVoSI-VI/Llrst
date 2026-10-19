@@ -218,6 +218,7 @@ Tools (`tools/`, `docs/tools/`)
 | thread | a pool of `n` pthreads created at `start`; a job is `(fn ((ptr u8)) unit)` plus a context pointer | the count does not grow; a worker cannot capture a binding; Windows pthread names are declared and not linked | `std/thread.llr` |
 | http | `llr-http` serves files, exact routes, and a WebSocket text echo on one poll loop | a route path is exact; chunked bodies are rejected; a WebSocket payload must be one text frame under 126 bytes; at most 4095 clients | `std/http.llr`, `tools/llr-http.llr` |
 | gql | `POST /graphql` takes the query text and returns JSON for `hello`, `ping`, and `add` | no schema, no variables, and no nested selection sets | `std/gql.llr` |
+| xml | one element document of elements and text | no attributes, namespaces, comments, or declarations; entities are `&lt;` `&gt;` `&amp;` | `std/xml.llr` |
 | regex | backtracking, ASCII, no non-greedy, no pattern backreferences; `--ic` lowercases pattern and text | fine for tool-sized input | `std/re.llr` |
 | perf | `vec.sort` allocates a scratch buffer; `map` bucket array never shrinks; a diff middle is capped at 4096 LCS cells | a larger middle is one replace hunk | `std/vec.llr`, `std/map.llr`, `std/diff.llr` |
 | cross | `tests/cross.sh` links aarch64, riscv64, and s390x freestanding with lld; apple-darwin stays an object check | a full `--target` link still needs a clang sysroot | `tests/cross.sh` |

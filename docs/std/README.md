@@ -15,6 +15,7 @@
 | [http](http.md) | HTTP/1.1 request and response in one buffer. No chunked bodies. |
 | [sha](sha.md) | SHA-1 digest and base64, used by the WebSocket handshake. |
 | [gql](gql.md) | Fixed GraphQL subset. Query text in, JSON out. |
+| [xml](xml.md) | One XML document of elements and text. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Hash and eq are function pointers. |
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
