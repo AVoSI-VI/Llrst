@@ -49,6 +49,7 @@
 | serve | `(http.serve fd root (& routes) stop_after)` returns `(res i64 str)`. `0` runs until killed. A route is method, path, and `(fn ((& req) (ptr u8)) resp)` |
 | websocket | `Upgrade: websocket` and `Sec-WebSocket-Version: 13` answers `101`. A masked text frame under 126 bytes is echoed |
 | graphql | `POST /graphql` body is the query text. `(gql.exec (& q))` returns JSON |
+| soap | `POST /soap` body is one XML envelope. `(soap.exec (& q))` returns XML |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

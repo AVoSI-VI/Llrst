@@ -1,0 +1,99 @@
+;; One SOAP envelope in, one XML envelope out. One operation.
+(use std.http)
+(use std.net)
+(use std.sys)
+(use std.xml)
+
+(fn fault ((msg (& str))) str
+  (xml.tag "Envelope" (& (xml.tag "Body" (& (xml.tag "Fault" (& (xml.escape msg))))))))
+
+(fn answer ((op (& str)) (value (& str))) str
+  (let inner (xml.tag "result" (& (xml.escape value))))
+  (xml.tag "Envelope" (& (xml.tag "Body" (& (xml.tag op (& inner)))))))
+
+(fn arg_int ((d (& xml.doc)) (n i64)) (opt i64)
+  (if (!= (xml.count d n) 1) (ret (opt.none)))
+  (let c (xml.child d n 0))
+  (if (!= (xml.kind d c) 1u8) (ret (opt.none)))
+  (str.to_int (xml.text d c)))
+
+(fn sum_args ((d (& xml.doc)) (op i64)) (res i64 str)
+  (let mut a 0)
+  (let mut b 0)
+  (for i 0 (xml.count d op)
+    (let c (xml.child d op i))
+    (if (!= (xml.kind d c) 0u8) (ret (res.err (str.from "soap.parse"))))
+    (let v (arg_int d c))
+    (if (opt.is_none (& v)) (ret (res.err (str.from "soap.parse"))))
+    (let n (opt.unwrap v))
+    (if (str.eq (xml.text d c) "a") (set a n))
+    (if (str.eq (xml.text d c) "b") (set b n)))
+  (res.ok (+ a b)))
+
+(fn add_answer ((d (& xml.doc)) (op i64)) str
+  (let s (sum_args d op))
+  (if (res.is_err (& s)) (ret (fault "soap.parse")))
+  (answer "add" (& (str.from_int (res.unwrap s)))))
+
+(fn operation ((d (& xml.doc))) (res i64 str)
+  (let r (. d root))
+  (if (not (str.eq (xml.text d r) "Envelope")) (ret (res.err (str.from "soap.parse"))))
+  (if (!= (xml.count d r) 1) (ret (res.err (str.from "soap.parse"))))
+  (let b (xml.child d r 0))
+  (if (!= (xml.kind d b) 0u8) (ret (res.err (str.from "soap.parse"))))
+  (if (not (str.eq (xml.text d b) "Body")) (ret (res.err (str.from "soap.parse"))))
+  (if (!= (xml.count d b) 1) (ret (res.err (str.from "soap.parse"))))
+  (let op (xml.child d b 0))
+  (if (!= (xml.kind d op) 0u8) (ret (res.err (str.from "soap.parse"))))
+  (res.ok op))
+
+(pub (fn exec ((q (& str))) str
+  (let parsed (xml.read q))
+  (if (res.is_err (& parsed)) (ret (fault "soap.parse")))
+  (let d (res.unwrap parsed))
+  (let found (operation (& d)))
+  (if (res.is_err (& found)) (ret (fault "soap.parse")))
+  (let op (res.unwrap found))
+  (let name (str.clone (xml.text (& d) op)))
+  (if (str.eq (& name) "hello") (ret (answer "hello" "world")))
+  (if (str.eq (& name) "ping") (ret (answer "ping" "pong")))
+  (if (str.eq (& name) "add") (ret (add_answer (& d) op)))
+  (let mut m (str.from "soap.op|name="))
+  (str.push (&mut m) (& name))
+  (fault (& m))))
+
+(fn soap ((r (& http.req)) (_ (ptr u8))) http.resp
+  (http.respond 200 "ok" "text/xml" (& (exec (& (. r body))))))
+
+(fn soap_client ((port i64)) never
+  (let c (res.unwrap (net.connect port)))
+  (res.unwrap (net.send c
+     "POST /soap HTTP/1.1\r\nHost: x\r\nContent-Length: 49\r\n\r\n<Envelope><Body><hello></hello></Body></Envelope>"))
+  (let body (res.unwrap (net.recv c 512)))
+  (net.close c)
+  (if (str.has (& body) "<result>world</result>") (sys._exit 0i32))
+  (sys._exit 1i32))
+
+(test soap_fields
+  (assert_eq (& (exec "<Envelope><Body><hello></hello></Body></Envelope>"))
+    "<Envelope><Body><hello><result>world</result></hello></Body></Envelope>")
+  (assert_eq (& (exec "<Envelope><Body><add><a>2</a><b>3</b></add></Body></Envelope>"))
+    "<Envelope><Body><add><result>5</result></add></Body></Envelope>")
+  (assert_eq (& (exec "<no>")) "<Envelope><Body><Fault>soap.parse</Fault></Body></Envelope>")
+  (assert_eq (& (exec "<Envelope><Body><no></no></Body></Envelope>"))
+    "<Envelope><Body><Fault>soap.op|name=no</Fault></Body></Envelope>"))
+
+(test soap_http
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (soap_client port))
+  (let mut routes (vec.new <http.route>))
+  (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/soap") soap))
+  (let n (res.unwrap (http.serve l "/tmp" (& routes) 1)))
+  (assert_eq n 1)
+  (net.close l)
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))

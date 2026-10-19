@@ -219,6 +219,7 @@ Tools (`tools/`, `docs/tools/`)
 | http | `llr-http` serves files, exact routes, and a WebSocket text echo on one poll loop | a route path is exact; chunked bodies are rejected; a WebSocket payload must be one text frame under 126 bytes; at most 4095 clients | `std/http.llr`, `tools/llr-http.llr` |
 | gql | `POST /graphql` takes the query text and returns JSON for `hello`, `ping`, and `add` | no schema, no variables, and no nested selection sets | `std/gql.llr` |
 | xml | one element document of elements and text | no attributes, namespaces, comments, or declarations; entities are `&lt;` `&gt;` `&amp;` | `std/xml.llr` |
+| soap | `POST /soap` takes one XML envelope and returns XML for `hello`, `ping`, and `add` | a body is one operation | `std/soap.llr` |
 | regex | backtracking, ASCII, no non-greedy, no pattern backreferences; `--ic` lowercases pattern and text | fine for tool-sized input | `std/re.llr` |
 | perf | `vec.sort` allocates a scratch buffer; `map` bucket array never shrinks; a diff middle is capped at 4096 LCS cells | a larger middle is one replace hunk | `std/vec.llr`, `std/map.llr`, `std/diff.llr` |
 | cross | `tests/cross.sh` links aarch64, riscv64, and s390x freestanding with lld; apple-darwin stays an object check | a full `--target` link still needs a clang sysroot | `tests/cross.sh` |
@@ -229,48 +230,48 @@ Tools (`tools/`, `docs/tools/`)
 | codegen | all locals in memory, `opt_level=speed` only on IR; `(inline (fn ...))` substitutes the body, including `ret`, loops, `match`, and owned parameters (`str.at`, `vec.get`) | a recursive call stays a call; a closure in the body is `inline.reject` | `mir/inline.rs` |
 
 ## 8. Suggested next steps, in order
-1. SOAP as one POST handler for a single XML envelope and a single XML response.
-2. gRPC as HTTP/2 with a length-prefixed frame. Document the subset; no protobuf compiler.
-3. MQTT as its own TCP listener in `std/mqtt.llr`: connect, publish, subscribe.
-4. The lifetime name `'static` is still not a region for any type other than a string literal (`borrow/holders.rs`).
-5. A function pointer still cannot capture a needle. User traits do not exist (`docs/canon/collections.md`).
-6. Without `--checked`, a `shl` or `shr` count outside `0..bitwidth` is still undefined (`codegen/ops.rs`).
-7. Float-to-int `(as T n)` still saturates under `--checked`. Int-to-float is not checked (`codegen/ops.rs`).
-8. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
-9. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
-10. A field write does not initialize the struct (`borrow/moves.rs`).
-11. The Windows extern file is selected but not linked, and `fork` stays the POSIX symbol (`std/sys_windows.llr`).
-12. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
-13. `llr_readdir_name` has been run on Linux only (`runtime/llr_stat.c`).
-14. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
-15. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
-16. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
-17. A warning whose code was not denied still exits 0 (`diag.rs`).
-18. Public functions and `std` modules are not warned for unused imports or private functions (`mir/lint.rs`).
-19. A generic is still typechecked only for the instances the driver compiles (`compiler/src/driver.rs`).
-20. A private variant is still usable in the enum's own file (`check/call.rs`).
-21. `mem.replace` of a whole struct still copies private fields (`mir/lower_call.rs`).
-22. `vec.index` takes `eq` on each call and cannot capture a needle (`std/vec.llr`).
-23. `vec.any` is not a method. A predicate cannot capture a needle (`docs/canon/collections.md`).
-24. Heads shrink to a power of two, minimum 16, when `len * 8 <= heads` (`std/map.llr`).
-25. A closure captures whole bindings. A captured reference must outlive the closure, and `(clos ...)` does not coerce to `(fn ...)`. A closure body cannot contain a closure (`check/clos.rs`).
-26. A backreference compares captured bytes. An unset group does not match (`std/re.llr`).
-27. `llr-write` replaces the whole file from stdin and does not create parent directories (`tools/llr-write.llr`).
-28. `llr-ls` lists one directory and does not recurse (`tools/llr-ls.llr`).
-29. `llr-rm` deletes a file and does not remove a directory (`tools/llr-rm.llr`).
-30. `llr-git` reads status, diff, and log and does not change the repo (`tools/llr-git.llr`).
-31. `llr-check` still does not emit `type.not_callable`, `type.no_variant`, `type.not_numeric`, `type.not_bool`, or `type.generic_arity` (`std/check.llr`).
-32. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
-33. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
-34. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
-35. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
-36. `net.connect` is 127.0.0.1 only, and the Windows file declares the POSIX socket names and is not linked (`std/net.llr`, `std/sys_windows.llr`).
-37. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
-38. The pool size is fixed at start, a worker cannot capture a binding, and the Windows file declares the pthread names and is not linked (`std/thread.llr`, `std/sys_windows.llr`).
-39. Chunked transfer and trailers are not parsed (`std/http.llr`).
-40. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
-41. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
-42. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
+1. gRPC as HTTP/2 with a length-prefixed frame. Document the subset; no protobuf compiler.
+2. MQTT as its own TCP listener in `std/mqtt.llr`: connect, publish, subscribe.
+3. The lifetime name `'static` is still not a region for any type other than a string literal (`borrow/holders.rs`).
+4. A function pointer still cannot capture a needle. User traits do not exist (`docs/canon/collections.md`).
+5. Without `--checked`, a `shl` or `shr` count outside `0..bitwidth` is still undefined (`codegen/ops.rs`).
+6. Float-to-int `(as T n)` still saturates under `--checked`. Int-to-float is not checked (`codegen/ops.rs`).
+7. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
+8. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
+9. A field write does not initialize the struct (`borrow/moves.rs`).
+10. The Windows extern file is selected but not linked, and `fork` stays the POSIX symbol (`std/sys_windows.llr`).
+11. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
+12. `llr_readdir_name` has been run on Linux only (`runtime/llr_stat.c`).
+13. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
+14. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
+15. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
+16. A warning whose code was not denied still exits 0 (`diag.rs`).
+17. Public functions and `std` modules are not warned for unused imports or private functions (`mir/lint.rs`).
+18. A generic is still typechecked only for the instances the driver compiles (`compiler/src/driver.rs`).
+19. A private variant is still usable in the enum's own file (`check/call.rs`).
+20. `mem.replace` of a whole struct still copies private fields (`mir/lower_call.rs`).
+21. `vec.index` takes `eq` on each call and cannot capture a needle (`std/vec.llr`).
+22. `vec.any` is not a method. A predicate cannot capture a needle (`docs/canon/collections.md`).
+23. Heads shrink to a power of two, minimum 16, when `len * 8 <= heads` (`std/map.llr`).
+24. A closure captures whole bindings. A captured reference must outlive the closure, and `(clos ...)` does not coerce to `(fn ...)`. A closure body cannot contain a closure (`check/clos.rs`).
+25. A backreference compares captured bytes. An unset group does not match (`std/re.llr`).
+26. `llr-write` replaces the whole file from stdin and does not create parent directories (`tools/llr-write.llr`).
+27. `llr-ls` lists one directory and does not recurse (`tools/llr-ls.llr`).
+28. `llr-rm` deletes a file and does not remove a directory (`tools/llr-rm.llr`).
+29. `llr-git` reads status, diff, and log and does not change the repo (`tools/llr-git.llr`).
+30. `llr-check` still does not emit `type.not_callable`, `type.no_variant`, `type.not_numeric`, `type.not_bool`, or `type.generic_arity` (`std/check.llr`).
+31. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
+32. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
+33. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
+34. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
+35. `net.connect` is 127.0.0.1 only, and the Windows file declares the POSIX socket names and is not linked (`std/net.llr`, `std/sys_windows.llr`).
+36. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
+37. The pool size is fixed at start, a worker cannot capture a binding, and the Windows file declares the pthread names and is not linked (`std/thread.llr`, `std/sys_windows.llr`).
+38. Chunked transfer and trailers are not parsed (`std/http.llr`).
+39. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
+40. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
+41. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
+42. A SOAP body is one operation, and XML has no attributes, namespaces, or comments (`std/soap.llr`, `std/xml.llr`).
 
 ## 9. Conventions to keep
 

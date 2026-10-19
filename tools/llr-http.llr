@@ -1,4 +1,4 @@
-;; llr-http ROOT PORT: files under ROOT, GET /health, and POST /graphql.
+;; llr-http ROOT PORT: files under ROOT, GET /health, POST /graphql, and POST /soap.
 (use std.cli)
 (use std.fmt)
 (use std.gql)
@@ -6,6 +6,7 @@
 (use std.io)
 (use std.net)
 (use std.os)
+(use std.soap)
 (use std.str)
 
 (fn health ((_ (& http.req)) (_ (ptr u8))) http.resp (http.respond 200 "ok" "text/plain" "ok"))
@@ -13,10 +14,13 @@
 (fn graphql ((r (& http.req)) (_ (ptr u8))) http.resp
   (http.respond 200 "ok" "application/json" (& (gql.exec (& (. r body))))))
 
+(fn soap_post ((r (& http.req)) (_ (ptr u8))) http.resp
+  (http.respond 200 "ok" "text/xml" (& (soap.exec (& (. r body))))))
+
 (fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<http>|0|0|0" e))) (os.exit 1))
 
 (fn main () unit
-  (let mut c (cli.new "llr-http" "serve files, GET /health, and POST /graphql"))
+  (let mut c (cli.new "llr-http" "serve files, GET /health, POST /graphql, and POST /soap"))
   (cli.pos (&mut c) "root")
   (cli.pos (&mut c) "port")
   (cli.parse (&mut c) (os.args))
@@ -29,5 +33,6 @@
   (let mut routes (vec.new <http.route>))
   (vec.push (&mut routes) (http.route (str.from "GET") (str.from "/health") health))
   (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/graphql") graphql))
+  (vec.push (&mut routes) (http.route (str.from "POST") (str.from "/soap") soap_post))
   (let ran (http.serve (res.unwrap l) root (& routes) 0))
   (if (res.is_err (& ran)) (die (& (res.unwrap_err ran)))))
