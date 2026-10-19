@@ -18,6 +18,7 @@
 | [xml](xml.md) | One XML document of elements and text. |
 | [soap](soap.md) | One SOAP envelope in, one XML envelope out. |
 | [grpc](grpc.md) | One unary gRPC call. Length-prefixed text, no protobuf. |
+| [cmp](cmp.md) | `Eq`, `Ord`, `Hash`, and `Clone`. |
 | [mqtt](mqtt.md) | One MQTT connection. Connect, subscribe, and QoS 0 publish. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Hash and eq are function pointers. |

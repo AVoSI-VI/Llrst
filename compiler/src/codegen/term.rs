@@ -126,6 +126,9 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     pub fn call(&mut self, func: &Func, args: &[Operand], dest: &Place, next: BlockId, span: Span) -> PResult<()> {
+        if let Func::Dyn { trait_id, slot } = func {
+            return self.dyn_call(*trait_id, *slot, args, dest, next);
+        }
         let _ = span;
         let mut vals: Vec<Value> = Vec::new();
         let (daddr, dty) = self.place_addr(dest);
@@ -135,6 +138,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 Some(Ty::Fn(_, r)) => *r,
                 _ => dty.clone(),
             },
+            Func::Dyn { .. } => unreachable!(),
             Func::Clos(op) => match op.place().map(|p| place_ty(self.cg.prog, self.body, p)) {
                 Some(Ty::Clos(_, r)) => *r,
                 _ => dty.clone(),
@@ -162,6 +166,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let sr = self.b.import_signature(sig);
                 self.b.ins().call_indirect(sr, fv, &vals)
             }
+            Func::Dyn { .. } => unreachable!(),
             Func::Clos(op) => {
                 let (val, ty) = self.operand(op);
                 let Val::Agg(addr) = val else { panic!("clos aggregate") };

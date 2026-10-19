@@ -61,6 +61,10 @@ pub enum Ty {
     Fn(Vec<Ty>, Box<Ty>),
     /// Owned closure. The environment is erased; the value is call code, drop code, and a heap env.
     Clos(Vec<Ty>, Box<Ty>),
+    /// Fat pointer: data, then vtable. `mutable` is the reference's mutability.
+    Dyn { mutable: bool, trait_id: DefId },
+    /// The trait's implementing type, only inside a trait signature.
+    SelfTy,
     /// Generic parameter, index into the enclosing generics list.
     Param(u32, String),
     /// Inference variable. `int` marks an unsuffixed integer literal.
@@ -71,7 +75,8 @@ impl Ty {
     pub fn is_copy(&self, adt_is_copy: &dyn Fn(DefId) -> bool) -> bool {
         match self {
             Ty::Int(_) | Ty::F32 | Ty::F64 | Ty::Bool | Ty::Unit | Ty::Never | Ty::Ptr(_) | Ty::Fn(..) => true,
-            Ty::Clos(..) => false,
+            Ty::Clos(..) | Ty::SelfTy => false,
+            Ty::Dyn { mutable, .. } => !mutable,
             Ty::Ref { mutable, .. } => !mutable,
             Ty::Adt(d, _) => adt_is_copy(*d),
             Ty::Param(..) | Ty::Infer(..) => false,
@@ -125,6 +130,7 @@ impl Ty {
             Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(|t| t.subst(args)).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
             Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
+            Ty::Dyn { .. } | Ty::SelfTy => self.clone(),
             _ => self.clone(),
         }
     }
@@ -187,6 +193,8 @@ impl<'a> TyPrinter<'a> {
             }
             Ty::Fn(ps, r) => fn_show("fn", ps, r, self),
             Ty::Clos(ps, r) => fn_show("clos", ps, r, self),
+            Ty::Dyn { mutable, trait_id } => format!("({} (dyn {}))", if *mutable { "&mut" } else { "&" }, (self.names)(*trait_id)),
+            Ty::SelfTy => "Self".into(),
             Ty::Param(_, n) => n.clone(),
             Ty::Infer(_, true) => "{int}".into(),
             Ty::Infer(_, false) => "?".into(),

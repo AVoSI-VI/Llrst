@@ -92,7 +92,12 @@ No implicit numeric conversion anywhere. `llrc build --checked` makes an integer
 panic with `P|FILE|LINE|COL|cast.overflow` when the value does not fit in `T`. Bool-to-int,
 int-to-float, and float-to-int stay unchecked; float-to-int still saturates.
 
-## Traits (v1)
+## Traits
 
-Only compiler-known traits exist: `drop` (see memory.md), `copy` (primitives, refs, raw
-pointers, `(fn ...)`). User traits are not in v1; use generic functions and enums instead.
+`(trait Eq (fn eq ((& Self) (& Self)) bool))` declares a trait. `(impl Eq i64 (fn eq ...))` is the impl. The impl type is a concrete name. `(Eq.eq a b)` on a concrete type, including a substituted generic, is a direct call to that impl.
+
+`<T:Eq:Ord>` adds bounds. A missing impl is `trait.missing|trait=|ty=`. A second impl is `trait.dup|trait=|ty=`.
+
+`(& (dyn Eq))` and `(&mut (dyn Eq))` are a 16-byte value: data pointer, then vtable. Passing `(& n)` where that type is expected builds it when `n`'s type implements the trait. A method that returns `Self` or takes `Self` by value is `trait.object|why=self`, so `Clone` is static only.
+
+`drop` and `copy` stay compiler-known. `copy` is primitives, shared refs, raw pointers, `(fn ...)`, and a shared trait object.

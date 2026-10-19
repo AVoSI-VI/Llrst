@@ -33,6 +33,7 @@ impl<'a> Lower<'a> {
             Callee::Fn(d, targs) => Func::Def(*d, targs.clone()),
             Callee::Ptr(e) => Func::Ptr(self.as_operand(e)),
             Callee::Clos(e) => Func::Clos(Operand::Copy(self.as_place(e))),
+            Callee::Dyn { trait_id, slot } => Func::Dyn { trait_id: *trait_id, slot: *slot },
             _ => unreachable!(),
         };
         if self.inline_call(&func, &ops, &dest, sp) {
@@ -142,5 +143,13 @@ impl<'a> Lower<'a> {
         if !vty.is_unit() {
             self.assign(&dest, Rvalue::Use(vop), sp);
         }
+    }
+
+    pub fn lower_dyn_pack(&mut self, data: &Expr, trait_id: crate::ty::DefId, self_ty: &Ty, dest: Place, sp: Span) {
+        let ptr = self.as_operand(data);
+        let slot = self.temp(Ty::Ptr(Box::new(Ty::Int(IntTy::U8))), sp);
+        self.assign(&Place::local(slot), Rvalue::Vtable(trait_id, self_ty.clone()), sp);
+        let ty = place_ty(self.prog, &self.body, &dest);
+        self.assign(&dest, Rvalue::Struct(ty, vec![ptr, Operand::Copy(Place::local(slot))]), sp);
     }
 }

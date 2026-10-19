@@ -20,6 +20,7 @@ pub struct EnumDef {
 
 pub struct FnDef {
     pub generics: Vec<String>,
+    pub bounds: Vec<Vec<DefId>>,
     pub lifetimes: Vec<String>,
     pub params: Vec<(String, Ty)>,
     pub ret: Ty,
@@ -35,11 +36,17 @@ pub struct ConstDef {
     pub value: ast::Expr,
 }
 
+pub struct TraitDef {
+    pub methods: Vec<(String, Vec<Ty>, Ty)>,
+    pub object_safe: bool,
+}
+
 pub enum DefKind {
     Struct(StructDef),
     Enum(EnumDef),
     Fn(FnDef),
     Const(ConstDef),
+    Trait(TraitDef),
 }
 
 pub struct Def {
@@ -66,6 +73,8 @@ pub struct Program {
     pub methods: HashMap<DefId, HashMap<String, DefId>>,
     pub main_module: u32,
     pub prelude: HashMap<String, DefId>,
+    /// `(trait, self type)` to impl methods, in trait order.
+    pub impls: HashMap<(DefId, Ty), Vec<DefId>>,
     pub target_arch: String,
     pub used_fns: RefCell<HashSet<DefId>>,
     pub used_uses: RefCell<HashSet<(u32, String)>>,
@@ -98,6 +107,12 @@ impl Program {
             DefKind::Struct(s) => &s.generics,
             DefKind::Enum(e) => &e.generics,
             _ => &[],
+        }
+    }
+    pub fn trait_def(&self, id: DefId) -> Option<&TraitDef> {
+        match &self.def(id).kind {
+            DefKind::Trait(t) => Some(t),
+            _ => None,
         }
     }
     pub fn type_name(&self, id: DefId) -> String {
@@ -278,7 +293,7 @@ impl<'a> Loader<'a> {
 }
 
 fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
-    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), target_arch: String::new(), used_fns: RefCell::new(HashSet::new()), used_uses: RefCell::new(HashSet::new()) };
+    let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), impls: HashMap::new(), target_arch: String::new(), used_fns: RefCell::new(HashSet::new()), used_uses: RefCell::new(HashSet::new()) };
     for (path, file, items, is_std) in &parsed {
         let mi = prog.modules.len() as u32;
         let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), tests: Vec::new(), is_std: *is_std };
@@ -301,11 +316,18 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                         prog.prelude.insert(e.name.clone(), id);
                     }
                 }
+                Item::Trait(t) => {
+                    let id = push_def(&mut prog, &mut m, &t.name, mi, t.span, DefKind::Trait(TraitDef { methods: Vec::new(), object_safe: true }), t.is_pub, diags);
+                    if *is_std && t.is_pub {
+                        prog.prelude.insert(t.name.clone(), id);
+                    }
+                }
                 _ => {}
             }
         }
         prog.modules.push(m);
     }
+    crate::traitres::load(&mut prog, &parsed, diags)?;
     for (mi, (_, _, items, _)) in parsed.iter().enumerate() {
         let mi = mi as u32;
         for it in items {
@@ -361,7 +383,7 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     prog.modules[mi as usize] = m;
                 }
                 Item::Test(t) => prog.modules[mi as usize].tests.push(t.clone()),
-                Item::Use(..) | Item::Mod(..) => {}
+                Item::Use(..) | Item::Mod(..) | Item::Trait(_) | Item::TraitImpl(_) => {}
             }
         }
     }
@@ -382,8 +404,7 @@ fn push_def(prog: &mut Program, m: &mut Module, name: &str, module: u32, span: S
 }
 
 fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Option<DefId>) -> PResult<FnDef> {
-    let mut generics = outer.to_vec();
-    generics.extend(f.generics.types.iter().cloned());
+    let (generics, bounds) = crate::traitres::fn_generics(prog, mi, outer, &f.generics, f.span)?;
     let params = f.params.iter().map(|p| Ok((p.name.clone(), resolve_ty(prog, mi, &generics, &p.ty)?))).collect::<PResult<Vec<_>>>()?;
     let ret = resolve_ty(prog, mi, &generics, &f.ret)?;
     Ok(FnDef {
@@ -396,51 +417,17 @@ fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Op
         owner,
         has_body: !f.is_extern,
         inline: f.inline,
+        bounds,
     })
 }
 
-fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Option<DefId>, diags: &Diags) -> PResult<FnDef> {
+pub fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Option<DefId>, diags: &Diags) -> PResult<FnDef> {
     let mut def = make_fn(prog, mi, f, outer, owner)?;
-    if let Some(d) = inline_reject(f) {
+    if let Some(d) = crate::inl::inline_reject(f) {
         diags.push(d);
         def.inline = false;
     }
     Ok(def)
-}
-fn inline_reject(f: &ast::FnDecl) -> Option<Diag> {
-    if !f.inline {
-        return None;
-    }
-    if f.is_extern {
-        return Some(Diag::error(f.span, "inline.reject").kv("why", "extern"));
-    }
-    if has_clos(&f.body) {
-        return Some(Diag::error(f.span, "inline.reject").kv("why", "form").kv("got", "clos"));
-    }
-    None
-}
-
-fn has_clos(xs: &[ast::Expr]) -> bool {
-    xs.iter().any(expr_clos)
-}
-
-fn expr_clos(e: &ast::Expr) -> bool {
-    use ast::ExprKind::*;
-    match &e.kind {
-        Clos { .. } => true,
-        Let { init, .. } => init.as_deref().map(expr_clos).unwrap_or(false),
-        Set { place, value } | Bin { l: place, r: value, .. } | And(place, value) | Or(place, value) | AssertEq(place, value) => expr_clos(place) || expr_clos(value),
-        Do(xs) | Loop(xs) => has_clos(xs),
-        While { cond, body } => expr_clos(cond) || has_clos(body),
-        For { lo, hi, body, .. } => expr_clos(lo) || expr_clos(hi) || has_clos(body),
-        If { cond, then, els } => expr_clos(cond) || expr_clos(then) || els.as_deref().map(expr_clos).unwrap_or(false),
-        Return(v) => v.as_deref().map(expr_clos).unwrap_or(false),
-        Match { scrut, arms } => expr_clos(scrut) || arms.iter().any(|a| expr_clos(&a.body)),
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Try(place) | Panic(place) | Assert(place) | Drop(place) | Field { base: place, .. } | Cast { expr: place, .. } => expr_clos(place),
-        Call { args, .. } => has_clos(args),
-        CallPtr { callee, args } => expr_clos(callee) || has_clos(args),
-        Break | Continue | Lit(_) | Name(_) | Sizeof(_) => false,
-    }
 }
 
 pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) -> PResult<Ty> {
@@ -459,6 +446,9 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
             }
             if let Some(i) = generics.iter().position(|g| g == n) {
                 return Ok(Ty::Param(i as u32, n.clone()));
+            }
+            if n == "Self" {
+                return Ok(Ty::SelfTy);
             }
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
             if !prog.visible(module, d) {
@@ -481,7 +471,11 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
             }
             Ty::Adt(d, args.iter().map(|a| resolve_ty(prog, module, generics, a)).collect::<PResult<Vec<_>>>()?)
         }
-        TyExpr::Ref { mutable, lt, inner, .. } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(resolve_ty(prog, module, generics, inner)?) },
+        TyExpr::Ref { mutable, lt, inner, .. } => match inner.as_ref() {
+            TyExpr::Dyn(name, sp) => crate::traitres::dyn_ty(prog, module, *mutable, name, *sp)?,
+            _ => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(resolve_ty(prog, module, generics, inner)?) },
+        },
+        TyExpr::Dyn(_, sp) => return Err(Diag::error(*sp, "trait.object").kv("why", "ref")),
         TyExpr::Ptr(inner, _) => Ty::Ptr(Box::new(resolve_ty(prog, module, generics, inner)?)),
         TyExpr::Fn(ps, r, _) | TyExpr::Clos(ps, r, _) => crate::ty::fn_clos(matches!(t, TyExpr::Clos(..)),
             ps.iter().map(|a| resolve_ty(prog, module, generics, a)).collect::<PResult<Vec<_>>>()?,

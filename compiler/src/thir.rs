@@ -66,6 +66,8 @@ pub enum Callee {
     Builtin(Builtin),
     Sizeof(Ty),
     Clos(Box<Expr>),
+    /// Virtual call. `slot` is the method index. Args include the fat receiver.
+    Dyn { trait_id: DefId, slot: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +138,8 @@ pub enum ExprKind {
     Try { expr: Box<Expr>, is_res: bool },
     /// Owned closure. `caps` are the enclosing bindings, copied or moved into the env.
     Closure { caps: Vec<Expr>, inner: ClosBody },
+    /// `&T` stored as a fat pointer for `trait_id`.
+    DynPack { data: Box<Expr>, trait_id: DefId, self_ty: Ty },
 }
 
 impl Expr {

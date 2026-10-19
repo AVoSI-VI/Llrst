@@ -245,6 +245,9 @@ impl<'a> Checker<'a> {
 
     /// Unifies with the expected type, inserting the `&mut T` to `& T` coercion when needed.
     pub fn coerce(&mut self, e: Expr, want: &Ty) -> PResult<Expr> {
+        if matches!(self.shallow(want), Ty::Dyn { .. }) {
+            return self.finish_arg(e, want);
+        }
         if self.unify(&e.ty, want) {
             return Ok(e);
         }

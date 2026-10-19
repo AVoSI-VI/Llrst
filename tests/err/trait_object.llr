@@ -1,0 +1,3 @@
+(fn f ((a (& (dyn Clone)))) unit ())
+
+(fn main () unit ())

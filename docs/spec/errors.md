@@ -73,6 +73,7 @@ and also exits 101. Without `--checked`, dividing the minimum signed value by `-
 | `flow.*` | `flow.brk_outside` `flow.missing_ret` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |
 | `clos.nested` | a closure body contains a closure |
+| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self`) `trait.method` (`name=`) |
 | `link.*` | `link.failed` (`cmd= status=`) |
 | `io.*` | `io.read` (`path=`) |
 

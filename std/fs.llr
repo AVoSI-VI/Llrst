@@ -76,7 +76,7 @@
     (let name (str.from_cstr (sys.llr_readdir_name e)))
     (if (not (or (str.eq (& name) ".") (str.eq (& name) ".."))) (vec.push (&mut out) name)))
   (sys.closedir d)
-  (vec.sort (&mut out) vec.cmp_str)
+  (vec.sort (&mut out))
   (res.ok out)))
 
 ;; mtime seconds and byte size come from runtime/llr_stat.c, which uses the host stat.

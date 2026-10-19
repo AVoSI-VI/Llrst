@@ -197,6 +197,14 @@
 (fn parse_impl ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
   (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "type" "eof"))))
+  (if (and (> (vec.len (& ids)) 2)
+     (and (== (sexp.kind t (@ (vec.get (& ids) 2))) 0u8)
+       (not (str.starts (sexp.text t (@ (vec.get (& ids) 2))) "<"))))
+    (ret (res.ok (blank_item 10u8
+        (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+        false
+        (sexp.line t n)
+        (sexp.col t n)))))
   (let mut gens (vec.new <str>))
   (let at (try (take_gens t (& ids) 2 (&mut gens))))
   (let mut fns (vec.new <item>))
@@ -252,6 +260,7 @@
   (if (str.eq h "struct") (ret (parse_struct t n is_pub)))
   (if (str.eq h "enum") (ret (parse_enum t n is_pub)))
   (if (str.eq h "const") (ret (parse_const t n is_pub)))
+  (if (str.eq h "trait") (ret (parse_named t n 9u8 is_pub)))
   (if (and (str.eq h "impl") (not is_pub)) (ret (parse_impl t n)))
   (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
   (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))

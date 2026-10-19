@@ -443,6 +443,7 @@ impl<'a> Lower<'a> {
                 self.cur = join;
             }
             ExprKind::Call { callee, args } => self.lower_call(callee, args, &e.ty, dest, sp),
+            ExprKind::DynPack { data, trait_id, self_ty } => self.lower_dyn_pack(data, *trait_id, self_ty, dest, sp),
             ExprKind::Struct { fields, .. } => {
                 let ops: Vec<Operand> = fields.iter().map(|f| self.as_operand(f)).collect();
                 self.assign(&dest, Rvalue::Struct(e.ty.clone(), ops), sp);

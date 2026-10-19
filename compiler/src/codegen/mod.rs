@@ -6,6 +6,7 @@ mod ovf;
 pub mod layout;
 mod ops;
 mod term;
+mod vtbl;
 
 use crate::diag::{Diag, PResult, SourceMap, Span};
 use crate::mir::Body;
@@ -34,6 +35,7 @@ pub struct Codegen<'a> {
     pub pending_drops: Vec<Ty>,
     /// `{body.name}` of a closure -> (trampoline, env drop).
     pub clos_ids: HashMap<String, (FuncId, FuncId)>,
+    pub vtables: HashMap<(DefId, Ty), DataId>,
     pub argc: DataId,
     pub argv: DataId,
     /// Head of the panic frame list. Each frame is `{prev, name}`.
@@ -93,6 +95,7 @@ impl<'a> Codegen<'a> {
             drops: HashMap::new(),
             pending_drops: Vec::new(),
             clos_ids: HashMap::new(),
+            vtables: HashMap::new(),
             argc,
             argv,
             trace,

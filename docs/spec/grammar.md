@@ -21,7 +21,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (mod NAME)                                   ; declares this file is module NAME
 (use PATH)                                   ; import module; PATH = std.io | my.mod
 (fn NAME ARGS RET BODY...)                   ; function
-(fn NAME <T U> ARGS RET BODY...)             ; generic function
+(fn NAME <T:Eq U> ARGS RET BODY...)          ; bound list after the colon; several params stay separate
 (inline (fn ...))                            ; substitute the body; a recursive call stays a call
 (pub (inline (fn ...)))                      ; public form of the same
 (extern NAME ARGS RET)                       ; C ABI import, no body
@@ -31,9 +31,11 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (enum NAME <T> VARIANT...)
 (impl TYPE FN...)                            ; methods; called as TYPE.NAME
 (impl TYPE <T> FN...)
+(trait NAME (fn NAME (TYPE...) TYPE)...)     ; method params are types; first is (& Self) or (&mut Self)
+(impl TRAIT TYPE FN...)                      ; monomorphized impl; TYPE is a concrete name
 (const NAME TYPE EXPR)                       ; compile-time scalar or string literal
 (test NAME BODY...)                          ; test body, run by llr-test
-(pub FORM)                                   ; export; FORM is fn extern struct enum const (per method inside impl)
+(pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )
 FIELD  := (NAME TYPE) | (pub (NAME TYPE))   ; private unless pub
@@ -51,6 +53,7 @@ TYPE := i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64 | f32 | f64 | bool | unit | 
       | (ptr TYPE)                           ; raw pointer, std internals only
       | (fn (TYPE...) TYPE)                  ; function pointer
       | (clos (TYPE...) TYPE)                ; owned closure; not a function pointer
+      | (& (dyn TRAIT)) | (&mut (dyn TRAIT))     ; fat pointer: data, then vtable
       | T                                    ; generic parameter in scope
 ```
 

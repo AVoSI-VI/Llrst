@@ -86,12 +86,14 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
                 Callee::Clos(x) => Callee::Clos(bx(c, x)?),
                 Callee::Builtin(b) => Callee::Builtin(b),
                 Callee::Sizeof(t) => Callee::Sizeof(zonk_tys(c, &[t], span)?.remove(0)),
+                Callee::Dyn { trait_id, slot } => Callee::Dyn { trait_id, slot },
             };
             ExprKind::Call { callee, args: args.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? }
         }
         ExprKind::Struct { def, fields } => ExprKind::Struct { def, fields: fields.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? },
         ExprKind::Variant { def, idx, fields } => ExprKind::Variant { def, idx, fields: fields.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? },
         ExprKind::Try { expr, is_res } => ExprKind::Try { expr: bx(c, expr)?, is_res },
+        ExprKind::DynPack { data, trait_id, self_ty } => ExprKind::DynPack { data: bx(c, data)?, trait_id, self_ty: c.zonk_ty(&self_ty) },
         ExprKind::Closure { caps, mut inner } => {
             inner.ret = c.zonk_ty(&inner.ret);
             inner.caps = zonk_tys(c, &inner.caps, span)?;

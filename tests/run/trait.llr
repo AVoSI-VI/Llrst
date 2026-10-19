@@ -1,0 +1,13 @@
+(use std.io)
+
+(fn both ((a (& (dyn Eq))) (b (& (dyn Eq)))) bool (Eq.eq a b))
+
+(fn main () unit
+  (let a 1)
+  (let b 1)
+  (let c 2)
+  (assert (Eq.eq (& a) (& b)))
+  (assert (not (Eq.eq (& a) (& c))))
+  (assert (both (& a) (& b)))
+  (assert (not (both (& a) (& c))))
+  (io.puts "ok"))

@@ -34,9 +34,9 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "pub", "1", n));
             }
             let inner = items[1].head().unwrap_or("");
-            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline") {
+            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline" | "trait") {
                 return Err(Diag::error(items[1].span(), "parse.expect")
-                    .kv("want", "fn extern struct enum const inline")
+                    .kv("want", "fn extern struct enum const inline trait")
                     .kv("got", inner)
                     .kv("fix", "(pub (fn ...)) per method"));
             }
@@ -110,13 +110,31 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
             Item::Enum(EnumDecl { name, generics, variants, is_pub, span: sp })
         }
         "impl" => {
-            let ty_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "1+", n))?)?;
-            let (generics, at) = parse_generics(items, 2)?;
-            let mut fns = Vec::new();
-            for f in &items[at..] {
-                fns.push(method_fn(f)?);
+            if is_trait_impl(items) {
+                let trait_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "2+", n))?)?;
+                let ty_name = name_of(&items[2])?;
+                let mut methods = Vec::new();
+                for f in &items[3..] {
+                    methods.push(method_fn(f)?);
+                }
+                Item::TraitImpl(TraitImpl { trait_name, ty_name, methods, span: sp })
+            } else {
+                let ty_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "1+", n))?)?;
+                let (generics, at) = parse_generics(items, 2)?;
+                let mut fns = Vec::new();
+                for f in &items[at..] {
+                    fns.push(method_fn(f)?);
+                }
+                Item::Impl(ImplDecl { ty_name, generics, fns, span: sp })
             }
-            Item::Impl(ImplDecl { ty_name, generics, fns, span: sp })
+        }
+        "trait" => {
+            let name = name_of(items.get(1).ok_or_else(|| arity(sp, "trait", "1+", n))?)?;
+            let mut methods = Vec::new();
+            for f in &items[2..] {
+                methods.push(trait_method(f)?);
+            }
+            Item::Trait(TraitDecl { name, methods, is_pub, span: sp })
         }
         "const" => {
             if n != 3 {
@@ -165,6 +183,37 @@ fn inline_fn(inner: &Sexpr, is_pub: bool) -> PResult<FnDecl> {
     let mut f = parse_fn(list, inner.span(), head == "extern", is_pub)?;
     f.inline = true;
     Ok(f)
+}
+
+/// `(fn eq ((& Self) (& Self)) bool)` : parameters are types, not bindings.
+fn trait_method(s: &Sexpr) -> PResult<FnDecl> {
+    let l = s.list().ok_or_else(|| Diag::error(s.span(), "parse.expect").kv("want", "(fn ...)"))?;
+    if !l.first().map_or(false, |h| h.is_atom("fn")) || l.len() < 4 {
+        return Err(Diag::error(s.span(), "parse.expect").kv("want", "(fn name (types) ret)").kv("got", s.show()));
+    }
+    let plist = l[2].list().ok_or_else(|| Diag::error(l[2].span(), "parse.expect").kv("want", "(types)"))?;
+    let mut params = Vec::new();
+    for (i, p) in plist.iter().enumerate() {
+        params.push(Param { name: format!("_{i}"), ty: parse_ty(p)?, span: p.span() });
+    }
+    Ok(FnDecl {
+        name: name_of(&l[1])?,
+        generics: Generics { types: Vec::new(), bounds: Vec::new(), lifetimes: Vec::new() },
+        params,
+        ret: parse_ty(&l[3])?,
+        body: Vec::new(),
+        is_extern: false,
+        is_pub: true,
+        inline: false,
+        span: s.span(),
+    })
+}
+
+fn is_trait_impl(items: &[Sexpr]) -> bool {
+    match items.get(2).and_then(|s| s.atom()) {
+        Some(a) => !a.starts_with('<'),
+        None => false,
+    }
 }
 
 /// A method is `(fn ...)`, `(pub (fn ...))`, or `(pub (inline (fn ...)))`.

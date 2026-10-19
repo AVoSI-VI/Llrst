@@ -53,6 +53,16 @@ impl<'a> Checker<'a> {
         if let Some(b) = Builtin::from_path(callee) {
             return self.check_builtin(b, &targs, args, want, sp);
         }
+        if let Some((tr_name, method)) = callee.split_once('.') {
+            if let Some(id) = crate::traitres::lookup(self.prog, self.module, tr_name) {
+                if self.prog.trait_def(id).is_some() {
+                    self.require_visible(id, sp)?;
+                    if let Some(e) = self.trait_call(id, method, args, sp)? {
+                        return Ok(e);
+                    }
+                }
+            }
+        }
         Err(Diag::error(sp, "name.unknown").kv("name", callee))
     }
 
@@ -80,15 +90,15 @@ impl<'a> Checker<'a> {
         let mut out = Vec::new();
         for (a, p) in args.iter().zip(params) {
             let e = self.check_expr(a, Some(p))?;
-            self.expect(&e, p)?;
-            out.push(e);
+            out.push(self.finish_arg(e, p)?);
         }
         Ok(out)
     }
 
-    fn check_fn_call(&mut self, f: DefId, explicit: &[Ty], args: &[ast::Expr], want: Option<&Ty>, sp: Span) -> PResult<Expr> {
+    pub(crate) fn check_fn_call(&mut self, f: DefId, explicit: &[Ty], args: &[ast::Expr], want: Option<&Ty>, sp: Span) -> PResult<Expr> {
         let fd = self.prog.fn_def(f);
         let inst = self.instantiate(&fd.generics.clone(), explicit, sp)?;
+        let bounds = fd.bounds.clone();
         let params: Vec<Ty> = fd.params.iter().map(|p| p.1.subst(&inst)).collect();
         let ret = fd.ret.subst(&inst);
         if let Some(w) = want {
@@ -96,6 +106,7 @@ impl<'a> Checker<'a> {
             let _ = self.unify(&ret, w);
         }
         let args = self.check_args(args, &params, sp)?;
+        self.check_bounds(&bounds, &inst, sp)?;
         Ok(mk(ExprKind::Call { callee: Callee::Fn(f, inst), args }, ret, sp))
     }
 

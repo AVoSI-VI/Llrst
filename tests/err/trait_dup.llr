@@ -1,0 +1,3 @@
+(impl Eq i64 (fn eq ((a (& i64)) (b (& i64))) bool true))
+
+(fn main () unit ())

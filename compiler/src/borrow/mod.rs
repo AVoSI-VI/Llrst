@@ -93,7 +93,7 @@ pub fn stmt_accesses(s: &Stmt, span: Span) -> Vec<Access> {
                 }
                 Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => ops.iter().for_each(|o| operand_access(o, span, &mut out)),
                 Rvalue::Discr(p) => out.push(Access { place: p.clone(), kind: AccessKind::Read, span }),
-                Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) => {}
+                Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) | Rvalue::Vtable(..) => {}
             }
             out.push(Access { place: dest.clone(), kind: AccessKind::Write, span });
         }

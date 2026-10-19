@@ -6,12 +6,14 @@ mod check;
 mod codegen;
 mod diag;
 mod driver;
+mod inl;
 mod link;
 mod mir;
 mod parse;
 mod resolve;
 mod sexpr;
 mod thir;
+mod traitres;
 mod ty;
 
 use driver::Options;

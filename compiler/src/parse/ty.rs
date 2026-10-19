@@ -3,6 +3,20 @@ use crate::ast::{Generics, TyExpr};
 use crate::diag::{Diag, PResult};
 use crate::sexpr::Sexpr;
 
+fn name_atom(s: &Sexpr) -> PResult<String> {
+    s.atom()
+        .filter(|a| !a.starts_with('<') && !a.starts_with('\''))
+        .map(|a| a.to_string())
+        .ok_or_else(|| Diag::error(s.span(), "parse.expect").kv("want", "name").kv("got", s.show()))
+}
+
+/// `T:Eq:Ord` is a type param plus trait bounds.
+fn split_bound(name: &str) -> (String, Vec<String>) {
+    let mut parts = name.split(':');
+    let ty = parts.next().unwrap_or("").to_string();
+    (ty, parts.filter(|s| !s.is_empty()).map(|s| s.to_string()).collect())
+}
+
 pub fn parse_ty(s: &Sexpr) -> PResult<TyExpr> {
     match s {
         Sexpr::Atom(a, sp) => {
@@ -47,6 +61,12 @@ pub fn parse_ty(s: &Sexpr) -> PResult<TyExpr> {
                         TyExpr::Fn(ps, Box::new(parse_ty(&items[2])?), *sp)
                     })
                 }
+                "dyn" => {
+                    if items.len() != 2 {
+                        return Err(Diag::error(*sp, "parse.arity").kv("form", "dyn").kv("want", "1").kv("got", (items.len() - 1).to_string()));
+                    }
+                    Ok(TyExpr::Dyn(name_atom(&items[1])?, *sp))
+                }
                 _ => {
                     let args = items[1..].iter().map(parse_ty).collect::<PResult<Vec<_>>>()?;
                     Ok(TyExpr::App(head.to_string(), args, *sp))
@@ -59,7 +79,7 @@ pub fn parse_ty(s: &Sexpr) -> PResult<TyExpr> {
 /// Parses `<T U 'a>` written as consecutive atoms. Returns the generics and the index
 /// of the first form after them. Accepts the absence of generics.
 pub fn parse_generics(items: &[Sexpr], at: usize) -> PResult<(Generics, usize)> {
-    let mut g = Generics { types: Vec::new(), lifetimes: Vec::new() };
+    let mut g = Generics { types: Vec::new(), bounds: Vec::new(), lifetimes: Vec::new() };
     let Some(first) = items.get(at).and_then(|x| x.atom()) else { return Ok((g, at)) };
     if !first.starts_with('<') {
         return Ok((g, at));
@@ -76,7 +96,9 @@ pub fn parse_generics(items: &[Sexpr], at: usize) -> PResult<(Generics, usize)> 
             if let Some(lt) = name.strip_prefix('\'') {
                 g.lifetimes.push(lt.to_string());
             } else {
-                g.types.push(name.to_string());
+                let (ty, bounds) = split_bound(name);
+                g.types.push(ty);
+                g.bounds.push(bounds);
             }
         }
         i += 1;

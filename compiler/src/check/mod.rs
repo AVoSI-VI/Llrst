@@ -4,6 +4,7 @@ mod call;
 mod clos;
 mod expr;
 mod pat;
+mod traits;
 mod zonk;
 
 use crate::ast;

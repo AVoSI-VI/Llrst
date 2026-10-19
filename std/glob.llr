@@ -68,7 +68,7 @@
 (pub (fn walk ((dir (& str))) (vec str)
   (let mut out (vec.new <str>))
   (walk_into dir (&mut out))
-  (vec.sort (&mut out) vec.cmp_str)
+  (vec.sort (&mut out))
   out))
 
 ;; Files under dir whose path matches pat.

@@ -9,12 +9,14 @@ pub enum TyExpr {
     Ptr(Box<TyExpr>, Span),
     Fn(Vec<TyExpr>, Box<TyExpr>, Span),
     Clos(Vec<TyExpr>, Box<TyExpr>, Span),
+    /// `(dyn Trait)` inside a reference.
+    Dyn(String, Span),
 }
 
 impl TyExpr {
     pub fn span(&self) -> Span {
         match self {
-            TyExpr::Name(_, s) | TyExpr::App(_, _, s) | TyExpr::Ptr(_, s) | TyExpr::Fn(_, _, s) | TyExpr::Clos(_, _, s) => *s,
+            TyExpr::Name(_, s) | TyExpr::App(_, _, s) | TyExpr::Ptr(_, s) | TyExpr::Fn(_, _, s) | TyExpr::Clos(_, _, s) | TyExpr::Dyn(_, s) => *s,
             TyExpr::Ref { span, .. } => *span,
         }
     }
@@ -30,6 +32,8 @@ pub struct Param {
 #[derive(Clone, Debug)]
 pub struct Generics {
     pub types: Vec<String>,
+    /// Trait names parallel to `types`. Empty when the param has no bound.
+    pub bounds: Vec<Vec<String>>,
     pub lifetimes: Vec<String>,
 }
 
@@ -81,6 +85,22 @@ pub struct EnumDecl {
 }
 
 #[derive(Clone, Debug)]
+pub struct TraitDecl {
+    pub name: String,
+    pub methods: Vec<FnDecl>,
+    pub is_pub: bool,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct TraitImpl {
+    pub trait_name: String,
+    pub ty_name: String,
+    pub methods: Vec<FnDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
 pub struct ImplDecl {
     pub ty_name: String,
     pub generics: Generics,
@@ -112,6 +132,8 @@ pub enum Item {
     Struct(StructDecl),
     Enum(EnumDecl),
     Impl(ImplDecl),
+    Trait(TraitDecl),
+    TraitImpl(TraitImpl),
     Const(ConstDecl),
     Test(TestDecl),
 }

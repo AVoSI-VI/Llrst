@@ -116,6 +116,8 @@ pub enum Rvalue {
     Argc,
     Argv,
     Sizeof(Ty),
+    /// Address of the vtable for `(trait, self type)`.
+    Vtable(DefId, Ty),
     /// Closure value. `idx` selects `Body::closures`. `caps` are stored into the heap env.
     Closure { idx: u32, caps: Vec<Operand> },
 }
@@ -139,6 +141,8 @@ pub enum Func {
     Ptr(Operand),
     /// Closure aggregate. The operand is the three-pointer value, not consumed by the call.
     Clos(Operand),
+    /// Fat receiver is `args[0]`. `slot` selects the vtable word.
+    Dyn { trait_id: DefId, slot: u32 },
 }
 
 #[derive(Clone, Debug)]

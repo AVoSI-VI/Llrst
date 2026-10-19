@@ -30,5 +30,5 @@
   (let mut names (vec.new <str>))
   (vec.push (&mut names) (str.from "b"))
   (vec.push (&mut names) (str.from "a"))
-  (vec.sort (&mut names) vec.cmp_str)
+  (vec.sort (&mut names))
   (io.puts (& (str.join (& names) ","))))

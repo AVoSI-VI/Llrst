@@ -1,0 +1,37 @@
+;; Eq, Ord, Hash, and Clone. Negative cmp means the first value comes first.
+(pub (trait Eq (fn eq ((& Self) (& Self)) bool)))
+
+(pub (trait Ord (fn cmp ((& Self) (& Self)) i64)))
+
+(pub (trait Hash (fn hash ((& Self)) i64)))
+
+(pub (trait Clone (fn clone ((& Self)) Self)))
+
+(impl Eq i64 (fn eq ((a (& i64)) (b (& i64))) bool (== (@ a) (@ b))))
+
+(impl Eq str (fn eq ((a (& str)) (b (& str))) bool (str.eq a b)))
+
+(impl Ord
+  i64
+  (fn cmp ((a (& i64)) (b (& i64))) i64
+    (let x (@ a))
+    (let y (@ b))
+    (if (< x y) -1 (if (> x y) 1 0))))
+
+(impl Ord str (fn cmp ((a (& str)) (b (& str))) i64 (str.cmp a b)))
+
+(impl Hash
+  i64
+  (fn hash ((k (& i64))) i64
+    (band (wmul (bxor (@ k) 1469598103934665603) 1099511628211) 9223372036854775807)))
+
+(impl Hash
+  str
+  (fn hash ((s (& str))) i64
+    (let mut h 1469598103934665603)
+    (for i 0 (str.len s) (set h (bxor h (as i64 (str.at s i)))) (set h (wmul h 1099511628211)))
+    (band h 9223372036854775807)))
+
+(impl Clone i64 (fn clone ((a (& i64))) i64 (@ a)))
+
+(impl Clone str (fn clone ((a (& str))) str (str.clone a)))

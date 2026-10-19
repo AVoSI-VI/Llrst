@@ -2,16 +2,9 @@
 
 ## Operations over T
 
-There are no traits. An operation that depends on `T` or `K` takes a named `(fn ...)` on that call. The pointer is not stored and cannot capture a value. Invoke it with `(call f a b)`.
+`Eq`, `Ord`, `Hash`, and `Clone` are traits in `std/cmp.llr`. A call is `(Eq.eq a b)`. `Ord.cmp` is negative when the first value comes first. `vec.has` and `vec.index` need `T: Eq`. `vec.sort` needs `T: Ord`. Map keys need `K: Hash` and `K: Eq`. `map.keys` needs `K: Clone` and `K: Ord`.
 
-| operation | pointer | helpers |
-|-----------|---------|---------|
-| `vec.has` | `(fn ((& T) (& T)) bool)` | `vec.eq_str`, `vec.eq_int` |
-| `vec.index` | `(fn ((& T) (& T)) bool)` | `vec.eq_str`, `vec.eq_int` |
-| `vec.sort` | `(fn ((& T) (& T)) i64)`. Negative or zero means the first argument comes first; zero keeps the earlier element | `vec.cmp_str`, `vec.cmp_int` |
-| map hash | `(fn ((& K)) i64)` | `map.hash_str`, `map.hash_int` |
-| map eq | `(fn ((& K) (& K)) bool)` | `map.eq_str`, `map.eq_int` |
-| `map.keys` | `(fn ((& K)) K)` plus the sort pointer | `str.clone` or `map.clone_int`, and `vec.cmp_str` or `vec.cmp_int` |
+`(& (dyn Eq))` is a fat pointer. Pass `(& n)` where `(& (dyn Eq))` is expected and `n`'s type implements `Eq`. `Clone` returns `Self`, so it is not a trait object.
 
 ## vec
 
@@ -26,9 +19,9 @@ There are no traits. An operation that depends on `T` or `K` takes a named `(fn 
 | pop | `(vec.pop (&mut v))` returns `(opt T)` |
 | remove | `(vec.remove (&mut v) i)` returns `T`, shifts |
 | iterate | `(for i 0 (vec.len (& v)) (let x (vec.get (& v) i)) ...)` |
-| contains | `(vec.has (& v) x vec.eq_str)` or `vec.eq_int` |
-| index of | `(vec.index (& v) x vec.eq_str)` returns `(opt i64)` |
-| sort | `(vec.sort (&mut v) vec.cmp_str)` or `vec.cmp_int`, stable. A custom order is a named `(fn ((& T) (& T)) i64)` |
+| contains | `(vec.has (& v) x)` when `T: Eq` |
+| index of | `(vec.index (& v) x)` returns `(opt i64)` when `T: Eq` |
+| sort | `(vec.sort (&mut v))` when `T: Ord`, stable. A custom order is `(impl Ord item ...)` |
 | clone | `(vec.clone_str (& v))` |
 | reverse | `(vec.reverse (&mut v))` |
 | insert | `(vec.insert (&mut v) i x)` |
@@ -40,15 +33,15 @@ No map or filter in v1. Write the loop. `vec.any` is not a method. A `(fn ((& T)
 
 ## map
 
-Keys are any `K`. Each call passes `(fn ((& K)) i64)` and `(fn ((& K) (& K)) bool)`. They are not stored. Str uses `map.hash_str` and `map.eq_str`. `i64` uses `map.hash_int` and `map.eq_int`.
+Keys are any `K: Hash: Eq`. Str and `i64` implement those traits.
 
 | task | form |
 |------|------|
 | create | `(map.new <str V>)` or `(map.new <i64 V>)` |
-| insert | `(map.put (&mut m) k v map.hash_str map.eq_str)` moves `k`, replaces an existing value |
-| get | `(map.get (& m) k map.hash_str map.eq_str)` returns `(opt (& V))` |
-| get mutable | `(map.get_mut (&mut m) k map.hash_str map.eq_str)` returns `(opt (&mut V))` |
-| has | `(map.has (& m) k map.hash_str map.eq_str)` |
-| remove | `(map.del (&mut m) k map.hash_str map.eq_str)` returns `bool` |
+| insert | `(map.put (&mut m) k v)` moves `k`, replaces an existing value |
+| get | `(map.get (& m) k)` returns `(opt (& V))` |
+| get mutable | `(map.get_mut (&mut m) k)` returns `(opt (&mut V))` |
+| has | `(map.has (& m) k)` |
+| remove | `(map.del (&mut m) k)` returns `bool` |
 | size | `(map.len (& m))` |
-| keys | `(map.keys (& m) str.clone vec.cmp_str)` returns a sorted `(vec K)`. `i64` keys use `map.clone_int` and `vec.cmp_int` |
+| keys | `(map.keys (& m))` returns a sorted `(vec K)` when `K: Clone: Ord` |

@@ -226,7 +226,7 @@ fn mark_stmt(read: &mut [bool], s: &Stmt) {
             mark_op(read, b);
         }
         Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => ops.iter().for_each(|o| mark_op(read, o)),
-        Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) => {}
+        Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) | Rvalue::Vtable(..) => {}
     }
 }
 

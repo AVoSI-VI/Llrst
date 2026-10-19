@@ -83,14 +83,13 @@
     (let mut i 0)
     (let mut j (- (. self len) 1))
     (while (< i j) (vec.swap self i j) (set i (+ i 1)) (set j (- j 1)))))
-  ;; `eq` is `(fn ((& T) (& T)) bool)`. There are no closures, so the needle is a separate argument.
-  (pub (fn has ((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool))) bool
-    (for i 0 (vec.len self) (if (call eq (vec.get self i) x) (ret true)))
+  (pub (fn has <T:Eq> ((self (& (vec T))) (x (& T))) bool
+    (for i 0 (vec.len self) (if (Eq.eq (vec.get self i) x) (ret true)))
     false))
-  (pub (fn index ((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool))) (opt i64)
-    (for i 0 (vec.len self) (if (call eq (vec.get self i) x) (ret (opt.some i))))
+  (pub (fn index <T:Eq> ((self (& (vec T))) (x (& T))) (opt i64)
+    (for i 0 (vec.len self) (if (Eq.eq (vec.get self i) x) (ret (opt.some i))))
     (opt.none)))
-  (pub (fn sort ((self (&mut (vec T))) (cmp (fn ((& T) (& T)) i64))) unit
+  (pub (fn sort <T:Ord> ((self (&mut (vec T)))) unit
     (let n (vec.len self))
     (if (< n 2) (ret))
     (let mut scratch (vec.new <T>))
@@ -102,7 +101,7 @@
     (let mut w 1)
     (let mut in_scratch true)
     (while (< w n)
-      (if in_scratch (merge <T> (&mut scratch) self w cmp) (merge <T> self (&mut scratch) w cmp))
+      (if in_scratch (merge <T> (&mut scratch) self w) (merge <T> self (&mut scratch) w))
       (set in_scratch (not in_scratch))
       (set w (* w 2)))
     (if in_scratch (swap_buf <T> self (&mut scratch))))))
@@ -119,7 +118,7 @@
   (set (. b len) n)
   (set (. b cap) c))
 
-(fn merge <T> ((src (&mut (vec T))) (dst (&mut (vec T))) (width i64) (cmp (fn ((& T) (& T)) i64))) unit
+(fn merge <T:Ord> ((src (&mut (vec T))) (dst (&mut (vec T))) (width i64)) unit
   (let n (. src len))
   (let sp (. src p))
   (set (. src len) 0)
@@ -134,7 +133,7 @@
     (let mut b mid)
     (let end (if (< (+ mid width) n) (+ mid width) n))
     (while (and (< a mid) (< b end))
-      (if (> (call cmp (& (@ (ptr.add sp a))) (& (@ (ptr.add sp b)))) 0)
+      (if (> (Ord.cmp (& (@ (ptr.add sp a))) (& (@ (ptr.add sp b)))) 0)
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b))) (set b (+ b 1)))
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a))) (set a (+ a 1))))
       (set out (+ out 1)))
@@ -149,16 +148,14 @@
     (set i (+ i (* width 2))))
   (set (. dst len) n))
 
-(pub (fn cmp_str ((a (& str)) (b (& str))) i64 (str.cmp a b)))
+(struct item (k i64) (ord i64))
 
-(pub (fn cmp_int ((a (& i64)) (b (& i64))) i64
-  (let x (@ a))
-  (let y (@ b))
-  (if (< x y) -1 (if (> x y) 1 0))))
-
-(pub (fn eq_str ((a (& str)) (b (& str))) bool (str.eq a b)))
-
-(pub (fn eq_int ((a (& i64)) (b (& i64))) bool (== (@ a) (@ b))))
+(impl Ord
+  item
+  (fn cmp ((a (& item)) (b (& item))) i64
+    (let x (. a k))
+    (let y (. b k))
+    (if (< x y) -1 (if (> x y) 1 0))))
 
 (pub (fn clone_str ((v (& (vec str)))) (vec str)
   (let mut out (vec.new <str>))
@@ -172,9 +169,9 @@
   (vec.push (&mut v) 2)
   (assert_eq (vec.len (& v)) 3)
   (assert_eq (@ (vec.get (& v) 1)) 1)
-  (vec.sort (&mut v) vec.cmp_int)
+  (vec.sort (&mut v))
   (let one 1)
-  (assert (vec.has (& v) (& one) vec.eq_int))
+  (assert (vec.has (& v) (& one)))
   (assert_eq (@ (vec.get (& v) 0)) 1)
   (assert_eq (@ (vec.get (& v) 2)) 3)
   (let x (vec.remove (&mut v) 0))
@@ -185,24 +182,17 @@
   (let mut v (vec.new <str>))
   (vec.push (&mut v) (str.from "b"))
   (vec.push (&mut v) (str.from "a"))
-  (vec.sort (&mut v) vec.cmp_str)
+  (vec.sort (&mut v))
   (assert_eq (vec.get (& v) 0) "a")
-  (assert (vec.has (& v) "b" vec.eq_str))
+  (assert (vec.has (& v) "b"))
   (match (vec.pop (&mut v)) ((opt.some s) (assert_eq (& s) "b")) ((opt.none) (assert false))))
-
-(struct item (k i64) (ord i64))
-
-(fn cmp_k ((a (& item)) (b (& item))) i64
-  (let x (. a k))
-  (let y (. b k))
-  (if (< x y) -1 (if (> x y) 1 0)))
 
 (test vec_sort_stable
   (let mut v (vec.new <item>))
   (vec.push (&mut v) (item 1 0))
   (vec.push (&mut v) (item 2 1))
   (vec.push (&mut v) (item 1 2))
-  (vec.sort (&mut v) cmp_k)
+  (vec.sort (&mut v))
   (assert_eq (. (vec.get (& v) 0) ord) 0)
   (assert_eq (. (vec.get (& v) 1) ord) 2)
   (assert_eq (. (vec.get (& v) 2) k) 2))
@@ -211,5 +201,5 @@
   (let mut v (vec.new <str>))
   (vec.push (&mut v) (str.from "a"))
   (vec.push (&mut v) (str.from "b"))
-  (match (vec.index (& v) "b" vec.eq_str) ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
-  (match (vec.index (& v) "z" vec.eq_str) ((opt.some _) (assert false)) ((opt.none) (assert true))))
+  (match (vec.index (& v) "b") ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
+  (match (vec.index (& v) "z") ((opt.some _) (assert false)) ((opt.none) (assert true))))

@@ -1,0 +1,3 @@
+(struct box (n i64))
+
+(fn main () unit (let b (box 1)) (let _ (Eq.eq (& b) (& b))))
