@@ -37,5 +37,15 @@
 | submit | `(thread.submit (&mut p) work ctx)`. `work` is `(fn ((ptr u8)) unit)` |
 | stop | `(thread.stop (&mut p))` joins. Drop does this too |
 
+## HTTP
+
+| task | form |
+|------|------|
+| parse request | `(http.parse_req (& text))` returns `(res req str)` |
+| parse response | `(http.parse_resp (& text))` returns `(res resp str)` |
+| render | `(http.show_req (& r))` and `(http.show_resp (& r))` |
+| respond | `(http.respond code reason ty body)` sets `Content-Type` and `Content-Length` |
+| header | `(http.header (& headers) name)` returns `(opt str)`, name compared in lower case |
+
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

@@ -12,6 +12,7 @@
 | [fs](fs.md) | Files and directories. Errors are `res.err` strings like `io.read|path=x`. |
 | [net](net.md) | IPv4 on 127.0.0.1. `poll_serve` holds many connections on one thread. |
 | [thread](thread.md) | Fixed pthread pool. A job is a function pointer plus a context pointer. |
+| [http](http.md) | HTTP/1.1 request and response in one buffer. No chunked bodies. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Hash and eq are function pointers. |
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
