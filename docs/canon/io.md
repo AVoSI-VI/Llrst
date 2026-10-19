@@ -51,6 +51,7 @@
 | graphql | `POST /graphql` body is the query text. `(gql.exec (& q))` returns JSON |
 | soap | `POST /soap` body is one XML envelope. `(soap.exec (& q))` returns XML |
 | grpc | `(grpc.serve fd)` accepts one connection and answers one unary call |
+| mqtt | `(mqtt.serve fd)` accepts one connection. Connect, subscribe, and QoS 0 publish |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.
