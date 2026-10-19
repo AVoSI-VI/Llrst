@@ -1,6 +1,6 @@
 # std.http
 
-One HTTP/1.1 request or response in a complete buffer, and `http.serve` on one poll loop. The path keeps any `?query`. A route matches method and path exactly. Each header is one `name: value` string. `Content-Length` sets the body size; without it the body is empty. No chunked transfer and no trailers. The poll table holds at most 4095 clients.
+One HTTP/1.1 request or response in a complete buffer, and `http.serve` on one poll loop. The path keeps any `?query`. A route matches method and path exactly. Each header is one `name: value` string. `Content-Length` sets the body size; without it the body is empty. No chunked transfer and no trailers. A `GET` with `Upgrade: websocket`, `Connection: Upgrade`, and `Sec-WebSocket-Version: 13` becomes a WebSocket and does not count toward `stop_after`. A text frame under 126 bytes is echoed. The poll table holds at most 4095 clients.
 
 Source: `std/http.llr`. Import with `(use std.http)` for module functions; types and methods need no import.
 
@@ -18,4 +18,4 @@ Source: `std/http.llr`. Import with `(use std.http)` for module functions; types
 
 ## Tests
 
-`http_req`, `http_resp`, `http_file`, `http_many`
+`http_req`, `http_resp`, `http_file`, `http_many`, `http_ws`

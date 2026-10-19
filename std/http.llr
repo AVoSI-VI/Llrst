@@ -2,6 +2,7 @@
 (use std.fs)
 (use std.net)
 (use std.path)
+(use std.sha)
 (use std.str)
 (use std.sys)
 
@@ -178,7 +179,7 @@
 
 (pub (struct route (pub (method str)) (pub (path str)) (pub (work (fn ((& req) (ptr u8)) resp)))))
 
-(struct conn (fd i64) (buf str))
+(struct conn (fd i64) (buf str) (mode i64))
 
 (struct svc (root str) (routes (ptr u8)) (conns (vec conn)) (done i64) (stop i64))
 
@@ -211,7 +212,7 @@
 (fn ensure ((s (ptr svc)) (fd i64)) i64
   (let i (conn_index s fd))
   (if (>= i 0) (ret i))
-  (vec.push (&mut (. (@ s) conns)) (conn fd (str.new)))
+  (vec.push (&mut (. (@ s) conns)) (conn fd (str.new) 0))
   (- (vec.len (& (. (@ s) conns))) 1))
 
 (fn add_bytes ((s (ptr svc)) (fd i64) (data (& str))) unit
@@ -225,9 +226,129 @@
 
 (fn send_resp ((fd i64) (msg resp)) unit (let bytes (show_resp (& msg))) (net.send fd (& bytes)) ())
 
+(fn hdr_is ((r (& req)) (name (& str)) (want (& str))) bool
+  (match (header (& (. r headers)) name)
+    ((opt.some v) (str.eq (& (str.lower (& (str.trim (& v))))) want))
+    ((opt.none) false)))
+
+(fn wants_ws ((r (& req))) bool
+  (and (str.eq (& (str.lower (& (. r method)))) "get")
+    (and (hdr_is r "upgrade" "websocket") (hdr_is r "connection" "upgrade"))))
+
+(fn ws_accept ((key (& str))) str
+  (let mut m (str.trim key))
+  (str.push (&mut m) "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+  (sha.b64 (& (sha.sha1 (& m)))))
+
+(fn switching ((accept (& str))) str
+  (let mut s
+    (str.from "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "))
+  (str.push (&mut s) accept)
+  (str.push (&mut s) "\r\n\r\n")
+  s)
+
+(fn set_mode ((s (ptr svc)) (fd i64) (mode i64)) unit
+  (let i (conn_index s fd))
+  (set (. (vec.get_mut (&mut (. (@ s) conns)) i) mode) mode))
+
+(fn mode_of ((s (ptr svc)) (fd i64)) i64
+  (let i (conn_index s fd))
+  (if (< i 0) (ret 0))
+  (. (vec.get (& (. (@ s) conns)) i) mode))
+
+(fn keep_rest ((s (ptr svc)) (fd i64)) unit
+  (let i (conn_index s fd))
+  (let buf (& (. (vec.get (& (. (@ s) conns)) i) buf)))
+  (let cut (str.find buf "\r\n\r\n"))
+  (if (opt.is_none (& cut)) (ret))
+  (let at (+ (opt.unwrap cut) 4))
+  (set (. (vec.get_mut (&mut (. (@ s) conns)) i) buf) (str.slice buf at (str.len buf))))
+
+(fn bump ((s (ptr svc))) bool
+  (set (. (@ s) done) (+ (. (@ s) done) 1))
+  (if (== (. (@ s) stop) 0) (ret true))
+  (< (. (@ s) done) (. (@ s) stop)))
+
+(fn frame_end ((buf (& str))) i64
+  (let n (str.len buf))
+  (if (< n 2) (ret -1))
+  (let ln (as i64 (band (str.at buf 1) 127u8)))
+  (let mask (if (== (band (str.at buf 1) 128u8) 0u8) 0 4))
+  (if (< ln 126) (ret (if (< n (+ 2 (+ mask ln))) -1 (+ 2 (+ mask ln)))))
+  (if (== ln 126)
+    (do
+      (if (< n (+ 4 mask)) (ret -1))
+      (let ext (+ (* (as i64 (str.at buf 2)) 256) (as i64 (str.at buf 3))))
+      (let need (+ 4 (+ mask ext)))
+      (ret (if (< n need) -1 need))))
+  (if (< n 10) -1 -2))
+
+(fn unmask ((buf (& str))) str
+  (let ln (as i64 (band (str.at buf 1) 127u8)))
+  (let mut o (str.new))
+  (for i 0 ln
+    (let b (str.at buf (+ 6 i)))
+    (let m (str.at buf (+ 2 (% i 4))))
+    (str.push_byte (&mut o) (bxor b m)))
+  o)
+
+(fn ws_send ((fd i64) (op u8) (payload (& str))) unit
+  (let mut s (str.new))
+  (str.push_byte (&mut s) (bor 128u8 op))
+  (str.push_byte (&mut s) (as u8 (str.len payload)))
+  (str.push (&mut s) payload)
+  (net.send fd (& s))
+  ())
+
+(fn drop_frame ((s (ptr svc)) (fd i64) (n i64)) unit
+  (let i (conn_index s fd))
+  (let buf (& (. (vec.get (& (. (@ s) conns)) i) buf)))
+  (set (. (vec.get_mut (&mut (. (@ s) conns)) i) buf) (str.slice buf n (str.len buf))))
+
+(fn on_ws ((s (ptr svc)) (fd i64)) bool
+  (loop
+    (let i (conn_index s fd))
+    (let buf (& (. (vec.get (& (. (@ s) conns)) i) buf)))
+    (let n (frame_end buf))
+    (if (== n -2) (do (clear_buf s fd) (ret true)))
+    (if (< n 0) (ret true))
+    (let op (band (str.at buf 0) 15u8))
+    (let fin (== (band (str.at buf 0) 128u8) 128u8))
+    (let masked (== (band (str.at buf 1) 128u8) 128u8))
+    (let short (< (band (str.at buf 1) 127u8) 126u8))
+    (if (and (and fin masked) (and short (== op 1u8)))
+      (do (ws_send fd 1u8 (& (unmask buf))) (drop_frame s fd n) (ret (bump s))))
+    (if (and (and fin masked) (and short (== op 8u8)))
+      (do (ws_send fd 8u8 "") (drop_frame s fd n) (ret true)))
+    (if (== n -2) (do (clear_buf s fd) (ret true)))
+    (drop_frame s fd n)))
+
+(fn open_ws ((s (ptr svc)) (fd i64) (r (& req))) bool
+  (if (not (hdr_is r "sec-websocket-version" "13"))
+    (do
+      (send_resp fd (respond 400 "bad request" "text/plain" "bad version"))
+      (clear_buf s fd)
+      (ret (bump s))))
+  (match (header (& (. r headers)) "sec-websocket-key")
+    ((opt.none)
+      (do
+        (send_resp fd (respond 400 "bad request" "text/plain" "bad key"))
+        (clear_buf s fd)
+        (ret (bump s))))
+    ((opt.some k)
+      (do
+        (let bytes (switching (& (ws_accept (& k)))))
+        (net.send fd (& bytes))
+        (set_mode s fd 1)
+        (keep_rest s fd)
+        (let i (conn_index s fd))
+        (if (== (str.len (& (. (vec.get (& (. (@ s) conns)) i) buf))) 0) (ret true))
+        (on_ws s fd)))))
+
 (fn on_http ((fd i64) (data (& str)) (ctx (ptr u8))) bool
   (let s (as (ptr svc) ctx))
   (add_bytes s fd data)
+  (if (== (mode_of s fd) 1) (ret (on_ws s fd)))
   (let i (conn_index s fd))
   (let parsed (parse_req (& (. (vec.get (& (. (@ s) conns)) i) buf))))
   (match parsed
@@ -235,11 +356,10 @@
       (do
         (if (str.starts (& e) "http.short") (ret true))
         (send_resp fd (respond 400 "bad request" "text/plain" "bad request"))))
-    ((res.ok r) (send_resp fd (dispatch s (& r)))))
+    ((res.ok r)
+      (do (if (wants_ws (& r)) (ret (open_ws s fd (& r)))) (send_resp fd (dispatch s (& r))))))
   (clear_buf s fd)
-  (set (. (@ s) done) (+ (. (@ s) done) 1))
-  (if (== (. (@ s) stop) 0) (ret true))
-  (< (. (@ s) done) (. (@ s) stop)))
+  (bump s))
 
 (pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
   (let mut s (svc (str.from root) (as (ptr u8) routes) (vec.new <conn>) 0 stop_after))
@@ -309,5 +429,43 @@
   (vec.push (&mut routes) (route (str.from "GET") (str.from "/health") health))
   (let n (res.unwrap (serve l "/tmp" (& routes) 3072)))
   (assert_eq n 3072)
+  (net.close l)
+  (wait_child pid))
+
+(fn masked_hello () str
+  (let mut s (str.new))
+  (str.push_byte (&mut s) 129u8)
+  (str.push_byte (&mut s) 133u8)
+  (str.push_byte (&mut s) 1u8)
+  (str.push_byte (&mut s) 2u8)
+  (str.push_byte (&mut s) 3u8)
+  (str.push_byte (&mut s) 4u8)
+  (str.push_byte (&mut s) 105u8)
+  (str.push_byte (&mut s) 103u8)
+  (str.push_byte (&mut s) 111u8)
+  (str.push_byte (&mut s) 104u8)
+  (str.push_byte (&mut s) 110u8)
+  s)
+
+(fn ws_client ((port i64)) never
+  (let c (res.unwrap (net.connect port)))
+  (res.unwrap (net.send c
+     "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
+  (let resp (res.unwrap (net.recv c 256)))
+  (if (not (str.has (& resp) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")) (sys._exit 1i32))
+  (res.unwrap (net.send c (& (masked_hello))))
+  (let echo (res.unwrap (net.recv c 32)))
+  (net.close c)
+  (if (str.has (& echo) "hello") (sys._exit 0i32))
+  (sys._exit 1i32))
+
+(test http_ws
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (ws_client port))
+  (let mut routes (vec.new <route>))
+  (let n (res.unwrap (serve l "/tmp" (& routes) 1)))
+  (assert_eq n 1)
   (net.close l)
   (wait_child pid))
