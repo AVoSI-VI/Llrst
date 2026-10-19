@@ -1,0 +1,2 @@
+(struct point (x i64))
+(fn main () unit (let p (point 1)) (let n (. p y)))
