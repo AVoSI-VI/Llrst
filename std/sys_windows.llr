@@ -57,4 +57,10 @@
 
 (pub (extern system ((cmd (ptr u8))) i32))
 
+(pub (extern popen ((cmd (ptr u8)) (mode (ptr u8))) (ptr u8)))
+
+(pub (extern fileno ((f (ptr u8))) i32))
+
+(pub (extern pclose ((f (ptr u8))) i32))
+
 (pub (extern isatty ((fd i32)) i32))

@@ -1,0 +1,65 @@
+;; llr-git status|diff|log [--max N]: read the repo. No commit.
+(use std.cli)
+(use std.fmt)
+(use std.io)
+(use std.os)
+
+(fn die ((code (& str)) (kv (& str))) never
+  (io.eputs (& (fmt.pipe3 "E|<git>|0|0|0" code kv)))
+  (os.exit 1))
+
+(fn run ((command (& str)) (name (& str))) str
+  (let r (os.capture command))
+  (if (!= (. r code) 0)
+    (die "git.failed" (& (fmt.pipe2 (& (fmt.kv "cmd" name)) (& (fmt.kv "code" (& (fmt.int (. r code)))))))))
+  (str.clone (& (. r out))))
+
+(fn show_status ((text (& str))) unit
+  (let lines (str.lines text))
+  (for i 0 (vec.len (& lines))
+    (let line (vec.get (& lines) i))
+    (if (>= (str.len line) 3)
+      (do
+        (let xy (str.slice line 0 2))
+        (let path (str.slice line 3 (str.len line)))
+        (io.puts (& (fmt.pipe3 "status" (& xy) (& (fmt.field (& path))))))))))
+
+(fn show_diff ((text (& str))) unit
+  (let lines (str.lines text))
+  (for i 0 (vec.len (& lines))
+    (io.puts (& (fmt.pipe2 "diff" (& (fmt.field (vec.get (& lines) i))))))))
+
+(fn show_log ((text (& str))) unit
+  (let lines (str.lines text))
+  (for i 0 (vec.len (& lines))
+    (let line (vec.get (& lines) i))
+    (let mut tab (neg 1))
+    (for j 0 (str.len line)
+      (if (== (str.at line j) 9u8) (do (set tab j) (brk))))
+    (if (< tab 0)
+      (io.puts (& (fmt.pipe3 "log" "" (& (fmt.field line)))))
+      (do
+        (let h (str.slice line 0 tab))
+        (let s (str.slice line (+ tab 1) (str.len line)))
+        (io.puts (& (fmt.pipe3 "log" (& h) (& (fmt.field (& s))))))))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-git" "read status, diff, or log; no commit"))
+  (cli.pos (&mut c) "cmd")
+  (cli.opt (&mut c) "max" "20")
+  (cli.parse (&mut c) (os.args))
+  (let cmd (cli.at (& c) 0))
+  (let n (cli.get_int (& c) "max"))
+  (if (str.eq cmd "status")
+    (do (let text (run "git status --porcelain 2>&1" "status")) (show_status (& text)) (ret)))
+  (if (str.eq cmd "diff")
+    (do (let text (run "git diff --no-color HEAD 2>&1" "diff")) (show_diff (& text)) (ret)))
+  (if (str.eq cmd "log")
+    (do
+      (let mut q (str.from "git log -n "))
+      (str.push (&mut q) (& (fmt.int n)))
+      (str.push (&mut q) " --format=%H%x09%s 2>&1")
+      (let text (run (& q) "log"))
+      (show_log (& text))
+      (ret)))
+  (die "git.unknown" (& (fmt.kv "cmd" cmd))))

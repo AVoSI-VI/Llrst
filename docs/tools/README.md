@@ -18,6 +18,7 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | | write file | create or replace a whole file from stdin | [llr-write](llr-write.md) |
 | | list directory | sorted names in one directory | [llr-ls](llr-ls.md) |
 | | remove file | delete one file | [llr-rm](llr-rm.md) |
+| | git read | status, diff, and log; no commit | [llr-git](llr-git.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
 | | type check | `type.*` and `name.*` errors | [llr-check](llr-check.md) |
 

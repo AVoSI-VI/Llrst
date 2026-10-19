@@ -14,9 +14,10 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 | `os.exit` | `((code i64))` | `never` |
 | `os.cwd` | `()` | `str` |
 | `os.shell` | `((cmd (& str)))` | `i64` |
+| `os.capture` | `((command (& str)))` | `cmd` |
 | `os.arch` | `()` | `(& str)` |
 | `os.is_tty` | `((fd i64))` | `bool` |
 
 ## Tests
 
-`os_args`, `os_cwd`
+`os_args`, `os_cwd`, `os_capture`

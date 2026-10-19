@@ -36,6 +36,9 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
 | `sys.rename` | `((a (ptr u8)) (b (ptr u8)))` | `i32` |
 | `sys.system` | `((cmd (ptr u8)))` | `i32` |
+| `sys.popen` | `((cmd (ptr u8)) (mode (ptr u8)))` | `(ptr u8)` |
+| `sys.fileno` | `((f (ptr u8)))` | `i32` |
+| `sys.pclose` | `((f (ptr u8)))` | `i32` |
 | `sys.isatty` | `((fd i32))` | `i32` |
 | `sys.write_all` | `((fd i32) (p (ptr u8)) (n i64))` | `unit` |
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |

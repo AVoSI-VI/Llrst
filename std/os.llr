@@ -1,4 +1,5 @@
 ;; Process environment: args, env, cwd, exit.
+(use std.io)
 (use std.sys)
 
 (pub (fn args () (vec str)
@@ -37,6 +38,18 @@
   (let st (sys.system (. c p)))
   (as i64 (band (shr st 8i32) 255i32))))
 
+;; Captured stdout and the exit code. A failed popen is code -1 and an empty string.
+(pub (struct cmd (pub (out str)) (pub (code i64))))
+
+(pub (fn capture ((command (& str))) cmd
+  (let c (str.cstr command))
+  (let mode (str.cstr "r"))
+  (let f (sys.popen (. c p) (. mode p)))
+  (if (ptr.eq f (ptr.null <u8>)) (ret (cmd (str.new) (neg 1))))
+  (let s (io.read_fd (sys.fileno f)))
+  (let st (sys.pclose f))
+  (cmd s (as i64 (band (shr st 8i32) 255i32)))))
+
 (pub (fn arch () (& str) (sys.arch)))
 
 (pub (fn is_tty ((fd i64)) bool (!= (sys.isatty (as i32 fd)) 0i32)))
@@ -49,3 +62,8 @@
   (let a (args))
   (assert (>= (vec.len (& a)) 1))
   (match (arg 99) ((opt.some _) (assert false)) ((opt.none) (assert true))))
+
+(test os_capture
+  (let r (capture "printf hi"))
+  (assert_eq (. r code) 0)
+  (assert_eq (& (. r out)) "hi"))
