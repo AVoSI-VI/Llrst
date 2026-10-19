@@ -36,7 +36,7 @@ There are no traits. An operation that depends on `T` or `K` takes a named `(fn 
 | clear | `(vec.clear (&mut v))` |
 | take all | `(vec.take (&mut v))` returns the vec, leaves empty |
 
-No map/filter/closures in v1. Write the loop. `vec.any` is not a method. A `(fn ((& T)) bool)` cannot capture a needle, so the loop stays at the call site.
+No map or filter in v1. Write the loop. `vec.any` is not a method. A `(fn ((& T)) bool)` cannot capture a needle, so the loop stays at the call site. A `(clos ...)` can capture a binding, and it is not a `(fn ...)`.
 
 ## map
 

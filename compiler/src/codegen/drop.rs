@@ -20,6 +20,16 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         let addr = b.block_params(entry)[0];
+        if matches!(t, Ty::Clos(..)) {
+            let ptr = cg.ptr_ty;
+            let dropf = b.ins().load(ptr, mf(), addr, 8);
+            let env = b.ins().load(ptr, mf(), addr, 16);
+            let mut sig = cranelift_codegen::ir::Signature::new(cg.call_conv);
+            sig.params.push(cranelift_codegen::ir::AbiParam::new(ptr));
+            let sr = b.import_signature(sig);
+            b.ins().call_indirect(sr, dropf, &[env]);
+            b.ins().return_(&[]);
+        } else {
         // user drop first
         if let Some(m) = drop_method(cg.prog, t) {
             let targs = match t {
@@ -75,6 +85,7 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
                 b.ins().return_(&[]);
             }
             _ => unreachable!(),
+        }
         }
         b.seal_all_blocks();
         let cfg = cg.frontend;

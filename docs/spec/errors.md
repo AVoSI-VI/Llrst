@@ -72,6 +72,7 @@ and also exits 101. Without `--checked`, dividing the minimum signed value by `-
 | `move.*` `borrow.*` `mut.*` `init.*` | see memory.md |
 | `flow.*` | `flow.brk_outside` `flow.missing_ret` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=large\|limit=4\|got=` or `why=form\|got=` or `why=param\|name=` |
+| `clos.nested` | a closure body contains a closure |
 | `link.*` | `link.failed` (`cmd= status=`) |
 | `io.*` | `io.read` (`path=`) |
 

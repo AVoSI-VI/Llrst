@@ -1,0 +1,6 @@
+(fn bad () (clos () i64)
+  (let n 1)
+  (let r (& n))
+  (clos () i64 (@ r)))
+
+(fn main () unit (drop (bad)))

@@ -3,7 +3,7 @@ use super::func::{mf, FnCx, Val};
 use super::layout::clif_type;
 use crate::diag::{PResult, Span};
 use crate::mir::*;
-use crate::ty::Ty;
+use crate::ty::{IntTy, Ty};
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{types, InstBuilder, TrapCode, Value};
 use cranelift_module::Module;
@@ -135,6 +135,10 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 Some(Ty::Fn(_, r)) => *r,
                 _ => dty.clone(),
             },
+            Func::Clos(op) => match op.place().map(|p| place_ty(self.cg.prog, self.body, p)) {
+                Some(Ty::Clos(_, r)) => *r,
+                _ => dty.clone(),
+            },
         };
         if self.cg.is_agg(&callee_ret) {
             vals.push(daddr);
@@ -157,6 +161,27 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let sig = self.cg.signature(&ps, &r);
                 let sr = self.b.import_signature(sig);
                 self.b.ins().call_indirect(sr, fv, &vals)
+            }
+            Func::Clos(op) => {
+                let (val, ty) = self.operand(op);
+                let Val::Agg(addr) = val else { panic!("clos aggregate") };
+                let code = self.b.ins().load(self.cg.ptr_ty, mf(), addr, 0);
+                let env = self.b.ins().load(self.cg.ptr_ty, mf(), addr, 16);
+                let Ty::Clos(ps, r) = ty else { panic!("clos type") };
+                let mut formals = vec![Ty::Ptr(Box::new(Ty::Int(IntTy::U8)))];
+                formals.extend(ps);
+                let sig = self.cg.signature(&formals, &r);
+                let sr = self.b.import_signature(sig);
+                let mut args = Vec::new();
+                let rest = if self.cg.is_agg(&r) {
+                    args.push(vals[0]);
+                    &vals[1..]
+                } else {
+                    &vals[..]
+                };
+                args.push(env);
+                args.extend_from_slice(rest);
+                self.b.ins().call_indirect(sr, code, &args)
             }
         };
         let results = self.b.inst_results(inst).to_vec();

@@ -140,7 +140,7 @@ impl<'a> Cx<'a> {
                 gen.extend(self.pairs_of(pre, place.local));
             }
             Rvalue::Use(op) | Rvalue::Cast(op, _) => gen.extend(self.flow_operand(pre, op, to)),
-            Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
+            Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => {
                 for o in ops {
                     gen.extend(self.flow_operand(pre, o, to));
                 }
@@ -170,7 +170,7 @@ impl<'a> Cx<'a> {
                     self.kill_local(&mut st.bits, dest.local);
                     self.clear_fields(st, dest.local);
                     match rv {
-                        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
+                        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => {
                             for (i, o) in ops.iter().enumerate() {
                                 let g = self.flow_operand(&pre, o, dest.local);
                                 self.note_field(st, dest.local, i as u32, &g);

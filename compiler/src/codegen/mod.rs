@@ -1,4 +1,5 @@
 //! Cranelift backend: module setup, symbol management, data, ABI.
+mod clos;
 mod drop;
 mod func;
 mod ovf;
@@ -31,6 +32,8 @@ pub struct Codegen<'a> {
     pub strs: HashMap<Vec<u8>, DataId>,
     pub drops: HashMap<Ty, FuncId>,
     pub pending_drops: Vec<Ty>,
+    /// `{body.name}` of a closure -> (trampoline, env drop).
+    pub clos_ids: HashMap<String, (FuncId, FuncId)>,
     pub argc: DataId,
     pub argv: DataId,
     /// Head of the panic frame list. Each frame is `{prev, name}`.
@@ -89,6 +92,7 @@ impl<'a> Codegen<'a> {
             strs: HashMap::new(),
             drops: HashMap::new(),
             pending_drops: Vec::new(),
+            clos_ids: HashMap::new(),
             argc,
             argv,
             trace,

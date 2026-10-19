@@ -8,12 +8,13 @@ pub enum TyExpr {
     Ref { mutable: bool, lt: Option<String>, inner: Box<TyExpr>, span: Span },
     Ptr(Box<TyExpr>, Span),
     Fn(Vec<TyExpr>, Box<TyExpr>, Span),
+    Clos(Vec<TyExpr>, Box<TyExpr>, Span),
 }
 
 impl TyExpr {
     pub fn span(&self) -> Span {
         match self {
-            TyExpr::Name(_, s) | TyExpr::App(_, _, s) | TyExpr::Ptr(_, s) | TyExpr::Fn(_, _, s) => *s,
+            TyExpr::Name(_, s) | TyExpr::App(_, _, s) | TyExpr::Ptr(_, s) | TyExpr::Fn(_, _, s) | TyExpr::Clos(_, _, s) => *s,
             TyExpr::Ref { span, .. } => *span,
         }
     }
@@ -209,4 +210,5 @@ pub enum ExprKind {
     AssertEq(Box<Expr>, Box<Expr>),
     Sizeof(TyExpr),
     Drop(Box<Expr>),
+    Clos { params: Vec<Param>, ret: TyExpr, body: Vec<Expr> },
 }

@@ -1,0 +1,4 @@
+(fn nest ((n i64)) (clos () i64)
+  (clos () i64 (clos () i64 n)))
+
+(fn main () unit (drop (nest 1)))

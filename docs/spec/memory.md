@@ -6,9 +6,11 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 
 1. Every value has exactly one owner (a local, a field, or a vec element).
 2. Passing or assigning a non-`copy` value moves it. The source is unusable afterwards.
-3. `copy` types: primitives, `bool`, `unit`, `(& T)`, `(ptr T)`, `(fn ...)`. Structs are never copy.
+3. `copy` types: primitives, `bool`, `unit`, `(& T)`, `(ptr T)`, `(fn ...)`. Structs and
+   `(clos ...)` are never copy.
 4. When an owner goes out of scope and still holds the value, `drop` runs. `str`, `vec`,
-   `map` free their heap memory; structs and enums drop their fields.
+   and `map` free their heap memory. A closure drops each capture and frees its environment.
+   Structs and enums drop their fields.
 5. Drop order: reverse declaration order within a scope.
 6. One field of a struct that has no `drop` method can be moved. That field is not dropped
    again; the other fields still are. A move through `&` or `ptr`, or out of a struct that

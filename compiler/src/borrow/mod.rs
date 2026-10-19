@@ -91,7 +91,7 @@ pub fn stmt_accesses(s: &Stmt, span: Span) -> Vec<Access> {
                     operand_access(a, span, &mut out);
                     operand_access(b, span, &mut out);
                 }
-                Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| operand_access(o, span, &mut out)),
+                Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => ops.iter().for_each(|o| operand_access(o, span, &mut out)),
                 Rvalue::Discr(p) => out.push(Access { place: p.clone(), kind: AccessKind::Read, span }),
                 Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) => {}
             }
@@ -110,7 +110,7 @@ pub fn term_accesses(t: &Term, span: Span) -> Vec<Access> {
     match t {
         Term::If(op, ..) | Term::Switch(op, ..) => operand_access(op, span, &mut out),
         Term::Call { func, args, dest, .. } => {
-            if let Func::Ptr(op) = func {
+            if let Func::Ptr(op) | Func::Clos(op) = func {
                 operand_access(op, span, &mut out);
             }
             args.iter().for_each(|a| operand_access(a, span, &mut out));

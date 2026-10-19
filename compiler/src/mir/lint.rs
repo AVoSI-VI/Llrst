@@ -148,6 +148,14 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
             walk_expr(diags, callee, scope);
             args.iter().for_each(|x| walk_expr(diags, x, scope));
         }
+        Clos { params, body, .. } => {
+            let n = scope.len();
+            for p in params {
+                scope.push(Bind { name: p.name.clone(), span: p.span, used: false });
+            }
+            walk_seq(diags, body, scope);
+            scope.truncate(n);
+        }
     }
 }
 
@@ -217,7 +225,7 @@ fn mark_stmt(read: &mut [bool], s: &Stmt) {
             mark_op(read, a);
             mark_op(read, b);
         }
-        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => ops.iter().for_each(|o| mark_op(read, o)),
+        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => ops.iter().for_each(|o| mark_op(read, o)),
         Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) => {}
     }
 }
@@ -226,7 +234,7 @@ fn mark_term(read: &mut [bool], t: &Term) {
     match t {
         Term::If(op, ..) | Term::Switch(op, ..) => mark_op(read, op),
         Term::Call { func, args, .. } => {
-            if let Func::Ptr(op) = func {
+            if let Func::Ptr(op) | Func::Clos(op) = func {
                 mark_op(read, op);
             }
             args.iter().for_each(|a| mark_op(read, a));
@@ -305,6 +313,10 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
         CallPtr { callee, args } => {
             one(callee);
             many(args);
+            None
+        }
+        Clos { body, .. } => {
+            many(body);
             None
         }
         Lit(_) | Break | Continue | Sizeof(_) | Name(_) => None,

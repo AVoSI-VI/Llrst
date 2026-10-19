@@ -59,6 +59,8 @@ pub enum Ty {
     /// Struct or enum instance.
     Adt(DefId, Vec<Ty>),
     Fn(Vec<Ty>, Box<Ty>),
+    /// Owned closure. The environment is erased; the value is call code, drop code, and a heap env.
+    Clos(Vec<Ty>, Box<Ty>),
     /// Generic parameter, index into the enclosing generics list.
     Param(u32, String),
     /// Inference variable. `int` marks an unsuffixed integer literal.
@@ -69,6 +71,7 @@ impl Ty {
     pub fn is_copy(&self, adt_is_copy: &dyn Fn(DefId) -> bool) -> bool {
         match self {
             Ty::Int(_) | Ty::F32 | Ty::F64 | Ty::Bool | Ty::Unit | Ty::Never | Ty::Ptr(_) | Ty::Fn(..) => true,
+            Ty::Clos(..) => false,
             Ty::Ref { mutable, .. } => !mutable,
             Ty::Adt(d, _) => adt_is_copy(*d),
             Ty::Param(..) | Ty::Infer(..) => false,
@@ -90,6 +93,7 @@ impl Ty {
         match self {
             Ty::Ref { .. } => true,
             Ty::Adt(_, args) => args.iter().any(|a| a.has_ref()),
+            Ty::Clos(..) => true,
             Ty::Fn(..) | Ty::Ptr(_) => false,
             _ => false,
         }
@@ -99,7 +103,7 @@ impl Ty {
             Ty::Infer(..) => true,
             Ty::Ref { inner, .. } | Ty::Ptr(inner) => inner.has_infer(),
             Ty::Adt(_, args) => args.iter().any(|a| a.has_infer()),
-            Ty::Fn(ps, r) => ps.iter().any(|a| a.has_infer()) || r.has_infer(),
+            Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().any(|a| a.has_infer()) || r.has_infer(),
             _ => false,
         }
     }
@@ -108,7 +112,7 @@ impl Ty {
             Ty::Param(..) => true,
             Ty::Ref { inner, .. } | Ty::Ptr(inner) => inner.has_param(),
             Ty::Adt(_, args) => args.iter().any(|a| a.has_param()),
-            Ty::Fn(ps, r) => ps.iter().any(|a| a.has_param()) || r.has_param(),
+            Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().any(|a| a.has_param()) || r.has_param(),
             _ => false,
         }
     }
@@ -120,6 +124,7 @@ impl Ty {
             Ty::Ptr(inner) => Ty::Ptr(Box::new(inner.subst(args))),
             Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(|t| t.subst(args)).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
+            Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
             _ => self.clone(),
         }
     }
@@ -140,6 +145,10 @@ impl Ty {
             }
             Ty::Adt(_, a) => a.iter().for_each(|t| t.lifetimes(out)),
             Ty::Ptr(i) => i.lifetimes(out),
+            Ty::Fn(ps, r) | Ty::Clos(ps, r) => {
+                ps.iter().for_each(|t| t.lifetimes(out));
+                r.lifetimes(out);
+            }
             _ => {}
         }
     }
@@ -176,15 +185,24 @@ impl<'a> TyPrinter<'a> {
                     format!("({} {})", n, a.join(" "))
                 }
             }
-            Ty::Fn(ps, r) => {
-                let a: Vec<String> = ps.iter().map(|t| self.show(t)).collect();
-                format!("(fn ({}) {})", a.join(" "), self.show(r))
-            }
+            Ty::Fn(ps, r) => fn_show("fn", ps, r, self),
+            Ty::Clos(ps, r) => fn_show("clos", ps, r, self),
             Ty::Param(_, n) => n.clone(),
             Ty::Infer(_, true) => "{int}".into(),
             Ty::Infer(_, false) => "?".into(),
         }
     }
+}
+
+fn fn_show(kind: &str, ps: &[Ty], r: &Ty, p: &TyPrinter) -> String {
+    let a: Vec<String> = ps.iter().map(|t| p.show(t)).collect();
+    format!("({} ({}) {})", kind, a.join(" "), p.show(r))
+}
+
+/// `(fn ...)` or `(clos ...)` from the same parameter and return types.
+pub fn fn_clos(clos: bool, ps: Vec<Ty>, r: Ty) -> Ty {
+    let r = Box::new(r);
+    if clos { Ty::Clos(ps, r) } else { Ty::Fn(ps, r) }
 }
 
 impl fmt::Display for Ty {

@@ -1,0 +1,15 @@
+(struct hold (f (clos () i64)))
+
+(fn make ((n i64)) (clos () i64)
+  (clos () i64 n))
+
+(fn eat ((s str)) (clos () i64)
+  (clos () i64 (str.len (& s))))
+
+(fn main () unit
+  (let c (make 7))
+  (assert_eq (call c) 7)
+  (let h (hold c))
+  (assert_eq (call (. h f)) 7)
+  (let e (eat (str.from "hi")))
+  (assert_eq (call e) 2))

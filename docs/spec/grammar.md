@@ -50,6 +50,7 @@ TYPE := i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64 | f32 | f64 | bool | unit | 
       | (& 'a TYPE) | (&mut 'a TYPE)         ; references with named lifetime
       | (ptr TYPE)                           ; raw pointer, std internals only
       | (fn (TYPE...) TYPE)                  ; function pointer
+      | (clos (TYPE...) TYPE)                ; owned closure; not a function pointer
       | T                                    ; generic parameter in scope
 ```
 
@@ -83,6 +84,8 @@ EXPR :=
   (panic EXPR)                               ; print P|... and exit 101
   (assert EXPR) | (assert_eq EXPR EXPR)      ; test asserts
   (sizeof TYPE)                              ; u64, std internals only
+  (call EXPR EXPR...)                        ; call a (fn ...) or a (clos ...)
+  (clos ((NAME TYPE)*) TYPE BODY...)         ; closure; captures whole bindings; body cannot contain a closure
 
 PLACE := NAME | (. PLACE NAME) | (@ EXPR)
 PAT   := _ | NAME | LIT | (ENUM.VARIANT PAT...) | (ENUM.VARIANT)

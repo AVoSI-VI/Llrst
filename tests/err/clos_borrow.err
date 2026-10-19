@@ -1,0 +1,1 @@
+E|tests/err/clos_borrow.llr|3|10|5|borrow.escape|name=n|ref=_0|borrowed_at=3:10

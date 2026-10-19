@@ -64,6 +64,11 @@ explicitly: `(vec.new <str>)`.
 ## Function types
 
 `(fn (A B) R)`: pointer to a non-capturing function. Named functions coerce to it.
+`(clos (A B) R)` does not. A closure is an owned value: call code, drop code, and a heap
+environment. Create one with `(clos ((n T)*) R BODY...)`. A `copy` binding is copied in;
+anything else is moved in. A captured reference is a loan held by the closure. The value
+can be returned and stored. Call it with `(call c a b)`. It is not `copy`, and a closure
+body cannot contain a closure (`clos.nested`).
 
 ## Inference
 

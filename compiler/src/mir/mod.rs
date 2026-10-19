@@ -3,6 +3,7 @@ mod inline;
 pub mod lint;
 pub mod lower;
 mod lower_call;
+mod lower_clos;
 mod lower_div;
 mod lower_match;
 pub mod print;
@@ -115,6 +116,8 @@ pub enum Rvalue {
     Argc,
     Argv,
     Sizeof(Ty),
+    /// Closure value. `idx` selects `Body::closures`. `caps` are stored into the heap env.
+    Closure { idx: u32, caps: Vec<Operand> },
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +137,8 @@ pub enum Stmt {
 pub enum Func {
     Def(DefId, Vec<Ty>),
     Ptr(Operand),
+    /// Closure aggregate. The operand is the three-pointer value, not consumed by the call.
+    Clos(Operand),
 }
 
 #[derive(Clone, Debug)]
@@ -155,6 +160,13 @@ pub struct BasicBlock {
     pub term_span: Span,
 }
 
+pub struct ClosInst {
+    pub body: Body,
+    pub caps: Vec<Ty>,
+    pub user: Vec<Ty>,
+    pub ret: Ty,
+}
+
 pub struct Body {
     pub name: String,
     pub locals: Vec<LocalDecl>,
@@ -163,6 +175,8 @@ pub struct Body {
     pub span: Span,
     /// Named lifetime parameters, for cross-function region rules.
     pub lifetimes: Vec<String>,
+    /// Closures created in this body, in source order.
+    pub closures: Vec<ClosInst>,
 }
 
 impl Body {
@@ -220,6 +234,7 @@ pub fn is_copy(prog: &Program, t: &Ty) -> bool {
 /// Whether values of this type run code when dropped.
 pub fn needs_drop(prog: &Program, t: &Ty) -> bool {
     match t {
+        Ty::Clos(..) => true,
         Ty::Adt(d, args) => {
             if prog.methods.get(d).map_or(false, |m| m.contains_key("drop")) {
                 return true;

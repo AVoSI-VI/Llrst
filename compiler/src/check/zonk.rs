@@ -83,6 +83,7 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
             let callee = match callee {
                 Callee::Fn(d, targs) => Callee::Fn(d, zonk_tys(c, &targs, span)?),
                 Callee::Ptr(x) => Callee::Ptr(bx(c, x)?),
+                Callee::Clos(x) => Callee::Clos(bx(c, x)?),
                 Callee::Builtin(b) => Callee::Builtin(b),
                 Callee::Sizeof(t) => Callee::Sizeof(zonk_tys(c, &[t], span)?.remove(0)),
             };
@@ -91,6 +92,16 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
         ExprKind::Struct { def, fields } => ExprKind::Struct { def, fields: fields.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? },
         ExprKind::Variant { def, idx, fields } => ExprKind::Variant { def, idx, fields: fields.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? },
         ExprKind::Try { expr, is_res } => ExprKind::Try { expr: bx(c, expr)?, is_res },
+        ExprKind::Closure { caps, mut inner } => {
+            inner.ret = c.zonk_ty(&inner.ret);
+            inner.caps = zonk_tys(c, &inner.caps, span)?;
+            inner.user = zonk_tys(c, &inner.user, span)?;
+            for l in &mut inner.locals {
+                l.ty = c.zonk_ty(&l.ty);
+            }
+            inner.body = Box::new(zonk_expr(c, *inner.body)?);
+            ExprKind::Closure { caps: caps.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()?, inner }
+        }
     };
     Ok(Expr { kind, ty, span })
 }

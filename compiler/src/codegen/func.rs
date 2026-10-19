@@ -46,6 +46,7 @@ fn field_drops(prog: &crate::resolve::Program, ty: &Ty) -> Option<Vec<bool>> {
 }
 
 pub fn compile(cg: &mut Codegen, body: &Body, id: FuncId) -> PResult<()> {
+    super::clos::prepare(cg, body)?;
     let params: Vec<Ty> = (1..=body.arg_count).map(|i| body.locals[i].ty.clone()).collect();
     let ret = body.locals[0].ty.clone();
     let sig = cg.signature(&params, &ret);
@@ -366,6 +367,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                     self.store(&t, a, v);
                 }
             }
+            Rvalue::Closure { idx, caps } => self.clos_assign(dest, *idx, caps),
             _ => {
                 let v = self.rvalue(rv, span);
                 let (daddr, dty) = self.place_addr(dest);
@@ -381,7 +383,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
 
     /// Evaluates operands before the destination is written; aggregates are copied to
     /// fresh temporaries so an operand that reads `dest` stays intact.
-    fn spilled_operands(&mut self, ops: &[Operand]) -> Vec<(Val, Ty)> {
+    pub fn spilled_operands(&mut self, ops: &[Operand]) -> Vec<(Val, Ty)> {
         let vals: Vec<(Val, Ty)> = ops.iter().map(|o| self.operand(o)).collect();
         let mut out = Vec::new();
         for (v, t) in vals {
@@ -459,7 +461,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let s = self.cg.layouts.size(t);
                 Val::Scalar(self.b.ins().iconst(types::I64, s as i64))
             }
-            Rvalue::Struct(..) | Rvalue::Variant(..) => unreachable!(),
+            Rvalue::Struct(..) | Rvalue::Variant(..) | Rvalue::Closure { .. } => unreachable!(),
         }
     }
 

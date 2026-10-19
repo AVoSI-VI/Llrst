@@ -67,6 +67,7 @@ fn rvalue(r: &Rvalue) -> String {
         Rvalue::Argc => "argc".into(),
         Rvalue::Argv => "argv".into(),
         Rvalue::Sizeof(t) => format!("sizeof {}", t),
+        Rvalue::Closure { idx, caps } => format!("clos{} {{{}}}", idx, ops(caps)),
     }
 }
 
@@ -92,7 +93,7 @@ fn term(t: &Term) -> String {
         Term::Call { func, args, dest, next, .. } => {
             let f = match func {
                 Func::Def(d, _) => format!("fn#{}", d.0),
-                Func::Ptr(o) => operand(o),
+                Func::Ptr(o) | Func::Clos(o) => operand(o),
             };
             format!("{} = {}({}) -> bb{}", place(dest), f, ops(args), next)
         }

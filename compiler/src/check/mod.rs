@@ -1,6 +1,7 @@
 //! Type checker. Checks one function instance at a time against concrete type args and
 //! produces THIR. Generic bodies are checked per instantiation.
 mod call;
+mod clos;
 mod expr;
 mod pat;
 mod zonk;
@@ -24,6 +25,7 @@ pub struct Checker<'a> {
     infer: Vec<Option<Ty>>,
     infer_int: Vec<bool>,
     loop_depth: u32,
+    in_clos: bool,
     pub sm: &'a SourceMap,
 }
 
@@ -42,6 +44,7 @@ pub fn check_fn<'a>(prog: &'a Program, diags: &'a Diags, sm: &'a SourceMap, def:
         infer: Vec::new(),
         infer_int: Vec::new(),
         loop_depth: 0,
+        in_clos: false,
         sm,
     };
     let mut params = Vec::new();
@@ -68,6 +71,7 @@ pub fn check_test<'a>(prog: &'a Program, diags: &'a Diags, sm: &'a SourceMap, mo
         infer: Vec::new(),
         infer_int: Vec::new(),
         loop_depth: 0,
+        in_clos: false,
         sm,
     };
     let body = c.check_body(&t.body, &Ty::Unit, t.span)?;
@@ -122,6 +126,7 @@ impl<'a> Checker<'a> {
             Ty::Ptr(i) => Ty::Ptr(Box::new(self.zonk_ty(&i))),
             Ty::Adt(d, a) => Ty::Adt(d, a.iter().map(|x| self.zonk_ty(x)).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|x| self.zonk_ty(x)).collect(), Box::new(self.zonk_ty(&r))),
+            Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|x| self.zonk_ty(x)).collect(), Box::new(self.zonk_ty(&r))),
             t => t,
         }
     }
@@ -158,7 +163,7 @@ impl<'a> Checker<'a> {
             (Ty::Ref { mutable: ma, inner: ia, .. }, Ty::Ref { mutable: mb, inner: ib, .. }) => ma == mb && self.unify(ia, ib),
             (Ty::Ptr(x), Ty::Ptr(y)) => self.unify(x, y),
             (Ty::Adt(d1, a1), Ty::Adt(d2, a2)) => d1 == d2 && a1.len() == a2.len() && a1.iter().zip(a2).all(|(x, y)| self.unify(x, y)),
-            (Ty::Fn(p1, r1), Ty::Fn(p2, r2)) => p1.len() == p2.len() && p1.iter().zip(p2).all(|(x, y)| self.unify(x, y)) && self.unify(r1, r2),
+            (Ty::Fn(p1, r1), Ty::Fn(p2, r2)) | (Ty::Clos(p1, r1), Ty::Clos(p2, r2)) => p1.len() == p2.len() && p1.iter().zip(p2).all(|(x, y)| self.unify(x, y)) && self.unify(r1, r2),
             _ => a == b,
         }
     }

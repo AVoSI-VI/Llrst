@@ -17,12 +17,13 @@ impl<'a> Checker<'a> {
         if let Some(l) = self.lookup_local(callee) {
             let ty = self.locals[l.0 as usize].ty.clone();
             let (ps, r) = match self.shallow(&ty) {
-                Ty::Fn(ps, r) => (ps, *r),
+                Ty::Fn(ps, r) | Ty::Clos(ps, r) => (ps, *r),
                 other => return Err(Diag::error(sp, "type.not_callable").kv("got", self.show(&other))),
             };
             let args = self.check_args(args, &ps, sp)?;
-            let c = mk(ExprKind::Local(l), ty, sp);
-            return Ok(mk(ExprKind::Call { callee: Callee::Ptr(Box::new(c)), args }, r, sp));
+            let c = mk(ExprKind::Local(l), ty.clone(), sp);
+            let callee = if matches!(self.shallow(&ty), Ty::Clos(..)) { Callee::Clos(Box::new(c)) } else { Callee::Ptr(Box::new(c)) };
+            return Ok(mk(ExprKind::Call { callee, args }, r, sp));
         }
         // 2. function or method
         if let Some(f) = self.prog.lookup_fn(self.module, callee) {

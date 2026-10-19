@@ -65,6 +65,7 @@ pub enum Callee {
     Ptr(Box<Expr>),
     Builtin(Builtin),
     Sizeof(Ty),
+    Clos(Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +81,17 @@ pub struct Arm {
     pub pat: Pat,
     pub body: Expr,
     pub span: Span,
+}
+
+/// A closure lowered as its own function: arguments are the captures, then the user parameters.
+#[derive(Clone, Debug)]
+pub struct ClosBody {
+    pub locals: Vec<Local>,
+    pub params: Vec<LocalId>,
+    pub ret: Ty,
+    pub body: Box<Expr>,
+    pub caps: Vec<Ty>,
+    pub user: Vec<Ty>,
 }
 
 #[derive(Clone, Debug)]
@@ -122,6 +134,8 @@ pub enum ExprKind {
     FnRef(DefId),
     /// `(try e)`: `is_res` selects res vs opt.
     Try { expr: Box<Expr>, is_res: bool },
+    /// Owned closure. `caps` are the enclosing bindings, copied or moved into the env.
+    Closure { caps: Vec<Expr>, inner: ClosBody },
 }
 
 impl Expr {

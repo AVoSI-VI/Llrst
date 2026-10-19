@@ -407,7 +407,6 @@ fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: 
     }
     Ok(def)
 }
-
 fn inline_reject(f: &ast::FnDecl, params: &[(String, Ty)]) -> Option<Diag> {
     if !f.inline {
         return None;
@@ -447,6 +446,7 @@ fn bad_expr(e: &ast::Expr) -> Option<&'static str> {
         Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => bad_expr(l).or_else(|| bad_expr(r)),
         Call { args, .. } => bad_form(args),
         CallPtr { callee, args } => bad_expr(callee).or_else(|| bad_form(args)),
+        Clos { body, .. } => bad_form(body).or(Some("clos")),
         Lit(_) | Name(_) | Sizeof(_) => None,
     }
 }
@@ -491,9 +491,9 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
         }
         TyExpr::Ref { mutable, lt, inner, .. } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(resolve_ty(prog, module, generics, inner)?) },
         TyExpr::Ptr(inner, _) => Ty::Ptr(Box::new(resolve_ty(prog, module, generics, inner)?)),
-        TyExpr::Fn(ps, r, _) => Ty::Fn(
+        TyExpr::Fn(ps, r, _) | TyExpr::Clos(ps, r, _) => crate::ty::fn_clos(matches!(t, TyExpr::Clos(..)),
             ps.iter().map(|a| resolve_ty(prog, module, generics, a)).collect::<PResult<Vec<_>>>()?,
-            Box::new(resolve_ty(prog, module, generics, r)?),
+            resolve_ty(prog, module, generics, r)?,
         ),
     })
 }

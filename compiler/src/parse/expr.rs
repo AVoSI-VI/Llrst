@@ -1,6 +1,6 @@
 //! Expression and pattern parsing.
 use super::ty::{parse_targs, parse_ty};
-use crate::ast::{Arm, BinOp, Expr, ExprKind, Lit, Pat};
+use crate::ast::{Arm, BinOp, Expr, ExprKind, Lit, Param, Pat};
 use crate::diag::{Diag, PResult, Span};
 use crate::sexpr::Sexpr;
 
@@ -46,7 +46,7 @@ fn is_type_form(s: &Sexpr) -> bool {
         ),
         Sexpr::List(items, _) => {
             let Some(head) = items.first().and_then(|h| h.atom()) else { return false };
-            if matches!(head, "ptr" | "fn") {
+            if matches!(head, "ptr" | "fn" | "clos") {
                 return true;
             }
             if matches!(head, "&" | "&mut") {
@@ -252,6 +252,7 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
             }
             ExprKind::CallPtr { callee: bx(parse_expr(&items[1])?), args: parse_body(&items[2..])? }
         }
+        "clos" => parse_clos(items, sp)?,
         _ => {
             if let Some(op) = BinOp::from_str(head) {
                 let (l, r) = two(items, sp, head)?;
@@ -263,6 +264,22 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
         }
     };
     Ok(mk(k, sp))
+}
+
+fn parse_clos(items: &[Sexpr], sp: Span) -> PResult<ExprKind> {
+    let n = items.len() - 1;
+    if n < 2 {
+        return Err(arity(sp, "clos", "2+", n));
+    }
+    let plist = items[1].list().ok_or_else(|| Diag::error(items[1].span(), "parse.expect").kv("want", "((name type)...)"))?;
+    let mut params = Vec::new();
+    for p in plist {
+        let l = p.list().filter(|l| l.len() == 2).ok_or_else(|| Diag::error(p.span(), "parse.expect").kv("want", "(name type)"))?;
+        let name = l[0].atom().ok_or_else(|| Diag::error(l[0].span(), "parse.expect").kv("want", "name"))?.to_string();
+        params.push(Param { name, ty: parse_ty(&l[1])?, span: p.span() });
+    }
+    let ret = parse_ty(&items[2])?;
+    Ok(ExprKind::Clos { params, ret, body: parse_body(&items[3..])? })
 }
 
 pub fn parse_pat(s: &Sexpr) -> PResult<Pat> {

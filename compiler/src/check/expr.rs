@@ -199,12 +199,14 @@ impl<'a> Checker<'a> {
             A::Call { callee, targs, args } => self.check_call(callee, targs, args, want, sp)?,
             A::CallPtr { callee, args } => {
                 let callee = self.check_expr(callee, None)?;
+                let clos = matches!(self.shallow(&callee.ty), Ty::Clos(..));
                 let (ps, r) = match self.shallow(&callee.ty) {
-                    Ty::Fn(ps, r) => (ps, *r),
+                    Ty::Fn(ps, r) | Ty::Clos(ps, r) => (ps, *r),
                     other => return Err(Diag::error(sp, "type.not_callable").kv("got", self.show(&other))),
                 };
                 let args = self.check_args(args, &ps, sp)?;
-                mk(ExprKind::Call { callee: Callee::Ptr(Box::new(callee)), args }, r, sp)
+                let callee = if clos { Callee::Clos(Box::new(callee)) } else { Callee::Ptr(Box::new(callee)) };
+                mk(ExprKind::Call { callee, args }, r, sp)
             }
             A::Try(x) => self.check_try(x, sp)?,
             A::Panic(msg) => {
@@ -233,6 +235,7 @@ impl<'a> Checker<'a> {
                 let x = self.check_expr(x, None)?;
                 mk(ExprKind::Call { callee: Callee::Builtin(Builtin::Drop), args: vec![x] }, Ty::Unit, sp)
             }
+            A::Clos { params, ret, body } => self.check_clos(params, ret, body, sp)?,
         };
         match want {
             Some(w) => self.coerce(out, w),

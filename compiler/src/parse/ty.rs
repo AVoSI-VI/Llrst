@@ -34,13 +34,18 @@ pub fn parse_ty(s: &Sexpr) -> PResult<TyExpr> {
                     }
                     Ok(TyExpr::Ptr(Box::new(parse_ty(&items[1])?), *sp))
                 }
-                "fn" => {
+                "fn" | "clos" => {
                     if items.len() != 3 {
-                        return Err(Diag::error(*sp, "parse.arity").kv("form", "fn type").kv("want", "2").kv("got", (items.len() - 1).to_string()));
+                        return Err(Diag::error(*sp, "parse.arity").kv("form", head).kv("want", "2").kv("got", (items.len() - 1).to_string()));
                     }
                     let params = items[1].list().ok_or_else(|| Diag::error(items[1].span(), "parse.expect").kv("want", "(types)"))?;
                     let ps = params.iter().map(parse_ty).collect::<PResult<Vec<_>>>()?;
-                    Ok(TyExpr::Fn(ps, Box::new(parse_ty(&items[2])?), *sp))
+                    let kind = head == "clos";
+                    Ok(if kind {
+                        TyExpr::Clos(ps, Box::new(parse_ty(&items[2])?), *sp)
+                    } else {
+                        TyExpr::Fn(ps, Box::new(parse_ty(&items[2])?), *sp)
+                    })
                 }
                 _ => {
                     let args = items[1..].iter().map(parse_ty).collect::<PResult<Vec<_>>>()?;

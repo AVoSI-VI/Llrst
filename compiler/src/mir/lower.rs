@@ -58,7 +58,7 @@ pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name:
         *m = remap[*m as usize];
     }
     let raw_div = name == "sys.checked_div";
-    let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes };
+    let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes, closures: Vec::new() };
     let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone(), inline_stack: Vec::new() };
     let entry = lw.new_block();
     lw.cur = entry;
@@ -431,6 +431,7 @@ impl<'a> Lower<'a> {
                 self.assign(&dest, Rvalue::Variant(e.ty.clone(), *idx, ops), sp);
             }
             ExprKind::Try { expr, is_res } => self.lower_try(expr, *is_res, dest, sp),
+            ExprKind::Closure { caps, inner } => self.lower_clos(caps, inner, dest, sp),
         }
     }
 

@@ -55,6 +55,7 @@ impl<'a> Layouts<'a> {
             Ty::Bool => scalar(1),
             Ty::Unit | Ty::Never => Layout { size: 0, align: 1, fields: Vec::new(), variants: Vec::new() },
             Ty::Ref { .. } | Ty::Ptr(_) | Ty::Fn(..) => scalar(PTR_BYTES),
+            Ty::Clos(..) => Layout { size: PTR_BYTES * 3, align: PTR_BYTES, fields: vec![0, PTR_BYTES, PTR_BYTES * 2], variants: Vec::new() },
             Ty::Adt(d, args) => match &self.prog.def(*d).kind {
                 DefKind::Struct(s) => {
                     let tys: Vec<Ty> = s.fields.iter().map(|f| f.1.subst(args)).collect();
@@ -89,7 +90,7 @@ impl<'a> Layouts<'a> {
     }
 
     /// Lays out `tys` sequentially starting at `start`. Returns (end size, align, offsets).
-    fn seq(&mut self, tys: &[Ty], start: u32) -> (u32, u32, Vec<u32>) {
+    pub fn seq(&mut self, tys: &[Ty], start: u32) -> (u32, u32, Vec<u32>) {
         let mut off = start;
         let mut align = 1;
         let mut offs = Vec::new();

@@ -32,6 +32,7 @@ impl<'a> Lower<'a> {
         let func = match callee {
             Callee::Fn(d, targs) => Func::Def(*d, targs.clone()),
             Callee::Ptr(e) => Func::Ptr(self.as_operand(e)),
+            Callee::Clos(e) => Func::Clos(Operand::Copy(self.as_place(e))),
             _ => unreachable!(),
         };
         if self.inline_call(&func, &ops, &dest, sp) {
