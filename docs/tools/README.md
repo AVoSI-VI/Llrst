@@ -21,6 +21,7 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | | git read | status, diff, and log; no commit | [llr-git](llr-git.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
 | | type check | `type.*` and `name.*` errors | [llr-check](llr-check.md) |
+| HTTP server | files and exact routes on one poll loop | [llr-http](llr-http.md) |
 
 Every tool is a single `.llr` file under `tools/` built by `scripts/install.sh`. Shared
 behaviour lives in `std` (`cli`, `fmt`, `fs`, `glob`, `re`, `diff`, `sexp`), so a tool is

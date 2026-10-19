@@ -22,7 +22,7 @@ machine-readable line.
 | `docs/workflows/` | step lists for agents |
 | `compiler/` | `llrc` (Rust) |
 | `std/` | standard library (Llrst) |
-| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-fmt llr-test llr-diff` (Llrst) |
+| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff` (Llrst) |
 | `tests/` | golden tests; `tests/run.sh` |
 
 Install: `scripts/install.sh` (see `docs/install.md`). Build only: `cargo build --release`.

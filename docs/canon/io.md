@@ -46,6 +46,7 @@
 | render | `(http.show_req (& r))` and `(http.show_resp (& r))` |
 | respond | `(http.respond code reason ty body)` sets `Content-Type` and `Content-Length` |
 | header | `(http.header (& headers) name)` returns `(opt str)`, name compared in lower case |
+| serve | `(http.serve fd root (& routes) stop_after)` returns `(res i64 str)`. `0` runs until killed. A route is method, path, and `(fn ((& req) (ptr u8)) resp)` |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

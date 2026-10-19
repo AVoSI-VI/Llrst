@@ -107,3 +107,5 @@
 
 (pub (extern pthread_cond_destroy ((c (ptr u8))) i32))
 
+(pub (extern setrlimit ((resource i32) (lim (ptr u8))) i32))
+

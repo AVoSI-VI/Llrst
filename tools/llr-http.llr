@@ -1,0 +1,28 @@
+;; llr-http ROOT PORT: files under ROOT plus GET /health.
+(use std.cli)
+(use std.fmt)
+(use std.http)
+(use std.io)
+(use std.net)
+(use std.os)
+(use std.str)
+
+(fn health ((_ (& http.req)) (_ (ptr u8))) http.resp (http.respond 200 "ok" "text/plain" "ok"))
+
+(fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<http>|0|0|0" e))) (os.exit 1))
+
+(fn main () unit
+  (let mut c (cli.new "llr-http" "serve files and GET /health"))
+  (cli.pos (&mut c) "root")
+  (cli.pos (&mut c) "port")
+  (cli.parse (&mut c) (os.args))
+  (let root (cli.at (& c) 0))
+  (let port (str.to_int (cli.at (& c) 1)))
+  (if (opt.is_none (& port)) (die "http.port"))
+  (let l (net.listen (opt.unwrap port)))
+  (if (res.is_err (& l)) (die (& (res.unwrap_err l))))
+  (io.puts (& (fmt.pipe2 "ok" (& (fmt.kv "port" (cli.at (& c) 1))))))
+  (let mut routes (vec.new <http.route>))
+  (vec.push (&mut routes) (http.route (str.from "GET") (str.from "/health") health))
+  (let ran (http.serve (res.unwrap l) root (& routes) 0))
+  (if (res.is_err (& ran)) (die (& (res.unwrap_err ran)))))

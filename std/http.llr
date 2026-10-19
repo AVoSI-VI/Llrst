@@ -1,5 +1,9 @@
-;; One HTTP/1.1 request or response. No chunked bodies and no socket reads.
+;; One HTTP/1.1 request or response, and a file server on one poll loop.
+(use std.fs)
+(use std.net)
+(use std.path)
 (use std.str)
+(use std.sys)
 
 (pub (struct req (pub (method str)) (pub (path str)) (pub (headers (vec str))) (pub (body str))))
 
@@ -171,3 +175,139 @@
   (assert_eq (& (. back reason)) "ok")
   (assert_eq (& (. back body)) "hi")
   (assert_eq (& (opt.unwrap (header (& (. back headers)) "Content-Type"))) "text/plain"))
+
+(pub (struct route (pub (method str)) (pub (path str)) (pub (work (fn ((& req) (ptr u8)) resp)))))
+
+(struct conn (fd i64) (buf str))
+
+(struct svc (root str) (routes (ptr u8)) (conns (vec conn)) (done i64) (stop i64))
+
+(fn file_path ((root (& str)) (path (& str))) (opt str)
+  (if (str.has path "..") (ret (opt.none)))
+  (let rest (if (str.starts path "/") (str.slice path 1 (str.len path)) (str.from path)))
+  (opt.some (path.join root (& rest))))
+
+(fn file_body ((root (& str)) (path (& str))) resp
+  (match (file_path root path)
+    ((opt.none) (respond 400 "bad path" "text/plain" "bad path"))
+    ((opt.some p)
+      (match (fs.read (& p))
+        ((res.ok b) (respond 200 "ok" "text/plain" (& b)))
+        ((res.err _) (respond 404 "not found" "text/plain" "not found"))))))
+
+(fn dispatch ((s (ptr svc)) (r (& req))) resp
+  (let routes (as (ptr (vec route)) (. (@ s) routes)))
+  (for i 0 (vec.len (& (@ routes)))
+    (let rt (vec.get (& (@ routes)) i))
+    (if (and (str.eq (& (. rt method)) (& (. r method))) (str.eq (& (. rt path)) (& (. r path))))
+      (ret (call (. rt work) r (as (ptr u8) s)))))
+  (file_body (& (. (@ s) root)) (& (. r path))))
+
+(fn conn_index ((s (ptr svc)) (fd i64)) i64
+  (let cs (& (. (@ s) conns)))
+  (for i 0 (vec.len cs) (if (== (. (vec.get cs i) fd) fd) (ret i)))
+  -1)
+
+(fn ensure ((s (ptr svc)) (fd i64)) i64
+  (let i (conn_index s fd))
+  (if (>= i 0) (ret i))
+  (vec.push (&mut (. (@ s) conns)) (conn fd (str.new)))
+  (- (vec.len (& (. (@ s) conns))) 1))
+
+(fn add_bytes ((s (ptr svc)) (fd i64) (data (& str))) unit
+  (let i (ensure s fd))
+  (str.push (&mut (. (vec.get_mut (&mut (. (@ s) conns)) i) buf)) data))
+
+(fn clear_buf ((s (ptr svc)) (fd i64)) unit
+  (let i (conn_index s fd))
+  (if (< i 0) (ret))
+  (set (. (vec.get_mut (&mut (. (@ s) conns)) i) buf) (str.new)))
+
+(fn send_resp ((fd i64) (msg resp)) unit (let bytes (show_resp (& msg))) (net.send fd (& bytes)) ())
+
+(fn on_http ((fd i64) (data (& str)) (ctx (ptr u8))) bool
+  (let s (as (ptr svc) ctx))
+  (add_bytes s fd data)
+  (let i (conn_index s fd))
+  (let parsed (parse_req (& (. (vec.get (& (. (@ s) conns)) i) buf))))
+  (match parsed
+    ((res.err e)
+      (do
+        (if (str.starts (& e) "http.short") (ret true))
+        (send_resp fd (respond 400 "bad request" "text/plain" "bad request"))))
+    ((res.ok r) (send_resp fd (dispatch s (& r)))))
+  (clear_buf s fd)
+  (set (. (@ s) done) (+ (. (@ s) done) 1))
+  (if (== (. (@ s) stop) 0) (ret true))
+  (< (. (@ s) done) (. (@ s) stop)))
+
+(pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
+  (let mut s (svc (str.from root) (as (ptr u8) routes) (vec.new <conn>) 0 stop_after))
+  (let ran (net.poll_serve fd 4095 on_http (as (ptr u8) (&mut s))))
+  (if (res.is_err (& ran)) (ret (res.err (res.unwrap_err ran))))
+  (res.ok (. s done))))
+
+(fn health ((_ (& req)) (_ (ptr u8))) resp (respond 200 "ok" "text/plain" "ok"))
+
+(fn file_client ((port i64)) never
+  (let c (res.unwrap (net.connect port)))
+  (res.unwrap (net.send c "GET /hello.txt HTTP/1.1\r\nHost: x\r\n\r\n"))
+  (let body (res.unwrap (net.recv c 512)))
+  (net.close c)
+  (if (str.has (& body) "hello-body") (sys._exit 0i32))
+  (sys._exit 1i32))
+
+(fn raise_nofile () unit
+  (let p (sys.alloc 16))
+  (ptr.write (as (ptr u64) p) 8192u64)
+  (ptr.write (ptr.add (as (ptr u64) p) 1) 8192u64)
+  (sys.setrlimit 7i32 p)
+  (sys.free p))
+
+(fn dial ((port i64)) i64
+  (let mut tries 0)
+  (let mut c (net.connect port))
+  (while (and (res.is_err (& c)) (< tries 1000)) (set tries (+ tries 1)) (set c (net.connect port)))
+  (res.unwrap c))
+
+(fn many_clients ((port i64)) never
+  (let mut fds (vec.new <i64>))
+  (for i 0 3072 (vec.push (&mut fds) (dial port)))
+  (for i 0 3072
+    (res.unwrap (net.send (@ (vec.get (& fds) i)) "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")))
+  (for i 0 3072
+    (res.unwrap (net.recv (@ (vec.get (& fds) i)) 128))
+    (net.close (@ (vec.get (& fds) i))))
+  (sys._exit 0i32))
+
+(fn wait_child ((pid i32)) unit
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
+
+(test http_file
+  (fs.mkdir "/tmp/llr_http_dir")
+  (res.unwrap (fs.write "/tmp/llr_http_dir/hello.txt" "hello-body"))
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (file_client port))
+  (let mut routes (vec.new <route>))
+  (let n (res.unwrap (serve l "/tmp/llr_http_dir" (& routes) 1)))
+  (assert_eq n 1)
+  (net.close l)
+  (wait_child pid))
+
+(test http_many
+  (raise_nofile)
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.fork))
+  (if (== pid 0i32) (many_clients port))
+  (let mut routes (vec.new <route>))
+  (vec.push (&mut routes) (route (str.from "GET") (str.from "/health") health))
+  (let n (res.unwrap (serve l "/tmp" (& routes) 3072)))
+  (assert_eq n 3072)
+  (net.close l)
+  (wait_child pid))
