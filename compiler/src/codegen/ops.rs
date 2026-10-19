@@ -88,15 +88,26 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             BinOp::Shl | BinOp::Shr => {
                 if self.cg.checked {
                     self.checked_shift(op, x, y, t, span)
-                } else if op == BinOp::Shr && signed {
-                    self.b.ins().sshr(x, y)
-                } else if op == BinOp::Shr {
-                    self.b.ins().ushr(x, y)
                 } else {
-                    self.b.ins().ishl(x, y)
+                    let y = self.mask_shift(y, t);
+                    if op == BinOp::Shr && signed {
+                        self.b.ins().sshr(x, y)
+                    } else if op == BinOp::Shr {
+                        self.b.ins().ushr(x, y)
+                    } else {
+                        self.b.ins().ishl(x, y)
+                    }
                 }
             }
         }
+    }
+
+    /// `count & (bitwidth - 1)`, so an unchecked shift is defined on every target.
+    fn mask_shift(&mut self, y: Value, t: &Ty) -> Value {
+        let Ty::Int(it) = t else { return y };
+        let ct = clif_type(t).expect("int");
+        let mask = self.b.ins().iconst(ct, (it.bytes() as i64) * 8 - 1);
+        self.b.ins().band(y, mask)
     }
 
     pub fn cast(&mut self, x: Value, from: &Ty, to: &Ty, span: crate::diag::Span) -> Value {

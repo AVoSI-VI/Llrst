@@ -78,10 +78,11 @@ No global inference; every `fn` signature is fully annotated.
 
 ## Arithmetic
 
-`+` `-` `*` and `neg` wrap in two's complement. `llrc build --checked` makes those four trap
-with `P|FILE|LINE|COL|int.overflow` at the expression, and does the same for `shl` and `shr`
-whose count is outside `0..bitwidth`. Signed `MIN / -1` and `MIN % -1` always panic
-`int.overflow`, with or without `--checked`.
+`+` `-` `*` and `neg` wrap in two's complement. Unchecked `shl` and `shr` mask the count
+with `bitwidth - 1`, so a negative count uses the low bits of its two's-complement value.
+`llrc build --checked` makes `+` `-` `*` and `neg` trap with `P|FILE|LINE|COL|int.overflow`
+at the expression, and does the same for `shl` and `shr` whose count is outside `0..bitwidth`.
+Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`, with or without `--checked`.
 `wadd` `wsub` `wmul` `wneg` wrap either way. An integer cast under `--checked` panics
 `cast.overflow` when the value does not fit. Float casts are not checked.
 

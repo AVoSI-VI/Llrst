@@ -1,0 +1,7 @@
+(use std.io)
+
+(fn main () unit
+  (io.puts (& (str.from_int (as i64 (shl 1u8 8u8)))))
+  (io.puts (& (str.from_int (as i64 (shl 1u8 9u8)))))
+  (io.puts (& (str.from_int (as i64 (shl 1i8 -1i8)))))
+  (io.puts (& (str.from_int (shl 1 64)))))
