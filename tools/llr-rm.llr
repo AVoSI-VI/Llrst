@@ -1,0 +1,16 @@
+;; llr-rm PATH: delete one file. A directory is left in place.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+
+(fn main () unit
+  (let mut c (cli.new "llr-rm" "delete one file"))
+  (cli.pos (&mut c) "path")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.at (& c) 0))
+  (match (fs.remove path)
+    ((res.ok _) ())
+    ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<rm>|0|0|0" (& e)))) (os.exit 1))))
+  (io.puts (& (fmt.pipe2 "ok" path))))
