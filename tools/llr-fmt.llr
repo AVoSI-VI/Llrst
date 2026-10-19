@@ -1,4 +1,4 @@
-;; llr-fmt FILE... [--width N] [--check] [--stdout] [--lint]: canonical layout and canon lint.
+;; llr-fmt FILE... [--width N] [--blank N] [--check] [--stdout] [--lint]: canonical layout and canon lint.
 (use proj.fmtlint)
 (use std.cli)
 (use std.fmt)
@@ -50,8 +50,10 @@
     (emit t (sexp.child t n i) (+ indent 2) width out))
   (str.push_byte out 41u8))
 
-;; Whole file: blank line between forms except use-after-use and form-after-comment.
-(pub (fn format ((t (& sexp.tree)) (width i64)) str
+(fn blanks ((n i64) (out (&mut str))) unit (for i 0 n (str.push_byte out 10u8)))
+
+;; Whole file: N blank lines between forms except use-after-use and form-after-comment.
+(pub (fn format ((t (& sexp.tree)) (width i64) (blank i64)) str
   (let mut out (str.new))
   (let n (vec.len (& (. t top))))
   (let mut prev_use false)
@@ -59,8 +61,7 @@
   (for i 0 n
     (let f (@ (vec.get (& (. t top)) i)))
     (let is_use (str.eq (sexp.head t f) "use"))
-    (if (and (> i 0) (not prev_comment) (not (and prev_use is_use)))
-      (str.push_byte (&mut out) 10u8))
+    (if (and (> i 0) (not prev_comment) (not (and prev_use is_use))) (blanks blank (&mut out)))
     (emit t f 0 width (&mut out))
     (str.push_byte (&mut out) 10u8)
     (set prev_use is_use)
@@ -71,11 +72,13 @@
   (let mut c (cli.new "llr-fmt" "format .llr files; --check reports, --lint checks canon"))
   (cli.pos (&mut c) "file")
   (cli.opt (&mut c) "width" "100")
+  (cli.opt (&mut c) "blank" "1")
   (cli.flag (&mut c) "check")
   (cli.flag (&mut c) "stdout")
   (cli.flag (&mut c) "lint")
   (cli.parse (&mut c) (os.args))
   (let width (cli.get_int (& c) "width"))
+  (let blank (cli.get_int (& c) "blank"))
   (let mut bad 0)
   (for i 0 (cli.count (& c))
     (let path (cli.at (& c) i))
@@ -88,7 +91,7 @@
         ((res.ok t) t)
         ((res.err e) (do (io.eputs (& (fmt.pipe3 "E" path (& e)))) (os.exit 1)))))
     (if (cli.has (& c) "lint") (do (set bad (+ bad (fmtlint.lint path (& src) (& t)))) (cont)))
-    (let out (format (& t) width))
+    (let out (format (& t) width blank))
     (let same (str.eq (& out) (& src)))
     (if (cli.has (& c) "stdout") (do (io.put (& out)) (cont)))
     (if (cli.has (& c) "check")
