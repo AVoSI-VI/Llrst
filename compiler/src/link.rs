@@ -20,6 +20,7 @@ pub fn link(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
     }
     if target.is_none() {
         cmd.arg("-pie");
+        cmd.arg("-pthread");
     }
     let status = cmd.status().map_err(|e| Diag::error(Span::default(), "link.failed").kv("cmd", format!("{:?}", cmd)).kv("got", e.to_string()))?;
     let _ = std::fs::remove_file(&obj_path);

@@ -1,0 +1,122 @@
+;; Fixed pthread pool. A job is a function pointer plus a context pointer.
+(use std.sys)
+
+(struct job (work (fn ((ptr u8)) unit)) (ctx (ptr u8)))
+
+(struct taken (go i64) (work (fn ((ptr u8)) unit)) (ctx (ptr u8)))
+
+(struct shared
+  (stop i64)
+  (joined i64)
+  (n i64)
+  (lock (ptr u8))
+  (cv (ptr u8))
+  (threads (ptr u8))
+  (jobs (vec job)))
+
+(pub (struct pool (inner (ptr shared))))
+
+(fn idle ((_ (ptr u8))) unit ())
+
+(fn err ((n i64)) str
+  (let mut m (str.from "thread.start|n="))
+  (str.push (&mut m) (& (str.from_int n)))
+  m)
+
+(fn lock ((inn (ptr shared))) unit (sys.pthread_mutex_lock (. (@ inn) lock)) ())
+
+(fn unlock ((inn (ptr shared))) unit (sys.pthread_mutex_unlock (. (@ inn) lock)) ())
+
+(fn pop_job ((inn (ptr shared))) taken
+  (lock inn)
+  (while (and (== (vec.len (& (. (@ inn) jobs))) 0) (== (. (@ inn) stop) 0))
+    (sys.pthread_cond_wait (. (@ inn) cv) (. (@ inn) lock))
+    ())
+  (if (== (vec.len (& (. (@ inn) jobs))) 0) (do (unlock inn) (ret (taken 0 idle (ptr.null <u8>)))))
+  (let j (opt.unwrap (vec.pop (&mut (. (@ inn) jobs)))))
+  (unlock inn)
+  (taken 1 (. j work) (. j ctx)))
+
+(fn worker ((arg (ptr u8))) (ptr u8)
+  (let inn (as (ptr shared) arg))
+  (loop
+    (let t (pop_job inn))
+    (if (== (. t go) 0) (ret (ptr.null <u8>)))
+    (call (. t work) (. t ctx))))
+
+(fn spawn ((inn (ptr shared)) (i i64)) bool
+  (let tp (ptr.add (as (ptr u64) (. (@ inn) threads)) i))
+  (== (sys.pthread_create (as (ptr u8) tp) (ptr.null <u8>) worker (as (ptr u8) inn)) 0i32))
+
+(fn stop_inner ((inn (ptr shared))) unit
+  (if (== (. (@ inn) joined) 1) (ret))
+  (lock inn)
+  (set (. (@ inn) stop) 1)
+  (sys.pthread_cond_broadcast (. (@ inn) cv))
+  (unlock inn)
+  (for i 0 (. (@ inn) n)
+    (let id (ptr.read (ptr.add (as (ptr u64) (. (@ inn) threads)) i)))
+    (sys.pthread_join id (ptr.null <u8>))
+    ())
+  (set (. (@ inn) joined) 1))
+
+(fn free_inner ((inn (ptr shared))) unit
+  (let gone (vec.take (&mut (. (@ inn) jobs))))
+  (sys.pthread_mutex_destroy (. (@ inn) lock))
+  (sys.pthread_cond_destroy (. (@ inn) cv))
+  (sys.free (. (@ inn) lock))
+  (sys.free (. (@ inn) cv))
+  (sys.free (. (@ inn) threads))
+  (sys.free (as (ptr u8) inn))
+  (drop gone))
+
+(pub (fn start ((n i64)) (res pool str)
+  (if (< n 1) (ret (res.err (err n))))
+  (let lock (sys.alloc 128))
+  (let cv (sys.alloc 128))
+  (let threads (sys.alloc (* n 8)))
+  (if (ptr.eq lock (ptr.null <u8>)) (ret (res.err (err n))))
+  (if (ptr.eq cv (ptr.null <u8>)) (do (sys.free lock) (ret (res.err (err n)))))
+  (if (ptr.eq threads (ptr.null <u8>)) (do (sys.free lock) (sys.free cv) (ret (res.err (err n)))))
+  (sys.pthread_mutex_init lock (ptr.null <u8>))
+  (sys.pthread_cond_init cv (ptr.null <u8>))
+  (let inn (as (ptr shared) (sys.alloc (as i64 (sizeof shared)))))
+  (ptr.write inn (shared 0 0 n lock cv threads (vec.new <job>)))
+  (let mut i 0)
+  (while (< i n)
+    (if (not (spawn inn i))
+      (do (set (. (@ inn) n) i) (stop_inner inn) (free_inner inn) (ret (res.err (err n)))))
+    (set i (+ i 1)))
+  (res.ok (pool inn))))
+
+(pub (fn submit ((self (&mut pool)) (work (fn ((ptr u8)) unit)) (ctx (ptr u8))) unit
+  (let inn (. self inner))
+  (lock inn)
+  (if (== (. (@ inn) stop) 0)
+    (do
+      (vec.push (&mut (. (@ inn) jobs)) (job work ctx))
+      (sys.pthread_cond_broadcast (. (@ inn) cv))))
+  (unlock inn)))
+
+(pub (fn stop ((self (&mut pool))) unit
+  (let inn (. self inner))
+  (if (ptr.eq inn (ptr.null <shared>)) (ret))
+  (stop_inner inn)))
+
+(impl pool
+  (fn drop ((self (&mut pool))) unit
+    (let inn (. self inner))
+    (if (ptr.eq inn (ptr.null <shared>)) (ret))
+    (stop_inner inn)
+    (free_inner inn)
+    (set (. self inner) (ptr.null <shared>))))
+
+(fn add1 ((ctx (ptr u8))) unit (let p (as (ptr i64) ctx)) (ptr.write p (+ (ptr.read p) 1)))
+
+(test thread_pool
+  (let mut xs (vec.new <i64>))
+  (for i 0 8 (vec.push (&mut xs) 0))
+  (let mut p (res.unwrap (start 2)))
+  (for i 0 8 (submit (&mut p) add1 (as (ptr u8) (vec.get_mut (&mut xs) i))))
+  (stop (&mut p))
+  (for i 0 8 (assert_eq (@ (vec.get (& xs) i)) 1)))

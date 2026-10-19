@@ -29,5 +29,13 @@
 | close socket | `(net.close fd)` |
 | poll serve | `(net.poll_serve fd max each ctx)` returns `(res i64 str)`, the number of reads. `each` is `(fn (i64 (& str) (ptr u8)) bool)` |
 
+## Threads
+
+| task | form |
+|------|------|
+| start pool | `(thread.start n)` returns `(res pool str)`. `n < 1` is `thread.start\|n=` |
+| submit | `(thread.submit (&mut p) work ctx)`. `work` is `(fn ((ptr u8)) unit)` |
+| stop | `(thread.stop (&mut p))` joins. Drop does this too |
+
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

@@ -51,6 +51,16 @@ Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows
 | `sys.poll` | `((fds (ptr u8)) (n u64) (timeout i32))` | `i32` |
 | `sys.fcntl` | `((fd i32) (cmd i32) (arg i32))` | `i32` |
 | `sys.__errno_location` | `()` | `(ptr i32)` |
+| `sys.pthread_create` | `((thread (ptr u8)) (attr (ptr u8)) (start (fn ((ptr u8)) (ptr u8))) (arg (ptr u8)))` | `i32` |
+| `sys.pthread_join` | `((thread u64) (ret (ptr u8)))` | `i32` |
+| `sys.pthread_mutex_init` | `((m (ptr u8)) (attr (ptr u8)))` | `i32` |
+| `sys.pthread_mutex_lock` | `((m (ptr u8)))` | `i32` |
+| `sys.pthread_mutex_unlock` | `((m (ptr u8)))` | `i32` |
+| `sys.pthread_mutex_destroy` | `((m (ptr u8)))` | `i32` |
+| `sys.pthread_cond_init` | `((c (ptr u8)) (attr (ptr u8)))` | `i32` |
+| `sys.pthread_cond_wait` | `((c (ptr u8)) (m (ptr u8)))` | `i32` |
+| `sys.pthread_cond_broadcast` | `((c (ptr u8)))` | `i32` |
+| `sys.pthread_cond_destroy` | `((c (ptr u8)))` | `i32` |
 | `sys.write_all` | `((fd i32) (p (ptr u8)) (n i64))` | `unit` |
 | `sys.write_str` | `((fd i32) (s (& str)))` | `unit` |
 | `sys.alloc` | `((n i64))` | `(ptr u8)` |
