@@ -243,7 +243,11 @@
         (do
           (let d (vec.get defs di))
           (if (not (or (. d is_pub) (str.eq (& (. d module)) (& (. (vec.get srcs from) module)))))
-            (ret (opt.some (priv (. t line) (. t col) (. t len) (& (. d name)) (& (. d module))))))))))
+            (ret (opt.some (priv (. t line) (. t col) (. t len) (& (. d name)) (& (. d module))))))
+          (let want (ngens srcs d))
+          (let got (if (== (. t kind) 0u8) 0 (vec.len (& (. t args)))))
+          (if (!= want got)
+            (ret (opt.some (gen_err (. t line) (. t col) (. t len) (& (. d name)) want got true))))))))
   (for i 0 (vec.len (& (. t args)))
     (match (check_ty defs srcs from (vec.get (& (. t args)) i))
       ((opt.some e) (ret (opt.some e)))
@@ -256,6 +260,22 @@
   (neg 1))
 
 (fn unit_info () info (info (str.from "unit") (str.new) (str.new)))
+
+(fn bool_info () info (info (str.from "bool") (str.new) (str.from "bool")))
+
+(fn callable ((show (& str))) bool (or (str.starts show "(fn ") (str.starts show "(clos ")))
+
+(fn is_int ((s (& str))) bool
+  (or (str.eq s "i8")
+    (str.eq s "i16")
+    (str.eq s "i32")
+    (str.eq s "i64")
+    (str.eq s "u8")
+    (str.eq s "u16")
+    (str.eq s "u32")
+    (str.eq s "u64")))
+
+(fn is_num ((s (& str))) bool (or (is_int s) (str.eq s "f32") (str.eq s "f64")))
 
 (fn check_expr ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
   (let k (. e kind))
@@ -270,6 +290,12 @@
   (if (== k 2u8) (ret (check_let defs srcs from e locs)))
   (if (== k 15u8) (ret (check_field defs srcs from e locs)))
   (if (== k 23u8) (ret (check_call defs srcs from e locs)))
+  (if (or (== k 5u8) (== k 6u8)) (ret (check_cond defs srcs from e locs false)))
+  (if (or (== k 18u8) (== k 19u8) (== k 20u8) (== k 27u8)) (ret (check_cond defs srcs from e locs true)))
+  (if (== k 8u8) (ret (check_for defs srcs from e locs)))
+  (if (== k 17u8) (ret (check_bin defs srcs from e locs)))
+  (if (or (== k 21u8) (== k 22u8)) (ret (check_neg defs srcs from e locs)))
+  (if (== k 24u8) (ret (check_ptr defs srcs from e locs)))
   (let mut last (unit_info))
   (for i 0 (vec.len (& (. e kids)))
     (set last (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs))))
@@ -280,6 +306,9 @@
   (let mut got (try (check_expr defs srcs from init locs)))
   (if (> (vec.len (& (. e tys))) 0)
     (do
+      (match (check_ty defs srcs from (vec.get (& (. e tys)) 0))
+        ((opt.some e) (ret (res.err e)))
+        ((opt.none) ()))
       (let want (show_ty (vec.get (& (. e tys)) 0) (& (vec.new <str>)) (& (vec.new <info>))))
       (if (str.has (& (. got show)) "?")
         (set got (info (str.clone (& want)) (str.clone (& (. got module))) (str.clone (& (. got tname)))))
@@ -301,6 +330,122 @@
   (str.push (&mut s) (& (kv b bv)))
   s)
 
+(fn gen_err ((line i64) (col i64) (len i64) (name (& str)) (want i64) (got i64) (named bool)) str
+  (let mut rest (str.new))
+  (if named
+    (do (set rest (kv "name" name)) (str.push_byte (&mut rest) 124u8)))
+  (str.push (&mut rest) (& (kv "want" (& (str.from_int want)))))
+  (str.push_byte (&mut rest) 124u8)
+  (str.push (&mut rest) (& (kv "got" (& (str.from_int got)))))
+  (span line col len "type.generic_arity" (& rest)))
+
+(fn op_name ((s (& str))) str
+  (if (str.eq s "+") (ret (str.from "Add")))
+  (if (str.eq s "-") (ret (str.from "Sub")))
+  (if (str.eq s "*") (ret (str.from "Mul")))
+  (if (str.eq s "/") (ret (str.from "Div")))
+  (if (str.eq s "%") (ret (str.from "Rem")))
+  (if (str.eq s "==") (ret (str.from "Eq")))
+  (if (str.eq s "!=") (ret (str.from "Ne")))
+  (if (str.eq s "<") (ret (str.from "Lt")))
+  (if (str.eq s "<=") (ret (str.from "Le")))
+  (if (str.eq s ">") (ret (str.from "Gt")))
+  (if (str.eq s ">=") (ret (str.from "Ge")))
+  (if (str.eq s "band") (ret (str.from "BitAnd")))
+  (if (str.eq s "bor") (ret (str.from "BitOr")))
+  (if (str.eq s "bxor") (ret (str.from "BitXor")))
+  (if (str.eq s "shl") (ret (str.from "Shl")))
+  (if (str.eq s "shr") (ret (str.from "Shr")))
+  (if (str.eq s "wadd") (ret (str.from "WAdd")))
+  (if (str.eq s "wsub") (ret (str.from "WSub")))
+  (if (str.eq s "wmul") (ret (str.from "WMul")))
+  (str.clone s))
+
+(fn is_bit ((op (& str))) bool
+  (or (str.eq op "band") (str.eq op "bor") (str.eq op "bxor") (str.eq op "shl") (str.eq op "shr")))
+
+(fn is_wrap ((op (& str))) bool (or (str.eq op "wadd") (str.eq op "wsub") (str.eq op "wmul")))
+
+(fn is_cmp ((op (& str))) bool
+  (or (str.eq op "==") (str.eq op "!=") (str.eq op "<") (str.eq op "<=") (str.eq op ">") (str.eq op ">=")))
+
+(fn bin_ok ((op (& str)) (show (& str))) bool
+  (let num (is_num show))
+  (if (or (str.eq op "==") (str.eq op "!="))
+    (ret (or num (str.eq show "bool") (str.starts show "(ptr "))))
+  (if (is_cmp op) (ret num))
+  (if (is_bit op) (ret (or (is_int show) (str.eq show "bool"))))
+  (if (is_wrap op) (ret (is_int show)))
+  num)
+
+(fn check_cond ((defs (& (vec def)))
+   (srcs (& (vec source)))
+   (from i64)
+   (e (& expr))
+   (locs (&mut (vec loc)))
+   (all bool)) (res info str)
+  (let n (if all (vec.len (& (. e kids))) 1))
+  (for i 0 n
+    (let kid (vec.get (& (. e kids)) i))
+    (let got (try (check_expr defs srcs from kid locs)))
+    (if (not (str.eq (& (. got show)) "bool"))
+      (ret (res.err (span (. kid line) (. kid col) (. kid len) "type.not_bool" (& (kv "got" (& (. got show)))))))))
+  (for i n (vec.len (& (. e kids)))
+    (do (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs)) ()))
+  (res.ok (unit_info)))
+
+(fn check_for ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let lok (vec.get (& (. e kids)) 0))
+  (let lo (try (check_expr defs srcs from lok locs)))
+  (if (not (is_int (& (. lo show))))
+    (ret (res.err (span (. lok line) (. lok col) (. lok len) "type.not_numeric" (& (kv "got" (& (. lo show))))))))
+  (let hik (vec.get (& (. e kids)) 1))
+  (let hi (try (check_expr defs srcs from hik locs)))
+  (if (not (str.eq (& (. lo show)) (& (. hi show))))
+    (ret (res.err (span (. hik line) (. hik col) (. hik len) "type.mismatch"
+        (& (join_kv "want" (& (. lo show)) "got" (& (. hi show))))))))
+  (for i 2 (vec.len (& (. e kids)))
+    (do (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs)) ()))
+  (res.ok (unit_info)))
+
+(fn check_bin ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let lk (vec.get (& (. e kids)) 0))
+  (let rk (vec.get (& (. e kids)) 1))
+  (let l (try (check_expr defs srcs from lk locs)))
+  (let r (try (check_expr defs srcs from rk locs)))
+  (if (not (str.eq (& (. l show)) (& (. r show))))
+    (ret (res.err (span (. rk line) (. rk col) (. rk len) "type.mismatch"
+        (& (join_kv "want" (& (. l show)) "got" (& (. r show))))))))
+  (if (not (bin_ok (& (. e text)) (& (. l show))))
+    (ret (res.err (span (. e line) (. e col) (. e len) "type.not_numeric"
+        (& (join_kv "op" (& (op_name (& (. e text)))) "got" (& (. l show))))))))
+  (if (is_cmp (& (. e text))) (ret (res.ok (bool_info))))
+  (res.ok (clone_info (& l))))
+
+(fn check_neg ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let x (try (check_expr defs srcs from (vec.get (& (. e kids)) 0) locs)))
+  (if (not (is_num (& (. x show))))
+    (ret (res.err (span (. e line) (. e col) (. e len) "type.not_numeric" (& (kv "got" (& (. x show))))))))
+  (res.ok (clone_info (& x))))
+
+(fn check_ptr ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let callee (try (check_expr defs srcs from (vec.get (& (. e kids)) 0) locs)))
+  (if (not (callable (& (. callee show))))
+    (ret (res.err (span (. e line) (. e col) (. e len) "type.not_callable" (& (kv "got" (& (. callee show))))))))
+  (for i 1 (vec.len (& (. e kids)))
+    (do (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs)) ()))
+  (res.ok (unit_info)))
+
+(fn local_call ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res i64 str)
+  (let li (loc_of locs (& (. e text))))
+  (if (< li 0) (ret (res.ok (neg 1))))
+  (let show (& (. (. (vec.get locs li) ty) show)))
+  (if (not (callable show))
+    (ret (res.err (span (. e line) (. e col) (. e len) "type.not_callable" (& (kv "got" show))))))
+  (for i 0 (vec.len (& (. e kids)))
+    (do (try (check_expr defs srcs from (vec.get (& (. e kids)) i) locs)) ()))
+  (res.ok li))
+
 (fn variant_err ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr))) (opt str)
   (let path (& (. e text)))
   (let dot (last_dot path))
@@ -316,7 +461,9 @@
   (let mut vi (neg 1))
   (for i 0 (vec.len (& (. it variants)))
     (if (str.eq (& (. (vec.get (& (. it variants)) i) name)) (& b)) (set vi i)))
-  (if (< vi 0) (ret (opt.none)))
+  (if (< vi 0)
+    (ret (opt.some (span (. e line) (. e col) (. e len) "type.no_variant"
+        (& (join_kv "ty" (& (. d name)) "variant" (& b)))))))
   (let v (vec.get (& (. it variants)) vi))
   (let from_mod (& (. (vec.get srcs from) module)))
   (if (or (. v is_pub) (str.eq (& (. d module)) from_mod)) (ret (opt.none)))
@@ -334,7 +481,14 @@
   (let it (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
   (if (< (. d fi) 0) (vec.len (& (. it params))) (vec.len (& (. (vec.get (& (. it fns)) (. d fi)) params)))))
 
+(fn ngens ((srcs (& (vec source))) (d (& def))) i64
+  (let it (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
+  (if (< (. d fi) 0) (ret (vec.len (& (. it gens)))))
+  (+ (vec.len (& (. it gens))) (vec.len (& (. (vec.get (& (. it fns)) (. d fi)) gens)))))
+
 (fn check_call ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (e (& expr)) (locs (&mut (vec loc)))) (res info str)
+  (let li (try (local_call defs srcs from e locs)))
+  (if (>= li 0) (ret (res.ok (unit_info))))
   (let di (find_fn defs srcs from (& (. e text))))
   (if (< di 0)
     (do
@@ -351,6 +505,9 @@
   (let from_mod (& (. (vec.get srcs from) module)))
   (if (not (or (. d is_pub) (str.eq (& (. d module)) from_mod)))
     (ret (res.err (priv (. e line) (. e col) (. e len) (& (. d qname)) (& (. d module))))))
+  (let gn (ngens srcs d))
+  (if (> (vec.len (& (. e tys))) gn)
+    (ret (res.err (gen_err (. e line) (. e col) (. e len) "" gn (vec.len (& (. e tys))) false))))
   (let pn (nparams srcs d))
   (if (!= (vec.len (& (. e kids))) pn)
     (ret (res.err (span (. e line) (. e col) (. e len) "type.arity" (& (join_kv "want" (& (str.from_int pn)) "got" (& (str.from_int (vec.len (& (. e kids)))))))))))

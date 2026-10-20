@@ -1,0 +1,1 @@
+E|tests/err/type_generic_arity.llr|1|11|3|type.generic_arity|name=vec|want=1|got=0

@@ -261,22 +261,21 @@ Tools (`tools/`, `docs/tools/`)
 21. `llr-ls` lists one directory and does not recurse (`tools/llr-ls.llr`).
 22. `llr-rm` deletes a file and does not remove a directory (`tools/llr-rm.llr`).
 23. `llr-git` reads status, diff, and log and does not change the repo (`tools/llr-git.llr`).
-24. `llr-check` still does not emit `type.not_callable`, `type.no_variant`, `type.not_numeric`, `type.not_bool`, or `type.generic_arity` (`std/check.llr`).
-25. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
-26. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
-27. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
-28. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
-29. `net.connect` is 127.0.0.1 only (`std/net.llr`).
-30. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
-31. The pool size is fixed at start and a worker cannot capture a binding (`std/thread.llr`).
-32. Chunked transfer and trailers are not parsed (`std/http.llr`).
-33. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
-34. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
-35. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
-36. A SOAP body is one operation, and XML has no attributes, namespaces, or comments (`std/soap.llr`, `std/xml.llr`).
-37. There is no Huffman coding, no HPACK dynamic table, no protobuf, and only one stream and one message (`std/grpc.llr`).
-38. The MQTT broker is one connection, QoS 0, exact topics, and a one-byte remaining length (`std/mqtt.llr`).
-39. A function pointer still cannot capture a needle. A trait method is not generic, an impl type is a concrete name, and a method that returns `Self` is not a trait object (`compiler/src/check/traits.rs`).
+24. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
+25. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
+26. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
+27. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
+28. `net.connect` is 127.0.0.1 only (`std/net.llr`).
+29. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
+30. The pool size is fixed at start and a worker cannot capture a binding (`std/thread.llr`).
+31. Chunked transfer and trailers are not parsed (`std/http.llr`).
+32. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
+33. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
+34. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
+35. A SOAP body is one operation, and XML has no attributes, namespaces, or comments (`std/soap.llr`, `std/xml.llr`).
+36. There is no Huffman coding, no HPACK dynamic table, no protobuf, and only one stream and one message (`std/grpc.llr`).
+37. The MQTT broker is one connection, QoS 0, exact topics, and a one-byte remaining length (`std/mqtt.llr`).
+38. A function pointer still cannot capture a needle. A trait method is not generic, an impl type is a concrete name, and a method that returns `Self` is not a trait object (`compiler/src/check/traits.rs`).
 
 ## 9. Conventions to keep
 
@@ -316,9 +315,9 @@ Steps, in order. Each names what to build, where, and the check that closes it.
    binary and reports the same set of `ok` lines `tests/run.sh` does today.
 2. Typed tree. Split `std/check.llr` into `check_ty` and `check_expr` modules, then make it
    build a THIR mirroring `compiler/src/thir.rs` (a type on every expression, the resolved
-   callee, the builtin id) instead of returning a first-error string. Add the five codes
-   from section 8 item 24. Verify: `llr-check` equals `llrc check` on every `tests/err`
-   case whose code is not `borrow.*`, `move.*`, or `init.*`.
+   callee, the builtin id) instead of returning a first-error string. Verify: `llr-check`
+   equals `llrc check` on every `tests/err` case whose code is not `borrow.*`, `move.*`,
+   or `init.*`.
 3. Instances. A mono worklist from `main` (or the tests) as in `driver.rs`: check a generic
    body once per concrete `targs`. Verify: the sorted `^fn ` header lines of
    `llrs emit-mir F` equal those of `llrc emit-mir F` for every `tests/run/*.llr`.
