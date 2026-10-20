@@ -308,11 +308,12 @@ codegen path and remains only as the linker driver, as `link.rs` uses it now. Th
 
 Steps, in order. Each names what to build, where, and the check that closes it.
 
-1. Differential harness. `tests/self.sh` (and `tests/self.ps1`) runs a stage binary and
-   `llrc` on the same inputs and prints `ok|self/NAME` or `fail|self/NAME|want=...|got=...`.
+1. Differential harness. `tests/self.sh` and `tests/self.ps1` run a stage binary and
+   `llrc` on the same inputs and print `ok|self/NAME` or `fail|self/NAME|want=...|got=...`.
    First mode: `check` over every `tests/err` and `tests/warn` golden. Seed from the
-   `llr-check` loop in `tests/run.sh`. Verify: the harness runs `llr-check` as the stage
-   binary and reports the same set of `ok` lines `tests/run.sh` does today.
+   `llr-check` loop in `tests/run.sh`. `llr-check` still mismatches every golden that is
+   not a `type.*` or `name.*` error, so the scripts exit non-zero until a later stage
+   matches all of them.
 2. Typed tree. Split `std/check.llr` into `check_ty` and `check_expr` modules, then make it
    build a THIR mirroring `compiler/src/thir.rs` (a type on every expression, the resolved
    callee, the builtin id) instead of returning a first-error string. Verify: `llr-check`
