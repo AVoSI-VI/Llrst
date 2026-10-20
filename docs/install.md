@@ -18,8 +18,9 @@ the last line is `done|prefix=...|tools=N`. On Windows, `llrc` compiles `llr_win
 when the object is missing or older than the source.
 
 `fs.mtime` and `fs.size` link that object. The C uses `st_mtime` and `st_size`, so the
-layout is whatever the host headers define. On a Mac, `scripts/install.sh` then
-`llr-test std/fs.llr` is the check. `llrc` looks for the object in `$LLRST_RUNTIME`,
+layout is whatever the host headers define. On a Mac, the same object translates Linux
+`open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`; `tests/run.sh` is the check.
+`llrc` looks for the object in `$LLRST_RUNTIME`,
 next to `$LLRST_STD`, `<exe>/../share/llrst/`, and `./runtime/`. Windows links
 `llr_win` and `llr_wsa` from those same places.
 

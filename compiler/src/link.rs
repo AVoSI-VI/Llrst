@@ -89,6 +89,8 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
         cmd.arg(shim);
     }
     if target.is_none() {
+        // Apple clang rejects `-pie` as unused; PIE is already the default.
+        #[cfg(not(target_os = "macos"))]
         cmd.arg("-pie");
         cmd.arg("-pthread");
     }

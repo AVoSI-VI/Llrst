@@ -29,7 +29,12 @@ for f in "$root"/tests/run/*.llr; do
   if [ -f "${f%.llr}.flags" ]; then
     read -r -a flags <"${f%.llr}.flags"
   fi
-  if ! "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.cerr"; then
+  # bash 3.2 (macOS) errors on an empty "${flags[@]}" under set -u.
+  set +u
+  "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.cerr"
+  built=$?
+  set -u
+  if [ "$built" -ne 0 ]; then
     echo "fail|run/$name|compile|$(head -1 "$tmp/$name.cerr")"; fails=$((fails+1)); continue
   fi
   "$tmp/$name" >"$tmp/$name.out" 2>"$tmp/$name.stderr"
@@ -104,9 +109,15 @@ for f in "$root"/tests/panic/*.llr; do
   flags=(--std std)
   if [ -f "${f%.llr}.flags" ]; then
     read -r -a extra <"${f%.llr}.flags"
+    set +u
     flags+=("${extra[@]}")
+    set -u
   fi
-  if ! ( cd "$root" && "$llrc" build "tests/panic/$name.llr" "${flags[@]}" -o "$tmp/panic_$name" 2>"$tmp/panic_$name.cerr" ); then
+  set +u
+  ( cd "$root" && "$llrc" build "tests/panic/$name.llr" "${flags[@]}" -o "$tmp/panic_$name" 2>"$tmp/panic_$name.cerr" )
+  built=$?
+  set -u
+  if [ "$built" -ne 0 ]; then
     echo "fail|panic/$name|compile|$(head -1 "$tmp/panic_$name.cerr")"; fails=$((fails+1)); continue
   fi
   "$tmp/panic_$name" >/dev/null 2>"$tmp/panic_$name.err"; code=$?
@@ -127,8 +138,10 @@ for f in "$root"/tests/warn/*.llr; do
   if [ -f "${f%.llr}.flags" ]; then
     read -r -a flags <"${f%.llr}.flags"
   fi
+  set +u
   ( cd "$root" && "$llrc" check "tests/warn/$name.llr" "${flags[@]}" 2>"$tmp/warn_$name.err" >/dev/null )
   code=$?
+  set -u
   printf '%s\n' "$code" >"$tmp/warn_$name.code"
   ok=1
   if ! cmp -s "$tmp/warn_$name.err" "$want"; then

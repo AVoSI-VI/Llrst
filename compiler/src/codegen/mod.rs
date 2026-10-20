@@ -47,6 +47,8 @@ pub struct Codegen<'a> {
     pub frontend: TargetFrontendConfig,
     pub big_endian: bool,
     pub checked: bool,
+    /// Apple libc uses different flag bits, `sockaddr_in`, and `rlimit` numbers.
+    pub darwin: bool,
     /// `(path, line starts)` copied from the source map, for panic locations.
     pub locs: Vec<(String, Vec<u32>)>,
     /// Instances discovered while compiling bodies, for the mono driver.
@@ -68,11 +70,28 @@ pub fn make_isa(target: Option<&str>) -> PResult<OwnedTargetIsa> {
     builder.finish(flags).map_err(|e| Diag::error(Span::default(), "target.unsupported").kv("got", e.to_string()))
 }
 
+/// Darwin libc rejects the Linux numbers in `std`. The runtime object defines the `llr_*` names.
+fn host_symbol<'a>(name: &'a str, darwin: bool) -> &'a str {
+    if !darwin {
+        return name;
+    }
+    match name {
+        "open" => "llr_open",
+        "fcntl" => "llr_fcntl",
+        "bind" => "llr_bind",
+        "connect" => "llr_connect",
+        "socket" => "llr_socket",
+        "setrlimit" => "llr_setrlimit",
+        _ => name,
+    }
+}
+
 impl<'a> Codegen<'a> {
     pub fn new(prog: &'a Program, isa: OwnedTargetIsa, sm: &SourceMap, checked: bool) -> PResult<Self> {
         let call_conv = isa.default_call_conv();
         let ptr_ty = isa.pointer_type();
         let frontend = isa.frontend_config();
+        let darwin = isa.triple().operating_system.is_like_darwin();
         let big_endian = isa.triple().endianness().map_or(false, |e| e == target_lexicon::Endianness::Big);
         let builder = ObjectBuilder::new(isa, "llr", cranelift_module::default_libcall_names())
             .map_err(|e| Diag::error(Span::default(), "codegen.init").kv("got", e.to_string()))?;
@@ -107,6 +126,7 @@ impl<'a> Codegen<'a> {
             frontend,
             big_endian,
             checked,
+            darwin,
             locs: sm.export_locs(),
             discovered: Vec::new(),
         })
@@ -177,8 +197,9 @@ impl<'a> Codegen<'a> {
         if let Some(t) = layout::clif_type(&fd.ret) {
             sig.returns.push(AbiParam::new(t));
         }
-        let name = self.prog.def(def).name.clone();
-        let id = self.module.declare_function(&name, Linkage::Import, &sig).unwrap();
+        let owned = self.prog.def(def).name.clone();
+        let name = host_symbol(&owned, self.darwin);
+        let id = self.module.declare_function(name, Linkage::Import, &sig).unwrap();
         self.externs.insert(def, id);
         id
     }

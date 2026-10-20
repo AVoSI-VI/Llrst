@@ -1,5 +1,5 @@
-/* Host stat(2) and dirent. Field offsets come from the platform headers, so the
- * same source is correct on Linux and macOS. */
+/* Host stat(2), dirent, and (on Apple) libc calls whose numbers differ from Linux.
+ * Field offsets come from the platform headers. */
 #include <dirent.h>
 #include <stdint.h>
 #include <string.h>
@@ -74,3 +74,125 @@ void llr_panic_frames(void) {
         n++;
     }
 }
+
+#ifdef __APPLE__
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+
+/* Linux open(2) bits. Callers keep these; Darwin's values are different. */
+#define L_CREAT 64
+#define L_EXCL 128
+#define L_TRUNC 512
+#define L_APPEND 1024
+#define L_NONBLOCK 2048
+
+static int to_darwin_flags(int flags) {
+    int out = flags & 3;
+    if (flags & L_CREAT) {
+        out |= O_CREAT;
+    }
+    if (flags & L_EXCL) {
+        out |= O_EXCL;
+    }
+    if (flags & L_TRUNC) {
+        out |= O_TRUNC;
+    }
+    if (flags & L_APPEND) {
+        out |= O_APPEND;
+    }
+    if (flags & L_NONBLOCK) {
+        out |= O_NONBLOCK;
+    }
+    return out;
+}
+
+static int to_linux_flags(int flags) {
+    int out = flags & 3;
+    if (flags & O_CREAT) {
+        out |= L_CREAT;
+    }
+    if (flags & O_EXCL) {
+        out |= L_EXCL;
+    }
+    if (flags & O_TRUNC) {
+        out |= L_TRUNC;
+    }
+    if (flags & O_APPEND) {
+        out |= L_APPEND;
+    }
+    if (flags & O_NONBLOCK) {
+        out |= L_NONBLOCK;
+    }
+    return out;
+}
+
+int llr_open(const char *path, int flags, int mode) {
+    return open(path, to_darwin_flags(flags), mode);
+}
+
+int llr_fcntl(int fd, int cmd, int arg) {
+    int fl;
+    if (cmd == F_GETFL) {
+        fl = fcntl(fd, F_GETFL, 0);
+        if (fl < 0) {
+            return fl;
+        }
+        return to_linux_flags(fl);
+    }
+    if (cmd == F_SETFL) {
+        return fcntl(fd, F_SETFL, to_darwin_flags(arg));
+    }
+    return fcntl(fd, cmd, arg);
+}
+
+/* Linux sockaddr_in starts with a 16-bit family. Darwin starts with sin_len. */
+static int call_addr(int fd, const void *addr, uint32_t len, int (*call)(int, const struct sockaddr *, socklen_t)) {
+    unsigned char buf[16];
+    const unsigned char *s = addr;
+    if (s != 0 && len == 16 && s[0] == 2 && s[1] == 0) {
+        memset(buf, 0, 16);
+        buf[0] = 16;
+        buf[1] = 2;
+        memcpy(buf + 2, s + 2, 14);
+        return call(fd, (const struct sockaddr *)buf, len);
+    }
+    return call(fd, addr, (socklen_t)len);
+}
+
+int llr_bind(int fd, const void *addr, uint32_t len) {
+    return call_addr(fd, addr, len, bind);
+}
+
+int llr_connect(int fd, const void *addr, uint32_t len) {
+    return call_addr(fd, addr, len, connect);
+}
+
+int llr_socket(int domain, int ty, int proto) {
+    int fd = socket(domain, ty, proto);
+    int one = 1;
+    if (fd < 0) {
+        return fd;
+    }
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+    return fd;
+}
+
+int llr_setrlimit(int resource, const void *lim) {
+    if (resource == 7) {
+        resource = RLIMIT_NOFILE;
+    }
+    return setrlimit(resource, lim);
+}
+
+int *__errno_location(void) {
+    static _Thread_local int cached;
+    int e = *__error();
+    if (e == EAGAIN) {
+        e = 11;
+    }
+    cached = e;
+    return &cached;
+}
+#endif
