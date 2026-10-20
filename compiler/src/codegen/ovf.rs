@@ -3,7 +3,7 @@ use super::func::FnCx;
 use crate::ast::BinOp;
 use crate::diag::Span;
 use crate::ty::{IntTy, Ty};
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, InstBuilder, TrapCode, Value};
 use cranelift_module::{FuncId, Module};
 
@@ -52,6 +52,81 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         self.abort_overflow(span, b"cast.overflow");
         self.b.switch_to_block(ok);
         self.int_bits(x, from, to)
+    }
+
+    /// Panics when a truncated float does not fit in `to`. The success path still saturates.
+    pub fn checked_float_to_int(&mut self, x: Value, from: &Ty, to: IntTy, span: Span) -> Value {
+        let ft = float_ty(from);
+        let truncated = self.b.ins().trunc(x);
+        let flag = self.float_out_of_int(truncated, ft, to);
+        self.diverge_cast(flag, span);
+        self.float_to_int(x, to, &Ty::Int(to))
+    }
+
+    /// Panics when an integer is not exactly representable as `to`.
+    pub fn checked_int_to_float(&mut self, x: Value, from: IntTy, to: &Ty, span: Span) -> Value {
+        let prec = if matches!(to, Ty::F32) { 24 } else { 53 };
+        let flag = self.inexact_int(x, from, prec);
+        self.diverge_cast(flag, span);
+        self.int_to_float(x, from, to)
+    }
+
+    fn diverge_cast(&mut self, flag: Value, span: Span) {
+        let bad = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.ins().brif(flag, bad, &[], ok, &[]);
+        self.b.switch_to_block(bad);
+        self.abort_overflow(span, b"cast.overflow");
+        self.b.switch_to_block(ok);
+    }
+
+    /// `trunc` toward zero is outside the destination. NaN and infinities fail the compares.
+    fn float_out_of_int(&mut self, truncated: Value, ft: types::Type, to: IntTy) -> Value {
+        let bits = to.bytes() * 8;
+        let min = if to.signed() { -pow2(bits - 1) } else { 0.0 };
+        let max = if to.signed() { pow2(bits - 1) } else { pow2(bits) };
+        let min_v = self.fconst(ft, min);
+        let max_v = self.fconst(ft, max);
+        let lo = self.b.ins().fcmp(FloatCC::GreaterThanOrEqual, truncated, min_v);
+        let hi = self.b.ins().fcmp(FloatCC::LessThan, truncated, max_v);
+        let ok = self.b.ins().band(lo, hi);
+        self.b.ins().icmp_imm_s(IntCC::Equal, ok, 0)
+    }
+
+    /// Low bits below the float significand are nonzero. `i64::MIN` keeps its bit pattern as a magnitude.
+    fn inexact_int(&mut self, x: Value, from: IntTy, prec: i64) -> Value {
+        let ct = int_clif(from);
+        let mag = self.magnitude(x, from);
+        let width = self.b.ins().iconst(ct, from.bytes() as i64 * 8);
+        let zeros = self.b.ins().clz(mag);
+        let bits = self.b.ins().isub(width, zeros);
+        let prec_v = self.b.ins().iconst(ct, prec);
+        let extra = self.b.ins().isub(bits, prec_v);
+        let fits = self.b.ins().icmp_imm_s(IntCC::SignedLessThanOrEqual, extra, 0);
+        let zero = self.b.ins().iconst(ct, 0);
+        let shift = self.b.ins().select(fits, zero, extra);
+        let one = self.b.ins().iconst(ct, 1);
+        let shifted = self.b.ins().ishl(one, shift);
+        let mask = self.b.ins().isub(shifted, one);
+        let low = self.b.ins().band(mag, mask);
+        self.b.ins().icmp_imm_s(IntCC::NotEqual, low, 0)
+    }
+
+    fn magnitude(&mut self, x: Value, from: IntTy) -> Value {
+        if !from.signed() {
+            return x;
+        }
+        let neg = self.b.ins().icmp_imm_s(IntCC::SignedLessThan, x, 0);
+        let flipped = self.b.ins().ineg(x);
+        self.b.ins().select(neg, flipped, x)
+    }
+
+    fn fconst(&mut self, ft: types::Type, v: f64) -> Value {
+        if ft == types::F32 {
+            self.b.ins().f32const(v as f32)
+        } else {
+            self.b.ins().f64const(v)
+        }
     }
 
     fn cast_oob(&mut self, x: Value, from: IntTy, to: IntTy) -> Option<Value> {
@@ -155,6 +230,15 @@ fn int_clif(t: IntTy) -> types::Type {
         IntTy::I32 | IntTy::U32 => types::I32,
         IntTy::I64 | IntTy::U64 => types::I64,
     }
+}
+
+fn float_ty(t: &Ty) -> types::Type {
+    if matches!(t, Ty::F32) { types::F32 } else { types::F64 }
+}
+
+/// `2^bits` for `bits <= 64`. `1u64 << 64` does not fit in `u64`.
+fn pow2(bits: u32) -> f64 {
+    if bits >= 64 { 18446744073709551616.0 } else { (1u64 << bits) as f64 }
 }
 
 fn signed_min(t: IntTy) -> i64 {
