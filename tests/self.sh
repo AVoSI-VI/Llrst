@@ -35,7 +35,7 @@ for dir in err warn; do
     [ -e "${f%.llr}.err" ] || continue
     flags=()
     if [ -f "${f%.llr}.flags" ]; then
-      read -r -a flags <"${f%.llr}.flags"
+      read -r -a flags < <(tr -d '\r' <"${f%.llr}.flags")
     fi
     rel="tests/$dir/$name.llr"
     set +u
