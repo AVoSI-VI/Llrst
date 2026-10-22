@@ -32,7 +32,8 @@
   (let h (sexp.text t (@ (vec.get (& ids) 0))))
   (if (or (str.eq h "&") (str.eq h "&mut")) (ret (parse_ref t (& ids) line col)))
   (if (str.eq h "ptr") (ret (parse_ptr t (& ids) line col)))
-  (if (str.eq h "fn") (ret (parse_fn_ty t (& ids) line col)))
+  (if (str.eq h "fn") (ret (parse_fn_ty t (& ids) line col 4u8)))
+  (if (str.eq h "clos") (ret (parse_fn_ty t (& ids) line col 5u8)))
   (parse_app t (& ids) line col))
 
 (pub (fn parse_ty ((t (& tree)) (n i64)) (res ty str)
@@ -66,14 +67,14 @@
   (vec.push (&mut args) inner)
   (res.ok (ty 3u8 (str.new) args line col 0)))
 
-(fn parse_fn_ty ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64)) (res ty str)
+(fn parse_fn_ty ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64) (k u8)) (res ty str)
   (if (!= (vec.len ids) 3)
     (ret (res.err (err_at t (@ (vec.get ids 0)) "(fn (types) ret)" "arity"))))
   (let ps (forms t (@ (vec.get ids 1))))
   (let mut args (vec.new <ty>))
   (for i 0 (vec.len (& ps)) (vec.push (&mut args) (try (parse_ty t (@ (vec.get (& ps) i))))))
   (vec.push (&mut args) (try (parse_ty t (@ (vec.get ids 2)))))
-  (res.ok (ty 4u8 (str.new) args line col 0)))
+  (res.ok (ty k (str.new) args line col 0)))
 
 (fn parse_app ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64)) (res ty str)
   (let mut args (vec.new <ty>))
@@ -237,6 +238,24 @@
         (if (str.ends raw ">") (ret (res.ok i)))))
     (if (and (!= k 0u8) (!= k 2u8)) (ret (res.err (err_at t m "type" "string"))))))
 
+(fn push_name ((text (&mut str)) (name (& str))) unit
+  (if (> (str.len text) 0) (str.push_byte text 32u8))
+  (str.push text name))
+
+(fn parse_clos ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64)) (res expr str)
+  (if (< (vec.len ids) 3) (ret (res.err (err_at t (@ (vec.get ids 0)) "clos" "arity"))))
+  (let mut e (expr_new 31u8 (str.new) line col))
+  (let ps (forms t (@ (vec.get ids 1))))
+  (for i 0 (vec.len (& ps))
+    (let p (@ (vec.get (& ps) i)))
+    (let fs (forms t p))
+    (if (!= (vec.len (& fs)) 2) (ret (res.err (err_at t p "(name type)" "arity"))))
+    (push_name (&mut (. e text)) (sexp.text t (@ (vec.get (& fs) 0))))
+    (vec.push (&mut (. e tys)) (try (parse_ty t (@ (vec.get (& fs) 1))))))
+  (vec.push (&mut (. e tys)) (try (parse_ty t (@ (vec.get ids 2)))))
+  (try (parse_exprs t ids 3 (&mut (. e kids))))
+  (res.ok e))
+
 (fn parse_call ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64)) (res expr str)
   (let h (sexp.text t (@ (vec.get ids 0))))
   (let mut e (expr_new 23u8 (str.clone h) line col))
@@ -275,6 +294,7 @@
   (if (str.eq h "assert_eq") (ret (parse_two t ids 28u8 (str.new) line col)))
   (if (str.eq h "sizeof") (ret (parse_sizeof t ids line col)))
   (if (str.eq h "drop") (ret (parse_one t ids 30u8 line col)))
+  (if (str.eq h "clos") (ret (parse_clos t ids line col)))
   (if (is_bin h) (ret (parse_two t ids 17u8 (str.clone h) line col)))
   (parse_call t ids line col))
 

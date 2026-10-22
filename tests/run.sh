@@ -90,7 +90,7 @@ for f in "$root"/tests/err/*.llr; do
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
-  if grep -Eq '\|(type|name)\.' "$want"; then
+  if ! grep -Eq '\|(borrow|move|init)\.' "$want"; then
     ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
     if cmp -s "$tmp/$name.lerr" "$want"; then
       echo "ok|err/$name|llr-check"

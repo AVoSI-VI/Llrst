@@ -1,10 +1,11 @@
 ;; Surface grammar parsed from a sexp tree. llrc remains the reference checker.
-;; ty kind: 0 name, 1 app, 2 ref, 3 ptr, 4 fn.
+;; ty kind: 0 name, 1 app, 2 ref, 3 ptr, 4 fn, 5 clos.
 ;; expr kind: 0 lit, 1 name, 2 let, 3 set, 4 do, 5 if, 6 while, 7 loop, 8 for,
 ;;   9 brk, 10 cont, 11 ret, 12 match, 13 ref, 14 deref, 15 field, 16 cast, 17 bin,
 ;;   18 and, 19 or, 20 not, 21 neg, 22 wneg, 23 call, 24 callptr, 25 try, 26 panic,
-;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop.
-;; item kind: 0 use, 1 mod, 2 fn, 3 extern, 4 struct, 5 enum, 6 impl, 7 const, 8 test.
+;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop, 31 clos.
+;; item kind: 0 use, 1 mod, 2 fn, 3 extern, 4 struct, 5 enum, 6 impl, 7 const, 8 test,
+;;   9 trait, 10 trait impl. A trait impl keeps the self type on ret.
 (use std.ast_expr)
 (use std.sexp)
 (use std.str)
@@ -45,7 +46,9 @@
   (pub (body (vec expr)))
   (pub (fns (vec item)))
   (pub (line i64))
-  (pub (col i64))))
+  (pub (col i64))
+  (pub (inline bool))
+  (pub (len i64))))
 
 (fn blank_ty ((line i64) (col i64)) ty (ty 0u8 (str.new) (vec.new <ty>) line col 0))
 
@@ -61,7 +64,9 @@
     (vec.new <expr>)
     (vec.new <item>)
     line
-    col))
+    col
+    false
+    0))
 
 (fn gen_piece ((s (& str)) (gens (&mut (vec str)))) bool
   (let mut lo 0)
@@ -194,17 +199,25 @@
   (set (. it variants) vs)
   (res.ok it))
 
+(fn ty_name ((text str) (line i64) (col i64)) ty (ty 0u8 text (vec.new <ty>) line col 0))
+
+(fn parse_timpl ((t (& tree)) (ids (& (vec i64))) (n i64)) (res item str)
+  (let line (sexp.line t n))
+  (let col (sexp.col t n))
+  (let mut it (blank_item 10u8 (str.clone (sexp.text t (@ (vec.get ids 1)))) false line col))
+  (set (. it ret) (ty_name (str.clone (sexp.text t (@ (vec.get ids 2)))) line col))
+  (let mut fns (vec.new <item>))
+  (for i 3 (vec.len ids) (vec.push (&mut fns) (try (parse_item t (@ (vec.get ids i)) false))))
+  (set (. it fns) fns)
+  (res.ok it))
+
 (fn parse_impl ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
   (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "type" "eof"))))
   (if (and (> (vec.len (& ids)) 2)
      (and (== (sexp.kind t (@ (vec.get (& ids) 2))) 0u8)
        (not (str.starts (sexp.text t (@ (vec.get (& ids) 2))) "<"))))
-    (ret (res.ok (blank_item 10u8
-        (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
-        false
-        (sexp.line t n)
-        (sexp.col t n)))))
+    (ret (parse_timpl t (& ids) n)))
   (let mut gens (vec.new <str>))
   (let at (try (take_gens t (& ids) 2 (&mut gens))))
   (let mut fns (vec.new <item>))
@@ -254,13 +267,47 @@
   (try (ast_expr.parse_exprs t (& ids) 2 (&mut (. it body))))
   (res.ok it))
 
+(fn parse_tmeth ((t (& tree)) (n i64)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 4) (ret (res.err (ast_expr.err_at t n "fn" "arity"))))
+  (let ps (ast_expr.forms t (@ (vec.get (& ids) 2))))
+  (let mut params (vec.new <param>))
+  (for i 0 (vec.len (& ps))
+    (let ty (try (ast_expr.parse_ty t (@ (vec.get (& ps) i)))))
+    (vec.push (&mut params) (param (str.new) ty)))
+  (let line (sexp.line t n))
+  (let col (sexp.col t n))
+  (let mut it (blank_item 2u8 (str.clone (sexp.text t (@ (vec.get (& ids) 1)))) false line col))
+  (set (. it params) params)
+  (set (. it ret) (try (ast_expr.parse_ty t (@ (vec.get (& ids) 3)))))
+  (res.ok it))
+
+(fn parse_trait ((t (& tree)) (n i64) (is_pub bool)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "name" "eof"))))
+  (let mut fns (vec.new <item>))
+  (for i 2 (vec.len (& ids)) (vec.push (&mut fns) (try (parse_tmeth t (@ (vec.get (& ids) i))))))
+  (let mut it
+    (blank_item 9u8
+      (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
+      is_pub
+      (sexp.line t n)
+      (sexp.col t n)))
+  (set (. it fns) fns)
+  (res.ok it))
+
+(fn with_len ((t (& tree)) (n i64) (it item)) item
+  (let mut r it)
+  (set (. r len) (- (sexp.end t n) (sexp.byte t n)))
+  r)
+
 (fn parse_inner ((t (& tree)) (n i64) (h (& str)) (is_pub bool)) (res item str)
   (if (str.eq h "fn") (ret (parse_sig t n 2u8 is_pub)))
   (if (str.eq h "extern") (ret (parse_sig t n 3u8 is_pub)))
   (if (str.eq h "struct") (ret (parse_struct t n is_pub)))
   (if (str.eq h "enum") (ret (parse_enum t n is_pub)))
   (if (str.eq h "const") (ret (parse_const t n is_pub)))
-  (if (str.eq h "trait") (ret (parse_named t n 9u8 is_pub)))
+  (if (str.eq h "trait") (ret (parse_trait t n is_pub)))
   (if (and (str.eq h "impl") (not is_pub)) (ret (parse_impl t n)))
   (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
   (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))
@@ -279,8 +326,10 @@
     (do
       (let ids (ast_expr.forms t n))
       (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "1" "inline"))))
-      (ret (parse_item t (@ (vec.get (& ids) 1)) is_pub))))
-  (parse_inner t n h is_pub))
+      (let mut it (try (parse_item t (@ (vec.get (& ids) 1)) is_pub)))
+      (set (. it inline) true)
+      (ret (res.ok it))))
+  (res.ok (with_len t n (try (parse_inner t n h is_pub)))))
 
 (pub (fn parse ((t (& tree))) (res (vec item) str)
   (let mut out (vec.new <item>))
@@ -313,6 +362,28 @@
   (assert_eq (vec.len (& (. (vec.get (& r) 0) variants))) 2)
   (assert_eq (. (vec.get (& r) 1) kind) 6u8)
   (assert_eq (vec.len (& (. (vec.get (& r) 1) fns))) 1))
+
+(test ast_clos
+  (let r (res.unwrap (parse_src "(fn f () (clos () i64) (clos () i64 1))")))
+  (let it (vec.get (& r) 0))
+  (assert_eq (. (. it ret) kind) 5u8)
+  (assert_eq (. (vec.get (& (. it body)) 0) kind) 31u8))
+
+(test ast_inline
+  (let r (res.unwrap (parse_src "(inline (extern big () unit))")))
+  (let it (vec.get (& r) 0))
+  (assert (. it inline))
+  (assert_eq (. it kind) 3u8)
+  (assert (> (. it len) 0)))
+
+(test ast_trait_impl
+  (let src
+    (str.from "(trait Eq (fn eq ((& Self) (& Self)) bool)) (impl Eq i64 (fn eq ((a (& i64)) (b (& i64))) bool true))"))
+  (let r (res.unwrap (parse_src (& src))))
+  (assert_eq (. (vec.get (& r) 0) kind) 9u8)
+  (assert_eq (vec.len (& (. (vec.get (& r) 0) fns))) 1)
+  (assert_eq (. (vec.get (& r) 1) kind) 10u8)
+  (assert_eq (& (. (. (vec.get (& r) 1) ret) text)) "i64"))
 
 (test ast_bad
   (match (parse_src "(bogus)")

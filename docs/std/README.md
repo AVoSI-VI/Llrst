@@ -27,7 +27,9 @@
 | [cli](cli.md) | Argument parsing for tools. |
 | [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
 | [ast](ast.md) | Surface grammar parsed from a sexp tree. `llrc` remains the checker. |
-| [check](check.md) | Type and name errors. Borrow checking stays in `llrc`. |
+| [check](check.md) | Typed tree. Borrow checking stays in `llrc`. |
+| [check_ty](check_ty.md) | Type display, generic arity, and `(dyn Trait)` object safety. |
+| [check_expr](check_expr.md) | Expression types, resolved callees, and builtin ids. |
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s ( ) |`. |
 | [diff](diff.md) | Line diff. Middle LCS is capped at 4096 cells; a larger middle is one replace hunk. |

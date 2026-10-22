@@ -1,0 +1,144 @@
+;; Type display and type-name checks for std.check.
+(use std.ast)
+(use std.check)
+(use std.str)
+
+(fn gen_at ((gens (& (vec str))) (name (& str))) i64
+  (for i 0 (vec.len gens) (if (str.eq (vec.get gens i) name) (ret i)))
+  (neg 1))
+
+(fn show_fun ((t (& ty)) (gens (& (vec str))) (args (& (vec info))) (clos bool)) str
+  (let mut s (if clos (str.from "(clos (") (str.from "(fn (")))
+  (let n (vec.len (& (. t args))))
+  (let mut i 0)
+  (while (< (+ i 1) n)
+    (do
+      (if (> i 0) (str.push_byte (&mut s) 32u8))
+      (str.push (&mut s) (& (show_ty (vec.get (& (. t args)) i) gens args)))
+      (set i (+ i 1))))
+  (str.push (&mut s) ") ")
+  (if (> n 0) (str.push (&mut s) (& (show_ty (vec.get (& (. t args)) (- n 1)) gens args))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(pub (fn show_ty ((t (& ty)) (gens (& (vec str))) (args (& (vec info)))) str
+  (if (== (. t kind) 0u8)
+    (do
+      (let i (gen_at gens (& (. t text))))
+      (if (>= i 0)
+        (ret (if (< i (vec.len args)) (str.clone (& (. (vec.get args i) show))) (str.from "?"))))
+      (ret (str.clone (& (. t text))))))
+  (if (== (. t kind) 2u8)
+    (do
+      (let inner (show_ty (vec.get (& (. t args)) 0) gens args))
+      (let mut s (if (str.eq (& (. t text)) "mut") (str.from "(&mut ") (str.from "(& ")))
+      (str.push (&mut s) (& inner))
+      (str.push_byte (&mut s) 41u8)
+      (ret s)))
+  (if (== (. t kind) 3u8)
+    (do
+      (let inner (show_ty (vec.get (& (. t args)) 0) gens args))
+      (let mut s (str.from "(ptr "))
+      (str.push (&mut s) (& inner))
+      (str.push_byte (&mut s) 41u8)
+      (ret s)))
+  (if (== (. t kind) 4u8) (ret (show_fun t gens args false)))
+  (if (== (. t kind) 5u8) (ret (show_fun t gens args true)))
+  (if (== (. t kind) 1u8)
+    (do
+      (let mut s (str.from "("))
+      (str.push (&mut s) (& (. t text)))
+      (for i 0 (vec.len (& (. t args)))
+        (str.push_byte (&mut s) 32u8)
+        (str.push (&mut s) (& (show_ty (vec.get (& (. t args)) i) gens args))))
+      (str.push_byte (&mut s) 41u8)
+      (ret s)))
+  (str.clone (& (. t text)))))
+
+(pub (fn gen_err ((line i64) (col i64) (len i64) (name (& str)) (want i64) (got i64) (named bool)) str
+  (let mut rest (str.new))
+  (if named (do (set rest (check.kv "name" name)) (str.push_byte (&mut rest) 124u8)))
+  (str.push (&mut rest) (& (check.kv "want" (& (str.from_int want)))))
+  (str.push_byte (&mut rest) 124u8)
+  (str.push (&mut rest) (& (check.kv "got" (& (str.from_int got)))))
+  (check.span line col len "type.generic_arity" (& rest))))
+
+(fn self_value ((t (& ty))) bool
+  (if (or (== (. t kind) 2u8) (== (. t kind) 3u8)) (ret false))
+  (if (and (== (. t kind) 0u8) (str.eq (& (. t text)) "Self")) (ret true))
+  (for i 0 (vec.len (& (. t args))) (if (self_value (vec.get (& (. t args)) i)) (ret true)))
+  false)
+
+(fn meth_self ((it (& item))) bool
+  (for i 0 (vec.len (& (. it params)))
+    (if (self_value (& (. (vec.get (& (. it params)) i) ty))) (ret true)))
+  (self_value (& (. it ret))))
+
+(fn trait_self ((it (& item))) bool
+  (for i 0 (vec.len (& (. it fns))) (if (meth_self (vec.get (& (. it fns)) i)) (ret true)))
+  false)
+
+(fn check_dyn ((srcs (& (vec source))) (from i64) (t (& ty))) (opt str)
+  (if (!= (vec.len (& (. t args))) 1)
+    (ret (opt.some (check.span (. t line) (. t col) (. t len) "name.unknown" (& (check.kv "name" "dyn"))))))
+  (let name (& (. (vec.get (& (. t args)) 0) text)))
+  (let here (& (. (vec.get srcs from) module)))
+  (for si 0 (vec.len srcs)
+    (let s (vec.get srcs si))
+    (for ii 0 (vec.len (& (. s items)))
+      (let it (vec.get (& (. s items)) ii))
+      (if (and (== (. it kind) 9u8) (str.eq (& (. it name)) name))
+        (do
+          (if (not (or (. it is_pub) (str.eq (& (. s module)) here)))
+            (ret (opt.some (check.priv (. t line) (. t col) (. t len) name (& (. s module))))))
+          (if (trait_self it)
+            (ret (opt.some (check.span (. t line) (. t col) (. t len) "trait.object" (& (check.kv "why" "self"))))))
+          (ret (opt.none))))))
+  (opt.some (check.span (. t line) (. t col) (. t len) "name.unknown" (& (check.kv "name" name)))))
+
+(pub (fn check_ty ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (t (& ty))) (opt str)
+  (if (and (== (. t kind) 1u8) (str.eq (& (. t text)) "dyn")) (ret (check_dyn srcs from t)))
+  (if (or (== (. t kind) 0u8) (== (. t kind) 1u8))
+    (do
+      (let di (check.find_type defs srcs from (& (. t text))))
+      (if (>= di 0)
+        (do
+          (let d (vec.get defs di))
+          (if (not (or (. d is_pub) (str.eq (& (. d module)) (& (. (vec.get srcs from) module)))))
+            (ret (opt.some (check.priv (. t line) (. t col) (. t len) (& (. d name)) (& (. d module))))))
+          (let want (check.ngens srcs d))
+          (let got (if (== (. t kind) 0u8) 0 (vec.len (& (. t args)))))
+          (if (!= want got)
+            (ret (opt.some (gen_err (. t line) (. t col) (. t len) (& (. d name)) want got true))))))))
+  (for i 0 (vec.len (& (. t args)))
+    (match (check_ty defs srcs from (vec.get (& (. t args)) i))
+      ((opt.some e) (ret (opt.some e)))
+      ((opt.none) ())))
+  (opt.none)))
+
+(pub (fn info_ty ((defs (& (vec def)))
+   (srcs (& (vec source)))
+   (scope (& str))
+   (from i64)
+   (t (& ty))
+   (gens (& (vec str)))
+   (args (& (vec info)))) info
+  (if (== (. t kind) 0u8)
+    (do
+      (let gi (gen_at gens (& (. t text))))
+      (if (and (>= gi 0) (< gi (vec.len args))) (ret (check.clone_info (vec.get args gi))))
+      (if (>= gi 0) (ret (info (str.from "?") (str.new) (str.new))))))
+  (let show (show_ty t gens args))
+  (if (or (== (. t kind) 0u8) (== (. t kind) 1u8))
+    (do
+      (let mut di (check.find_type defs srcs from (& (. t text))))
+      (if (< di 0) (set di (check.find_type defs srcs (check.mod_si srcs scope) (& (. t text)))))
+      (if (>= di 0)
+        (ret (info show (str.clone (& (. (vec.get defs di) module))) (str.clone (& (. t text))))))))
+  (info show (str.new) (str.new))))
+
+(test show_clos
+  (let mut args (vec.new <ty>))
+  (vec.push (&mut args) (ty 0u8 (str.from "i64") (vec.new <ty>) 1 1 3))
+  (let t (ty 5u8 (str.new) args 1 1 0))
+  (assert_eq (& (show_ty (& t) (& (vec.new <str>)) (& (vec.new <info>)))) "(clos () i64)"))

@@ -169,7 +169,7 @@ try {
             $script:fails++
         }
         $wantText = [System.IO.File]::ReadAllText($want)
-        if ($wantText -match '\|(type|name)\.') {
+        if ($wantText -notmatch '\|(borrow|move|init)\.') {
             $lerr = Join-Path $tmp "$name.lerr"
             Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
             if (Same-Bytes $lerr $want) {
