@@ -1,0 +1,222 @@
+;; Semantic types. kind: 0 int, 1 f32, 2 f64, 3 bool, 4 unit, 5 never, 6 ref,
+;; 7 ptr, 8 adt, 9 fn, 10 clos, 11 dyn, 12 self, 13 param, 14 infer.
+;; Int id is 0 i8, 1 i16, 2 i32, 3 i64, 4 u8, 5 u16, 6 u32, 7 u64.
+;; Ref flag is mut and text is the lifetime without the quote.
+(use std.str)
+
+(pub (struct sty
+  (pub (kind u8))
+  (pub (id i64))
+  (pub (flag bool))
+  (pub (text str))
+  (pub (args (vec sty)))))
+
+(pub (fn blank () sty (sty 4u8 0 false (str.new) (vec.new <sty>))))
+
+(pub (fn mk ((k u8) (id i64) (flag bool) (text str) (args (vec sty))) sty
+  (sty k id flag text args)))
+
+(pub (fn int ((i i64)) sty (mk 0u8 i false (str.new) (vec.new <sty>))))
+
+(pub (fn unit () sty (blank)))
+
+(pub (fn bool_ty () sty (mk 3u8 0 false (str.new) (vec.new <sty>))))
+
+(pub (fn never () sty (mk 5u8 0 false (str.new) (vec.new <sty>))))
+
+(pub (fn adt ((id i64) (args (vec sty))) sty (mk 8u8 id false (str.new) args)))
+
+(pub (fn param ((i i64) (name str)) sty (mk 13u8 i false name (vec.new <sty>))))
+
+(pub (fn infer ((i i64) (int bool)) sty (mk 14u8 i int (str.new) (vec.new <sty>))))
+
+(pub (fn ref_ty ((m bool) (lt str) (inner sty)) sty
+  (let mut a (vec.new <sty>))
+  (vec.push (&mut a) inner)
+  (mk 6u8 0 m lt a)))
+
+(pub (fn ptr_ty ((inner sty)) sty
+  (let mut a (vec.new <sty>))
+  (vec.push (&mut a) inner)
+  (mk 7u8 0 false (str.new) a)))
+
+(pub (fn fun ((clos bool) (args (vec sty))) sty
+  (mk (if clos 10u8 9u8) 0 false (str.new) args)))
+
+(pub (fn dyn_ty ((m bool) (tr i64)) sty (mk 11u8 tr m (str.new) (vec.new <sty>))))
+
+(pub (fn self_ty () sty (mk 12u8 0 false (str.new) (vec.new <sty>))))
+
+(pub (fn clone_tys ((v (& (vec sty)))) (vec sty)
+  (let mut o (vec.new <sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (clone (vec.get v i))))
+  o))
+
+(pub (fn clone ((t (& sty))) sty
+  (mk (. t kind) (. t id) (. t flag) (str.clone (& (. t text))) (clone_tys (& (. t args))))))
+
+(fn eq_tys ((a (& (vec sty))) (b (& (vec sty)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret false))
+  (for i 0 (vec.len a) (if (not (eq (vec.get a i) (vec.get b i))) (ret false)))
+  true)
+
+(pub (fn eq ((a (& sty)) (b (& sty))) bool
+  (if (!= (. a kind) (. b kind)) (ret false))
+  (if (!= (. a id) (. b id)) (ret false))
+  (if (!= (. a flag) (. b flag)) (ret false))
+  (if (not (str.eq (& (. a text)) (& (. b text)))) (ret false))
+  (eq_tys (& (. a args)) (& (. b args)))))
+
+(pub (fn is_unit ((t (& sty))) bool (or (== (. t kind) 4u8) (== (. t kind) 5u8))))
+
+(pub (fn is_int ((t (& sty))) bool
+  (or (== (. t kind) 0u8) (and (== (. t kind) 14u8) (. t flag)))))
+
+(pub (fn is_num ((t (& sty))) bool
+  (or (is_int t) (or (== (. t kind) 1u8) (== (. t kind) 2u8)))))
+
+(pub (fn is_copy ((t (& sty))) bool
+  (if (or (== (. t kind) 0u8) (== (. t kind) 1u8) (== (. t kind) 2u8)) (ret true))
+  (if (or (== (. t kind) 3u8) (== (. t kind) 4u8) (== (. t kind) 5u8)) (ret true))
+  (if (or (== (. t kind) 7u8) (== (. t kind) 9u8)) (ret true))
+  (if (or (== (. t kind) 6u8) (== (. t kind) 11u8)) (ret (not (. t flag))))
+  false))
+
+(pub (fn int_name ((i i64)) str
+  (if (== i 0) (ret (str.from "i8")))
+  (if (== i 1) (ret (str.from "i16")))
+  (if (== i 2) (ret (str.from "i32")))
+  (if (== i 3) (ret (str.from "i64")))
+  (if (== i 4) (ret (str.from "u8")))
+  (if (== i 5) (ret (str.from "u16")))
+  (if (== i 6) (ret (str.from "u32")))
+  (str.from "u64")))
+
+(pub (fn int_id ((n (& str))) i64
+  (if (str.eq n "i8") (ret 0))
+  (if (str.eq n "i16") (ret 1))
+  (if (str.eq n "i32") (ret 2))
+  (if (str.eq n "i64") (ret 3))
+  (if (str.eq n "u8") (ret 4))
+  (if (str.eq n "u16") (ret 5))
+  (if (str.eq n "u32") (ret 6))
+  (if (str.eq n "u64") (ret 7))
+  (neg 1)))
+
+(fn push_sp ((s (&mut str)) (i i64)) unit (if (> i 0) (str.push_byte s 32u8)))
+
+(fn show_fun ((k (& str)) (t (& sty))) str
+  (let n (vec.len (& (. t args))))
+  (let mut s (str.from "("))
+  (str.push (&mut s) k)
+  (str.push (&mut s) " (")
+  (for i 0 (- n 1)
+    (push_sp (&mut s) i)
+    (str.push (&mut s) (& (show (vec.get (& (. t args)) i)))))
+  (str.push (&mut s) ") ")
+  (str.push (&mut s) (& (show (vec.get (& (. t args)) (- n 1)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn show_adt ((t (& sty))) str
+  (let mut n (str.from "adt"))
+  (str.push (&mut n) (& (str.from_int (. t id))))
+  (if (== (vec.len (& (. t args))) 0) (ret n))
+  (let mut s (str.from "("))
+  (str.push (&mut s) (& n))
+  (for i 0 (vec.len (& (. t args)))
+    (str.push_byte (&mut s) 32u8)
+    (str.push (&mut s) (& (show (vec.get (& (. t args)) i)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn show_ref ((t (& sty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (if (. t flag) "&mut" "&"))
+  (if (> (str.len (& (. t text))) 0)
+    (do (str.push (&mut s) " '") (str.push (&mut s) (& (. t text)))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (show (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(pub (fn show ((t (& sty))) str
+  (if (== (. t kind) 0u8) (ret (int_name (. t id))))
+  (if (== (. t kind) 1u8) (ret (str.from "f32")))
+  (if (== (. t kind) 2u8) (ret (str.from "f64")))
+  (if (== (. t kind) 3u8) (ret (str.from "bool")))
+  (if (== (. t kind) 4u8) (ret (str.from "unit")))
+  (if (== (. t kind) 5u8) (ret (str.from "never")))
+  (if (== (. t kind) 6u8) (ret (show_ref t)))
+  (if (== (. t kind) 7u8) (ret (show_ptr t)))
+  (if (== (. t kind) 8u8) (ret (show_adt t)))
+  (if (== (. t kind) 9u8) (ret (show_fun "fn" t)))
+  (if (== (. t kind) 10u8) (ret (show_fun "clos" t)))
+  (if (== (. t kind) 11u8) (ret (show_dyn t)))
+  (if (== (. t kind) 12u8) (ret (str.from "Self")))
+  (if (== (. t kind) 13u8) (ret (str.clone (& (. t text)))))
+  (if (. t flag) (str.from "{int}") (str.from "?"))))
+
+(fn show_ptr ((t (& sty))) str
+  (let mut s (str.from "(ptr "))
+  (str.push (&mut s) (& (show (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn show_dyn ((t (& sty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (if (. t flag) "&mut" "&"))
+  (str.push (&mut s) " (dyn adt")
+  (str.push (&mut s) (& (str.from_int (. t id))))
+  (str.push (&mut s) "))")
+  s)
+
+(fn map_tys ((v (& (vec sty))) (args (& (vec sty))) (self bool) (self_ty (& sty))) (vec sty)
+  (let mut o (vec.new <sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (subst_one (vec.get v i) args self self_ty)))
+  o)
+
+(fn subst_one ((t (& sty)) (args (& (vec sty))) (self bool) (self_ty (& sty))) sty
+  (if (and self (== (. t kind) 12u8)) (ret (clone self_ty)))
+  (if (and (not self) (== (. t kind) 13u8))
+    (ret (if (< (. t id) (vec.len args)) (clone (vec.get args (. t id))) (clone t))))
+  (if (== (. t kind) 6u8) (ret (ref_ty (. t flag) (str.clone (& (. t text))) (subst_one (vec.get (& (. t args)) 0) args self self_ty))))
+  (if (== (. t kind) 7u8) (ret (ptr_ty (subst_one (vec.get (& (. t args)) 0) args self self_ty))))
+  (if (== (. t kind) 8u8) (ret (adt (. t id) (map_tys (& (. t args)) args self self_ty))))
+  (if (or (== (. t kind) 9u8) (== (. t kind) 10u8))
+    (ret (fun (== (. t kind) 10u8) (map_tys (& (. t args)) args self self_ty))))
+  (clone t))
+
+(pub (fn subst ((t (& sty)) (args (& (vec sty)))) sty (subst_one t args false (& (unit)))))
+
+(pub (fn subst_self ((t (& sty)) (self_ty (& sty))) sty (subst_one t (& (vec.new <sty>)) true self_ty)))
+
+(pub (fn has_infer ((t (& sty))) bool
+  (if (== (. t kind) 14u8) (ret true))
+  (for i 0 (vec.len (& (. t args))) (if (has_infer (vec.get (& (. t args)) i)) (ret true)))
+  false))
+
+(pub (fn has_ref ((t (& sty))) bool
+  (if (== (. t kind) 6u8) (ret true))
+  (if (== (. t kind) 10u8) (ret true))
+  (if (== (. t kind) 8u8)
+    (for i 0 (vec.len (& (. t args))) (if (has_ref (vec.get (& (. t args)) i)) (ret true))))
+  false))
+
+(pub (fn inner ((t (& sty))) sty (clone (vec.get (& (. t args)) 0))))
+
+(pub (fn signed ((i i64)) bool (< i 4)))
+
+(pub (fn fits ((i i64) (v i64)) bool
+  (if (== i 3) (ret true))
+  (if (== i 7) (ret (>= v 0)))
+  (if (== i 0) (ret (and (>= v (neg 128)) (<= v 127))))
+  (if (== i 1) (ret (and (>= v (neg 32768)) (<= v 32767))))
+  (if (== i 2) (ret (and (>= v (neg 2147483648)) (<= v 2147483647))))
+  (if (== i 4) (ret (and (>= v 0) (<= v 255))))
+  (if (== i 5) (ret (and (>= v 0) (<= v 65535))))
+  (and (>= v 0) (<= v 4294967295))))
+
+(test ty_show_ref
+  (let t (ref_ty false (str.from "a") (adt 3 (vec.new <sty>))))
+  (assert_eq (& (show (& t))) "(& 'a adt3)"))

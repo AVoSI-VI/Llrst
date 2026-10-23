@@ -1,0 +1,152 @@
+;; MIR places, operands, and blocks. Projection kind: 0 field, 1 deref, 2 downcast.
+(use std.str)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (struct place (pub (local i64)) (pub (pk (vec u8))) (pub (pi (vec i64)))))
+
+(pub (struct op
+  (pub (kind u8))
+  (pub (local i64))
+  (pub (pk (vec u8)))
+  (pub (pi (vec i64)))
+  (pub (ck u8))
+  (pub (id i64))
+  (pub (id2 i64))
+  (pub (text str))
+  (pub (ty ty.sty))))
+
+(pub (struct rv
+  (pub (kind u8))
+  (pub (flag bool))
+  (pub (two bool))
+  (pub (op i64))
+  (pub (ty ty.sty))
+  (pub (local i64))
+  (pub (pk (vec u8)))
+  (pub (pi (vec i64)))
+  (pub (ops (vec op)))
+  (pub (text str))))
+
+(pub (struct st (pub (kind u8)) (pub (local i64)) (pub (pk (vec u8))) (pub (pi (vec i64))) (pub (rv rv))))
+
+(pub (struct term
+  (pub (kind u8))
+  (pub (bb i64))
+  (pub (bb2 i64))
+  (pub (else i64))
+  (pub (op op))
+  (pub (vals (vec i64)))
+  (pub (bbs (vec i64)))
+  (pub (fk u8))
+  (pub (fid i64))
+  (pub (slot i64))
+  (pub (args (vec op)))
+  (pub (dest i64))
+  (pub (dpk (vec u8)))
+  (pub (dpi (vec i64)))))
+
+(pub (struct blk (pub (stmts (vec st))) (pub (term term))))
+
+(pub (struct body (pub (name str)) (pub (args i64)) (pub (locs (vec thir.loc))) (pub (blocks (vec blk)))))
+
+(pub (fn ploc ((l i64)) place (place l (vec.new <u8>) (vec.new <i64>))))
+
+(pub (fn pclone ((p (& place))) place
+  (let mut pk (vec.new <u8>))
+  (let mut pi (vec.new <i64>))
+  (for i 0 (vec.len (& (. p pk))) (vec.push (&mut pk) (@ (vec.get (& (. p pk)) i))))
+  (for i 0 (vec.len (& (. p pi))) (vec.push (&mut pi) (@ (vec.get (& (. p pi)) i))))
+  (place (. p local) pk pi)))
+
+(pub (fn ppush ((p place) (k u8) (i i64)) place
+  (let mut q p)
+  (vec.push (&mut (. q pk)) k)
+  (vec.push (&mut (. q pi)) i)
+  q))
+
+(pub (fn ocopy ((p place)) op (op 0u8 (. p local) (. p pk) (. p pi) 0u8 0 0 (str.new) (ty.unit))))
+
+(pub (fn omove ((p place)) op (op 1u8 (. p local) (. p pk) (. p pi) 0u8 0 0 (str.new) (ty.unit))))
+
+(pub (fn oconst ((thir.ck u8) (id i64) (id2 i64) (text str) (t ty.sty)) op
+  (op 2u8 0 (vec.new <u8>) (vec.new <i64>) thir.ck id id2 text t)))
+
+(pub (fn oclone ((o (& op))) op
+  (op (. o kind)
+    (. o local)
+    (copy_u8 (& (. o pk)))
+    (copy_i64 (& (. o pi)))
+    (. o ck)
+    (. o id)
+    (. o id2)
+    (str.clone (& (. o text)))
+    (ty.clone (& (. o ty))))))
+
+(fn copy_u8 ((v (& (vec u8)))) (vec u8)
+  (let mut o (vec.new <u8>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(fn copy_i64 ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(pub (fn ruse ((o op)) rv
+  (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (one_op o) (str.new))))
+
+(fn one_op ((o op)) (vec op)
+  (let mut v (vec.new <op>))
+  (vec.push (&mut v) o)
+  v)
+
+(pub (fn rvoid () rv (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (vec.new <op>) (str.new))))
+
+(pub (fn tnone () term
+  (term 6u8 0 0 0 (oconst 4u8 0 0 (str.new) (ty.unit)) (vec.new <i64>) (vec.new <i64>) 0u8 0 0 (vec.new <op>) 0 (vec.new <u8>) (vec.new <i64>))))
+
+(pub (fn sassign ((p place) (r rv)) st (st 0u8 (. p local) (. p pk) (. p pi) r)))
+
+(pub (fn sdrop ((l i64)) st (st 1u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+
+(pub (fn sdead ((l i64)) st (st 3u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+
+(pub (fn sforget ((l i64)) st (st 2u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+
+(pub (fn sloans ((l i64)) st (st 5u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+
+(pub (fn has_deref ((p (& place))) bool
+  (for i 0 (vec.len (& (. p pk))) (if (== (@ (vec.get (& (. p pk)) i)) 1u8) (ret true)))
+  false))
+
+(pub (fn lone_field ((p (& place))) i64
+  (if (has_deref p) (ret (neg 1)))
+  (if (!= (vec.len (& (. p pk))) 1) (ret (neg 1)))
+  (if (!= (@ (vec.get (& (. p pk)) 0)) 0u8) (ret (neg 1)))
+  (@ (vec.get (& (. p pi)) 0))))
+
+(pub (fn place_ty ((p (& prog.prog)) (locs (& (vec thir.loc))) (pl (& place))) ty.sty
+  (let mut t (ty.clone (& (. (vec.get locs (. pl local)) ty))))
+  (let mut variant (neg 1))
+  (for i 0 (vec.len (& (. pl pk)))
+    (let k (@ (vec.get (& (. pl pk)) i)))
+    (let n (@ (vec.get (& (. pl pi)) i)))
+    (if (== k 1u8) (set t (ty.inner (& t))))
+    (if (== k 2u8) (set variant n))
+    (if (== k 0u8) (do (set t (field_ty p (& t) variant n)) (set variant (neg 1)))))
+  t))
+
+(fn field_ty ((p (& prog.prog)) (t (& ty.sty)) (variant i64) (i i64)) ty.sty
+  (let d (vec.get (& (. p defs)) (. t id)))
+  (if (== (. d kind) 0u8) (ret (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args)))))
+  (let v (vec.get (& (. d svars)) variant))
+  (ty.subst (vec.get (& (. v tys)) i) (& (. t args))))
+
+(pub (fn can_move_field ((p (& prog.prog)) (locs (& (vec thir.loc))) (pl (& place))) bool
+  (if (< (lone_field pl) 0) (ret false))
+  (let t (& (. (vec.get locs (. pl local)) ty)))
+  (if (!= (. t kind) 8u8) (ret false))
+  (if (>= (prog.meth_id p (. t id) "drop") 0) (ret false))
+  (== (. (vec.get (& (. p defs)) (. t id)) kind) 0u8)))

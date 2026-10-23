@@ -1,0 +1,292 @@
+;; THIR for one function instance. Expr kinds match the comments in thir_expr.llr.
+(use std.ast)
+(use std.str)
+(use proj.prog)
+(use proj.thir_expr)
+(use proj.ty)
+
+(pub (struct loc
+  (pub (name str))
+  (pub (ty ty.sty))
+  (pub (mut bool))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
+
+(pub (struct pat
+  (pub (kind u8))
+  (pub (id i64))
+  (pub (text str))
+  (pub (subs (vec pat)))
+  (pub (line i64))
+  (pub (col i64))))
+
+(pub (struct ex
+  (pub (kind u8))
+  (pub (ty ty.sty))
+  (pub (flag bool))
+  (pub (flag2 bool))
+  (pub (id i64))
+  (pub (id2 i64))
+  (pub (text str))
+  (pub (kids (vec ex)))
+  (pub (tys (vec ty.sty)))
+  (pub (pats (vec pat)))
+  (pub (locs (vec loc)))
+  (pub (params (vec i64)))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (file i64))))
+
+(pub (struct ck
+  (pub (module i64))
+  (pub (file i64))
+  (pub (gens (vec str)))
+  (pub (targs (vec ty.sty)))
+  (pub (ret ty.sty))
+  (pub (locals (vec loc)))
+  (pub (sn (vec str)))
+  (pub (si (vec i64)))
+  (pub (marks (vec i64)))
+  (pub (infer (vec ty.sty)))
+  (pub (iset (vec bool)))
+  (pub (iint (vec bool)))
+  (pub (loopn i64))
+  (pub (in_clos bool))))
+
+(pub (fn ex_new ((k u8) (t ty.sty) (line i64) (col i64) (file i64)) ex
+  (ex k t false false 0 0 (str.new) (vec.new <ex>) (vec.new <ty.sty>) (vec.new <pat>) (vec.new <loc>) (vec.new <i64>) line col file)))
+
+(pub (fn pat_new ((k u8) (id i64) (text str) (line i64) (col i64)) pat
+  (pat k id text (vec.new <pat>) line col)))
+
+(pub (fn loc_new ((name str) (t ty.sty) (m bool) (line i64) (col i64)) loc
+  (loc name t m line col 0)))
+
+(pub (fn ck_new ((module i64) (file i64) (ret ty.sty)) ck
+  (let mut c
+    (ck module
+      file
+      (vec.new <str>)
+      (vec.new <ty.sty>)
+      ret
+      (vec.new <loc>)
+      (vec.new <str>)
+      (vec.new <i64>)
+      (vec.new <i64>)
+      (vec.new <ty.sty>)
+      (vec.new <bool>)
+      (vec.new <bool>)
+      0
+      false))
+  (vec.push (&mut (. c marks)) 0)
+  c))
+
+(pub (fn push_scope ((c (&mut ck))) unit (vec.push (&mut (. c marks)) (vec.len (& (. c sn))))))
+
+(pub (fn pop_scope ((c (&mut ck))) unit
+  (let n (vec.len (& (. c marks))))
+  (let at (+ (@ (vec.get (& (. c marks)) (- n 1))) 0))
+  (let _ (vec.pop (&mut (. c marks))))
+  (while (> (vec.len (& (. c sn))) at)
+    (do (let _ (vec.pop (&mut (. c sn)))) (let _ (vec.pop (&mut (. c si))))))))
+
+(fn mark_of ((c (& ck))) i64
+  (let n (vec.len (& (. c marks))))
+  (if (== n 0) 0 (@ (vec.get (& (. c marks)) (- n 1)))))
+
+(pub (fn declare ((c (&mut ck)) (name (& str)) (t ty.sty) (m bool) (line i64) (col i64)) (res i64 str)
+  (let id (vec.len (& (. c locals))))
+  (vec.push (&mut (. c locals)) (loc_new (str.clone name) t m line col))
+  (if (str.eq name "_") (ret (res.ok id)))
+  (let from (mark_of c))
+  (for i from (vec.len (& (. c sn)))
+    (if (str.eq (vec.get (& (. c sn)) i) name) (ret (res.err (str.from "name.dup")))))
+  (vec.push (&mut (. c sn)) (str.clone name))
+  (vec.push (&mut (. c si)) id)
+  (res.ok id)))
+
+(pub (fn temp ((c (&mut ck)) (t ty.sty) (line i64) (col i64)) i64
+  (let id (vec.len (& (. c locals))))
+  (let mut nm (str.from "$t"))
+  (str.push (&mut nm) (& (str.from_int id)))
+  (vec.push (&mut (. c locals)) (loc_new nm t true line col))
+  id))
+
+(pub (fn lookup ((c (& ck)) (name (& str))) i64
+  (let mut i (- (vec.len (& (. c sn))) 1))
+  (while (>= i 0)
+    (if (str.eq (vec.get (& (. c sn)) i) name) (ret (@ (vec.get (& (. c si)) i))))
+    (set i (- i 1)))
+  (neg 1)))
+
+(pub (fn fresh ((c (&mut ck)) (int bool)) ty.sty
+  (let id (vec.len (& (. c infer))))
+  (vec.push (&mut (. c infer)) (ty.unit))
+  (vec.push (&mut (. c iset)) false)
+  (vec.push (&mut (. c iint)) int)
+  (ty.infer id int)))
+
+(pub (fn shallow ((c (& ck)) (t (& ty.sty))) ty.sty
+  (let mut cur (ty.clone t))
+  (while (== (. cur kind) 14u8)
+    (if (not (@ (vec.get (& (. c iset)) (. cur id)))) (ret cur))
+    (set cur (ty.clone (vec.get (& (. c infer)) (. cur id)))))
+  cur))
+
+(pub (fn zonk_ty ((c (& ck)) (t (& ty.sty))) ty.sty
+  (let s (shallow c t))
+  (if (== (. s kind) 6u8) (ret (ty.ref_ty (. s flag) (str.clone (& (. s text))) (zonk_ty c (vec.get (& (. s args)) 0)))))
+  (if (== (. s kind) 7u8) (ret (ty.ptr_ty (zonk_ty c (vec.get (& (. s args)) 0)))))
+  (if (or (== (. s kind) 8u8) (or (== (. s kind) 9u8) (== (. s kind) 10u8)))
+    (ret (ty.mk (. s kind) (. s id) (. s flag) (str.clone (& (. s text))) (zonk_tys c (& (. s args))))))
+  s))
+
+(fn zonk_tys ((c (& ck)) (xs (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len xs) (vec.push (&mut o) (zonk_ty c (vec.get xs i))))
+  o)
+
+(fn set_infer ((c (&mut ck)) (i i64) (t ty.sty) (int bool)) unit
+  (vec.set (&mut (. c infer)) i t)
+  (vec.set (&mut (. c iset)) i true)
+  (if int (vec.set (&mut (. c iint)) i true)))
+
+(fn unify_inf ((c (&mut ck)) (i i64) (ai bool) (other ty.sty)) bool
+  (if (and ai (not (ty.is_int (& other)))) (ret false))
+  (set_infer c i other false)
+  true)
+
+(fn unify_both ((c (&mut ck)) (i i64) (ai bool) (a ty.sty) (j i64) (bi bool) (b ty.sty)) bool
+  (if (== i j) (ret true))
+  (if (and ai (not bi)) (do (set_infer c j a true) (ret true)))
+  (set_infer c i b false)
+  (if ai (vec.set (&mut (. c iint)) j true))
+  true)
+
+(pub (fn unify ((c (&mut ck)) (a (& ty.sty)) (b (& ty.sty))) bool
+  (let sa (shallow c a))
+  (let sb (shallow c b))
+  (if (or (== (. sa kind) 5u8) (== (. sb kind) 5u8)) (ret true))
+  (if (and (== (. sa kind) 14u8) (== (. sb kind) 14u8))
+    (ret (unify_both c (. sa id) (. sa flag) sa (. sb id) (. sb flag) sb)))
+  (if (== (. sa kind) 14u8) (ret (unify_inf c (. sa id) (. sa flag) sb)))
+  (if (== (. sb kind) 14u8) (ret (unify_inf c (. sb id) (. sb flag) sa)))
+  (if (and (== (. sa kind) 6u8) (== (. sb kind) 6u8))
+    (ret (and (== (. sa flag) (. sb flag)) (unify c (vec.get (& (. sa args)) 0) (vec.get (& (. sb args)) 0)))))
+  (if (and (== (. sa kind) 7u8) (== (. sb kind) 7u8))
+    (ret (unify c (vec.get (& (. sa args)) 0) (vec.get (& (. sb args)) 0))))
+  (if (and (== (. sa kind) 8u8) (== (. sb kind) 8u8)) (ret (unify_adt c (& sa) (& sb))))
+  (if (and (== (. sa kind) (. sb kind)) (or (== (. sa kind) 9u8) (== (. sa kind) 10u8)))
+    (ret (unify_args c (& (. sa args)) (& (. sb args)))))
+  (ty.eq (& sa) (& sb))))
+
+(fn unify_adt ((c (&mut ck)) (a (& ty.sty)) (b (& ty.sty))) bool
+  (if (!= (. a id) (. b id)) (ret false))
+  (unify_args c (& (. a args)) (& (. b args))))
+
+(fn unify_args ((c (&mut ck)) (a (& (vec ty.sty))) (b (& (vec ty.sty)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret false))
+  (for i 0 (vec.len a) (if (not (unify c (vec.get a i) (vec.get b i))) (ret false)))
+  true)
+
+(pub (fn is_stmt ((e (& ex))) bool
+  (if (or (== (. e kind) 3u8) (== (. e kind) 4u8)) (ret true))
+  (if (or (== (. e kind) 7u8) (== (. e kind) 9u8)) (ret true))
+  (and (== (. e kind) 8u8) (not (== (. (. e ty) kind) 5u8)))))
+
+(pub (fn check_block ((p (& prog.prog)) (c (&mut ck)) (body (& (vec expr))) (won bool) (want (& ty.sty)) (line i64) (col i64)) (res ex str)
+  (push_scope c)
+  (let mut kids (vec.new <ex>))
+  (let n (vec.len body))
+  (for i 0 n
+    (let last (== (+ i 1) n))
+    (vec.push (&mut kids) (try (check_one p c (vec.get body i) (and last won) want))))
+  (pop_scope c)
+  (let ty (try (block_ty c (& kids) won want)))
+  (let mut e (ex_new 5u8 ty line col (. c file)))
+  (set (. e kids) kids)
+  (res.ok e)))
+
+(fn block_ty ((c (&mut ck)) (kids (& (vec ex))) (won bool) (want (& ty.sty))) (res ty.sty str)
+  (let mut t (ty.unit))
+  (if (> (vec.len kids) 0) (set t (last_ty kids)))
+  (if (not won) (ret (res.ok t)))
+  (if (not (unify c (& t) want)) (ret (res.err (str.from "type.mismatch"))))
+  (res.ok (ty.clone want)))
+
+(fn last_ty ((kids (& (vec ex)))) ty.sty
+  (let last (vec.get kids (- (vec.len kids) 1)))
+  (if (not (is_stmt last)) (ret (ty.clone (& (. last ty)))))
+  (if (== (. (. last ty) kind) 5u8) (ty.never) (ty.unit)))
+
+(fn check_one ((p (& prog.prog)) (c (&mut ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res ex str)
+  (thir_expr.check_expr p c e won want))
+
+(fn default_ints ((c (&mut ck))) unit
+  (for i 0 (vec.len (& (. c infer)))
+    (if (and (not (@ (vec.get (& (. c iset)) i))) (@ (vec.get (& (. c iint)) i)))
+      (set_infer c i (ty.int 3) true))))
+
+(fn zonk_locs ((c (& ck)) (xs (&mut (vec loc)))) (res unit str)
+  (for i 0 (vec.len xs)
+    (let l (vec.get_mut xs i))
+    (set (. l ty) (zonk_ty c (& (. l ty))))
+    (if (ty.has_infer (& (. l ty))) (ret (res.err (str.from "type.infer")))))
+  (res.ok ()))
+
+(pub (fn zonk_ex ((c (& ck)) (e (&mut ex))) (res unit str)
+  (set (. e ty) (zonk_ty c (& (. e ty))))
+  (if (ty.has_infer (& (. e ty))) (ret (res.err (str.from "type.infer"))))
+  (set (. e tys) (zonk_tys c (& (. e tys))))
+  (for i 0 (vec.len (& (. e tys)))
+    (if (ty.has_infer (vec.get (& (. e tys)) i)) (ret (res.err (str.from "type.infer")))))
+  (try (zonk_locs c (&mut (. e locs))))
+  (for i 0 (vec.len (& (. e kids))) (try (zonk_ex c (vec.get_mut (&mut (. e kids)) i))))
+  (res.ok ())))
+
+(pub (fn check_fn ((p (& prog.prog)) (id i64) (targs (vec ty.sty))) (res ex str)
+  (let d (vec.get (& (. p defs)) id))
+  (let mut c (ck_new (. d module) (. d module) (ty.subst (& (. d ret)) (& targs))))
+  (set (. c gens) (copy_at (& (. d gens))))
+  (set (. c targs) targs)
+  (for i 0 (vec.len (& (. d spars)))
+    (let s (vec.get (& (. d spars)) i))
+    (let t (ty.subst (& (. s ty)) (& (. c targs))))
+    (let _ (try (declare (&mut c) (& (. s name)) t false (. d line) (. d col)))))
+  (let want (ty.clone (& (. c ret))))
+  (let mut body (try (check_block p (&mut c) (& (. d body)) true (& want) (. d line) (. d col))))
+  (default_ints (&mut c))
+  (let mut locs (vec.take (&mut (. c locals))))
+  (try (zonk_locs (& c) (&mut locs)))
+  (set (. c locals) locs)
+  (try (zonk_ex (& c) (&mut body)))
+  (set (. body params) (param_ids (prog.nparams p id)))
+  (set (. body locs) (take_locs (&mut c)))
+  (res.ok body)))
+
+(fn param_ids ((n i64)) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 n (vec.push (&mut v) i))
+  v)
+
+(fn copy_at ((v (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (str.clone (vec.get v i))))
+  o)
+
+(fn take_locs ((c (&mut ck))) (vec loc) (vec.take (&mut (. c locals))))
+
+(pub (fn std_fn ((p (& prog.prog)) (module (& str)) (name (& str))) i64 (prog.std_fn p module name)))
+
+(pub (fn ref_str ((p (& prog.prog))) ty.sty
+  (let id (prog.pre_id p "str"))
+  (ty.ref_ty false (str.new) (ty.adt id (vec.new <ty.sty>)))))
+
+(pub (fn loc_text ((p (& prog.prog)) (file i64) (line i64) (col i64)) str
+  (let mut s (str.clone (& (. (vec.get (& (. p mods)) file) file))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int line)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int col)))
+  s))

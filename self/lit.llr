@@ -1,0 +1,166 @@
+;; Literal text from the surface parser, printed the way llrc prints MIR constants.
+(use std.str)
+
+(pub (struct num (pub (ok bool)) (pub (float bool)) (pub (val i64)) (pub (suffix str)) (pub (show str))))
+
+(fn hex_dig ((c u8)) i64
+  (if (and (>= c 48u8) (<= c 57u8)) (ret (- (as i64 c) 48)))
+  (if (and (>= c 97u8) (<= c 102u8)) (ret (+ (- (as i64 c) 97) 10)))
+  (if (and (>= c 65u8) (<= c 70u8)) (ret (+ (- (as i64 c) 65) 10)))
+  (neg 1))
+
+(fn parse_hex ((s (& str)) (lo i64) (hi i64)) i64
+  (let mut n 0)
+  (for i lo hi
+    (let d (hex_dig (str.at s i)))
+    (if (< d 0) (ret (neg 1)))
+    (set n (+ (* n 16) d)))
+  n)
+
+(fn parse_dec ((s (& str)) (lo i64) (hi i64)) i64
+  (let mut n 0)
+  (for i lo hi (set n (+ (* n 10) (- (as i64 (str.at s i)) 48))))
+  n)
+
+(fn split_suf ((s (& str))) i64
+  (let mut i 1)
+  (while (< i (str.len s))
+    (let c (str.at s i))
+    (if (or (== c 105u8) (or (== c 117u8) (== c 102u8))) (ret i))
+    (set i (+ i 1)))
+  (str.len s))
+
+(fn is_num ((s (& str))) bool
+  (if (== (str.len s) 0) (ret false))
+  (let c (str.at s 0))
+  (if (and (>= c 48u8) (<= c 57u8)) (ret true))
+  (if (and (== c 45u8) (> (str.len s) 1))
+    (do (let d (str.at s 1)) (ret (and (>= d 48u8) (<= d 57u8)))))
+  false)
+
+(pub (fn parse_num ((s (& str))) num
+  (if (not (is_num s)) (ret (num false false 0 (str.new) (str.new))))
+  (let mut neg false)
+  (let mut lo 0)
+  (if (== (str.at s 0) 45u8) (do (set neg true) (set lo 1)))
+  (let at (split_suf s))
+  (let suf (str.slice s at (str.len s)))
+  (let body (str.slice s lo at))
+  (let float (or (str.has (& body) ".") (str.starts (& suf) "f")))
+  (if float (ret (num true true 0 suf (float_show (& body) neg))))
+  (let mut v (if (str.starts (& body) "0x") (parse_hex (& body) 2 (str.len (& body))) (parse_dec (& body) 0 (str.len (& body)))))
+  (if neg (set v (neg v)))
+  (num true false v suf (str.new))))
+
+(fn trim_zeros ((s (& str))) str
+  (let mut hi (str.len s))
+  (while (and (> hi 0) (== (str.at s (- hi 1)) 48u8)) (set hi (- hi 1)))
+  (if (and (> hi 0) (== (str.at s (- hi 1)) 46u8)) (set hi (- hi 1)))
+  (if (== hi 0) (str.from "0") (str.slice s 0 hi)))
+
+(fn float_show ((body (& str)) (neg bool)) str
+  (let t (trim_zeros body))
+  (if (not neg) (ret t))
+  (if (str.eq (& t) "0") (ret (str.from "-0")))
+  (let mut s (str.from "-"))
+  (str.push (&mut s) (& t))
+  s)
+
+(fn hex_byte ((n i64)) str
+  (let digits "0123456789abcdef")
+  (let mut s (str.new))
+  (str.push_byte (&mut s) (str.at digits (/ n 16)))
+  (str.push_byte (&mut s) (str.at digits (% n 16)))
+  s)
+
+(fn push_esc ((o (&mut str)) (c u8)) unit
+  (if (== c 34u8) (ret (str.push o "\\\"")))
+  (if (== c 92u8) (ret (str.push o "\\\\")))
+  (if (== c 10u8) (ret (str.push o "\\n")))
+  (if (== c 13u8) (ret (str.push o "\\r")))
+  (if (== c 9u8) (ret (str.push o "\\t")))
+  (if (== c 0u8) (ret (str.push o "\\0")))
+  (if (or (< c 32u8) (== c 127u8))
+    (do (str.push o "\\u{") (str.push o (& (hex_byte (as i64 c)))) (str.push o "}") (ret)))
+  (str.push_byte o c))
+
+(pub (fn decode ((src (& str))) str
+  (let mut o (str.new))
+  (let mut i (cur 0))
+  (if (and (> (str.len src) 0) (== (str.at src 0) 34u8)) (set (. i i) 1))
+  (let mut hi (str.len src))
+  (if (and (> hi 0) (== (str.at src (- hi 1)) 34u8)) (set hi (- hi 1)))
+  (while (< (. i i) hi)
+    (let c (str.at src (. i i)))
+    (if (== c 92u8)
+      (do (set (. i i) (+ (. i i) 1)) (str.push_byte (&mut o) (esc_one src (&mut i))))
+      (do (str.push_byte (&mut o) c) (set (. i i) (+ (. i i) 1)))))
+  o))
+
+(struct cur (i i64))
+
+(fn esc_one ((src (& str)) (i (&mut cur))) u8
+  (let c (str.at src (. i i)))
+  (set (. i i) (+ (. i i) 1))
+  (if (== c 110u8) (ret 10u8))
+  (if (== c 114u8) (ret 13u8))
+  (if (== c 116u8) (ret 9u8))
+  (if (== c 48u8) (ret 0u8))
+  (if (== c 120u8) (ret (esc_hex src i)))
+  c)
+
+(fn esc_hex ((src (& str)) (i (&mut cur))) u8
+  (let a (hex_dig (str.at src (. i i))))
+  (let b (hex_dig (str.at src (+ (. i i) 1))))
+  (set (. i i) (+ (. i i) 2))
+  (as u8 (+ (* a 16) b)))
+
+(pub (fn debug_str ((raw (& str))) str
+  (let s (decode raw))
+  (let mut o (str.from "\""))
+  (for i 0 (str.len (& s)) (push_esc (&mut o) (str.at (& s) i)))
+  (str.push_byte (&mut o) 34u8)
+  o))
+
+(pub (fn bin_name ((mir.op (& str))) str
+  (if (str.eq mir.op "+") (ret (str.from "Add")))
+  (if (str.eq mir.op "-") (ret (str.from "Sub")))
+  (if (str.eq mir.op "*") (ret (str.from "Mul")))
+  (if (str.eq mir.op "/") (ret (str.from "Div")))
+  (if (str.eq mir.op "%") (ret (str.from "Rem")))
+  (if (str.eq mir.op "==") (ret (str.from "Eq")))
+  (if (str.eq mir.op "!=") (ret (str.from "Ne")))
+  (if (str.eq mir.op "<") (ret (str.from "Lt")))
+  (if (str.eq mir.op "<=") (ret (str.from "Le")))
+  (if (str.eq mir.op ">") (ret (str.from "Gt")))
+  (if (str.eq mir.op ">=") (ret (str.from "Ge")))
+  (if (str.eq mir.op "band") (ret (str.from "BitAnd")))
+  (if (str.eq mir.op "bor") (ret (str.from "BitOr")))
+  (if (str.eq mir.op "bxor") (ret (str.from "BitXor")))
+  (if (str.eq mir.op "shl") (ret (str.from "Shl")))
+  (if (str.eq mir.op "shr") (ret (str.from "Shr")))
+  (if (str.eq mir.op "wadd") (ret (str.from "WAdd")))
+  (if (str.eq mir.op "wsub") (ret (str.from "WSub")))
+  (str.from "WMul")))
+
+(pub (fn bin_id ((mir.op (& str))) i64
+  (if (str.eq mir.op "+") (ret 0))
+  (if (str.eq mir.op "-") (ret 1))
+  (if (str.eq mir.op "*") (ret 2))
+  (if (str.eq mir.op "/") (ret 3))
+  (if (str.eq mir.op "%") (ret 4))
+  (if (str.eq mir.op "==") (ret 5))
+  (if (str.eq mir.op "!=") (ret 6))
+  (if (str.eq mir.op "<") (ret 7))
+  (if (str.eq mir.op "<=") (ret 8))
+  (if (str.eq mir.op ">") (ret 9))
+  (if (str.eq mir.op ">=") (ret 10))
+  (if (str.eq mir.op "band") (ret 11))
+  (if (str.eq mir.op "bor") (ret 12))
+  (if (str.eq mir.op "bxor") (ret 13))
+  (if (str.eq mir.op "shl") (ret 14))
+  (if (str.eq mir.op "shr") (ret 15))
+  (if (str.eq mir.op "wadd") (ret 16))
+  (if (str.eq mir.op "wsub") (ret 17))
+  (if (str.eq mir.op "wmul") (ret 18))
+  (neg 1)))

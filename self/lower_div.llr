@@ -1,0 +1,57 @@
+;; Integer division and remainder become a call to sys.checked_div.
+(use proj.lower)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (fn into_div ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (let def (div_id p w))
+  (let a (widen p w (vec.get (& (. e kids)) 0)))
+  (let b (widen p w (vec.get (& (. e kids)) 1)))
+  (let tmp (lower.temp p w (ty.int 3) (. e line) (. e col)))
+  (let next (lower.new_block w))
+  (lower.terminate w (call_div def tmp next (loc_op p e) a b (== (. e id) 4)))
+  (set (. w cur) next)
+  (if (and (== (. (. e ty) kind) 0u8) (== (. (. e ty) id) 3))
+    (lower.push w (mir.sassign dest (mir.ruse (mir.omove (mir.ploc tmp)))))
+    (cast_back w dest tmp (& (. e ty))))))
+
+(fn div_id ((p (& prog.prog)) (w (&mut lower.low))) i64
+  (if (>= (. w cdiv) 0) (ret (. w cdiv)))
+  (let id (prog.std_fn p "sys" "checked_div"))
+  (set (. w cdiv) id)
+  id)
+
+(fn widen ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) mir.op
+  (let o (lower.as_operand p w e))
+  (if (and (== (. (. e ty) kind) 0u8) (== (. (. e ty) id) 3)) (ret o))
+  (let t (lower.temp p w (ty.int 3) (. e line) (. e col)))
+  (let mut r (mir.rvoid))
+  (set (. r kind) 6u8)
+  (set (. r ty) (ty.int 3))
+  (vec.push (&mut (. r ops)) o)
+  (lower.push w (mir.sassign (mir.ploc t) r))
+  (mir.omove (mir.ploc t)))
+
+(fn loc_op ((p (& prog.prog)) (e (& thir.ex))) mir.op
+  (mir.oconst 3u8 0 0 (thir.loc_text p (. e file) (. e line) (. e col)) (thir.ref_str p)))
+
+(fn call_div ((def i64) (tmp i64) (next i64) (thir.loc mir.op) (a mir.op) (b mir.op) (rem bool)) mir.term
+  (let mut t (mir.tnone))
+  (set (. t kind) 3u8)
+  (set (. t fid) def)
+  (set (. t bb) next)
+  (set (. t dest) tmp)
+  (vec.push (&mut (. t args)) thir.loc)
+  (vec.push (&mut (. t args)) a)
+  (vec.push (&mut (. t args)) b)
+  (vec.push (&mut (. t args)) (mir.oconst 2u8 (if rem 1 0) 0 (str.new) (ty.bool_ty)))
+  t)
+
+(fn cast_back ((w (&mut lower.low)) (dest mir.place) (tmp i64) (ty_ (& ty.sty))) unit
+  (let mut r (mir.rvoid))
+  (set (. r kind) 6u8)
+  (set (. r ty) (ty.clone ty_))
+  (vec.push (&mut (. r ops)) (mir.omove (mir.ploc tmp)))
+  (lower.push w (mir.sassign dest r)))

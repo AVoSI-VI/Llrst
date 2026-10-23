@@ -1,8 +1,15 @@
-;; llrs emit-mir FILE: fn headers for the non-generic user functions.
-(use proj.mono)
+;; llrs emit-mir FILE: MIR for each non-generic user function.
 (use std.cli)
 (use std.io)
 (use std.os)
+(use std.str)
+(use std.sys)
+(use proj.load)
+(use proj.lower)
+(use proj.mir_print)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
 
 (fn main () unit
   (let mut c (cli.new "llrs" "emit-mir FILE"))
@@ -11,6 +18,29 @@
   (cli.parse (&mut c) (os.args))
   (if (not (str.eq (cli.at (& c) 0) "emit-mir"))
     (do (io.eputs "usage|llrs emit-mir FILE") (os.exit 1)))
-  (match (mono.headers (cli.at (& c) 1))
+  (match (emit (cli.at (& c) 1))
     ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
-    ((res.ok hs) (for i 0 (vec.len (& hs)) (io.puts (vec.get (& hs) i))))))
+    ((res.ok s) (sys.write_str 1 (& s)))))
+
+(fn emit ((path (& str))) (res str str)
+  (let p (try (load.load_prog path)))
+  (let mut s (str.new))
+  (for i 0 (vec.len (& (. p defs))) (if (user_fn (& p) i) (add_fn (&mut s) (& p) i)))
+  (res.ok s))
+
+(fn user_fn ((p (& prog.prog)) (id i64)) bool
+  (let d (vec.get (& (. p defs)) id))
+  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret false))
+  (if (!= (. d kind) 2u8) (ret false))
+  (if (. d extern) (ret false))
+  (if (> (vec.len (& (. d gens))) 0) (ret false))
+  true)
+
+(fn add_fn ((s (&mut str)) (p (& prog.prog)) (id i64)) unit
+  (let empty (vec.new <ty.sty>))
+  (match (thir.check_fn p id empty)
+    ((res.err _) ())
+    ((res.ok e)
+      (do
+        (let b (lower.lower_fn p e (prog.fn_path p id)))
+        (str.push s (& (mir_print.print_body (& b))))))))

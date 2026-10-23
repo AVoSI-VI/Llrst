@@ -1,0 +1,332 @@
+;; Resolved program. Def kind: 0 struct, 1 enum, 2 fn, 3 const, 4 trait.
+(use std.ast)
+(use std.str)
+(use proj.ty)
+
+(pub (struct spar (pub (name str)) (pub (ty ty.sty))))
+
+(pub (struct sfield (pub (name str)) (pub (ty ty.sty)) (pub (is_pub bool))))
+
+(pub (struct svar (pub (name str)) (pub (tys (vec ty.sty))) (pub (is_pub bool))))
+
+(pub (struct ssig (pub (name str)) (pub (params (vec ty.sty))) (pub (ret ty.sty))))
+
+(fn no_expr () expr
+  (expr 0u8 (str.from "()") false (vec.new <expr>) (vec.new <ty>) 0 0 0))
+
+(pub (struct def
+  (pub (name str))
+  (pub (module i64))
+  (pub (kind u8))
+  (pub (is_pub bool))
+  (pub (gens (vec str)))
+  (pub (spars (vec spar)))
+  (pub (sfields (vec sfield)))
+  (pub (svars (vec svar)))
+  (pub (ret ty.sty))
+  (pub (body (vec expr)))
+  (pub (sigs (vec ssig)))
+  (pub (extern bool))
+  (pub (inline bool))
+  (pub (owner i64))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))
+  (pub (val expr))
+  (pub (safe bool))))
+
+(pub (struct modu
+  (pub (path str))
+  (pub (file str))
+  (pub (is_std bool))
+  (pub (names (vec str)))
+  (pub (ids (vec i64)))
+  (pub (uals (vec str)))
+  (pub (umod (vec i64)))))
+
+(pub (struct impr (pub (tr i64)) (pub (ty ty.sty)) (pub (ids (vec i64)))))
+
+(pub (struct prog
+  (pub (defs (vec def)))
+  (pub (mods (vec modu)))
+  (pub (main i64))
+  (pub (pn (vec str)))
+  (pub (pi (vec i64)))
+  (pub (mo (vec i64)))
+  (pub (mn (vec str)))
+  (pub (mi (vec i64)))
+  (pub (ims (vec impr)))
+  (pub (arch str))))
+
+(pub (fn blank_def ((name str) (module i64) (kind u8)) def
+  (def name
+    module
+    kind
+    false
+    (vec.new <str>)
+    (vec.new <spar>)
+    (vec.new <sfield>)
+    (vec.new <svar>)
+    (ty.unit)
+    (vec.new <expr>)
+    (vec.new <ssig>)
+    false
+    false
+    (neg 1)
+    0
+    0
+    0
+    (no_expr)
+    true)))
+
+(pub (fn blank_mod ((path str) (file str) (is_std bool)) modu
+  (modu path file is_std (vec.new <str>) (vec.new <i64>) (vec.new <str>) (vec.new <i64>))))
+
+(pub (fn blank_prog () prog
+  (prog (vec.new <def>)
+    (vec.new <modu>)
+    0
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <impr>)
+    (str.from "x86_64"))))
+
+(pub (fn def_at ((p (& prog)) (id i64)) def
+  (let d (vec.get (& (. p defs)) id))
+  (def (str.clone (& (. d name)))
+    (. d module)
+    (. d kind)
+    (. d is_pub)
+    (copy_strs (& (. d gens)))
+    (copy_spars (& (. d spars)))
+    (copy_fields (& (. d sfields)))
+    (copy_vars (& (. d svars)))
+    (ty.clone (& (. d ret)))
+    (vec.new <expr>)
+    (copy_sigs (& (. d sigs)))
+    (. d extern)
+    (. d inline)
+    (. d owner)
+    (. d line)
+    (. d col)
+    (. d len)
+    (no_expr)
+    (. d safe))))
+
+(fn copy_strs ((v (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (str.clone (vec.get v i))))
+  o)
+
+(fn copy_spars ((v (& (vec spar)))) (vec spar)
+  (let mut o (vec.new <spar>))
+  (for i 0 (vec.len v)
+    (let s (vec.get v i))
+    (vec.push (&mut o) (spar (str.clone (& (. s name))) (ty.clone (& (. s ty))))))
+  o)
+
+(fn copy_fields ((v (& (vec sfield)))) (vec sfield)
+  (let mut o (vec.new <sfield>))
+  (for i 0 (vec.len v)
+    (let f (vec.get v i))
+    (vec.push (&mut o) (sfield (str.clone (& (. f name))) (ty.clone (& (. f ty))) (. f is_pub))))
+  o)
+
+(fn copy_vars ((v (& (vec svar)))) (vec svar)
+  (let mut o (vec.new <svar>))
+  (for i 0 (vec.len v)
+    (let s (vec.get v i))
+    (vec.push (&mut o) (svar (str.clone (& (. s name))) (ty.clone_tys (& (. s tys))) (. s is_pub))))
+  o)
+
+(fn copy_sigs ((v (& (vec ssig)))) (vec ssig)
+  (let mut o (vec.new <ssig>))
+  (for i 0 (vec.len v)
+    (let s (vec.get v i))
+    (vec.push (&mut o) (ssig (str.clone (& (. s name))) (ty.clone_tys (& (. s params))) (ty.clone (& (. s ret))))))
+  o)
+
+(pub (fn push_def ((p (&mut prog)) (d def)) i64
+  (vec.push (&mut (. p defs)) d)
+  (- (vec.len (& (. p defs))) 1)))
+
+(pub (fn add_item ((m (&mut modu)) (name str) (id i64)) unit
+  (vec.push (&mut (. m names)) name)
+  (vec.push (&mut (. m ids)) id)))
+
+(fn find_name ((names (& (vec str))) (ids (& (vec i64))) (name (& str))) i64
+  (for i 0 (vec.len names) (if (str.eq (vec.get names i) name) (ret (@ (vec.get ids i)))))
+  (neg 1))
+
+(pub (fn item_id ((m (& modu)) (name (& str))) i64 (find_name (& (. m names)) (& (. m ids)) name)))
+
+(pub (fn use_mod ((m (& modu)) (alias (& str))) i64 (find_name (& (. m uals)) (& (. m umod)) alias)))
+
+(pub (fn pre_id ((p (& prog)) (name (& str))) i64 (find_name (& (. p pn)) (& (. p pi)) name)))
+
+(pub (fn is_type ((p (& prog)) (id i64)) bool
+  (let k (. (vec.get (& (. p defs)) id) kind))
+  (or (== k 0u8) (== k 1u8))))
+
+(pub (fn is_fn ((p (& prog)) (id i64)) bool (== (. (vec.get (& (. p defs)) id) kind) 2u8)))
+
+(pub (fn visible ((p (& prog)) (from i64) (id i64)) bool
+  (let d (vec.get (& (. p defs)) id))
+  (or (. d is_pub) (== (. d module) from))))
+
+(pub (fn lookup_item ((p (& prog)) (module i64) (name (& str))) i64
+  (let m (vec.get (& (. p mods)) module))
+  (let id (item_id m name))
+  (if (>= id 0) (ret id))
+  (pre_id p name)))
+
+(pub (fn lookup_type ((p (& prog)) (module i64) (name (& str))) i64
+  (if (str.has name ".") (ret (lookup_qual p module name true)))
+  (let id (lookup_item p module name))
+  (if (and (>= id 0) (is_type p id)) id (neg 1))))
+
+(fn lookup_qual ((p (& prog)) (module i64) (name (& str)) (want_ty bool)) i64
+  (let dot (str_dot name))
+  (if (< dot 0) (ret (neg 1)))
+  (let a (str.slice name 0 dot))
+  (let b (str.slice name (+ dot 1) (str.len name)))
+  (let mi (use_mod (vec.get (& (. p mods)) module) (& a)))
+  (if (< mi 0) (ret (neg 1)))
+  (let id (item_id (vec.get (& (. p mods)) mi) (& b)))
+  (if (< id 0) (ret (neg 1)))
+  (if (and want_ty (not (is_type p id))) (ret (neg 1)))
+  id)
+
+(fn str_dot ((s (& str))) i64
+  (for i 0 (str.len s) (if (== (str.at s i) 46u8) (ret i)))
+  (neg 1))
+
+(pub (fn meth_id ((p (& prog)) (owner i64) (name (& str))) i64
+  (for i 0 (vec.len (& (. p mo)))
+    (if (and (== (@ (vec.get (& (. p mo)) i)) owner) (str.eq (vec.get (& (. p mn)) i) name))
+      (ret (@ (vec.get (& (. p mi)) i)))))
+  (neg 1)))
+
+(pub (fn add_meth ((p (&mut prog)) (owner i64) (name str) (id i64)) unit
+  (vec.push (&mut (. p mo)) owner)
+  (vec.push (&mut (. p mn)) name)
+  (vec.push (&mut (. p mi)) id)))
+
+(pub (fn mod_fn ((p (& prog)) (module i64) (name (& str))) i64
+  (let id (item_id (vec.get (& (. p mods)) module) name))
+  (if (and (>= id 0) (is_fn p id)) id (neg 1))))
+
+(pub (fn lookup_fn ((p (& prog)) (module i64) (path (& str))) i64
+  (let n (count_dots path))
+  (if (== n 0) (ret (mod_fn p module path)))
+  (if (== n 1) (ret (lookup_fn2 p module path)))
+  (lookup_fn3 p module path)))
+
+(fn count_dots ((s (& str))) i64
+  (let mut n 0)
+  (for i 0 (str.len s) (if (== (str.at s i) 46u8) (set n (+ n 1))))
+  n)
+
+(fn lookup_fn2 ((p (& prog)) (module i64) (path (& str))) i64
+  (let dot (str_dot path))
+  (let a (str.slice path 0 dot))
+  (let b (str.slice path (+ dot 1) (str.len path)))
+  (let mi (use_mod (vec.get (& (. p mods)) module) (& a)))
+  (if (>= mi 0)
+    (do
+      (let id (mod_fn p mi (& b)))
+      (if (>= id 0) (ret id))))
+  (let t (lookup_type p module (& a)))
+  (if (>= t 0)
+    (do
+      (let id (meth_id p t (& b)))
+      (if (>= id 0) (ret id))
+      (ret (mod_fn p (. (vec.get (& (. p defs)) t) module) (& b)))))
+  (neg 1))
+
+(fn lookup_fn3 ((p (& prog)) (module i64) (path (& str))) i64
+  (let mut dots (vec.new <i64>))
+  (for i 0 (str.len path) (if (== (str.at path i) 46u8) (vec.push (&mut dots) i)))
+  (if (!= (vec.len (& dots)) 2) (ret (neg 1)))
+  (let a (str.slice path 0 (@ (vec.get (& dots) 0))))
+  (let b (str.slice path (+ (@ (vec.get (& dots) 0)) 1) (@ (vec.get (& dots) 1))))
+  (let c (str.slice path (+ (@ (vec.get (& dots) 1)) 1) (str.len path)))
+  (let mut q (str.clone (& a)))
+  (str.push_byte (&mut q) 46u8)
+  (str.push (&mut q) (& b))
+  (let t (lookup_type p module (& q)))
+  (if (< t 0) (ret (neg 1)))
+  (meth_id p t (& c)))
+
+(pub (fn lookup_const ((p (& prog)) (module i64) (path (& str))) i64
+  (let id (if (str.has path ".") (lookup_qual p module path false) (item_id (vec.get (& (. p mods)) module) path)))
+  (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 3u8)) id (neg 1))))
+
+(pub (fn lookup_trait ((p (& prog)) (module i64) (name (& str))) i64
+  (let id (lookup_item p module name))
+  (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 4u8)) id (neg 1))))
+
+(fn last_seg ((s (& str))) str
+  (let mut i (- (str.len s) 1))
+  (while (>= i 0) (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s)))) (set i (- i 1)))
+  (str.clone s))
+
+(fn dot2 ((a (& str)) (b (& str))) str
+  (let mut s (str.clone a))
+  (str.push_byte (&mut s) 46u8)
+  (str.push (&mut s) b)
+  s)
+
+(pub (fn fn_path ((p (& prog)) (id i64)) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (!= (. d kind) 2u8) (ret (str.clone (& (. d name)))))
+  (if (>= (. d owner) 0) (ret (dot2 (& (. (vec.get (& (. p defs)) (. d owner)) name)) (& (. d name)))))
+  (dot2 (& (last_seg (& (. (vec.get (& (. p mods)) (. d module)) path)))) (& (. d name)))))
+
+(pub (fn impl_of ((p (& prog)) (tr i64) (t (& ty.sty))) i64
+  (for i 0 (vec.len (& (. p ims)))
+    (let im (vec.get (& (. p ims)) i))
+    (if (and (== (. im tr) tr) (ty.eq (& (. im ty)) t)) (ret i)))
+  (neg 1)))
+
+(pub (fn add_impl ((p (&mut prog)) (tr i64) (t ty.sty) (ids (vec i64))) unit
+  (vec.push (&mut (. p ims)) (impr tr t ids))))
+
+(pub (fn add_pre ((p (&mut prog)) (name str) (id i64)) unit
+  (vec.push (&mut (. p pn)) name)
+  (vec.push (&mut (. p pi)) id)))
+
+(pub (fn std_fn ((p (& prog)) (module (& str)) (name (& str))) i64
+  (let mut path (str.from "std."))
+  (str.push (&mut path) module)
+  (for i 0 (vec.len (& (. p mods)))
+    (let m (vec.get (& (. p mods)) i))
+    (if (str.eq (& (. m path)) (& path)) (ret (mod_fn p i name))))
+  (neg 1)))
+
+(fn field_drop ((p (& prog)) (t (& ty.sty))) bool
+  (let d (vec.get (& (. p defs)) (. t id)))
+  (if (== (. d kind) 0u8)
+    (for i 0 (vec.len (& (. d sfields)))
+      (let ft (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args))))
+      (if (needs_drop p (& ft)) (ret true))))
+  (if (== (. d kind) 1u8)
+    (for i 0 (vec.len (& (. d svars)))
+      (let v (vec.get (& (. d svars)) i))
+      (for j 0 (vec.len (& (. v tys)))
+        (let ft (ty.subst (vec.get (& (. v tys)) j) (& (. t args))))
+        (if (needs_drop p (& ft)) (ret true)))))
+  false)
+
+(pub (fn needs_drop ((p (& prog)) (t (& ty.sty))) bool
+  (if (== (. t kind) 10u8) (ret true))
+  (if (!= (. t kind) 8u8) (ret false))
+  (if (>= (meth_id p (. t id) "drop") 0) (ret true))
+  (field_drop p t)))
+
+(pub (fn nparams ((p (& prog)) (id i64)) i64 (vec.len (& (. (vec.get (& (. p defs)) id) spars)))))
+
+(pub (fn type_name ((p (& prog)) (id i64)) str (str.clone (& (. (vec.get (& (. p defs)) id) name)))))

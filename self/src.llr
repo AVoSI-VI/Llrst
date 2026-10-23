@@ -1,0 +1,8 @@
+;; One loaded module before DefIds are assigned.
+(use std.ast)
+
+(pub (struct loaded
+  (pub (path str))
+  (pub (file str))
+  (pub (is_std bool))
+  (pub (items (vec item)))))

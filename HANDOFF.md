@@ -299,10 +299,9 @@ verified by comparing against `llrc` output, never by inspection.
 
 Starting point: the reader (`std/sexp.llr`), the parser (`std/ast.llr`, `std/ast_expr.llr`)
 and a typed checker (`std/check.llr`, `std/check_ty.llr`, `std/check_expr.llr`, see
-`docs/tools/llr-check.md`) exist. `self/llrs emit-mir` prints the same `fn` headers as
-`llrc emit-mir` for every `tests/run/*.llr`. `tests/run.sh` compares `llr-check` with
+`docs/tools/llr-check.md`) exist. `tests/run.sh` compares `llr-check` with
 `llrc check` on every `tests/err` golden whose code is not `borrow.*`, `move.*`, or `init.*`.
-Nothing after instances exists in Llrst.
+`llrs emit-mir` prints a full MIR dump, byte-equal to `llrc emit-mir` on every `tests/run/*.llr` and `std/*.llr` (`tests/mir.sh`, `tests/mir.ps1`). Nothing after that dump exists in Llrst.
 
 Layout: a new flat `self/` directory of `proj.` modules (`proj.X` loads `X.llr` beside the
 main file, flat only), entry `self/llrs.llr`. The name `llrs` is a placeholder. Files under

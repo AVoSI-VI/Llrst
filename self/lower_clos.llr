@@ -1,0 +1,16 @@
+;; Closure rvalue. The nested mir.body is not part of the emit-mir text.
+(use proj.lower)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+
+(pub (fn into_clos ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (let mut ops (vec.new <mir.op>))
+  (for i 1 (vec.len (& (. e kids))) (vec.push (&mut ops) (lower.as_operand p w (vec.get (& (. e kids)) i))))
+  (let idx (. w cn))
+  (set (. w cn) (+ idx 1))
+  (let mut r (mir.rvoid))
+  (set (. r kind) 18u8)
+  (set (. r op) idx)
+  (set (. r ops) ops)
+  (lower.push w (mir.sassign dest r))))

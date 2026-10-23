@@ -1,0 +1,261 @@
+;; Textual MIR, byte-compatible with llrc emit-mir.
+(use std.str)
+(use proj.lit)
+(use proj.mir)
+(use proj.ty)
+
+(pub (fn print_body ((b (& mir.body))) str
+  (let mut s (str.new))
+  (line (&mut s) (& (head b)))
+  (for i 0 (vec.len (& (. b locs))) (line (&mut s) (& (local_line b i))))
+  (for i 0 (vec.len (& (. b blocks))) (block_line (&mut s) (vec.get (& (. b blocks)) i) i))
+  s))
+
+(fn line ((s (&mut str)) (t (& str))) unit
+  (str.push s t)
+  (str.push_byte s 10u8))
+
+(fn head ((b (& mir.body))) str
+  (let mut s (str.from "fn "))
+  (str.push (&mut s) (& (. b name)))
+  (str.push (&mut s) " (")
+  (str.push (&mut s) (& (str.from_int (. b args))))
+  (str.push (&mut s) " args)")
+  s)
+
+(fn local_line ((b (& mir.body)) (i i64)) str
+  (let l (vec.get (& (. b locs)) i))
+  (let mut s (str.from "  _"))
+  (str.push (&mut s) (& (str.from_int i)))
+  (str.push (&mut s) ": ")
+  (str.push (&mut s) (& (ty.show (& (. l ty)))))
+  (str.push (&mut s) " ; ")
+  (str.push (&mut s) (& (. l name)))
+  (if (. l mut) (str.push (&mut s) " mut"))
+  s)
+
+(fn block_line ((s (&mut str)) (b (& mir.blk)) (i i64)) unit
+  (let mut h (str.from " bb"))
+  (str.push (&mut h) (& (str.from_int i)))
+  (str.push_byte (&mut h) 58u8)
+  (line s (& h))
+  (for k 0 (vec.len (& (. b stmts))) (line s (& (stmt_line (vec.get (& (. b stmts)) k)))))
+  (line s (& (term_line (& (. b term))))))
+
+(fn stmt_line ((s (& mir.st))) str
+  (let mut o (str.from "   "))
+  (if (== (. s kind) 0u8) (str.push (&mut o) (& (assign_txt s))))
+  (if (== (. s kind) 1u8) (do (str.push (&mut o) "drop ") (str.push (&mut o) (& (place_txt s)))))
+  (if (== (. s kind) 2u8) (do (str.push (&mut o) "forget _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 3u8) (do (str.push (&mut o) "dead _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 4u8) (str.push (&mut o) "nop"))
+  (if (== (. s kind) 5u8) (do (str.push (&mut o) "loans _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  o)
+
+(fn assign_txt ((s (& mir.st))) str
+  (let mut o (place_txt s))
+  (str.push (&mut o) " = ")
+  (str.push (&mut o) (& (rv_txt (& (. s rv)))))
+  o)
+
+(fn place_txt ((s (& mir.st))) str (place_of (. s local) (& (. s pk)) (& (. s pi))))
+
+(fn place_of ((local i64) (pk (& (vec u8))) (pi (& (vec i64)))) str
+  (let mut s (str.from "_"))
+  (str.push (&mut s) (& (str.from_int local)))
+  (for i 0 (vec.len pk)
+    (let k (@ (vec.get pk i)))
+    (let n (@ (vec.get pi i)))
+    (if (== k 0u8) (do (str.push_byte (&mut s) 46u8) (str.push (&mut s) (& (str.from_int n)))))
+    (if (== k 1u8) (set s (wrap "(*" (& s) ")")))
+    (if (== k 2u8) (set s (wrap_v (& s) n))))
+  s)
+
+(fn wrap ((a (& str)) (m (& str)) (b (& str))) str
+  (let mut s (str.from a))
+  (str.push (&mut s) m)
+  (str.push (&mut s) b)
+  s)
+
+(fn wrap_v ((m (& str)) (n i64)) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) m)
+  (str.push (&mut s) " as v")
+  (str.push (&mut s) (& (str.from_int n)))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn rv_txt ((r (& mir.rv))) str
+  (if (== (. r kind) 0u8) (ret (op_txt (vec.get (& (. r ops)) 0))))
+  (if (== (. r kind) 1u8) (ret (ref_txt r)))
+  (if (== (. r kind) 2u8) (ret (bin_txt r)))
+  (if (== (. r kind) 3u8) (ret (pre "neg " (op_txt (vec.get (& (. r ops)) 0)))))
+  (if (== (. r kind) 4u8) (ret (pre "wneg " (op_txt (vec.get (& (. r ops)) 0)))))
+  (if (== (. r kind) 5u8) (ret (pre "not " (op_txt (vec.get (& (. r ops)) 0)))))
+  (if (== (. r kind) 6u8) (ret (cast_txt r)))
+  (if (== (. r kind) 7u8) (ret (agg_txt r "{" "}")))
+  (if (== (. r kind) 8u8) (ret (var_txt r)))
+  (if (== (. r kind) 9u8) (ret (pre "discr " (place_of (. r local) (& (. r pk)) (& (. r pi))))))
+  (if (== (. r kind) 10u8) (ret (str.from "null")))
+  (if (== (. r kind) 11u8) (ret (callish "ptradd" r)))
+  (if (== (. r kind) 12u8) (ret (callish "ptreq" r)))
+  (if (== (. r kind) 13u8) (ret (str.from "argc")))
+  (if (== (. r kind) 14u8) (ret (str.from "argv")))
+  (if (== (. r kind) 15u8) (ret (pre "sizeof " (ty.show (& (. r ty))))))
+  (if (== (. r kind) 16u8) (ret (str.from "vtable")))
+  (if (== (. r kind) 17u8) (ret (str.from "static")))
+  (clos_txt r))
+
+(fn ref_txt ((r (& mir.rv))) str
+  (let mut s (str.from "&"))
+  (if (. r flag) (str.push (&mut s) "mut "))
+  (if (. r two) (str.push (&mut s) "2p"))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (place_of (. r local) (& (. r pk)) (& (. r pi)))))
+  s)
+
+(fn bin_txt ((r (& mir.rv))) str
+  (let mut s (bin_nm (. r op)))
+  (str.push_byte (&mut s) 40u8)
+  (str.push (&mut s) (& (op_txt (vec.get (& (. r ops)) 0))))
+  (str.push (&mut s) ", ")
+  (str.push (&mut s) (& (op_txt (vec.get (& (. r ops)) 1))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn bin_nm ((id i64)) str
+  (if (== id 0) (ret (str.from "Add")))
+  (if (== id 1) (ret (str.from "Sub")))
+  (if (== id 2) (ret (str.from "Mul")))
+  (if (== id 3) (ret (str.from "Div")))
+  (if (== id 4) (ret (str.from "Rem")))
+  (if (== id 5) (ret (str.from "Eq")))
+  (if (== id 6) (ret (str.from "Ne")))
+  (if (== id 7) (ret (str.from "Lt")))
+  (if (== id 8) (ret (str.from "Le")))
+  (if (== id 9) (ret (str.from "Gt")))
+  (if (== id 10) (ret (str.from "Ge")))
+  (if (== id 11) (ret (str.from "BitAnd")))
+  (if (== id 12) (ret (str.from "BitOr")))
+  (if (== id 13) (ret (str.from "BitXor")))
+  (if (== id 14) (ret (str.from "Shl")))
+  (if (== id 15) (ret (str.from "Shr")))
+  (if (== id 16) (ret (str.from "WAdd")))
+  (if (== id 17) (ret (str.from "WSub")))
+  (str.from "WMul"))
+
+(fn cast_txt ((r (& mir.rv))) str
+  (let mut s (op_txt (vec.get (& (. r ops)) 0)))
+  (str.push (&mut s) " as ")
+  (str.push (&mut s) (& (ty.show (& (. r ty)))))
+  s)
+
+(fn agg_txt ((r (& mir.rv)) (a (& str)) (b (& str))) str
+  (let mut s (ty.show (& (. r ty))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) a)
+  (str.push (&mut s) (& (ops_txt (& (. r ops)))))
+  (str.push (&mut s) b)
+  s)
+
+(fn var_txt ((r (& mir.rv))) str
+  (let mut s (ty.show (& (. r ty))))
+  (str.push (&mut s) "::v")
+  (str.push (&mut s) (& (str.from_int (. r op))))
+  (str.push (&mut s) " {")
+  (str.push (&mut s) (& (ops_txt (& (. r ops)))))
+  (str.push_byte (&mut s) 125u8)
+  s)
+
+(fn clos_txt ((r (& mir.rv))) str
+  (let mut s (str.from "clos"))
+  (str.push (&mut s) (& (str.from_int (. r op))))
+  (str.push (&mut s) " {")
+  (str.push (&mut s) (& (ops_txt (& (. r ops)))))
+  (str.push_byte (&mut s) 125u8)
+  s)
+
+(fn callish ((name (& str)) (r (& mir.rv))) str
+  (let mut s (str.from name))
+  (str.push_byte (&mut s) 40u8)
+  (str.push (&mut s) (& (ops_txt (& (. r ops)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn ops_txt ((v (& (vec mir.op)))) str
+  (let mut s (str.new))
+  (for i 0 (vec.len v)
+    (if (> i 0) (str.push (&mut s) ", "))
+    (str.push (&mut s) (& (op_txt (vec.get v i)))))
+  s)
+
+(fn op_txt ((o (& mir.op))) str
+  (if (== (. o kind) 0u8) (ret (pre "copy " (place_of (. o local) (& (. o pk)) (& (. o pi))))))
+  (if (== (. o kind) 1u8) (ret (pre "move " (place_of (. o local) (& (. o pk)) (& (. o pi))))))
+  (const_txt o))
+
+(fn const_txt ((o (& mir.op))) str
+  (if (== (. o ck) 0u8) (ret (int_txt (. o id) (. o id2))))
+  (if (== (. o ck) 1u8) (ret (str.clone (& (. o text)))))
+  (if (== (. o ck) 2u8) (ret (if (== (. o id) 1) (str.from "true") (str.from "false"))))
+  (if (== (. o ck) 3u8) (ret (lit.debug_str (& (. o text)))))
+  (if (== (. o ck) 5u8) (ret (pre "fn#" (str.from_int (. o id)))))
+  (str.from "()"))
+
+(fn int_txt ((v i64) (tyid i64)) str
+  (let mut s (str.from_int v))
+  (str.push (&mut s) (& (ty.int_name tyid)))
+  s)
+
+(fn pre ((a (& str)) (b str)) str
+  (let mut s (str.from a))
+  (str.push (&mut s) (& b))
+  s)
+
+(fn term_line ((t (& mir.term))) str
+  (let mut s (str.from "   "))
+  (if (== (. t kind) 0u8) (do (str.push (&mut s) "goto bb") (str.push (&mut s) (& (str.from_int (. t bb))))))
+  (if (== (. t kind) 1u8) (str.push (&mut s) (& (if_txt t))))
+  (if (== (. t kind) 2u8) (str.push (&mut s) (& (sw_txt t))))
+  (if (== (. t kind) 3u8) (str.push (&mut s) (& (call_txt t))))
+  (if (== (. t kind) 4u8) (str.push (&mut s) "return"))
+  (if (== (. t kind) 5u8) (str.push (&mut s) "unreachable"))
+  (if (== (. t kind) 6u8) (str.push (&mut s) "<none>"))
+  s)
+
+(fn if_txt ((t (& mir.term))) str
+  (let mut s (str.from "if "))
+  (str.push (&mut s) (& (op_txt (& (. t op)))))
+  (str.push (&mut s) " bb")
+  (str.push (&mut s) (& (str.from_int (. t bb))))
+  (str.push (&mut s) " bb")
+  (str.push (&mut s) (& (str.from_int (. t bb2))))
+  s)
+
+(fn sw_txt ((t (& mir.term))) str
+  (let mut s (str.from "switch "))
+  (str.push (&mut s) (& (op_txt (& (. t op)))))
+  (str.push (&mut s) " [")
+  (for i 0 (vec.len (& (. t vals)))
+    (if (> i 0) (str.push_byte (&mut s) 32u8))
+    (str.push (&mut s) (& (str.from_int (@ (vec.get (& (. t vals)) i)))))
+    (str.push (&mut s) "->bb")
+    (str.push (&mut s) (& (str.from_int (@ (vec.get (& (. t bbs)) i))))))
+  (str.push (&mut s) "] else bb")
+  (str.push (&mut s) (& (str.from_int (. t else))))
+  s)
+
+(fn call_txt ((t (& mir.term))) str
+  (let mut s (place_of (. t dest) (& (. t dpk)) (& (. t dpi))))
+  (str.push (&mut s) " = ")
+  (str.push (&mut s) (& (func_txt t)))
+  (str.push_byte (&mut s) 40u8)
+  (str.push (&mut s) (& (ops_txt (& (. t args)))))
+  (str.push (&mut s) ") -> bb")
+  (str.push (&mut s) (& (str.from_int (. t bb))))
+  s)
+
+(fn func_txt ((t (& mir.term))) str
+  (if (== (. t fk) 0u8) (ret (pre "fn#" (str.from_int (. t fid)))))
+  (if (== (. t fk) 3u8) (ret (pre "dyn#" (str.from_int (. t slot)))))
+  (op_txt (& (. t op))))
