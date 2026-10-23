@@ -29,7 +29,15 @@
   (pub (ops (vec op)))
   (pub (text str))))
 
-(pub (struct st (pub (kind u8)) (pub (local i64)) (pub (pk (vec u8))) (pub (pi (vec i64))) (pub (rv rv))))
+(pub (struct st
+  (pub (kind u8))
+  (pub (local i64))
+  (pub (pk (vec u8)))
+  (pub (pi (vec i64)))
+  (pub (rv rv))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
 
 (pub (struct term
   (pub (kind u8))
@@ -45,11 +53,20 @@
   (pub (args (vec op)))
   (pub (dest i64))
   (pub (dpk (vec u8)))
-  (pub (dpi (vec i64)))))
+  (pub (dpi (vec i64)))
+  (pub (targs (vec ty.sty)))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
 
 (pub (struct blk (pub (stmts (vec st))) (pub (term term))))
 
-(pub (struct body (pub (name str)) (pub (args i64)) (pub (locs (vec thir.loc))) (pub (blocks (vec blk)))))
+(pub (struct body
+  (pub (name str))
+  (pub (args i64))
+  (pub (locs (vec thir.loc)))
+  (pub (blocks (vec blk)))
+  (pub (path str))))
 
 (pub (fn ploc ((l i64)) place (place l (vec.new <u8>) (vec.new <i64>))))
 
@@ -97,25 +114,47 @@
 (pub (fn ruse ((o op)) rv
   (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (one_op o) (str.new))))
 
-(fn one_op ((o op)) (vec op)
-  (let mut v (vec.new <op>))
-  (vec.push (&mut v) o)
-  v)
+(fn one_op ((o op)) (vec op) (let mut v (vec.new <op>)) (vec.push (&mut v) o) v)
 
-(pub (fn rvoid () rv (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (vec.new <op>) (str.new))))
+(pub (fn rvoid () rv
+  (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (vec.new <op>) (str.new))))
 
 (pub (fn tnone () term
-  (term 6u8 0 0 0 (oconst 4u8 0 0 (str.new) (ty.unit)) (vec.new <i64>) (vec.new <i64>) 0u8 0 0 (vec.new <op>) 0 (vec.new <u8>) (vec.new <i64>))))
+  (term 6u8
+    0
+    0
+    0
+    (oconst 4u8 0 0 (str.new) (ty.unit))
+    (vec.new <i64>)
+    (vec.new <i64>)
+    0u8
+    0
+    0
+    (vec.new <op>)
+    0
+    (vec.new <u8>)
+    (vec.new <i64>)
+    (vec.new <ty.sty>)
+    0
+    0
+    0)))
 
-(pub (fn sassign ((p place) (r rv)) st (st 0u8 (. p local) (. p pk) (. p pi) r)))
+(pub (fn sassign ((p place) (r rv)) st (st 0u8 (. p local) (. p pk) (. p pi) r 0 0 0)))
 
-(pub (fn sdrop ((l i64)) st (st 1u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+(pub (fn sdrop ((l i64)) st (st 1u8 l (vec.new <u8>) (vec.new <i64>) (rvoid) 0 0 0)))
 
-(pub (fn sdead ((l i64)) st (st 3u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+(pub (fn sdead ((l i64)) st (st 3u8 l (vec.new <u8>) (vec.new <i64>) (rvoid) 0 0 0)))
 
-(pub (fn sforget ((l i64)) st (st 2u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+(pub (fn sforget ((l i64)) st (st 2u8 l (vec.new <u8>) (vec.new <i64>) (rvoid) 0 0 0)))
 
-(pub (fn sloans ((l i64)) st (st 5u8 l (vec.new <u8>) (vec.new <i64>) (rvoid))))
+(pub (fn sloans ((l i64) (kill i64) (srcs (vec i64))) st
+  (let mut pi (vec.new <i64>))
+  (vec.push (&mut pi) kill)
+  (let mut xs srcs)
+  (while (> (vec.len (& xs)) 0) (vec.push (&mut pi) (vec.remove (&mut xs) 0)))
+  (st 5u8 l (vec.new <u8>) pi (rvoid) 0 0 0)))
+
+(pub (fn is_local ((p (& place))) bool (== (vec.len (& (. p pk))) 0)))
 
 (pub (fn has_deref ((p (& place))) bool
   (for i 0 (vec.len (& (. p pk))) (if (== (@ (vec.get (& (. p pk)) i)) 1u8) (ret true)))
@@ -143,6 +182,17 @@
   (if (== (. d kind) 0u8) (ret (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args)))))
   (let v (vec.get (& (. d svars)) variant))
   (ty.subst (vec.get (& (. v tys)) i) (& (. t args))))
+
+(pub (fn succs ((t (& term))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (if (== (. t kind) 0u8) (vec.push (&mut o) (. t bb)))
+  (if (== (. t kind) 1u8) (do (vec.push (&mut o) (. t bb)) (vec.push (&mut o) (. t bb2))))
+  (if (== (. t kind) 2u8)
+    (do
+      (for i 0 (vec.len (& (. t bbs))) (vec.push (&mut o) (@ (vec.get (& (. t bbs)) i))))
+      (vec.push (&mut o) (. t else))))
+  (if (== (. t kind) 3u8) (vec.push (&mut o) (. t bb)))
+  o))
 
 (pub (fn can_move_field ((p (& prog.prog)) (locs (& (vec thir.loc))) (pl (& place))) bool
   (if (< (lone_field pl) 0) (ret false))

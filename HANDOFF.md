@@ -301,7 +301,7 @@ Starting point: the reader (`std/sexp.llr`), the parser (`std/ast.llr`, `std/ast
 and a typed checker (`std/check.llr`, `std/check_ty.llr`, `std/check_expr.llr`, see
 `docs/tools/llr-check.md`) exist. `tests/run.sh` compares `llr-check` with
 `llrc check` on every `tests/err` golden whose code is not `borrow.*`, `move.*`, or `init.*`.
-`llrs emit-mir` prints a full MIR dump, byte-equal to `llrc emit-mir` on every `tests/run/*.llr` and `std/*.llr` (`tests/mir.sh`, `tests/mir.ps1`). Nothing after that dump exists in Llrst.
+`llrs emit-mir` prints a full MIR dump, byte-equal to `llrc emit-mir` on every `tests/run/*.llr` and `std/*.llr` (`tests/mir.sh`, `tests/mir.ps1`). `llrs check` stderr is byte-equal to `llrc check` on every `tests/err` and `tests/warn` file, including `--deny` (`tests/check.sh`, `tests/check.ps1`).
 
 Layout: a new flat `self/` directory of `proj.` modules (`proj.X` loads `X.llr` beside the
 main file, flat only), entry `self/llrs.llr`. The name `llrs` is a placeholder. Files under
@@ -311,31 +311,27 @@ codegen path and remains only as the linker driver, as `link.rs` uses it now. Th
 
 Steps, in order. Each names what to build, where, and the check that closes it.
 
-1. Borrowck and lint. `self/moves.llr`, `self/loans.llr`, `self/holders.llr`,
-   `self/liveness.llr`, `self/borrow.llr`, `self/lint.llr` from the rules in section 6.
-   Verify: `llrs check` stderr is byte-equal to `llrc check` on all of `tests/err` and
-   `tests/warn`, including `--deny`.
-2. x86-64 encoder. `self/x64.llr`: the integer, SSE2, and control-flow subset the MIR
+1. x86-64 encoder. `self/x64.llr`: the integer, SSE2, and control-flow subset the MIR
    needs, labels and fixups, SysV and Win64 calling conventions. Verify: `(test ...)`
    forms with expected byte strings per instruction; `llr-test self/x64.llr` passes.
-3. Object writers. `self/elf.llr` (ELF64 relocatable: text, data, rodata, bss, symtab,
+2. Object writers. `self/elf.llr` (ELF64 relocatable: text, data, rodata, bss, symtab,
    strtab, PC32, PLT32, and 64 relocations), later `self/coff.llr` (x86-64 COFF, REL32 and
    ADDR64). Verify: a hand-built object exporting `main` that calls `write` links with the
    same `cc` command `link.rs` runs and prints one record.
-4. Codegen. `self/cg*.llr` reproducing the ABI in section 6: scalars by value, aggregates
+3. Codegen. `self/cg*.llr` reproducing the ABI in section 6: scalars by value, aggregates
    by pointer copied in the prologue, sret, every local a stack slot, drop glue, `llr_trace`
    panic frames, 24-byte static `str` records, `main` storing `llr_argc` and `llr_argv`,
    the `--test` entry, `--checked` traps, shift masking, saturating float-to-int unless `--checked`. The CLI
    is identical to `llrc` (`build run check emit-mir`, `-o --std --test --checked --deny`).
    Verify: `LLRC=self/llrs tests/run.sh` reports `done|fails=0` on Linux.
-5. Stage bootstrap. `scripts/self.sh`: stage 0 `llrc` builds `llrs0`; `llrs0` builds
+4. Stage bootstrap. `scripts/self.sh`: stage 0 `llrc` builds `llrs0`; `llrs0` builds
    `llrs1`; `llrs1` builds `llrs2`; `cmp llrs1 llrs2` is byte-equal (deterministic symbol
    order, no timestamps); then `LLRC=llrs2 tests/run.sh`. Add a `self|stage2=equal` record
    to the section 1 status block once it holds.
-6. Windows. The COFF writer, the Win64 ABI, `cl ... /link /STACK:8388608`, and the
+5. Windows. The COFF writer, the Win64 ABI, `cl ... /link /STACK:8388608`, and the
     prebuilt `llr_win.obj` and `llr_wsa.obj` (install compiles them once). Verify:
     `tests/run.ps1` with `$env:LLRC` pointing at `llrs2` ends `done|fails=0`.
-7. Retire. `install.sh` and `install.ps1` build `llrc` only as stage 0 and install `llrs2`;
+6. Retire. `install.sh` and `install.ps1` build `llrc` only as stage 0 and install `llrs2`;
     update sections 3, 4, and 5 and `docs/install.md`; move anything `llrs` cannot do to
     section 8. Keep `llrc` in the tree until two releases agree.
 

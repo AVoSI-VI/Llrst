@@ -13,8 +13,7 @@
 
 (pub (fn blank () sty (sty 4u8 0 false (str.new) (vec.new <sty>))))
 
-(pub (fn mk ((k u8) (id i64) (flag bool) (text str) (args (vec sty))) sty
-  (sty k id flag text args)))
+(pub (fn mk ((k u8) (id i64) (flag bool) (text str) (args (vec sty))) sty (sty k id flag text args)))
 
 (pub (fn int ((i i64)) sty (mk 0u8 i false (str.new) (vec.new <sty>))))
 
@@ -40,8 +39,7 @@
   (vec.push (&mut a) inner)
   (mk 7u8 0 false (str.new) a)))
 
-(pub (fn fun ((clos bool) (args (vec sty))) sty
-  (mk (if clos 10u8 9u8) 0 false (str.new) args)))
+(pub (fn fun ((clos bool) (args (vec sty))) sty (mk (if clos 10u8 9u8) 0 false (str.new) args)))
 
 (pub (fn dyn_ty ((m bool) (tr i64)) sty (mk 11u8 tr m (str.new) (vec.new <sty>))))
 
@@ -69,11 +67,9 @@
 
 (pub (fn is_unit ((t (& sty))) bool (or (== (. t kind) 4u8) (== (. t kind) 5u8))))
 
-(pub (fn is_int ((t (& sty))) bool
-  (or (== (. t kind) 0u8) (and (== (. t kind) 14u8) (. t flag)))))
+(pub (fn is_int ((t (& sty))) bool (or (== (. t kind) 0u8) (and (== (. t kind) 14u8) (. t flag)))))
 
-(pub (fn is_num ((t (& sty))) bool
-  (or (is_int t) (or (== (. t kind) 1u8) (== (. t kind) 2u8)))))
+(pub (fn is_num ((t (& sty))) bool (or (is_int t) (or (== (. t kind) 1u8) (== (. t kind) 2u8)))))
 
 (pub (fn is_copy ((t (& sty))) bool
   (if (or (== (. t kind) 0u8) (== (. t kind) 1u8) (== (. t kind) 2u8)) (ret true))
@@ -110,9 +106,7 @@
   (let mut s (str.from "("))
   (str.push (&mut s) k)
   (str.push (&mut s) " (")
-  (for i 0 (- n 1)
-    (push_sp (&mut s) i)
-    (str.push (&mut s) (& (show (vec.get (& (. t args)) i)))))
+  (for i 0 (- n 1) (push_sp (&mut s) i) (str.push (&mut s) (& (show (vec.get (& (. t args)) i)))))
   (str.push (&mut s) ") ")
   (str.push (&mut s) (& (show (vec.get (& (. t args)) (- n 1)))))
   (str.push_byte (&mut s) 41u8)
@@ -180,7 +174,10 @@
   (if (and self (== (. t kind) 12u8)) (ret (clone self_ty)))
   (if (and (not self) (== (. t kind) 13u8))
     (ret (if (< (. t id) (vec.len args)) (clone (vec.get args (. t id))) (clone t))))
-  (if (== (. t kind) 6u8) (ret (ref_ty (. t flag) (str.clone (& (. t text))) (subst_one (vec.get (& (. t args)) 0) args self self_ty))))
+  (if (== (. t kind) 6u8)
+    (ret (ref_ty (. t flag)
+       (str.clone (& (. t text)))
+       (subst_one (vec.get (& (. t args)) 0) args self self_ty))))
   (if (== (. t kind) 7u8) (ret (ptr_ty (subst_one (vec.get (& (. t args)) 0) args self self_ty))))
   (if (== (. t kind) 8u8) (ret (adt (. t id) (map_tys (& (. t args)) args self self_ty))))
   (if (or (== (. t kind) 9u8) (== (. t kind) 10u8))
@@ -202,6 +199,18 @@
   (if (== (. t kind) 8u8)
     (for i 0 (vec.len (& (. t args))) (if (has_ref (vec.get (& (. t args)) i)) (ret true))))
   false))
+
+(pub (fn lts ((t (& sty)) (o (&mut (vec str)))) unit
+  (if (== (. t kind) 6u8)
+    (do
+      (if (> (str.len (& (. t text))) 0) (vec.push o (str.clone (& (. t text)))))
+      (lts (vec.get (& (. t args)) 0) o)
+      (ret)))
+  (if (or (== (. t kind) 7u8) (or (== (. t kind) 8u8) (or (== (. t kind) 9u8) (== (. t kind) 10u8))))
+    (for i 0 (vec.len (& (. t args))) (lts (vec.get (& (. t args)) i) o)))))
+
+(pub (fn static_ref ((t (& sty))) bool
+  (and (== (. t kind) 6u8) (or (str.eq (& (. t text)) "static") (str.eq (& (. t text)) "'static")))))
 
 (pub (fn inner ((t (& sty))) sty (clone (vec.get (& (. t args)) 0))))
 

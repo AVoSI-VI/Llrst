@@ -1,4 +1,6 @@
 ;; Substitute an inline function unless it is already on the stack.
+(use proj.diag)
+(use proj.loans)
 (use proj.lower)
 (use proj.mir)
 (use proj.prog)
@@ -11,10 +13,11 @@
   (if (not (. d inline)) (ret false))
   (if (on_stack w (. e id2)) (ret false))
   (vec.push (&mut (. w stack)) (. e id2))
-  (let body (thir.check_fn p (. e id2) (ty.clone_tys (& (. e tys)))))
+  (let mut sink (vec.new <diag.dg>))
+  (let body (thir.check_fn p (. e id2) (ty.clone_tys (& (. e tys))) (&mut sink)))
   (match body
     ((res.err _) (do (let _ (vec.pop (&mut (. w stack)))) (ret false)))
-    ((res.ok b) (subst p w b args dest)))
+    ((res.ok b) (subst p w b args dest (. e id2) (ty.clone_tys (& (. e tys))))))
   (let _ (vec.pop (&mut (. w stack))))
   true))
 
@@ -22,7 +25,14 @@
   (for i 0 (vec.len (& (. w stack))) (if (== (@ (vec.get (& (. w stack)) i)) id) (ret true)))
   false)
 
-(fn subst ((p (& prog.prog)) (w (&mut lower.low)) (body thir.ex) (args (vec mir.op)) (dest mir.place)) unit
+(fn subst ((p (& prog.prog))
+   (w (&mut lower.low))
+   (body thir.ex)
+   (args (vec mir.op))
+   (dest mir.place)
+   (fid i64)
+   (targs (vec ty.sty))) unit
+  (let kill (vec.len (& (. w locs))))
   (let saved (vec.take (&mut (. w map))))
   (let sexit (. w iexit))
   (let sdepth (. w idepth))
@@ -49,15 +59,23 @@
   (set (. w idepth) sdepth)
   (set (. w ihave) shave)
   (set (. w idest) sdest)
+  (let srcs (loan_srcs p w (& body) fid (& targs) (& dest)))
   (set (. w map) saved)
-  (lower.push w (mir.sloans (. dest local))))
+  (lower.push w (mir.sloans (. dest local) kill srcs)))
 
 (fn install ((w (&mut lower.low)) (body (& thir.ex))) unit
   (set (. w map) (vec.new <i64>))
   (for i 0 (vec.len (& (. body locs)))
     (let l (vec.get (& (. body locs)) i))
     (let idx (vec.len (& (. w locs))))
-    (vec.push (&mut (. w locs)) (thir.loc_new (str.clone (& (. l name))) (ty.clone (& (. l ty))) (. l mut) (. l line) (. l col)))
+    (let mut n
+      (thir.loc_new (str.clone (& (. l name)))
+        (ty.clone (& (. l ty)))
+        (. l mut)
+        (. l line)
+        (. l col)))
+    (set (. n len) (. l len))
+    (vec.push (&mut (. w locs)) n)
     (vec.push (&mut (. w map)) idx)))
 
 (fn bind ((p (& prog.prog)) (w (&mut lower.low)) (body (& thir.ex)) (args (vec mir.op))) unit
@@ -71,3 +89,21 @@
   (for i 0 (vec.len (& (. body params)))
     (let l (@ (vec.get (& (. w map)) (@ (vec.get (& (. body params)) i)))))
     (if (prog.needs_drop p (& (. (vec.get (& (. w locs)) l) ty))) (vec.push (&mut (. w drops)) l))))
+
+(fn loan_srcs ((p (& prog.prog))
+   (w (& lower.low))
+   (body (& thir.ex))
+   (fid i64)
+   (targs (& (vec ty.sty)))
+   (dest (& mir.place))) (vec i64)
+  (if (not (ty.has_ref (& (mir.place_ty p (& (. w locs)) dest)))) (ret (vec.new <i64>)))
+  (let idxs (loans.param_flow (vec.get (& (. p defs)) fid) targs))
+  (map_params w body (& idxs)))
+
+(fn map_params ((w (& lower.low)) (body (& thir.ex)) (idxs (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len idxs)
+    (let k (@ (vec.get idxs i)))
+    (if (< k (vec.len (& (. body params))))
+      (vec.push (&mut o) (@ (vec.get (& (. w map)) (@ (vec.get (& (. body params)) k)))))))
+  o)

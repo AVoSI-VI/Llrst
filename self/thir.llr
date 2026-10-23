@@ -1,6 +1,7 @@
 ;; THIR for one function instance. Expr kinds match the comments in thir_expr.llr.
 (use std.ast)
 (use std.str)
+(use proj.diag)
 (use proj.prog)
 (use proj.thir_expr)
 (use proj.ty)
@@ -36,7 +37,8 @@
   (pub (params (vec i64)))
   (pub (line i64))
   (pub (col i64))
-  (pub (file i64))))
+  (pub (file i64))
+  (pub (len i64))))
 
 (pub (struct ck
   (pub (module i64))
@@ -52,16 +54,32 @@
   (pub (iset (vec bool)))
   (pub (iint (vec bool)))
   (pub (loopn i64))
-  (pub (in_clos bool))))
+  (pub (in_clos bool))
+  (pub (path str))
+  (pub (diags (vec diag.dg)))))
 
 (pub (fn ex_new ((k u8) (t ty.sty) (line i64) (col i64) (file i64)) ex
-  (ex k t false false 0 0 (str.new) (vec.new <ex>) (vec.new <ty.sty>) (vec.new <pat>) (vec.new <loc>) (vec.new <i64>) line col file)))
+  (ex k
+    t
+    false
+    false
+    0
+    0
+    (str.new)
+    (vec.new <ex>)
+    (vec.new <ty.sty>)
+    (vec.new <pat>)
+    (vec.new <loc>)
+    (vec.new <i64>)
+    line
+    col
+    file
+    0)))
 
 (pub (fn pat_new ((k u8) (id i64) (text str) (line i64) (col i64)) pat
   (pat k id text (vec.new <pat>) line col)))
 
-(pub (fn loc_new ((name str) (t ty.sty) (m bool) (line i64) (col i64)) loc
-  (loc name t m line col 0)))
+(pub (fn loc_new ((name str) (t ty.sty) (m bool) (line i64) (col i64)) loc (loc name t m line col 0)))
 
 (pub (fn ck_new ((module i64) (file i64) (ret ty.sty)) ck
   (let mut c
@@ -78,7 +96,9 @@
       (vec.new <bool>)
       (vec.new <bool>)
       0
-      false))
+      false
+      (str.new)
+      (vec.new <diag.dg>)))
   (vec.push (&mut (. c marks)) 0)
   c))
 
@@ -95,9 +115,11 @@
   (let n (vec.len (& (. c marks))))
   (if (== n 0) 0 (@ (vec.get (& (. c marks)) (- n 1)))))
 
-(pub (fn declare ((c (&mut ck)) (name (& str)) (t ty.sty) (m bool) (line i64) (col i64)) (res i64 str)
+(pub (fn declare ((c (&mut ck)) (name (& str)) (t ty.sty) (m bool) (line i64) (col i64) (len i64)) (res i64 str)
   (let id (vec.len (& (. c locals))))
-  (vec.push (&mut (. c locals)) (loc_new (str.clone name) t m line col))
+  (let mut l (loc_new (str.clone name) t m line col))
+  (set (. l len) len)
+  (vec.push (&mut (. c locals)) l)
   (if (str.eq name "_") (ret (res.ok id)))
   (let from (mark_of c))
   (for i from (vec.len (& (. c sn)))
@@ -136,7 +158,8 @@
 
 (pub (fn zonk_ty ((c (& ck)) (t (& ty.sty))) ty.sty
   (let s (shallow c t))
-  (if (== (. s kind) 6u8) (ret (ty.ref_ty (. s flag) (str.clone (& (. s text))) (zonk_ty c (vec.get (& (. s args)) 0)))))
+  (if (== (. s kind) 6u8)
+    (ret (ty.ref_ty (. s flag) (str.clone (& (. s text))) (zonk_ty c (vec.get (& (. s args)) 0)))))
   (if (== (. s kind) 7u8) (ret (ty.ptr_ty (zonk_ty c (vec.get (& (. s args)) 0)))))
   (if (or (== (. s kind) 8u8) (or (== (. s kind) 9u8) (== (. s kind) 10u8)))
     (ret (ty.mk (. s kind) (. s id) (. s flag) (str.clone (& (. s text))) (zonk_tys c (& (. s args))))))
@@ -173,7 +196,8 @@
   (if (== (. sa kind) 14u8) (ret (unify_inf c (. sa id) (. sa flag) sb)))
   (if (== (. sb kind) 14u8) (ret (unify_inf c (. sb id) (. sb flag) sa)))
   (if (and (== (. sa kind) 6u8) (== (. sb kind) 6u8))
-    (ret (and (== (. sa flag) (. sb flag)) (unify c (vec.get (& (. sa args)) 0) (vec.get (& (. sb args)) 0)))))
+    (ret (and (== (. sa flag) (. sb flag))
+       (unify c (vec.get (& (. sa args)) 0) (vec.get (& (. sb args)) 0)))))
   (if (and (== (. sa kind) 7u8) (== (. sb kind) 7u8))
     (ret (unify c (vec.get (& (. sa args)) 0) (vec.get (& (. sb args)) 0))))
   (if (and (== (. sa kind) 8u8) (== (. sb kind) 8u8)) (ret (unify_adt c (& sa) (& sb))))
@@ -195,7 +219,14 @@
   (if (or (== (. e kind) 7u8) (== (. e kind) 9u8)) (ret true))
   (and (== (. e kind) 8u8) (not (== (. (. e ty) kind) 5u8)))))
 
-(pub (fn check_block ((p (& prog.prog)) (c (&mut ck)) (body (& (vec expr))) (won bool) (want (& ty.sty)) (line i64) (col i64)) (res ex str)
+(pub (fn check_block ((p (& prog.prog))
+   (c (&mut ck))
+   (body (& (vec expr)))
+   (won bool)
+   (want (& ty.sty))
+   (line i64)
+   (col i64)
+   (len i64)) (res ex str)
   (push_scope c)
   (let mut kids (vec.new <ex>))
   (let n (vec.len body))
@@ -205,6 +236,7 @@
   (pop_scope c)
   (let ty (try (block_ty c (& kids) won want)))
   (let mut e (ex_new 5u8 ty line col (. c file)))
+  (set (. e len) len)
   (set (. e kids) kids)
   (res.ok e)))
 
@@ -228,47 +260,170 @@
     (if (and (not (@ (vec.get (& (. c iset)) i))) (@ (vec.get (& (. c iint)) i)))
       (set_infer c i (ty.int 3) true))))
 
-(fn zonk_locs ((c (& ck)) (xs (&mut (vec loc)))) (res unit str)
+(fn push_infer ((c (&mut ck)) (name str) (got str) (line i64) (col i64) (len i64)) str
+  (let mut d (diag.make true (str.clone (& (. c path))) line col len (str.from "type.infer")))
+  (diag.add (&mut d) "name" name)
+  (diag.add (&mut d) "got" got)
+  (vec.push (&mut (. c diags)) d)
+  (str.from "type.infer"))
+
+(fn zonk_locs ((p (& prog.prog)) (c (&mut ck)) (xs (&mut (vec loc)))) (res unit str)
   (for i 0 (vec.len xs)
     (let l (vec.get_mut xs i))
     (set (. l ty) (zonk_ty c (& (. l ty))))
-    (if (ty.has_infer (& (. l ty))) (ret (res.err (str.from "type.infer")))))
+    (if (ty.has_infer (& (. l ty)))
+      (ret (res.err (push_infer c
+          (str.clone (& (. l name)))
+          (nshow p (& (. l ty)))
+          (. l line)
+          (. l col)
+          (. l len))))))
   (res.ok ()))
 
-(pub (fn zonk_ex ((c (& ck)) (e (&mut ex))) (res unit str)
+(pub (fn zonk_ex ((p (& prog.prog)) (c (&mut ck)) (e (&mut ex))) (res unit str)
   (set (. e ty) (zonk_ty c (& (. e ty))))
   (if (ty.has_infer (& (. e ty))) (ret (res.err (str.from "type.infer"))))
   (set (. e tys) (zonk_tys c (& (. e tys))))
   (for i 0 (vec.len (& (. e tys)))
     (if (ty.has_infer (vec.get (& (. e tys)) i)) (ret (res.err (str.from "type.infer")))))
-  (try (zonk_locs c (&mut (. e locs))))
-  (for i 0 (vec.len (& (. e kids))) (try (zonk_ex c (vec.get_mut (&mut (. e kids)) i))))
+  (try (zonk_locs p c (&mut (. e locs))))
+  (for i 0 (vec.len (& (. e kids))) (try (zonk_ex p c (vec.get_mut (&mut (. e kids)) i))))
   (res.ok ())))
 
-(pub (fn check_fn ((p (& prog.prog)) (id i64) (targs (vec ty.sty))) (res ex str)
+(pub (fn nshow ((p (& prog.prog)) (t (& ty.sty))) str
+  (if (== (. t kind) 8u8) (ret (adt_nm p t)))
+  (if (== (. t kind) 6u8) (ret (ref_nm p t)))
+  (ty.show t)))
+
+(fn adt_nm ((p (& prog.prog)) (t (& ty.sty))) str
+  (let n (str.clone (& (. (vec.get (& (. p defs)) (. t id)) name))))
+  (if (== (vec.len (& (. t args))) 0) (ret n))
+  (let mut s (str.from "("))
+  (str.push (&mut s) (& n))
+  (for i 0 (vec.len (& (. t args)))
+    (do (str.push_byte (&mut s) 32u8) (str.push (&mut s) (& (nshow p (vec.get (& (. t args)) i))))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn ref_nm ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (if (. t flag) "&mut" "&"))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (nshow p (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(pub (fn kv ((code (& str)) (k (& str)) (v str)) str
+  (let mut s (str.from code))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) k)
+  (str.push_byte (&mut s) 61u8)
+  (str.push (&mut s) (& v))
+  s))
+
+(pub (fn kv2 ((code (& str)) (k (& str)) (v str) (k2 (& str)) (v2 str)) str
+  (let mid (kv code k v))
+  (kv (& mid) k2 v2)))
+
+(fn take_part ((d (&mut diag.dg)) (part (& str))) unit
+  (match (str.find_byte part 61u8) ((opt.none) ()) ((opt.some at) (add_part d part at))))
+
+(fn add_part ((d (&mut diag.dg)) (part (& str)) (at i64)) unit
+  (let k (str.slice part 0 at))
+  (let v (str.slice part (+ at 1) (str.len part)))
+  (diag.add d (& k) v))
+
+(pub (fn keep ((c (&mut ck)) (line i64) (col i64) (len i64) (code str)) str
+  (if (str.starts (& code) "!") (ret code))
+  (let parts (str.split (& code) 124u8))
+  (let mut d
+    (diag.make true (str.clone (& (. c path))) line col len (str.clone (vec.get (& parts) 0))))
+  (for i 1 (vec.len (& parts)) (take_part (&mut d) (vec.get (& parts) i)))
+  (vec.push (&mut (. c diags)) d)
+  (let mut o (str.from "!"))
+  (str.push (&mut o) (& code))
+  o))
+
+(pub (fn fail ((c (&mut ck)) (line i64) (col i64) (len i64) (code (& str))) str
+  (vec.push (&mut (. c diags))
+    (diag.make true (str.clone (& (. c path))) line col len (str.from code)))
+  (str.from code)))
+
+(pub (fn fail2 ((c (&mut ck))
+   (line i64)
+   (col i64)
+   (len i64)
+   (code (& str))
+   (k (& str))
+   (v str)
+   (k2 (& str))
+   (v2 str)) str
+  (let mut d (diag.make true (str.clone (& (. c path))) line col len (str.from code)))
+  (diag.add (&mut d) k v)
+  (diag.add (&mut d) k2 v2)
+  (vec.push (&mut (. c diags)) d)
+  (str.from code)))
+
+(fn got_of ((d (& diag.dg))) str
+  (for i 0 (vec.len (& (. d ks)))
+    (if (str.eq (vec.get (& (. d ks)) i) "got") (ret (str.clone (vec.get (& (. d vs)) i)))))
+  (str.new))
+
+(fn fix_bool ((d (&mut diag.dg)) (got str)) unit
+  (set (. d code) (str.from "type.not_bool"))
+  (set (. d ks) (vec.new <str>))
+  (set (. d vs) (vec.new <str>))
+  (diag.add d "got" got))
+
+(fn bool_mis ((c (& ck)) (line i64) (col i64) (code (& str))) bool
+  (if (not (str.starts code "!type.mismatch|want=bool|")) (ret false))
+  (if (== (vec.len (& (. c diags))) 0) (ret false))
+  (let d (vec.get (& (. c diags)) (- (vec.len (& (. c diags))) 1)))
+  (and (== (. d line) line) (== (. d col) col)))
+
+(fn as_bool ((c (&mut ck)) (line i64) (col i64) (code str)) str
+  (if (not (bool_mis c line col (& code))) (ret code))
+  (let n (- (vec.len (& (. c diags))) 1))
+  (let got (got_of (vec.get (& (. c diags)) n)))
+  (fix_bool (vec.get_mut (&mut (. c diags)) n) got)
+  (str.from "!type.not_bool"))
+
+(pub (fn check_bool ((p (& prog.prog)) (c (&mut ck)) (e (& expr))) (res ex str)
+  (match (thir_expr.check_expr p c e true (& (ty.bool_ty)))
+    ((res.ok x) (res.ok x))
+    ((res.err code) (res.err (as_bool c (. e line) (. e col) code))))))
+
+(pub (fn check_fn ((p (& prog.prog)) (id i64) (targs (vec ty.sty)) (out (&mut (vec diag.dg)))) (res ex str)
   (let d (vec.get (& (. p defs)) id))
   (let mut c (ck_new (. d module) (. d module) (ty.subst (& (. d ret)) (& targs))))
+  (set (. c path) (str.clone (& (. (vec.get (& (. p mods)) (. d module)) file))))
   (set (. c gens) (copy_at (& (. d gens))))
   (set (. c targs) targs)
   (for i 0 (vec.len (& (. d spars)))
     (let s (vec.get (& (. d spars)) i))
     (let t (ty.subst (& (. s ty)) (& (. c targs))))
-    (let _ (try (declare (&mut c) (& (. s name)) t false (. d line) (. d col)))))
+    (let _ (try (declare (&mut c) (& (. s name)) t false (. d line) (. d col) (. d len)))))
   (let want (ty.clone (& (. c ret))))
-  (let mut body (try (check_block p (&mut c) (& (. d body)) true (& want) (. d line) (. d col))))
+  (let got (check_block p (&mut c) (& (. d body)) true (& want) (. d line) (. d col) (. d len)))
+  (let mut body (ex_new 0u8 (ty.unit) 0 0 (. c file)))
+  (match got
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok b) (set body b)))
   (default_ints (&mut c))
   (let mut locs (vec.take (&mut (. c locals))))
-  (try (zonk_locs (& c) (&mut locs)))
+  (match (zonk_locs p (&mut c) (&mut locs))
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok _) ()))
   (set (. c locals) locs)
-  (try (zonk_ex (& c) (&mut body)))
+  (match (zonk_ex p (&mut c) (&mut body))
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok _) ()))
   (set (. body params) (param_ids (prog.nparams p id)))
   (set (. body locs) (take_locs (&mut c)))
+  (diag.append out (& (. c diags)))
   (res.ok body)))
 
-(fn param_ids ((n i64)) (vec i64)
-  (let mut v (vec.new <i64>))
-  (for i 0 n (vec.push (&mut v) i))
-  v)
+(fn param_ids ((n i64)) (vec i64) (let mut v (vec.new <i64>)) (for i 0 n (vec.push (&mut v) i)) v)
 
 (fn copy_at ((v (& (vec str)))) (vec str)
   (let mut o (vec.new <str>))

@@ -1,5 +1,6 @@
 ;; DefId order: types, trait-impl fns (user modules first), then fns, methods, and consts.
 (use std.ast)
+(use proj.diag)
 (use std.str)
 (use proj.prog)
 (use proj.src)
@@ -22,6 +23,9 @@
   (if (< mi 0) (ret (res.err (str.from "name.not_module"))))
   (vec.push (&mut (. m uals)) (last_seg (& (. it name))))
   (vec.push (&mut (. m umod)) mi)
+  (vec.push (&mut (. m uline)) (. it line))
+  (vec.push (&mut (. m ucol)) (. it col))
+  (vec.push (&mut (. m ulen)) (. it len))
   (res.ok ()))
 
 (fn add_named ((p (&mut prog.prog)) (mi i64) (name str) (d prog.def)) i64
@@ -96,7 +100,26 @@
 
 (fn take_body ((it (&mut item))) (vec expr) (vec.take (&mut (. it body))))
 
-(fn build_fn ((p (& prog.prog))
+(fn note_in ((p (&mut prog.prog))
+   (mi i64)
+   (it (& item))
+   (code (& str))
+   (k (& str))
+   (v str)
+   (k2 (& str))
+   (v2 str)) unit
+  (let mut d
+    (diag.make true
+      (str.clone (& (. (vec.get (& (. p mods)) mi) file)))
+      (. it line)
+      (. it col)
+      (. it len)
+      (str.from code)))
+  (diag.add (&mut d) k v)
+  (if (> (str.len k2) 0) (diag.add (&mut d) k2 v2))
+  (vec.push (&mut (. p notes)) d))
+
+(fn build_fn ((p (&mut prog.prog))
    (mi i64)
    (it (& item))
    (gens (vec str))
@@ -112,6 +135,10 @@
   (set (. d line) (. it line))
   (set (. d col) (. it col))
   (set (. d len) (. it len))
+  (if (and (. it inline) (== (. it kind) 3u8))
+    (note_in p mi it "inline.reject" "why" (str.from "extern") "" (str.new)))
+  (if (and (. it inline) (body_clos (& (. it body))))
+    (note_in p mi it "inline.reject" "why" (str.from "form") "got" (str.from "clos")))
   (set (. d ret) (try (resolve.resolve p mi (& (. d gens)) (& (. it ret)))))
   (if self_on (set (. d ret) (ty.subst_self (& (. d ret)) self_ty)))
   (try (fill_params p mi it (&mut d) self_on self_ty))
@@ -190,6 +217,8 @@
   (if (< tr 0) (ret (res.err (str.from "name.unknown"))))
   (let tyn (str.clone (& (. (. it ret) text))))
   (let self_ty (try (resolve.resolve p mi (& (vec.new <str>)) (& (. it ret)))))
+  (if (>= (prog.impl_of p tr (& self_ty)) 0)
+    (note_in p mi it "trait.dup" "trait" (str.clone (& (. it name))) "ty" (str.clone (& tyn))))
   (let mut fns (take_fns srcs mi k))
   (let mut ids (vec.new <i64>))
   (while (> (vec.len (& fns)) 0)

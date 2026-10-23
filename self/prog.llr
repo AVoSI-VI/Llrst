@@ -1,6 +1,7 @@
 ;; Resolved program. Def kind: 0 struct, 1 enum, 2 fn, 3 const, 4 trait.
 (use std.ast)
 (use std.str)
+(use proj.diag)
 (use proj.ty)
 
 (pub (struct spar (pub (name str)) (pub (ty ty.sty))))
@@ -11,8 +12,7 @@
 
 (pub (struct ssig (pub (name str)) (pub (params (vec ty.sty))) (pub (ret ty.sty))))
 
-(fn no_expr () expr
-  (expr 0u8 (str.from "()") false (vec.new <expr>) (vec.new <ty>) 0 0 0))
+(fn no_expr () expr (expr 0u8 (str.from "()") false (vec.new <expr>) (vec.new <ty>) 0 0 0))
 
 (pub (struct def
   (pub (name str))
@@ -42,7 +42,10 @@
   (pub (names (vec str)))
   (pub (ids (vec i64)))
   (pub (uals (vec str)))
-  (pub (umod (vec i64)))))
+  (pub (umod (vec i64)))
+  (pub (uline (vec i64)))
+  (pub (ucol (vec i64)))
+  (pub (ulen (vec i64)))))
 
 (pub (struct impr (pub (tr i64)) (pub (ty ty.sty)) (pub (ids (vec i64)))))
 
@@ -56,7 +59,9 @@
   (pub (mn (vec str)))
   (pub (mi (vec i64)))
   (pub (ims (vec impr)))
-  (pub (arch str))))
+  (pub (arch str))
+  (pub (notes (vec diag.dg)))
+  (pub (used (vec i64)))))
 
 (pub (fn blank_def ((name str) (module i64) (kind u8)) def
   (def name
@@ -80,7 +85,16 @@
     true)))
 
 (pub (fn blank_mod ((path str) (file str) (is_std bool)) modu
-  (modu path file is_std (vec.new <str>) (vec.new <i64>) (vec.new <str>) (vec.new <i64>))))
+  (modu path
+    file
+    is_std
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <i64>))))
 
 (pub (fn blank_prog () prog
   (prog (vec.new <def>)
@@ -92,7 +106,9 @@
     (vec.new <str>)
     (vec.new <i64>)
     (vec.new <impr>)
-    (str.from "x86_64"))))
+    (str.from "x86_64")
+    (vec.new <diag.dg>)
+    (vec.new <i64>))))
 
 (pub (fn def_at ((p (& prog)) (id i64)) def
   (let d (vec.get (& (. p defs)) id))
@@ -146,7 +162,8 @@
   (let mut o (vec.new <ssig>))
   (for i 0 (vec.len v)
     (let s (vec.get v i))
-    (vec.push (&mut o) (ssig (str.clone (& (. s name))) (ty.clone_tys (& (. s params))) (ty.clone (& (. s ret))))))
+    (vec.push (&mut o)
+      (ssig (str.clone (& (. s name))) (ty.clone_tys (& (. s params))) (ty.clone (& (. s ret))))))
   o)
 
 (pub (fn push_def ((p (&mut prog)) (d def)) i64
@@ -200,9 +217,7 @@
   (if (and want_ty (not (is_type p id))) (ret (neg 1)))
   id)
 
-(fn str_dot ((s (& str))) i64
-  (for i 0 (str.len s) (if (== (str.at s i) 46u8) (ret i)))
-  (neg 1))
+(fn str_dot ((s (& str))) i64 (for i 0 (str.len s) (if (== (str.at s i) 46u8) (ret i))) (neg 1))
 
 (pub (fn meth_id ((p (& prog)) (owner i64) (name (& str))) i64
   (for i 0 (vec.len (& (. p mo)))
@@ -235,10 +250,7 @@
   (let a (str.slice path 0 dot))
   (let b (str.slice path (+ dot 1) (str.len path)))
   (let mi (use_mod (vec.get (& (. p mods)) module) (& a)))
-  (if (>= mi 0)
-    (do
-      (let id (mod_fn p mi (& b)))
-      (if (>= id 0) (ret id))))
+  (if (>= mi 0) (do (let id (mod_fn p mi (& b))) (if (>= id 0) (ret id))))
   (let t (lookup_type p module (& a)))
   (if (>= t 0)
     (do
@@ -262,7 +274,10 @@
   (meth_id p t (& c)))
 
 (pub (fn lookup_const ((p (& prog)) (module i64) (path (& str))) i64
-  (let id (if (str.has path ".") (lookup_qual p module path false) (item_id (vec.get (& (. p mods)) module) path)))
+  (let id
+    (if (str.has path ".")
+      (lookup_qual p module path false)
+      (item_id (vec.get (& (. p mods)) module) path)))
   (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 3u8)) id (neg 1))))
 
 (pub (fn lookup_trait ((p (& prog)) (module i64) (name (& str))) i64
@@ -271,7 +286,9 @@
 
 (fn last_seg ((s (& str))) str
   (let mut i (- (str.len s) 1))
-  (while (>= i 0) (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s)))) (set i (- i 1)))
+  (while (>= i 0)
+    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
+    (set i (- i 1)))
   (str.clone s))
 
 (fn dot2 ((a (& str)) (b (& str))) str
@@ -283,7 +300,8 @@
 (pub (fn fn_path ((p (& prog)) (id i64)) str
   (let d (vec.get (& (. p defs)) id))
   (if (!= (. d kind) 2u8) (ret (str.clone (& (. d name)))))
-  (if (>= (. d owner) 0) (ret (dot2 (& (. (vec.get (& (. p defs)) (. d owner)) name)) (& (. d name)))))
+  (if (>= (. d owner) 0)
+    (ret (dot2 (& (. (vec.get (& (. p defs)) (. d owner)) name)) (& (. d name)))))
   (dot2 (& (last_seg (& (. (vec.get (& (. p mods)) (. d module)) path)))) (& (. d name)))))
 
 (pub (fn impl_of ((p (& prog)) (tr i64) (t (& ty.sty))) i64

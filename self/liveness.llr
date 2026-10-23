@@ -1,0 +1,118 @@
+;; Backward liveness of locals.
+(use proj.borrow)
+(use proj.mir)
+(use proj.prog)
+
+(pub (struct live (at (vec (vec (vec bool)))) (out (vec (vec bool)))))
+
+(pub (fn live_at ((v (& live)) (bb i64) (idx i64) (l i64)) bool
+  (borrow.bit (vec.get (vec.get (& (. v at)) bb) idx) l)))
+
+(pub (fn live_after ((v (& live)) (bb i64) (idx i64) (l i64)) bool
+  (let row (vec.get (& (. v at)) bb))
+  (if (< (+ idx 1) (vec.len row))
+    (borrow.bit (vec.get row (+ idx 1)) l)
+    (borrow.bit (vec.get (& (. v out)) bb) l))))
+
+(pub (fn compute ((p (& prog.prog)) (b (& mir.body))) live
+  (let n (vec.len (& (. b locs))))
+  (let nb (vec.len (& (. b blocks))))
+  (let mut inn (vec.new < (vec bool) >))
+  (let mut outv (vec.new < (vec bool) >))
+  (for i 0 nb (do (vec.push (&mut inn) (borrow.bools n)) (vec.push (&mut outv) (borrow.bools n))))
+  (solve p b n nb (&mut inn) (&mut outv))
+  (let mut at (vec.new < (vec (vec bool)) >))
+  (for bb 0 nb (vec.push (&mut at) (points p b n bb (vec.get (& outv) bb))))
+  (live at outv)))
+
+(fn solve ((p (& prog.prog))
+   (b (& mir.body))
+   (n i64)
+   (nb i64)
+   (inn (&mut (vec (vec bool))))
+   (outv (&mut (vec (vec bool))))) unit
+  (let mut changed true)
+  (while changed
+    (do (set changed false) (for bb 0 nb (if (solve_bb p b n nb inn outv bb) (set changed true))))))
+
+(fn solve_bb ((p (& prog.prog))
+   (b (& mir.body))
+   (n i64)
+   (nb i64)
+   (inn (&mut (vec (vec bool))))
+   (outv (&mut (vec (vec bool))))
+   (bb i64)) bool
+  (let mut outb (borrow.bools n))
+  (let blk (vec.get (& (. b blocks)) bb))
+  (let ss (mir.succs (& (. blk term))))
+  (for i 0 (vec.len (& ss)) (union_b (&mut outb) (vec.get inn (@ (vec.get (& ss) i)))))
+  (let cur (transfer p b n bb (& outb)))
+  (let ch (or (diff (& outb) (vec.get outv bb)) (diff (& cur) (vec.get inn bb))))
+  (vec.set outv bb outb)
+  (vec.set inn bb cur)
+  ch)
+
+(fn union_b ((a (&mut (vec bool))) (b (& (vec bool)))) unit
+  (for i 0 (vec.len a) (if (@ (vec.get b i)) (vec.set a i true))))
+
+(fn diff ((a (& (vec bool))) (b (& (vec bool)))) bool
+  (for i 0 (vec.len a) (if (!= (@ (vec.get a i)) (@ (vec.get b i))) (ret true)))
+  false)
+
+(fn transfer ((p (& prog.prog)) (b (& mir.body)) (n i64) (bb i64) (outb (& (vec bool)))) (vec bool)
+  (let mut live (borrow.clone_b outb))
+  (let blk (vec.get (& (. b blocks)) bb))
+  (apply p b n (&mut live) (borrow.term_acc (& (. blk term))))
+  (let mut i (- (vec.len (& (. blk stmts))) 1))
+  (while (>= i 0)
+    (do (apply p b n (&mut live) (borrow.stmt_acc (vec.get (& (. blk stmts)) i))) (set i (- i 1))))
+  live)
+
+(fn points ((p (& prog.prog)) (b (& mir.body)) (n i64) (bb i64) (outb (& (vec bool)))) (vec (vec bool))
+  (let mut pts (vec.new < (vec bool) >))
+  (let mut live (borrow.clone_b outb))
+  (let blk (vec.get (& (. b blocks)) bb))
+  (apply p b n (&mut live) (borrow.term_acc (& (. blk term))))
+  (vec.push (&mut pts) (borrow.clone_b (& live)))
+  (let mut i (- (vec.len (& (. blk stmts))) 1))
+  (while (>= i 0)
+    (do
+      (apply p b n (&mut live) (borrow.stmt_acc (vec.get (& (. blk stmts)) i)))
+      (vec.push (&mut pts) (borrow.clone_b (& live)))
+      (set i (- i 1))))
+  (rev pts))
+
+(fn rev ((v (vec (vec bool)))) (vec (vec bool))
+  (let mut o (vec.new < (vec bool) >))
+  (let mut i (- (vec.len (& v)) 1))
+  (while (>= i 0) (do (vec.push (&mut o) (borrow.clone_b (vec.get (& v) i))) (set i (- i 1))))
+  o)
+
+(fn apply ((p (& prog.prog)) (b (& mir.body)) (n i64) (live (&mut (vec bool))) (accs (vec borrow.acc))) unit
+  (let mut uses (borrow.bools n))
+  (let mut defs (borrow.bools n))
+  (gen p b (& accs) (&mut uses) (&mut defs))
+  (for i 0 n (if (@ (vec.get (& defs) i)) (vec.set live i false)))
+  (union_b live (& uses)))
+
+(fn gen ((p (& prog.prog))
+   (b (& mir.body))
+   (accs (& (vec borrow.acc)))
+   (uses (&mut (vec bool)))
+   (defs (&mut (vec bool)))) unit
+  (for i 0 (vec.len accs) (gen_one p b (vec.get accs i) uses defs)))
+
+(fn gen_one ((p (& prog.prog))
+   (b (& mir.body))
+   (a (& borrow.acc))
+   (uses (&mut (vec bool)))
+   (defs (&mut (vec bool)))) unit
+  (let l (. (. a pl) local))
+  (let k (. a kind))
+  (if (or (== k 0u8) (or (== k 2u8) (or (== k 3u8) (== k 4u8)))) (vec.set uses l true))
+  (if (== k 1u8) (if (mir.is_local (& (. a pl))) (vec.set defs l true) (vec.set uses l true)))
+  (if (== k 5u8)
+    (if (mir.is_local (& (. a pl)))
+      (if (prog.needs_drop p (& (. (vec.get (& (. b locs)) l) ty))) (vec.set uses l true))
+      (vec.set uses l true)))
+  (if (== k 6u8) (vec.set defs l true)))

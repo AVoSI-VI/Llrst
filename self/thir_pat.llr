@@ -7,7 +7,10 @@
 (use proj.thir_expr)
 (use proj.ty)
 
-(fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex (thir.ex_new k t (. e line) (. e col) (. c file)))
+(fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
+  (let mut x (thir.ex_new k t (. e line) (. e col) (. c file)))
+  (set (. x len) (. e len))
+  x)
 
 (pub (fn check_match ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)
   (let scrut (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
@@ -31,23 +34,25 @@
     (let body (try (arm_body p c (vec.get (& (. e kids)) (+ i 1)) have (& result))))
     (thir.pop_scope c)
     (if (not have)
-      (if (!= (. (. body ty) kind) 5u8) (do (set result (ty.clone (& (. body ty)))) (set have true))))
-    (if (and have (not (thir.unify c (& (. body ty)) (& result)))) (ret (res.err (str.from "type.mismatch"))))
+      (if (!= (. (. body ty) kind) 5u8)
+        (do (set result (ty.clone (& (. body ty)))) (set have true))))
+    (if (and have (not (thir.unify c (& (. body ty)) (& result))))
+      (ret (res.err (str.from "type.mismatch"))))
     (vec.push (&mut (. x pats)) pat)
     (vec.push (&mut (. x kids)) body)
     (set i (+ i 2)))
-  (if (not (exhaustive p (& inner) (. bits wild) (& covered) (. bits bt) (. bits bf))) (ret (res.err (str.from "match.missing"))))
+  (if (not (exhaustive p (& inner) (. bits wild) (& covered) (. bits bt) (. bits bf)))
+    (ret (res.err (str.from "match.missing"))))
   (set (. x ty) (if have result (ty.never)))
   (res.ok x)))
 
-(fn by_ref ((t (& ty.sty))) i64
-  (if (!= (. t kind) 6u8) (ret (neg 1)))
-  (if (. t flag) 1 0))
+(fn by_ref ((t (& ty.sty))) i64 (if (!= (. t kind) 6u8) (ret (neg 1))) (if (. t flag) 1 0))
 
 (fn arm_body ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (have bool) (result (& ty.sty))) (res thir.ex str)
   (let body (try (thir_expr.check_expr p c e have result)))
   (if (not (thir.is_stmt (& body))) (ret (res.ok body)))
   (let mut b (thir.ex_new 5u8 (ty.unit) (. body line) (. body col) (. body file)))
+  (set (. b len) (. body len))
   (vec.push (&mut (. b kids)) body)
   (res.ok b))
 
@@ -81,9 +86,11 @@
   false)
 
 (fn check_pat ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64)) (res thir.pat str)
-  (if (and (== (. e kind) 1u8) (str.eq (& (. e text)) "_")) (ret (res.ok (thir.pat_new 0u8 0 (str.new) (. e line) (. e col)))))
+  (if (and (== (. e kind) 1u8) (str.eq (& (. e text)) "_"))
+    (ret (res.ok (thir.pat_new 0u8 0 (str.new) (. e line) (. e col)))))
   (if (== (. e kind) 0u8) (ret (pat_lit c e ty_)))
-  (if (and (== (. e kind) 1u8) (str.has (& (. e text)) ".")) (ret (pat_var p c e ty_ by (vec.new <expr>))))
+  (if (and (== (. e kind) 1u8) (str.has (& (. e text)) "."))
+    (ret (pat_var p c e ty_ by (vec.new <expr>))))
   (if (== (. e kind) 23u8) (ret (pat_var p c e ty_ by (kids_of e))))
   (if (== (. e kind) 1u8) (ret (pat_bind c e ty_ by)))
   (res.err (str.from "match.bad_lit")))
@@ -92,12 +99,20 @@
   (let mut o (vec.new <expr>))
   (for i 0 (vec.len (& (. e kids)))
     (let x (vec.get (& (. e kids)) i))
-    (vec.push (&mut o) (expr (. x kind) (str.clone (& (. x text))) (. x mut) (vec.new <expr>) (vec.new <ty>) (. x line) (. x col) (. x len))))
+    (vec.push (&mut o)
+      (expr (. x kind)
+        (str.clone (& (. x text)))
+        (. x mut)
+        (vec.new <expr>)
+        (vec.new <ty>)
+        (. x line)
+        (. x col)
+        (. x len))))
   o)
 
 (fn pat_bind ((c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64)) (res thir.pat str)
   (let t (if (>= by 0) (ty.ref_ty (== by 1) (str.new) (ty.clone ty_)) (ty.clone ty_)))
-  (let id (try (thir.declare c (& (. e text)) t false (. e line) (. e col))))
+  (let id (try (thir.declare c (& (. e text)) t false (. e line) (. e col) (. e len))))
   (res.ok (thir.pat_new 1u8 id (str.new) (. e line) (. e col))))
 
 (fn pat_lit ((c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty))) (res thir.pat str)
@@ -140,10 +155,134 @@
   at)
 
 (fn var_i ((d (& prog.def)) (name (& str))) i64
-  (for i 0 (vec.len (& (. d svars))) (if (str.eq (& (. (vec.get (& (. d svars)) i) name)) name) (ret i)))
+  (for i 0 (vec.len (& (. d svars)))
+    (if (str.eq (& (. (vec.get (& (. d svars)) i) name)) name) (ret i)))
   (neg 1))
 
 (fn var_tys ((v (& prog.svar)) (args (& (vec ty.sty)))) (vec ty.sty)
   (let mut o (vec.new <ty.sty>))
   (for i 0 (vec.len (& (. v tys))) (vec.push (&mut o) (ty.subst (vec.get (& (. v tys)) i) args)))
   o)
+
+(pub (fn priv_code ((p (& prog.prog)) (id i64)) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let mid (thir.kv2 "name.private" "name" (prog.fn_path p id) "module" modp))
+  (thir.kv (& mid) "fix" (str.from "(pub ...)"))))
+
+(fn wrap_pub ((name (& str)) (shown (& str))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) name)
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) shown)
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_field_msg ((p (& prog.prog)) (id i64) (f (& prog.sfield)) (args (& (vec ty.sty)))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let shown (thir.nshow p (& (ty.subst (& (. f ty)) args))))
+  (let fix (wrap_pub (& (. f name)) (& shown)))
+  (let a
+    (thir.kv2 "name.private_field"
+      "field"
+      (str.clone (& (. f name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(fn field_vis ((p (& prog.prog)) (c (& thir.ck)) (id i64) (f (& prog.sfield))) bool
+  (or (. f is_pub) (== (. (vec.get (& (. p defs)) id) module) (. c module))))
+
+(fn hidden_field ((p (& prog.prog)) (c (& thir.ck)) (s (& ty.sty)) (name (& str))) str
+  (if (!= (. s kind) 8u8) (ret (str.new)))
+  (let d (vec.get (& (. p defs)) (. s id)))
+  (if (!= (. d kind) 0u8) (ret (str.new)))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let f (vec.get (& (. d sfields)) i))
+    (if (and (str.eq (& (. f name)) name) (not (field_vis p c (. s id) f)))
+      (ret (priv_field_msg p (. s id) f (& (. s args))))))
+  (str.new))
+
+(pub (fn field_err ((p (& prog.prog)) (c (& thir.ck)) (base (& ty.sty)) (name (& str))) str
+  (let s (thir.shallow c base))
+  (let hid (hidden_field p c (& s) name))
+  (if (> (str.len (& hid)) 0) (ret hid))
+  (thir.kv2 "type.no_field" "ty" (thir.nshow p (& s)) "field" (str.clone name))))
+
+(fn var_fix ((p (& prog.prog)) (v (& prog.svar))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) (& (. v name)))
+  (for i 0 (vec.len (& (. v tys)))
+    (do
+      (let shown (thir.nshow p (vec.get (& (. v tys)) i)))
+      (str.push_byte (&mut s) 32u8)
+      (str.push (&mut s) (& shown))))
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_var ((p (& prog.prog)) (id i64) (v (& prog.svar))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let fix (var_fix p v))
+  (let a
+    (thir.kv2 "name.private_variant"
+      "variant"
+      (str.clone (& (. v name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(pub (fn var_err ((p (& prog.prog)) (c (& thir.ck)) (id i64) (idx i64) (var str)) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (< idx 0) (ret (thir.kv2 "type.no_variant" "ty" (str.clone (& (. d name))) "variant" var)))
+  (let v (vec.get (& (. d svars)) idx))
+  (if (or (. v is_pub) (== (. d module) (. c module))) (ret (str.new)))
+  (priv_var p id v)))
+
+(pub (fn check_panic ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let msg (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) true (& (thir.ref_str p)))))
+  (let f (thir.std_fn p "sys" "panic"))
+  (let mut x (at c e 24u8 (ty.never)))
+  (set (. x id) 0)
+  (set (. x id2) f)
+  (vec.push (&mut (. x kids)) (loc_ex p c e))
+  (vec.push (&mut (. x kids)) msg)
+  (res.ok x)))
+
+(fn loc_ex ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
+  (let mut x (at c e 0u8 (thir.ref_str p)))
+  (set (. x id) 3)
+  (set (. x text) (thir.loc_text p (. c file) (. e line) (. e col)))
+  x)
+
+(pub (fn check_assert ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let cond (try (thir.check_bool p c (vec.get (& (. e kids)) 0))))
+  (let f (thir.std_fn p "test" "fail"))
+  (let mut call (at c e 24u8 (ty.never)))
+  (set (. call id) 0)
+  (set (. call id2) f)
+  (vec.push (&mut (. call kids)) (loc_ex p c e))
+  (vec.push (&mut (. call kids)) (assert_msg p c e))
+  (let mut nt (at c e 21u8 (ty.bool_ty)))
+  (vec.push (&mut (. nt kids)) cond)
+  (let mut x (at c e 6u8 (ty.unit)))
+  (vec.push (&mut (. x kids)) nt)
+  (vec.push (&mut (. x kids)) call)
+  (res.ok x)))
+
+(fn assert_msg ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
+  (let mut x (at c e 0u8 (thir.ref_str p)))
+  (set (. x id) 3)
+  (set (. x text) (str.from "assert"))
+  x)
+
+(pub (fn check_drop ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let v (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let mut x (at c e 24u8 (ty.unit)))
+  (set (. x id) 3)
+  (set (. x id2) 9)
+  (vec.push (&mut (. x kids)) v)
+  (res.ok x)))

@@ -68,7 +68,7 @@
     (lower.push w (st_drop pl))))
 
 (fn st_drop ((pl mir.place)) mir.st
-  (mir.st 1u8 (. pl local) (pk (mir.pclone (& pl))) (pi_of (& pl)) (mir.rvoid)))
+  (mir.st 1u8 (. pl local) (pk (mir.pclone (& pl))) (pi_of (& pl)) (mir.rvoid) 0 0 0))
 
 (fn pk ((pl mir.place)) (vec u8)
   (let mut o (vec.new <u8>))

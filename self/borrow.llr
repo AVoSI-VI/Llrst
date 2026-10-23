@@ -1,0 +1,264 @@
+;; Borrow conflicts over MIR. Access kind: 0 read, 1 write, 2 move, 3 shared, 4 mut, 5 drop, 6 dead.
+(use std.str)
+(use proj.diag)
+(use proj.holders)
+(use proj.liveness)
+(use proj.loans)
+(use proj.mir)
+(use proj.moves)
+(use proj.prog)
+(use proj.ty)
+
+(pub (struct acc (pub (pl mir.place)) (pub (kind u8)) (pub (line i64)) (pub (col i64)) (pub (len i64))))
+
+(pub (fn bools ((n i64)) (vec bool) (let mut v (vec.new <bool>)) (for i 0 n (vec.push (&mut v) false)) v))
+
+(pub (fn clone_b ((v (& (vec bool)))) (vec bool)
+  (let mut o (vec.new <bool>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o))
+
+(pub (fn bit ((v (& (vec bool))) (i i64)) bool
+  (if (or (< i 0) (>= i (vec.len v))) (ret false))
+  (@ (vec.get v i))))
+
+(pub (fn setb ((v (&mut (vec bool))) (i i64) (on bool)) bool
+  (if (or (< i 0) (>= i (vec.len v))) (ret false))
+  (let was (bit v i))
+  (vec.set v i on)
+  (and on (not was))))
+
+(fn mk_acc ((pl mir.place) (k u8) (line i64) (col i64) (len i64)) acc (acc pl k line col len))
+
+(fn op_acc ((o (& mir.op)) (line i64) (col i64) (len i64) (out (&mut (vec acc)))) unit
+  (if (== (. o kind) 0u8)
+    (vec.push out (mk_acc (mir.place (. o local) (mir_pk o) (mir_pi o)) 0u8 line col len)))
+  (if (== (. o kind) 1u8)
+    (vec.push out (mk_acc (mir.place (. o local) (mir_pk o) (mir_pi o)) 2u8 line col len))))
+
+(fn mir_pk ((o (& mir.op))) (vec u8)
+  (let mut v (vec.new <u8>))
+  (for i 0 (vec.len (& (. o pk))) (vec.push (&mut v) (@ (vec.get (& (. o pk)) i))))
+  v)
+
+(fn mir_pi ((o (& mir.op))) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 (vec.len (& (. o pi))) (vec.push (&mut v) (@ (vec.get (& (. o pi)) i))))
+  v)
+
+(fn rv_acc ((r (& mir.rv)) (line i64) (col i64) (len i64) (out (&mut (vec acc)))) unit
+  (let k (. r kind))
+  (if (or (== k 0u8) (or (== k 3u8) (or (== k 4u8) (or (== k 5u8) (== k 6u8)))))
+    (if (> (vec.len (& (. r ops))) 0) (op_acc (vec.get (& (. r ops)) 0) line col len out)))
+  (if (== k 1u8)
+    (vec.push out
+      (mk_acc (mir.place (. r local) (pk_rv r) (pi_rv r)) (if (. r flag) 4u8 3u8) line col len)))
+  (if (or (== k 2u8) (or (== k 11u8) (== k 12u8)))
+    (do
+      (if (> (vec.len (& (. r ops))) 0) (op_acc (vec.get (& (. r ops)) 0) line col len out))
+      (if (> (vec.len (& (. r ops))) 1) (op_acc (vec.get (& (. r ops)) 1) line col len out))))
+  (if (or (== k 7u8) (or (== k 8u8) (== k 18u8)))
+    (for i 0 (vec.len (& (. r ops))) (op_acc (vec.get (& (. r ops)) i) line col len out)))
+  (if (== k 9u8)
+    (vec.push out (mk_acc (mir.place (. r local) (pk_rv r) (pi_rv r)) 0u8 line col len))))
+
+(fn pk_rv ((r (& mir.rv))) (vec u8)
+  (let mut v (vec.new <u8>))
+  (for i 0 (vec.len (& (. r pk))) (vec.push (&mut v) (@ (vec.get (& (. r pk)) i))))
+  v)
+
+(fn pi_rv ((r (& mir.rv))) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 (vec.len (& (. r pi))) (vec.push (&mut v) (@ (vec.get (& (. r pi)) i))))
+  v)
+
+(pub (fn stmt_acc ((s (& mir.st))) (vec acc)
+  (let mut o (vec.new <acc>))
+  (if (== (. s kind) 0u8)
+    (do
+      (rv_acc (& (. s rv)) (. s line) (. s col) (. s len) (&mut o))
+      (vec.push (&mut o)
+        (mk_acc (mir.place (. s local) (pk_st s) (pi_st s)) 1u8 (. s line) (. s col) (. s len)))))
+  (if (== (. s kind) 1u8)
+    (vec.push (&mut o)
+      (mk_acc (mir.place (. s local) (pk_st s) (pi_st s)) 5u8 (. s line) (. s col) (. s len))))
+  (if (== (. s kind) 2u8)
+    (vec.push (&mut o) (mk_acc (mir.ploc (. s local)) 2u8 (. s line) (. s col) (. s len))))
+  (if (== (. s kind) 3u8)
+    (vec.push (&mut o) (mk_acc (mir.ploc (. s local)) 6u8 (. s line) (. s col) (. s len))))
+  o))
+
+(fn pk_st ((s (& mir.st))) (vec u8)
+  (let mut v (vec.new <u8>))
+  (for i 0 (vec.len (& (. s pk))) (vec.push (&mut v) (@ (vec.get (& (. s pk)) i))))
+  v)
+
+(fn pi_st ((s (& mir.st))) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 (vec.len (& (. s pi))) (vec.push (&mut v) (@ (vec.get (& (. s pi)) i))))
+  v)
+
+(pub (fn term_acc ((t (& mir.term))) (vec acc)
+  (let mut o (vec.new <acc>))
+  (if (or (== (. t kind) 1u8) (== (. t kind) 2u8))
+    (op_acc (& (. t op)) (. t line) (. t col) (. t len) (&mut o)))
+  (if (== (. t kind) 3u8)
+    (do
+      (if (or (== (. t fk) 1u8) (== (. t fk) 2u8))
+        (op_acc (& (. t op)) (. t line) (. t col) (. t len) (&mut o)))
+      (for i 0 (vec.len (& (. t args)))
+        (op_acc (vec.get (& (. t args)) i) (. t line) (. t col) (. t len) (&mut o)))
+      (vec.push (&mut o)
+        (mk_acc (mir.place (. t dest) (pk_term t) (pi_term t)) 1u8 (. t line) (. t col) (. t len)))))
+  (if (== (. t kind) 4u8)
+    (vec.push (&mut o) (mk_acc (mir.ploc 0) 0u8 (. t line) (. t col) (. t len))))
+  o))
+
+(fn pk_term ((t (& mir.term))) (vec u8)
+  (let mut v (vec.new <u8>))
+  (for i 0 (vec.len (& (. t dpk))) (vec.push (&mut v) (@ (vec.get (& (. t dpk)) i))))
+  v)
+
+(fn pi_term ((t (& mir.term))) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 (vec.len (& (. t dpi))) (vec.push (&mut v) (@ (vec.get (& (. t dpi)) i))))
+  v)
+
+(fn proj_eq ((a (& mir.place)) (b (& mir.place)) (i i64) (j i64)) bool
+  (let ak (@ (vec.get (& (. a pk)) i)))
+  (let bk (@ (vec.get (& (. b pk)) j)))
+  (if (== ak 2u8) (ret (proj_eq a b (+ i 1) j)))
+  (if (== bk 2u8) (ret (proj_eq a b i (+ j 1))))
+  (and (== ak bk) (== (@ (vec.get (& (. a pi)) i)) (@ (vec.get (& (. b pi)) j)))))
+
+(pub (fn overlap ((a (& mir.place)) (b (& mir.place))) bool
+  (if (!= (. a local) (. b local)) (ret false))
+  (let mut i 0)
+  (let mut j 0)
+  (while (and (< i (vec.len (& (. a pk)))) (< j (vec.len (& (. b pk)))))
+    (do (if (not (proj_eq a b i j)) (ret false)) (set i (+ i 1)) (set j (+ j 1))))
+  true))
+
+(pub (fn run ((p (& prog.prog)) (out (&mut (vec diag.dg))) (b (& mir.body))) unit
+  (let live (liveness.compute p b))
+  (moves.run out b)
+  (let ls (loans.collect b))
+  (let hs (holders.compute p b (& ls)))
+  (conflicts p out b (& ls) (& hs) (& live))))
+
+(fn conflicts ((p (& prog.prog))
+   (out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (hs (& holders.hold))
+   (live (& liveness.live))) unit
+  (let stat (holders.statics out b))
+  (for bi 0 (vec.len (& (. b blocks))) (conf_blk p out b ls hs live (& stat) bi)))
+
+(fn conf_blk ((p (& prog.prog))
+   (out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (hs (& holders.hold))
+   (live (& liveness.live))
+   (stat (& (vec bool)))
+   (bi i64)) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (for si 0 (vec.len (& (. blk stmts)))
+    (conf_at p out b ls hs live stat bi si (stmt_acc (vec.get (& (. blk stmts)) si))))
+  (conf_at p out b ls hs live stat bi (vec.len (& (. blk stmts))) (term_acc (& (. blk term)))))
+
+(fn conf_at ((p (& prog.prog))
+   (out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (hs (& holders.hold))
+   (live (& liveness.live))
+   (stat (& (vec bool)))
+   (bb i64)
+   (idx i64)
+   (accs (vec acc))) unit
+  (for li 0 (vec.len ls) (conf_loan p out b ls hs live stat bb idx li (& accs))))
+
+(fn same_pt ((l (& loans.loan)) (bb i64) (idx i64)) bool (and (== (. l bb) bb) (== (. l idx) idx)))
+
+(fn span_eq ((line i64) (col i64) (len i64) (a (& acc))) bool
+  (and (== line (. a line)) (and (== col (. a col)) (== len (. a len)))))
+
+(fn conf_loan ((p (& prog.prog))
+   (out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (hs (& holders.hold))
+   (live (& liveness.live))
+   (stat (& (vec bool)))
+   (bb i64)
+   (idx i64)
+   (li i64)
+   (accs (& (vec acc)))) unit
+  (let l (vec.get ls li))
+  (if (same_pt l bb idx) (ret))
+  (if (bit stat (. (. l pl) local)) (ret))
+  (let force (or (holders.in_force hs bb idx li live) (holders.after hs l li bb idx live accs)))
+  (if (not force) (ret))
+  (for i 0 (vec.len accs) (conf_one out b l hs bb idx li (vec.get accs i))))
+
+(fn conf_one ((out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (l (& loans.loan))
+   (hs (& holders.hold))
+   (bb i64)
+   (idx i64)
+   (li i64)
+   (a (& acc))) unit
+  (if (not (overlap (& (. l pl)) (& (. a pl)))) (ret))
+  (if (and (holders.held hs bb idx li (. (. a pl) local)) (!= (. (. a pl) local) (. (. l pl) local)))
+    (ret))
+  (let active (or (not (. l two)) (!= bb (. l bb))))
+  (let code (code_of (. a kind) (. l mut) active))
+  (if (== (str.len (& code)) 0) (ret))
+  (if (and (or (== (. a kind) 5u8) (== (. a kind) 6u8)) (mir.has_deref (& (. l pl)))) (ret))
+  (report out b l hs bb idx li a code))
+
+(fn code_of ((k u8) (mut bool) (active bool)) str
+  (if (and (== k 0u8) (and mut active)) (ret (str.from "borrow.mut_shared")))
+  (if (and (== k 3u8) (and mut active)) (ret (str.from "borrow.mut_shared")))
+  (if (== k 4u8) (ret (str.from (if (and mut active) "borrow.mut_mut" "borrow.mut_shared"))))
+  (if (== k 1u8) (ret (str.from "borrow.assign")))
+  (if (== k 2u8) (ret (str.from "move.borrowed")))
+  (if (or (== k 5u8) (== k 6u8)) (ret (str.from "borrow.escape")))
+  (str.new))
+
+(fn report ((out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (l (& loans.loan))
+   (hs (& holders.hold))
+   (bb i64)
+   (idx i64)
+   (li i64)
+   (a (& acc))
+   (code str)) unit
+  (let at_line (if (str.eq (& code) "borrow.escape") (. l line) (. a line)))
+  (let at_col (if (str.eq (& code) "borrow.escape") (. l col) (. a col)))
+  (let at_len (if (str.eq (& code) "borrow.escape") (. l len) (. a len)))
+  (let name (str.clone (& (. (vec.get (& (. b locs)) (. (. l pl) local)) name))))
+  (let hold (holders.holder_name hs bb idx li b))
+  (let mut d (diag.make true (str.clone (& (. b path))) at_line at_col at_len code))
+  (diag.add (&mut d) "name" name)
+  (if (> (str.len (& hold)) 0) (diag.add (&mut d) "ref" hold))
+  (diag.add (&mut d) "borrowed_at" (at_txt (. l line) (. l col)))
+  (if (not (dup out (& d))) (vec.push out d)))
+
+(fn dup ((out (& (vec diag.dg))) (d (& diag.dg))) bool
+  (for i 0 (vec.len out) (if (same_d (vec.get out i) d) (ret true)))
+  false)
+
+(fn same_d ((e (& diag.dg)) (d (& diag.dg))) bool
+  (and (str.eq (& (. e code)) (& (. d code)))
+    (and (== (. e line) (. d line)) (== (. e col) (. d col)))))
+
+(fn at_txt ((line i64) (col i64)) str
+  (let mut s (str.from_int line))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (str.from_int col)))
+  s)

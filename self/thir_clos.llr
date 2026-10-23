@@ -28,6 +28,7 @@
   (let locs (slice_locs c start))
   (prefix_from c start)
   (let mut x (thir.ex_new 29u8 (clos_ty (& user_tys) (& ret)) (. e line) (. e col) (. c file)))
+  (set (. x len) (. e len))
   (set (. x locs) locs)
   (set (. x params) (shift_ids (& cap_ids) (& user_ids) start))
   (set (. x tys) cap_tys)
@@ -63,10 +64,11 @@
     (let name (vec.get caps i))
     (let outer (thir.lookup c name))
     (let t (ty.clone (& (. (vec.get (& (. c locals)) outer) ty))))
-    (let id (try (thir.declare c name (ty.clone (& t)) false (. e line) (. e col))))
+    (let id (try (thir.declare c name (ty.clone (& t)) false (. e line) (. e col) (. e len))))
     (vec.push ids id)
     (vec.push tys t)
     (let mut cap (thir.ex_new 1u8 (ty.clone (vec.get tys (- (vec.len tys) 1))) (. e line) (. e col) (. c file)))
+    (set (. cap len) (. e len))
     (set (. cap id) outer)
     (vec.push exs cap))
   (res.ok ()))
@@ -77,13 +79,13 @@
   (for i 0 n
     (let s (try (resolve.resolve p (. c module) (& (. c gens)) (vec.get (& (. e tys)) i))))
     (let t (ty.subst (& s) (& (. c targs))))
-    (let id (try (thir.declare c (vec.get (& names) i) (ty.clone (& t)) false (. e line) (. e col))))
+    (let id (try (thir.declare c (vec.get (& names) i) (ty.clone (& t)) false (. e line) (. e col) (. e len))))
     (vec.push ids id)
     (vec.push tys t))
   (res.ok ()))
 
 (fn clos_body ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ret (& ty.sty))) (res thir.ex str)
-  (thir.check_block p c (& (. e kids)) true ret (. e line) (. e col)))
+  (thir.check_block p c (& (. e kids)) true ret (. e line) (. e col) (. e len)))
 
 (fn clos_ty ((user (& (vec ty.sty))) (ret (& ty.sty))) ty.sty
   (let mut args (ty.clone_tys user))
@@ -94,7 +96,9 @@
   (let mut o (vec.new <thir.loc>))
   (for i start (vec.len (& (. c locals)))
     (let l (vec.get (& (. c locals)) i))
-    (vec.push (&mut o) (thir.loc_new (str.clone (& (. l name))) (ty.clone (& (. l ty))) (. l mut) (. l line) (. l col))))
+    (let mut n (thir.loc_new (str.clone (& (. l name))) (ty.clone (& (. l ty))) (. l mut) (. l line) (. l col)))
+    (set (. n len) (. l len))
+    (vec.push (&mut o) n))
   o)
 
 (fn prefix_from ((c (&mut thir.ck)) (start i64)) unit

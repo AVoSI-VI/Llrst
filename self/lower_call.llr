@@ -27,7 +27,8 @@
 (fn prep ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) (vec mir.op)
   (let from (if (or (== (. e id) 1) (== (. e id) 2)) 1 0))
   (let mut o (vec.new <mir.op>))
-  (for i from (vec.len (& (. e kids))) (vec.push (&mut o) (prep_one p w (vec.get (& (. e kids)) i))))
+  (for i from (vec.len (& (. e kids)))
+    (vec.push (&mut o) (prep_one p w (vec.get (& (. e kids)) i))))
   o)
 
 (fn prep_one ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) mir.op
@@ -36,14 +37,19 @@
   (if (and (thir_expr.is_place e) (and (== (. (. e ty) kind) 6u8) (. (. e ty) flag)))
     (do
       (let pl (lower.as_place p w e))
-      (ret (lower.reborrow p w pl (& (. e ty)) true (. e line) (. e col)))))
+      (ret (lower.reborrow p w pl (& (. e ty)) true (. e line) (. e col) (. e len)))))
   (lower.as_operand p w e))
 
 (fn two_ref ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) mir.op
   (let pl (lower.as_place p w (vec.get (& (. e kids)) 0)))
-  (lower.phase_ref p w pl (& (. e ty)) (. e line) (. e col)))
+  (lower.phase_ref p w pl (& (. e ty)) (. e line) (. e col) (. e len)))
 
-(fn call_term ((w (&mut lower.low)) (p (& prog.prog)) (e (& thir.ex)) (next i64) (dest mir.place) (args (vec mir.op))) mir.term
+(fn call_term ((w (&mut lower.low))
+   (p (& prog.prog))
+   (e (& thir.ex))
+   (next i64)
+   (dest mir.place)
+   (args (vec mir.op))) mir.term
   (let mut t (mir.tnone))
   (set (. t kind) 3u8)
   (set (. t bb) next)
@@ -56,6 +62,7 @@
   (if (== (. e id) 5) (set (. t slot) (str_int (& (. e text)))))
   (if (== (. e id) 1) (set (. t op) (lower.as_operand p w (vec.get (& (. e kids)) 0))))
   (if (== (. e id) 2) (set (. t op) (mir.ocopy (lower.as_place p w (vec.get (& (. e kids)) 0)))))
+  (set (. t targs) (ty.clone_tys (& (. e tys))))
   t)
 
 (fn clone_ops ((v (& (vec mir.op)))) (vec mir.op)
