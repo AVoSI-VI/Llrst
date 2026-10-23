@@ -31,10 +31,7 @@
 
 (fn type_kind ((k u8)) bool (or (== k 4u8) (or (== k 5u8) (== k 9u8))))
 
-(fn def_kind ((k u8)) u8
-  (if (== k 4u8) (ret 0u8))
-  (if (== k 5u8) (ret 1u8))
-  4u8)
+(fn def_kind ((k u8)) u8 (if (== k 4u8) (ret 0u8)) (if (== k 5u8) (ret 1u8)) 4u8)
 
 (fn add_type ((p (&mut prog.prog)) (mi i64) (it (& item))) unit
   (let mut d (prog.blank_def (str.clone (& (. it name))) mi (def_kind (. it kind))))
@@ -120,12 +117,7 @@
   (try (fill_params p mi it (&mut d) self_on self_ty))
   (res.ok d))
 
-(fn fill_params ((p (& prog.prog))
-   (mi i64)
-   (it (& item))
-   (d (&mut prog.def))
-   (self_on bool)
-   (self_ty (& ty.sty))) (res unit str)
+(fn fill_params ((p (& prog.prog)) (mi i64) (it (& item)) (d (&mut prog.def)) (self_on bool) (self_ty (& ty.sty))) (res unit str)
   (for i 0 (vec.len (& (. it params)))
     (let prm (vec.get (& (. it params)) i))
     (let mut t (try (resolve.resolve p mi (& (. d gens)) (& (. prm ty)))))
@@ -171,8 +163,8 @@
   true)
 
 (fn fill_impls ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded)))) (res unit str)
-  (try (impl_group p srcs false))
-  (impl_group p srcs true))
+  (try (impl_group p srcs true))
+  (impl_group p srcs false))
 
 (fn impl_group ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (want_std bool)) (res unit str)
   (for mi 0 (vec.len srcs)
@@ -182,7 +174,8 @@
 (fn impl_mod ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64)) (res unit str)
   (let n (vec.len (& (. (vec.get srcs mi) items))))
   (for k 0 n
-    (if (== (. (vec.get (& (. (vec.get srcs mi) items)) k) kind) 10u8) (try (add_timpl p srcs mi k))))
+    (if (== (. (vec.get (& (. (vec.get srcs mi) items)) k) kind) 10u8)
+      (try (add_timpl p srcs mi k))))
   (res.ok ()))
 
 (fn impl_name ((tyn (& str)) (fnm (& str))) str
@@ -266,7 +259,8 @@
 
 (fn add_free ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64) (k i64)) (res unit str)
   (let it (vec.get_mut (&mut (. (vec.get_mut srcs mi) items)) k))
-  (let mut d (try (build_fn p mi it (resolve.type_gens (& (. it gens))) (neg 1) false (& (ty.unit)))))
+  (let mut d
+    (try (build_fn p mi it (resolve.type_gens (& (. it gens))) (neg 1) false (& (ty.unit)))))
   (set (. d body) (take_body it))
   (let nm (str.clone (& (. d name))))
   (add_named p mi nm d)
