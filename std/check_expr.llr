@@ -436,6 +436,12 @@
           (let mut kids (vec.new <texpr>))
           (do (try (walk defs srcs from e locs (&mut kids) 0 (vec.len (& (. e kids))))) ())
           (ret (res.ok (ctor_out td kids e)))))))
+  (let bi (check.which_bi (& (. e text)) (& (. e text))))
+  (if (>= bi 0)
+    (do
+      (let mut kids (vec.new <texpr>))
+      (do (try (walk defs srcs from e locs (&mut kids) 0 (vec.len (& (. e kids))))) ())
+      (ret (res.ok (typed (unit_info) (node 23u8 (str.from "unit") (str.clone (& (. e text))) bi kids e))))))
   (res.err (err_at e "name.unknown" (& (check.kv "name" (& (. e text)))))))
 
 (fn no_field ((e (& expr)) (ty (& str)) (field (& str))) str

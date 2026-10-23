@@ -12,6 +12,7 @@ Source: `std/check.llr`. Import with `(use std.check)` for module functions; typ
 - `(struct loc (pub (name str)) (pub (ty info)) (pub (mut bool)) (pub (line i64)) (pub (col i64)) (pub (len i64)))`
 - `(struct texpr (pub (kind u8)) (pub (ty str)) (pub (callee str)) (pub (builtin i64)) (pub (kids (vec texpr))) (pub (line i64)) (pub (col i64)) (pub (len i64)))`
 - `(struct typed (pub (ty info)) (pub (ex texpr)))`
+- `(struct prog (pub (srcs (vec source))) (pub (defs (vec def))) (pub (main i64)))`
 
 ## Functions
 
@@ -37,6 +38,7 @@ Source: `std/check.llr`. Import with `(use std.check)` for module functions; typ
 | `check.which_bi` | `((q (& str)) (text (& str)))` | `i64` |
 | `check.clone_info` | `((a (& info)))` | `info` |
 | `check.mod_si` | `((srcs (& (vec source))) (module (& str)))` | `i64` |
+| `check.load_prog` | `((path (& str)))` | `(res prog str)` |
 | `check.check` | `((path (& str)))` | `(res (vec texpr) str)` |
 
 ## Tests

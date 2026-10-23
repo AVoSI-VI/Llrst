@@ -44,6 +44,8 @@
 
 (pub (struct typed (pub (ty info)) (pub (ex texpr))))
 
+(pub (struct prog (pub (srcs (vec source))) (pub (defs (vec def))) (pub (main i64))))
+
 (fn last_seg ((s (& str))) str
   (let mut i (- (str.len s) 1))
   (while (>= i 0)
@@ -435,7 +437,7 @@
 
 (fn std_dir () str (match (os.env "LLRST_STD") ((opt.some s) s) ((opt.none) (str.from "std"))))
 
-(pub (fn check ((path (& str))) (res (vec texpr) str)
+(pub (fn load_prog ((path (& str))) (res prog str)
   (let mut srcs (vec.new <source>))
   (match (load_std (& (std_dir)) (&mut srcs)) ((res.err e) (ret (res.err e))) ((res.ok _) ()))
   (let main
@@ -448,7 +450,11 @@
   (let mut defs (vec.new <def>))
   (register (& srcs) (&mut defs))
   (match (impl_dup (& srcs)) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
-  (check_main (& defs) (& srcs) main)))
+  (res.ok (prog srcs defs main))))
+
+(pub (fn check ((path (& str))) (res (vec texpr) str)
+  (let p (try (load_prog path)))
+  (check_main (& (. p defs)) (& (. p srcs)) (. p main))))
 
 (fn has_drop ((e (& texpr))) bool
   (if (and (== (. e builtin) 9) (> (str.len (& (. e ty))) 0)) (ret true))

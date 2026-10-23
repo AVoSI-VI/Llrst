@@ -1,0 +1,16 @@
+;; llrs emit-mir FILE: fn headers for the non-generic user functions.
+(use proj.mono)
+(use std.cli)
+(use std.io)
+(use std.os)
+
+(fn main () unit
+  (let mut c (cli.new "llrs" "emit-mir FILE"))
+  (cli.pos (&mut c) "cmd")
+  (cli.pos (&mut c) "file")
+  (cli.parse (&mut c) (os.args))
+  (if (not (str.eq (cli.at (& c) 0) "emit-mir"))
+    (do (io.eputs "usage|llrs emit-mir FILE") (os.exit 1)))
+  (match (mono.headers (cli.at (& c) 1))
+    ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
+    ((res.ok hs) (for i 0 (vec.len (& hs)) (io.puts (vec.get (& hs) i))))))
