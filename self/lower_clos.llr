@@ -1,16 +1,113 @@
-;; Closure rvalue. The nested mir.body is not part of the emit-mir text.
+;; Closure rvalue. The nested body is kept on mir.body and is not part of emit-mir.
+(use std.str)
+(use proj.diag)
 (use proj.lower)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
+(use proj.ty)
 
 (pub (fn into_clos ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let mut ops (vec.new <mir.op>))
-  (for i 1 (vec.len (& (. e kids))) (vec.push (&mut ops) (lower.as_operand p w (vec.get (& (. e kids)) i))))
+  (for i 1 (vec.len (& (. e kids)))
+    (vec.push (&mut ops) (lower.as_operand p w (vec.get (& (. e kids)) i))))
   (let idx (. w cn))
   (set (. w cn) (+ idx 1))
+  (let name (clos_name w idx))
+  (let ex (fn_ex e))
+  (let mut sink (vec.new <diag.dg>))
+  (let mut nested (lower.lower_fn p ex name (&mut sink)))
+  (diag.append (&mut (. w diags)) (& sink))
+  (strip (&mut nested) (vec.len (& (. e tys))))
+  (let caps (clone_tys (& (. e tys))))
+  (let user (user_tys e))
+  (let ret (ret_ty e))
+  (vec.push (&mut (. w clos)) (mir.clbody nested caps user ret))
   (let mut r (mir.rvoid))
   (set (. r kind) 18u8)
   (set (. r op) idx)
   (set (. r ops) ops)
   (lower.push w (mir.sassign dest r))))
+
+(fn clos_name ((w (& lower.low)) (idx i64)) str
+  (let mut s (str.clone (& (. w name))))
+  (str.push (&mut s) ".clos")
+  (str.push (&mut s) (& (str.from_int idx)))
+  s)
+
+(fn ret_ty ((e (& thir.ex))) ty.sty
+  (let n (vec.len (& (. (. e ty) args))))
+  (ty.clone (vec.get (& (. (. e ty) args)) (- n 1))))
+
+(fn user_tys ((e (& thir.ex))) (vec ty.sty)
+  (let n (vec.len (& (. (. e ty) args))))
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (- n 1) (vec.push (&mut o) (ty.clone (vec.get (& (. (. e ty) args)) i))))
+  o)
+
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
+  o)
+
+(fn fn_ex ((e (& thir.ex))) thir.ex
+  (let mut b (clone_ex (vec.get (& (. e kids)) 0)))
+  (set (. b ty) (ret_ty e))
+  (set (. b params) (clone_i64s (& (. e params))))
+  (set (. b locs) (clone_locs (& (. e locs))))
+  (set (. b file) (. e file))
+  b)
+
+(fn cap_drop ((s (& mir.st)) (n i64)) bool
+  (if (!= (. s kind) 1u8) (ret false))
+  (if (> (vec.len (& (. s pk))) 0) (ret false))
+  (and (>= (. s local) 1) (<= (. s local) n)))
+
+(fn strip_blk ((b (&mut mir.blk)) (n i64)) unit
+  (let mut i (- (vec.len (& (. b stmts))) 1))
+  (while (>= i 0)
+    (if (cap_drop (vec.get (& (. b stmts)) i) n) (let _ (vec.remove (&mut (. b stmts)) i)))
+    (set i (- i 1))))
+
+(fn strip ((b (&mut mir.body)) (n i64)) unit
+  (for i 0 (vec.len (& (. b blocks))) (strip_blk (vec.get_mut (&mut (. b blocks)) i) n)))
+
+(fn clone_i64s ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(fn clone_loc ((l (& thir.loc))) thir.loc
+  (let mut n
+    (thir.loc_new (str.clone (& (. l name))) (ty.clone (& (. l ty))) (. l mut) (. l line) (. l col)))
+  (set (. n len) (. l len))
+  n)
+
+(fn clone_locs ((v (& (vec thir.loc)))) (vec thir.loc)
+  (let mut o (vec.new <thir.loc>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (clone_loc (vec.get v i))))
+  o)
+
+(fn clone_pat ((p (& thir.pat))) thir.pat
+  (let mut n (thir.pat_new (. p kind) (. p id) (str.clone (& (. p text))) (. p line) (. p col)))
+  (for i 0 (vec.len (& (. p subs)))
+    (vec.push (&mut (. n subs)) (clone_pat (vec.get (& (. p subs)) i))))
+  n)
+
+(fn clone_ex ((e (& thir.ex))) thir.ex
+  (let mut n (thir.ex_new (. e kind) (ty.clone (& (. e ty))) (. e line) (. e col) (. e file)))
+  (set (. n flag) (. e flag))
+  (set (. n flag2) (. e flag2))
+  (set (. n id) (. e id))
+  (set (. n id2) (. e id2))
+  (set (. n len) (. e len))
+  (set (. n text) (str.clone (& (. e text))))
+  (set (. n params) (clone_i64s (& (. e params))))
+  (for i 0 (vec.len (& (. e tys))) (vec.push (&mut (. n tys)) (ty.clone (vec.get (& (. e tys)) i))))
+  (for i 0 (vec.len (& (. e pats)))
+    (vec.push (&mut (. n pats)) (clone_pat (vec.get (& (. e pats)) i))))
+  (for i 0 (vec.len (& (. e locs)))
+    (vec.push (&mut (. n locs)) (clone_loc (vec.get (& (. e locs)) i))))
+  (for i 0 (vec.len (& (. e kids)))
+    (vec.push (&mut (. n kids)) (clone_ex (vec.get (& (. e kids)) i))))
+  n)

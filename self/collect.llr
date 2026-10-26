@@ -255,7 +255,17 @@
   (if (or (== kind 2u8) (== kind 3u8)) (try (add_free p srcs mi k)))
   (if (== kind 6u8) (try (add_methods p srcs mi k)))
   (if (== kind 7u8) (try (add_const p srcs mi k)))
+  (if (== kind 8u8) (add_test p srcs mi k))
   (res.ok ()))
+
+(fn add_test ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64) (k i64)) unit
+  (let it (vec.get_mut (&mut (. (vec.get_mut srcs mi) items)) k))
+  (let name (str.clone (& (. it name))))
+  (let line (. it line))
+  (let col (. it col))
+  (let len (. it len))
+  (let body (vec.take (&mut (. it body))))
+  (vec.push (&mut (. p tests)) (prog.tdecl mi name body line col len)))
 
 (fn fill_struct ((p (&mut prog.prog)) (srcs (& (vec src.loaded))) (mi i64) (k i64)) (res unit str)
   (let it (vec.get (& (. (vec.get srcs mi) items)) k))

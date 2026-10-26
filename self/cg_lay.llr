@@ -1,0 +1,203 @@
+;; Sizes and field offsets. Aggregates match codegen/layout.rs.
+(use proj.prog)
+(use proj.ty)
+
+(pub (struct lay
+  (pub (size i64))
+  (pub (align i64))
+  (pub (fields (vec i64)))
+  (pub (vars (vec (vec i64))))))
+
+(pub (struct lays (keys (vec ty.sty)) (vals (vec lay))))
+
+(pub (struct seqr (pub (size i64)) (pub (align i64)) (pub (offs (vec i64)))))
+
+(pub (fn new () lays (lays (vec.new <ty.sty>) (vec.new <lay>))))
+
+(pub (fn align_up ((x i64) (a i64)) i64 (if (<= a 1) (ret x)) (* (/ (+ x (- a 1)) a) a)))
+
+(pub (fn int_bytes ((id i64)) i64
+  (if (or (== id 0) (== id 4)) (ret 1))
+  (if (or (== id 1) (== id 5)) (ret 2))
+  (if (or (== id 2) (== id 6)) (ret 4))
+  8))
+
+(pub (fn signed ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (<= (. t id) 3))))
+
+(pub (fn is_scalar ((t (& ty.sty))) bool
+  (let k (. t kind))
+  (or (== k 0u8)
+    (or (== k 1u8) (or (== k 2u8) (or (== k 3u8) (or (== k 6u8) (or (== k 7u8) (== k 9u8)))))))))
+
+(pub (fn is_agg ((t (& ty.sty))) bool (and (not (ty.is_unit t)) (not (is_scalar t)))))
+
+(pub (fn is_float ((t (& ty.sty))) bool (or (== (. t kind) 1u8) (== (. t kind) 2u8))))
+
+(pub (fn width ((t (& ty.sty))) i64
+  (if (== (. t kind) 0u8) (ret (int_bytes (. t id))))
+  (if (== (. t kind) 1u8) (ret 4))
+  (if (== (. t kind) 3u8) (ret 1))
+  8))
+
+(fn scalar ((n i64)) lay (lay n n (vec.new <i64>) (vec.new < (vec i64) >)))
+
+(fn empty ((n i64) (a i64)) lay (lay n a (vec.new <i64>) (vec.new < (vec i64) >)))
+
+(fn find ((ls (& lays)) (t (& ty.sty))) i64
+  (for i 0 (vec.len (& (. ls keys))) (if (ty.eq (vec.get (& (. ls keys)) i) t) (ret i)))
+  (neg 1))
+
+(pub (fn of ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
+  (let hit (find ls t))
+  (if (>= hit 0) (ret (clone_lay (vec.get (& (. ls vals)) hit))))
+  (let l (compute ls p t))
+  (vec.push (&mut (. ls keys)) (ty.clone t))
+  (vec.push (&mut (. ls vals)) (clone_lay (& l)))
+  l))
+
+(pub (fn size ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) i64 (. (of ls p t) size)))
+
+(pub (fn seq ((ls (&mut lays)) (p (& prog.prog)) (tys (& (vec ty.sty))) (start i64)) seqr
+  (let mut off start)
+  (let mut al 1)
+  (let mut offs (vec.new <i64>))
+  (for i 0 (vec.len tys)
+    (let l (of ls p (vec.get tys i)))
+    (set off (align_up off (. l align)))
+    (vec.push (&mut offs) off)
+    (set off (+ off (. l size)))
+    (if (> (. l align) al) (set al (. l align))))
+  (seqr (align_up off al) al offs)))
+
+(fn compute ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
+  (let k (. t kind))
+  (if (== k 0u8) (ret (scalar (int_bytes (. t id)))))
+  (if (== k 1u8) (ret (scalar 4)))
+  (if (or (== k 2u8) (or (== k 6u8) (or (== k 7u8) (== k 9u8)))) (ret (scalar 8)))
+  (if (== k 3u8) (ret (scalar 1)))
+  (if (or (== k 4u8) (== k 5u8)) (ret (empty 0 1)))
+  (if (== k 10u8) (ret (clos_lay)))
+  (if (== k 11u8) (ret (dyn_lay)))
+  (if (== k 8u8) (ret (adt_lay ls p t)))
+  (empty 0 1))
+
+(fn clos_lay () lay
+  (let mut f (vec.new <i64>))
+  (vec.push (&mut f) 0)
+  (vec.push (&mut f) 8)
+  (vec.push (&mut f) 16)
+  (lay 24 8 f (vec.new < (vec i64) >)))
+
+(fn dyn_lay () lay
+  (let mut f (vec.new <i64>))
+  (vec.push (&mut f) 0)
+  (vec.push (&mut f) 8)
+  (lay 16 8 f (vec.new < (vec i64) >)))
+
+(fn adt_lay ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
+  (let d (vec.get (& (. p defs)) (. t id)))
+  (if (== (. d kind) 0u8) (ret (struct_lay ls p t d)))
+  (enum_lay ls p t d))
+
+(fn struct_lay ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty)) (d (& prog.def))) lay
+  (let tys (field_tys d (& (. t args)) (neg 1)))
+  (let s (seq ls p (& tys) 0))
+  (lay (. s size) (. s align) (. s offs) (vec.new < (vec i64) >)))
+
+(fn enum_lay ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty)) (d (& prog.def))) lay
+  (let pa (pay_align ls p d (& (. t args))))
+  (let base (align_up 4 pa))
+  (let mut size 4)
+  (let mut al 4)
+  (let mut vars (vec.new < (vec i64) >))
+  (for i 0 (vec.len (& (. d svars)))
+    (let tys (field_tys d (& (. t args)) i))
+    (let s (seq ls p (& tys) base))
+    (if (> (. s size) size) (set size (. s size)))
+    (if (> (. s align) al) (set al (. s align)))
+    (vec.push (&mut vars) (. s offs)))
+  (lay (align_up size al) al (vec.new <i64>) vars))
+
+(fn pay_align ((ls (&mut lays)) (p (& prog.prog)) (d (& prog.def)) (args (& (vec ty.sty)))) i64
+  (let mut al 1)
+  (for i 0 (vec.len (& (. d svars)))
+    (let tys (field_tys d args i))
+    (for j 0 (vec.len (& tys))
+      (let l (of ls p (vec.get (& tys) j)))
+      (if (> (. l align) al) (set al (. l align)))))
+  al)
+
+(fn field_tys ((d (& prog.def)) (args (& (vec ty.sty))) (variant i64)) (vec ty.sty)
+  (if (< variant 0) (ret (struct_tys d args)))
+  (var_tys d args variant))
+
+(fn struct_tys ((d (& prog.def)) (args (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len (& (. d sfields)))
+    (vec.push (&mut o) (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) args)))
+  o)
+
+(fn var_tys ((d (& prog.def)) (args (& (vec ty.sty))) (variant i64)) (vec ty.sty)
+  (let v (vec.get (& (. d svars)) variant))
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len (& (. v tys))) (vec.push (&mut o) (ty.subst (vec.get (& (. v tys)) i) args)))
+  o)
+
+(fn clone_offs ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(fn clone_vars ((v (& (vec (vec i64))))) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 (vec.len v) (vec.push (&mut o) (clone_offs (vec.get v i))))
+  o)
+
+(fn clone_lay ((l (& lay))) lay
+  (lay (. l size) (. l align) (clone_offs (& (. l fields))) (clone_vars (& (. l vars)))))
+
+(test lay_scalar
+  (let mut ls (new))
+  (let p (prog.blank_prog))
+  (assert_eq (size (&mut ls) (& p) (& (ty.int 0))) 1)
+  (assert_eq (size (&mut ls) (& p) (& (ty.int 3))) 8)
+  (assert_eq (size (&mut ls) (& p) (& (ty.bool_ty))) 1)
+  (assert_eq (size (&mut ls) (& p) (& (ty.unit))) 0)
+  (assert_eq (size (&mut ls) (& p) (& (ty.fun false (vec.new <ty.sty>)))) 8)
+  (assert_eq (size (&mut ls) (& p) (& (ty.ptr_ty (ty.int 4)))) 8))
+
+(test lay_clos
+  (let mut ls (new))
+  (let p (prog.blank_prog))
+  (let c (ty.fun true (vec.new <ty.sty>)))
+  (let l (of (&mut ls) (& p) (& c)))
+  (assert_eq (. l size) 24)
+  (assert_eq (. l align) 8)
+  (assert_eq (@ (vec.get (& (. l fields)) 2)) 16)
+  (let d (ty.dyn_ty false 0))
+  (let dl (of (&mut ls) (& p) (& d)))
+  (assert_eq (. dl size) 16))
+
+(test lay_seq
+  (let mut ls (new))
+  (let p (prog.blank_prog))
+  (let mut ts (vec.new <ty.sty>))
+  (vec.push (&mut ts) (ty.int 4))
+  (vec.push (&mut ts) (ty.int 3))
+  (let s (seq (&mut ls) (& p) (& ts) 0))
+  (assert_eq (. s size) 16)
+  (assert_eq (@ (vec.get (& (. s offs)) 0)) 0)
+  (assert_eq (@ (vec.get (& (. s offs)) 1)) 8))
+
+(test lay_enum
+  (let mut p (prog.blank_prog))
+  (let mut d (prog.blank_def (str.from "e") 0 1u8))
+  (let mut tys (vec.new <ty.sty>))
+  (vec.push (&mut tys) (ty.int 3))
+  (vec.push (&mut (. d svars)) (prog.svar (str.from "a") tys true))
+  (let id (prog.push_def (&mut p) d))
+  (let mut ls (new))
+  (let l (of (&mut ls) (& p) (& (ty.adt id (vec.new <ty.sty>)))))
+  (assert_eq (. l size) 16)
+  (assert_eq (. l align) 8)
+  (assert_eq (@ (vec.get (vec.get (& (. l vars)) 0) 0)) 8))

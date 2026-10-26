@@ -58,6 +58,10 @@
   (vec.push (&mut (. o syms)) (sym (str.from name) bind ty sec value size))
   i))
 
+(pub (fn set_sym ((o (&mut obj)) (i i64) (value i64) (size i64)) unit
+  (set (. (vec.get_mut (&mut (. o syms)) i) value) value)
+  (set (. (vec.get_mut (&mut (. o syms)) i) size) size)))
+
 (pub (fn add_rel ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64) (addend i64)) unit
   (vec.push (&mut (. o rels)) (rela sec at kind sym addend))))
 

@@ -1,0 +1,124 @@
+;; --checked traps and saturating float-to-int. A failing path calls sys.abort then ud2.
+(use std.str)
+(use proj.cg_frame)
+(use proj.cg_lay)
+(use proj.cg_mod)
+(use proj.prog)
+(use proj.ty)
+(use proj.x64_buf)
+(use proj.x64_int)
+(use proj.x64_sse)
+
+(fn loc_str ((fx (& cg_frame.fncx))) str
+  (let mut s (str.clone (& (. fx path))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. fx line))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. fx col))))
+  s)
+
+(pub (fn abort ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (msg (& str))) unit
+  (let ls (loc_str fx))
+  (let a (cg_mod.str_sym g (& ls)))
+  (let b (cg_mod.str_sym g msg))
+  (let id (prog.std_fn p "sys" "abort"))
+  (let sym (cg_mod.func_sym g p id (vec.new <ty.sty>)))
+  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rdi a)
+  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rsi b)
+  (x64_int.call_sym (&mut (. fx buf)) sym)
+  (x64_int.ud2 (&mut (. fx buf)))))
+
+(pub (fn trap ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (cc i64) (msg (& str))) unit
+  (let bad (x64_buf.label (&mut (. fx buf))))
+  (let ok (x64_buf.label (&mut (. fx buf))))
+  (x64_int.jcc (&mut (. fx buf)) cc bad)
+  (x64_int.jmp (&mut (. fx buf)) ok)
+  (x64_buf.bind (&mut (. fx buf)) bad)
+  (abort g p fx msg)
+  (x64_buf.bind (&mut (. fx buf)) ok)))
+
+(pub (fn add ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (w i64) (signed bool) (chk bool)) unit
+  (x64_int.add_rr (&mut (. fx buf)) w x64_buf.rax x64_buf.rcx)
+  (if chk (trap g p fx (if signed x64_buf.o x64_buf.b) "int.overflow"))))
+
+(pub (fn sub ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (w i64) (signed bool) (chk bool)) unit
+  (x64_int.sub_rr (&mut (. fx buf)) w x64_buf.rax x64_buf.rcx)
+  (if chk (trap g p fx (if signed x64_buf.o x64_buf.b) "int.overflow"))))
+
+(pub (fn mul ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (w i64) (signed bool) (chk bool)) unit
+  (if chk (ret (mul_chk g p fx w signed)))
+  (if (== w 1) (ret (x64_int.imul_r (&mut (. fx buf)) w x64_buf.rcx)))
+  (x64_int.imul_rr (&mut (. fx buf)) w x64_buf.rax x64_buf.rcx)))
+
+(fn mul_chk ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (w i64) (signed bool)) unit
+  (if signed
+    (x64_int.imul_r (&mut (. fx buf)) w x64_buf.rcx)
+    (x64_int.mul_r (&mut (. fx buf)) w x64_buf.rcx))
+  (trap g p fx x64_buf.o "int.overflow"))
+
+(pub (fn neg ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (t (& ty.sty)) (chk bool)) unit
+  (if (not chk) (ret (x64_int.neg_r (&mut (. fx buf)) (cg_lay.width t) x64_buf.rax)))
+  (if (cg_lay.signed t) (neg_s g p fx t) (neg_u g p fx t))))
+
+(fn neg_s ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (t (& ty.sty))) unit
+  (x64_int.cmp_ri (&mut (. fx buf)) (cg_lay.width t) x64_buf.rax (smin t))
+  (trap g p fx x64_buf.e "int.overflow")
+  (x64_int.neg_r (&mut (. fx buf)) (cg_lay.width t) x64_buf.rax))
+
+(fn neg_u ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (t (& ty.sty))) unit
+  (x64_int.test_rr (&mut (. fx buf)) (cg_lay.width t) x64_buf.rax x64_buf.rax)
+  (trap g p fx x64_buf.ne "int.overflow")
+  (x64_int.xor_rr (&mut (. fx buf)) 4 x64_buf.rax x64_buf.rax))
+
+(fn smin ((t (& ty.sty))) i64
+  (if (== (. t id) 0) (ret (neg 128)))
+  (if (== (. t id) 1) (ret (neg 32768)))
+  (if (== (. t id) 2) (ret (neg 2147483648)))
+  (shl 1 63))
+
+(pub (fn shift ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (op i64)
+   (t (& ty.sty))
+   (chk bool)) unit
+  (let w (cg_lay.width t))
+  (let bits (* w 8))
+  (if chk (shift_chk g p fx op t w bits) (shift_mask fx op t w bits))))
+
+(fn shift_mask ((fx (&mut cg_frame.fncx)) (op i64) (t (& ty.sty)) (w i64) (bits i64)) unit
+  (x64_int.and_ri (&mut (. fx buf)) w x64_buf.rcx (- bits 1))
+  (emit_sh fx op w (cg_lay.signed t)))
+
+(fn shift_chk ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (op i64)
+   (t (& ty.sty))
+   (w i64)
+   (bits i64)) unit
+  (if (cg_lay.signed t) (x64_int.cmp_ri (&mut (. fx buf)) w x64_buf.rcx 0))
+  (if (cg_lay.signed t) (trap g p fx x64_buf.l "int.overflow"))
+  (x64_int.cmp_ri (&mut (. fx buf)) w x64_buf.rcx bits)
+  (trap g p fx x64_buf.ae "int.overflow")
+  (emit_sh fx op w (cg_lay.signed t)))
+
+(fn emit_sh ((fx (&mut cg_frame.fncx)) (op i64) (w i64) (signed bool)) unit
+  (if (== op 15)
+    (if signed
+      (x64_int.sar_cl (&mut (. fx buf)) w x64_buf.rax)
+      (x64_int.shr_cl (&mut (. fx buf)) w x64_buf.rax))
+    (x64_int.shl_cl (&mut (. fx buf)) w x64_buf.rax)))
+
+(pub (fn fneg ((fx (&mut cg_frame.fncx)) (t (& ty.sty))) unit
+  (let d (cg_frame.tmp fx 8 8))
+  (if (== (. t kind) 1u8)
+    (cg_frame.bssst (&mut (. fx buf)) x64_buf.rbp d 0)
+    (cg_frame.bsdst (&mut (. fx buf)) x64_buf.rbp d 0))
+  (cg_frame.ld fx 8 x64_buf.rax x64_buf.rbp d)
+  (x64_int.mov_ri (&mut (. fx buf)) 8 x64_buf.rcx (if (== (. t kind) 1u8) (shl 1 31) (shl 1 63)))
+  (x64_int.xor_rr (&mut (. fx buf)) 8 x64_buf.rax x64_buf.rcx)
+  (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax)
+  (if (== (. t kind) 1u8)
+    (cg_frame.bssld (&mut (. fx buf)) 0 x64_buf.rbp d)
+    (cg_frame.bsdld (&mut (. fx buf)) 0 x64_buf.rbp d))))

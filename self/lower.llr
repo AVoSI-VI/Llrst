@@ -38,7 +38,8 @@
   (pub (scol i64))
   (pub (slen i64))
   (pub (path str))
-  (pub (diags (vec diag.dg)))))
+  (pub (diags (vec diag.dg)))
+  (pub (clos (vec mir.clbody)))))
 
 (fn low_new ((name str) (ret ty.sty) (raw bool)) low
   (low raw
@@ -66,7 +67,8 @@
     0
     0
     (str.new)
-    (vec.new <diag.dg>)))
+    (vec.new <diag.dg>)
+    (vec.new <mir.clbody>)))
 
 (pub (fn lower_fn ((p (& prog.prog)) (e thir.ex) (name str) (out (&mut (vec diag.dg)))) mir.body
   (let raw (str.eq (& name) "sys.checked_div"))
@@ -84,7 +86,12 @@
   (pop_scope p (&mut w))
   (terminate (&mut w) (term_ret))
   (diag.append out (& (. w diags)))
-  (mir.body shown (vec.len (& (. e params))) (. w locs) (. w blocks) (str.clone (& (. w path))))))
+  (mir.body shown
+    (vec.len (& (. e params)))
+    (. w locs)
+    (. w blocks)
+    (str.clone (& (. w path)))
+    (. w clos))))
 
 (pub (struct mapped (pub (locs (vec thir.loc))) (pub (map (vec i64)))))
 
@@ -405,8 +412,7 @@
 
 (fn into_ref ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
   (let inner (vec.get (& (. e kids)) 0))
-  (if (const_static p inner)
-    (do (let mut r (mir.rvoid)) (set (. r kind) 17u8) (push w (mir.sassign dest r)) (ret)))
+  (if (const_static p inner) (ret (lower_call.static_assign p w inner dest)))
   (let pl (as_place p w inner))
   (let mut r (mir.rvoid))
   (set (. r kind) 1u8)

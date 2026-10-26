@@ -432,6 +432,34 @@
 
 (fn take_locs ((c (&mut ck))) (vec loc) (vec.take (&mut (. c locals))))
 
+(pub (fn check_test ((p (& prog.prog))
+   (mi i64)
+   (body (& (vec expr)))
+   (line i64)
+   (col i64)
+   (len i64)
+   (out (&mut (vec diag.dg)))) (res ex str)
+  (let mut c (ck_new mi mi (ty.unit)))
+  (set (. c path) (str.clone (& (. (vec.get (& (. p mods)) mi) file))))
+  (let want (ty.clone (& (. c ret))))
+  (let got (check_block p (&mut c) body true (& want) line col len))
+  (let mut fnex (ex_new 5u8 (ty.unit) line col mi))
+  (match got
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok b) (set fnex b)))
+  (default_ints (&mut c))
+  (let mut locs (vec.take (&mut (. c locals))))
+  (match (zonk_locs p (&mut c) (&mut locs))
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok _) ()))
+  (set (. c locals) locs)
+  (match (zonk_ex p (&mut c) (&mut fnex))
+    ((res.err e) (do (diag.append out (& (. c diags))) (ret (res.err e))))
+    ((res.ok _) ()))
+  (set (. fnex locs) (take_locs (&mut c)))
+  (diag.append out (& (. c diags)))
+  (res.ok fnex)))
+
 (pub (fn std_fn ((p (& prog.prog)) (module (& str)) (name (& str))) i64 (prog.std_fn p module name)))
 
 (pub (fn ref_str ((p (& prog.prog))) ty.sty

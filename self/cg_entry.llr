@@ -1,0 +1,57 @@
+;; Generated main and the --test harness.
+(use std.str)
+(use proj.cg_frame)
+(use proj.cg_mod)
+(use proj.elf)
+(use proj.x64_buf)
+(use proj.x64_int)
+
+(fn epilogue ((b (&mut x64_buf.buf))) unit
+  (x64_int.xor_rr b 4 x64_buf.rax x64_buf.rax)
+  (x64_int.pop_r b x64_buf.rbp)
+  (x64_int.ret b))
+
+(pub (fn emit_main ((g (&mut cg_mod.cg)) (entry i64)) unit
+  (let sym (elf.add_sym (&mut (. g obj)) "main" elf.global elf.st_func elf.sec_text 0 0))
+  (let mut b (x64_buf.new))
+  (x64_int.push_r (&mut b) x64_buf.rbp)
+  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
+  (x64_int.movsx (&mut b) 8 4 x64_buf.rax x64_buf.rdi)
+  (x64_int.lea_rip (&mut b) x64_buf.r10 (. g argc))
+  (cg_frame.bstore (&mut b) 8 x64_buf.r10 0 x64_buf.rax)
+  (x64_int.lea_rip (&mut b) x64_buf.r10 (. g argv))
+  (cg_frame.bstore (&mut b) 8 x64_buf.r10 0 x64_buf.rsi)
+  (x64_int.call_sym (&mut b) entry)
+  (epilogue (&mut b))
+  (let _ (x64_buf.finish (&mut b)))
+  (cg_mod.append_fn g sym (& b))))
+
+(pub (fn emit_tests ((g (&mut cg_mod.cg)) (names (& (vec str))) (fns (& (vec i64))) (run i64) (done i64)) i64
+  (let sym (elf.add_sym (&mut (. g obj)) "llr_test_entry" elf.local elf.st_func elf.sec_text 0 0))
+  (let mut b (x64_buf.new))
+  (x64_int.push_r (&mut b) x64_buf.rbp)
+  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
+  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp 16)
+  (x64_int.xor_rr (&mut b) 4 x64_buf.rax x64_buf.rax)
+  (cg_frame.bstore (&mut b) 8 x64_buf.rbp (neg 8) x64_buf.rax)
+  (for i 0 (vec.len names) (one_test g (&mut b) (vec.get names i) (@ (vec.get fns i)) run))
+  (cg_frame.bload (&mut b) 8 x64_buf.rdi x64_buf.rbp (neg 8))
+  (x64_int.call_sym (&mut b) done)
+  (x64_int.mov_rr (&mut b) 8 x64_buf.rsp x64_buf.rbp)
+  (epilogue (&mut b))
+  (let _ (x64_buf.finish (&mut b)))
+  (cg_mod.append_fn g sym (& b))
+  sym))
+
+(fn one_test ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (name (& str)) (fnsym i64) (run i64)) unit
+  (x64_int.lea_rip b x64_buf.rdi (cg_mod.str_sym g name))
+  (x64_int.lea_rip b x64_buf.rsi fnsym)
+  (x64_int.call_sym b run)
+  (cg_frame.bload b 8 x64_buf.rcx x64_buf.rbp (neg 8))
+  (x64_int.add_rr b 8 x64_buf.rcx x64_buf.rax)
+  (cg_frame.bstore b 8 x64_buf.rbp (neg 8) x64_buf.rcx))
+
+(pub (fn test_sym ((g (&mut cg_mod.cg)) (i i64)) i64
+  (let mut name (str.from "llr_test_"))
+  (str.push (&mut name) (& (str.from_int i)))
+  (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_func elf.sec_text 0 0)))

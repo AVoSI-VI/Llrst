@@ -61,12 +61,20 @@
 
 (pub (struct blk (pub (stmts (vec st))) (pub (term term))))
 
+;; Nested closure. `body` holds these in a vec, so the layout stays finite.
+(pub (struct clbody
+  (pub (body body))
+  (pub (caps (vec ty.sty)))
+  (pub (user (vec ty.sty)))
+  (pub (ret ty.sty))))
+
 (pub (struct body
   (pub (name str))
   (pub (args i64))
   (pub (locs (vec thir.loc)))
   (pub (blocks (vec blk)))
-  (pub (path str))))
+  (pub (path str))
+  (pub (clos (vec clbody)))))
 
 (pub (fn ploc ((l i64)) place (place l (vec.new <u8>) (vec.new <i64>))))
 
@@ -118,6 +126,16 @@
 
 (pub (fn rvoid () rv
   (rv 0u8 false false 0 (ty.unit) 0 (vec.new <u8>) (vec.new <i64>) (vec.new <op>) (str.new))))
+
+;; Kind 17. Print ignores op, local, text, and ty, so emit-mir stays the word "static".
+(pub (fn rstatic ((ck i64) (v i64) (text str) (t ty.sty)) rv
+  (let mut r (rvoid))
+  (set (. r kind) 17u8)
+  (set (. r op) ck)
+  (set (. r local) v)
+  (set (. r text) text)
+  (set (. r ty) t)
+  r))
 
 (pub (fn tnone () term
   (term 6u8
@@ -177,11 +195,11 @@
     (if (== k 0u8) (do (set t (field_ty p (& t) variant n)) (set variant (neg 1)))))
   t))
 
-(fn field_ty ((p (& prog.prog)) (t (& ty.sty)) (variant i64) (i i64)) ty.sty
+(pub (fn field_ty ((p (& prog.prog)) (t (& ty.sty)) (variant i64) (i i64)) ty.sty
   (let d (vec.get (& (. p defs)) (. t id)))
   (if (== (. d kind) 0u8) (ret (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args)))))
   (let v (vec.get (& (. d svars)) variant))
-  (ty.subst (vec.get (& (. v tys)) i) (& (. t args))))
+  (ty.subst (vec.get (& (. v tys)) i) (& (. t args)))))
 
 (pub (fn succs ((t (& term))) (vec i64)
   (let mut o (vec.new <i64>))

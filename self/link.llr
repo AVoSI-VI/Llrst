@@ -1,0 +1,65 @@
+;; Unix link: cc plus llr_stat.o. COFF is a later step.
+(use std.fs)
+(use std.os)
+(use std.path)
+(use std.str)
+
+(fn sh ((s (& str))) str
+  (let mut o (str.from "'"))
+  (for i 0 (str.len s)
+    (if (== (str.at s i) 39u8) (str.push (&mut o) "'\\''") (str.push_byte (&mut o) (str.at s i))))
+  (str.push_byte (&mut o) 39u8)
+  o)
+
+(fn exists ((p (& str))) bool (fs.exists p))
+
+(fn first ((cands (& (vec str)))) str
+  (for i 0 (vec.len cands) (if (exists (vec.get cands i)) (ret (str.clone (vec.get cands i)))))
+  (str.new))
+
+(fn push_cand ((o (&mut (vec str))) (p str)) unit (if (> (str.len (& p)) 0) (vec.push o p)))
+
+(pub (fn runtime ((name (& str))) str
+  (let mut c (vec.new <str>))
+  (match (os.env "LLRST_RUNTIME")
+    ((opt.some d) (push_cand (&mut c) (path.join (& d) name)))
+    ((opt.none) ()))
+  (match (os.env "LLRST_STD")
+    ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& d))) name)))
+    ((opt.none) ()))
+  (match (os.arg 0)
+    ((opt.some exe)
+      (do
+        (let dir (path.dir (& exe)))
+        (push_cand (&mut c) (path.join (& (path.join (& dir) "../share/llrst")) name))
+        (push_cand (&mut c) (path.join (& (path.join (& dir) "../../runtime")) name))))
+    ((opt.none) ()))
+  (push_cand (&mut c) (path.join "runtime" name))
+  (first (& c))))
+
+(pub (fn obj_path ((out (& str))) str
+  (path.join (& (path.dir out)) (& (str.cat (& (path.stem out)) ".o")))))
+
+(pub (fn cc ((obj (& str)) (out (& str))) i64
+  (let mut cmd (str.from "cc "))
+  (str.push (&mut cmd) (& (sh obj)))
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& (sh out)))
+  (let shim (runtime "llr_stat.o"))
+  (if (> (str.len (& shim)) 0)
+    (do (str.push (&mut cmd) " ") (str.push (&mut cmd) (& (sh (& shim))))))
+  (str.push (&mut cmd) " -pie -pthread")
+  (os.shell (& cmd))))
+
+(pub (fn link ((bytes (& str)) (out (& str))) str
+  (let obj (obj_path out))
+  (match (fs.write (& obj) bytes) ((res.err e) (ret e)) ((res.ok _) ()))
+  (let code (cc (& obj) out))
+  (if (fs.exists (& obj)) (let _ (fs.remove (& obj))))
+  (if (== code 0) (str.new) (fail (& obj) code))))
+
+(fn fail ((obj (& str)) (code i64)) str
+  (let mut s (str.from "E||0|0|0|link.failed|cmd=cc|got="))
+  (str.push (&mut s) (& (str.from_int code)))
+  (let _ obj)
+  s)

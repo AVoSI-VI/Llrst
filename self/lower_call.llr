@@ -1,12 +1,25 @@
 ;; Calls, builtins, try, and dyn packing.
 (use std.str)
 (use proj.inline)
+(use proj.lit)
 (use proj.lower)
 (use proj.thir_expr)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
+
+(pub (fn static_assign ((p (& prog.prog)) (w (&mut lower.low)) (inner (& thir.ex)) (dest mir.place)) unit
+  (let d (vec.get (& (. p defs)) (. inner id)))
+  (let n (lit.parse_num (& (. (. d val) text))))
+  (let mut ck 0)
+  (let mut v 0)
+  (if (and (. n ok) (. n float)) (set ck 1))
+  (if (and (. n ok) (not (. n float))) (set v (. n val)))
+  (if (str.eq (& (. (. d val) text)) "true") (do (set ck 2) (set v 1)))
+  (if (str.eq (& (. (. d val) text)) "false") (set ck 2))
+  (let text (str.clone (& (. (. d val) text))))
+  (lower.push w (mir.sassign dest (mir.rstatic ck v text (ty.clone (& (. inner ty))))))))
 
 (pub (fn into_call ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (if (== (. e id) 3) (ret (builtin p w e dest)))

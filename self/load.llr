@@ -10,9 +10,7 @@
 
 (fn slash ((p (& str))) str
   (let mut o (str.new))
-  (for i 0 (str.len p)
-    (let c (str.at p i))
-    (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
   o)
 
 (fn std_dir () str
@@ -20,10 +18,16 @@
 
 (fn os_name () str
   (match (os.env "OS")
-    ((opt.some s) (if (str.eq (& s) "Windows_NT") (str.from "sys_windows.llr") (str.from "sys_posix.llr")))
+    ((opt.some s)
+      (if (str.eq (& s) "Windows_NT") (str.from "sys_windows.llr") (str.from "sys_posix.llr")))
     ((opt.none) (str.from "sys_posix.llr"))))
 
-(fn push_src ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (path str) (file str) (is_std bool) (items (vec item))) i64
+(fn push_src ((srcs (&mut (vec src.loaded)))
+   (paths (&mut (vec str)))
+   (path str)
+   (file str)
+   (is_std bool)
+   (items (vec item))) i64
   (vec.push paths path)
   (vec.push srcs (src.loaded (str.clone (vec.get paths (- (vec.len paths) 1))) file is_std items))
   (- (vec.len srcs) 1))
@@ -82,16 +86,14 @@
   (let file (path.join dir (& (os_name))))
   (let extra (try (read_items (& file))))
   (let mut found (neg 1))
-  (for i 0 (vec.len srcs)
-    (if (str.eq (& (. (vec.get srcs i) path)) "std.sys") (set found i)))
+  (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) path)) "std.sys") (set found i)))
   (if (< found 0) (ret (res.err (str.from "io.read"))))
   (let s (vec.get_mut srcs found))
   (let mut more extra)
   (while (> (vec.len (& more)) 0) (vec.push (&mut (. s items)) (vec.remove (&mut more) 0)))
   (res.ok ()))
 
-(fn use_proj ((it (& item))) bool
-  (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj.")))
+(fn use_proj ((it (& item))) bool (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj.")))
 
 (fn load_projs ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str))) (res unit str)
   (let dir (path.dir main))
@@ -101,7 +103,8 @@
     (for k 0 n
       (let name (str.clone (& (. (vec.get (& (. (vec.get srcs i) items)) k) name))))
       (let kind (. (vec.get (& (. (vec.get srcs i) items)) k) kind))
-      (if (and (== kind 0u8) (str.starts (& name) "proj.")) (try (load_proj srcs paths (& dir) (& name)))))
+      (if (and (== kind 0u8) (str.starts (& name) "proj."))
+        (try (load_proj srcs paths (& dir) (& name)))))
     (set i (+ i 1)))
   (res.ok ()))
 
@@ -118,18 +121,17 @@
     (set i (- i 1)))
   (str.clone s))
 
-(fn str_cat ((a (& str)) (b (& str))) str
-  (let mut s (str.clone a))
-  (str.push (&mut s) b)
-  s)
+(fn str_cat ((a (& str)) (b (& str))) str (let mut s (str.clone a)) (str.push (&mut s) b) s)
 
-(pub (fn load_prog ((file (& str))) (res prog.prog str)
-  (let dir (std_dir))
+(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "")))
+
+(pub (fn load_at ((file (& str)) (dir (& str))) (res prog.prog str)
+  (let root (if (> (str.len dir) 0) (slash dir) (std_dir)))
   (let mut srcs (vec.new <src.loaded>))
   (let mut paths (vec.new <str>))
   (let mainp (slash file))
   (try (load_one (&mut srcs) (&mut paths) (str.from "main") (str.clone (& mainp)) false))
-  (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& dir)))
-  (try (append_os (&mut srcs) (& dir)))
+  (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
+  (try (append_os (&mut srcs) (& root)))
   (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
   (collect.collect srcs)))

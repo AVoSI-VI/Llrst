@@ -60,9 +60,11 @@
   (param_flow (vec.get (& (. p defs)) (. t fid)) (& (. t targs)))))
 
 (pub (fn param_flow ((d (& prog.def)) (targs (& (vec ty.sty)))) (vec i64)
+  (let ret (ty.subst (& (. d ret)) targs))
   (let mut ret_l (vec.new <str>))
-  (ty.lts (& (ty.subst (& (. d ret)) targs)) (&mut ret_l))
+  (ty.lts (& ret) (&mut ret_l))
   (if (> (vec.len (& ret_l)) 0) (ret (life_args d targs (& ret_l))))
+  (if (not (ty.has_ref (& ret))) (ret (vec.new <i64>)))
   (let refs (ref_params d targs))
   (if (== (vec.len (& refs)) 1) (ret refs))
   (if (self_ref d targs) (ret (one 0)))

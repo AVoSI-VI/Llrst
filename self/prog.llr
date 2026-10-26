@@ -49,6 +49,14 @@
 
 (pub (struct impr (pub (tr i64)) (pub (ty ty.sty)) (pub (ids (vec i64)))))
 
+(pub (struct tdecl
+  (pub (mod i64))
+  (pub (name str))
+  (pub (body (vec expr)))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
+
 (pub (struct prog
   (pub (defs (vec def)))
   (pub (mods (vec modu)))
@@ -61,7 +69,8 @@
   (pub (ims (vec impr)))
   (pub (arch str))
   (pub (notes (vec diag.dg)))
-  (pub (used (vec i64)))))
+  (pub (used (vec i64)))
+  (pub (tests (vec tdecl)))))
 
 (pub (fn blank_def ((name str) (module i64) (kind u8)) def
   (def name
@@ -108,7 +117,8 @@
     (vec.new <impr>)
     (str.from "x86_64")
     (vec.new <diag.dg>)
-    (vec.new <i64>))))
+    (vec.new <i64>)
+    (vec.new <tdecl>))))
 
 (pub (fn def_at ((p (& prog)) (id i64)) def
   (let d (vec.get (& (. p defs)) id))
