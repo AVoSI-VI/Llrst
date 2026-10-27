@@ -4,6 +4,7 @@
 (use std.path)
 (use std.str)
 (use proj.link_win)
+(use proj.load)
 
 (fn sh ((s (& str))) str
   (let mut o (str.from "'"))
@@ -28,13 +29,11 @@
   (match (os.env "LLRST_STD")
     ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& (slash (& d))))) name)))
     ((opt.none) ()))
-  (match (os.arg 0)
-    ((opt.some exe)
-      (do
-        (let dir (path.dir (& (slash (& exe)))))
-        (push_cand (&mut c) (path.join (& (path.join (& dir) "../share/llrst")) name))
-        (push_cand (&mut c) (path.join (& (path.join (& dir) "../../runtime")) name))))
-    ((opt.none) ()))
+  (let dir (load.exe_dir))
+  (if (> (str.len (& dir)) 0)
+    (do
+      (push_cand (&mut c) (path.join (& (path.join (& dir) "../share/llrst")) name))
+      (push_cand (&mut c) (path.join (& (path.join (& dir) "../../runtime")) name))))
   (push_cand (&mut c) (path.join "runtime" name))
   (first (& c))))
 

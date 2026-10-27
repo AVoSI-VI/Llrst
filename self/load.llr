@@ -4,6 +4,7 @@
 (use std.os)
 (use std.path)
 (use std.str)
+(use std.sys)
 (use proj.collect)
 (use proj.prog)
 (use proj.src)
@@ -13,8 +14,40 @@
   (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
   o)
 
+(fn exe_buf () str
+  (let mut buf (str.new))
+  (let mut n 256)
+  (while (<= n 65536)
+    (do
+      (str.reserve (&mut buf) (- n (. buf len)))
+      (let got (sys.llr_exe_path (. buf p) (as u64 n)))
+      (if (> got 0) (do (set (. buf len) got) (ret buf)))
+      (set n (* n 2))))
+  (str.new))
+
+(pub (fn exe_dir () str
+  (let p (exe_buf))
+  (if (== (str.len (& p)) 0) (ret (str.new)))
+  (path.dir (& (slash (& p))))))
+
+(fn has_sys ((dir (& str))) bool (fs.exists (& (path.join dir "sys.llr"))))
+
+(fn std_hit ((dir (& str))) str
+  (if (== (str.len dir) 0) (ret (str.new)))
+  (let a (path.join dir "../std"))
+  (if (has_sys (& a)) (ret a))
+  (let b (path.join dir "../../std"))
+  (if (has_sys (& b)) (ret b))
+  (let c (path.join (& (path.join dir "../share/llrst")) "std"))
+  (if (has_sys (& c)) (ret c))
+  (str.new))
+
+(fn std_found () str
+  (let hit (std_hit (& (exe_dir))))
+  (if (> (str.len (& hit)) 0) hit (str.from "std")))
+
 (fn std_dir () str
-  (match (os.env "LLRST_STD") ((opt.some s) (slash (& s))) ((opt.none) (str.from "std"))))
+  (match (os.env "LLRST_STD") ((opt.some s) (slash (& s))) ((opt.none) (std_found))))
 
 (fn os_name () str
   (match (os.env "OS")

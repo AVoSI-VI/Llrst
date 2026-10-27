@@ -2,9 +2,17 @@
 # Stage bootstrap. llrc builds llrs0, llrs0 builds llrs1, llrs1 builds llrs2.
 # Every stage is linked as the same path and then copied, so the output file
 # name is not part of the image. cmp must be byte-equal, then the run suite uses llrs2.
-# Usage: scripts/self.sh
+# Usage: scripts/self.sh [--stage]
+# --stage stops after self|stage2=equal and does not run the suite.
 # Output: one pipe record per step. Exit 1 on failure.
 set -u
+stage_only=0
+if [ "${1:-}" = "--stage" ]; then
+  stage_only=1
+elif [ -n "${1:-}" ]; then
+  echo "fail|setup|arg=$1|fix=scripts/self.sh [--stage]"
+  exit 1
+fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root" || exit 1
 
@@ -87,6 +95,10 @@ if cmp -s "$out/llrs1" "$out/llrs2"; then
 else
   echo "fail|stage2|llrs1!=llrs2"
   exit 1
+fi
+
+if [ "$stage_only" -eq 1 ]; then
+  exit 0
 fi
 
 unset SOURCE_DATE_EPOCH

@@ -31,7 +31,8 @@
 (fn bat () str
   (let mut cmd (str.from "call "))
   (str.push (&mut cmd) (& (dq (& (vswhere)))))
-  (str.push (&mut cmd) " -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath")
+  (str.push (&mut cmd)
+    " -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath")
   (let got (os.capture (& cmd)))
   (if (!= (. got code) 0) (ret (str.new)))
   (let root (slash (& (str.trim (& (. got out))))))
@@ -47,9 +48,7 @@
   (str.push (&mut s) " >nul && ")
   s)
 
-(fn push_q ((cmd (&mut str)) (p (& str))) unit
-  (str.push cmd " ")
-  (str.push cmd (& (dq p))))
+(fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (dq p))))
 
 (pub (fn link ((obj (& str)) (out (& str)) (wsa (& str)) (win (& str))) str
   (let pre (prefix))
@@ -60,6 +59,6 @@
   (push_q (&mut cmd) obj)
   (push_q (&mut cmd) wsa)
   (push_q (&mut cmd) win)
-  (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608")
+  (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
   (if (== code 0) (str.new) (fail (& (str.from_int code))))))

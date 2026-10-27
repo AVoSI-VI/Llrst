@@ -87,7 +87,9 @@
 
 (pub (extern __errno_location () (ptr i32)))
 
-(pub (extern pthread_create ((thread (ptr u8)) (attr (ptr u8)) (start (fn ((ptr u8)) (ptr u8))) (arg (ptr u8))) i32))
+(pub (extern pthread_create
+  ((thread (ptr u8)) (attr (ptr u8)) (start (fn ((ptr u8)) (ptr u8))) (arg (ptr u8)))
+  i32))
 
 (pub (extern pthread_join ((thread u64) (ret (ptr u8))) i32))
 
@@ -113,3 +115,4 @@
 
 (pub (extern llr_spawn_self ((arg (ptr u8))) i32))
 
+(pub (extern llr_exe_path ((buf (ptr u8)) (n u64)) i64))

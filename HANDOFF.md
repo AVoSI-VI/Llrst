@@ -37,11 +37,12 @@ Decisions taken with the user before building:
 
 | path | role | start here |
 |------|------|-----------|
-| `compiler/src/` | `llrc` (Rust) | `main.rs` (CLI), `driver.rs` (pipeline) |
+| `self/` | installed compiler (`llrs`). The `llrc` command is stage-2 `llrs` | `llrs.llr` (CLI), `drive.llr` (build) |
+| `compiler/src/` | stage 0 `llrc` (Rust, Cranelift). Not installed. Kept until two releases agree | `main.rs` (CLI), `driver.rs` (pipeline) |
 | `std/` | standard library, 17 modules, all Llrst | `sys.llr` (externs, panic), `str.llr`, `vec.llr` |
 | `tools/` | agent tools, one `.llr` per binary | `llr-read.llr` (smallest), `llr-fmt.llr` + `fmtlint.llr` |
 | `tests/` | golden tests and runner | `run.sh`, `run/*.llr+.out`, `err/*.llr+.err` |
-| `scripts/` | `install.sh PREFIX`, `check-lines.sh` | |
+| `scripts/` | `install.sh` and `install.ps1` build stage 0, then install `llrs2`; `self.sh`; `check-lines.sh` | |
 | `docs/spec/` | grammar, tokens, types, memory, errors | `errors.md` is the code catalogue |
 | `docs/canon/` | the one right way per topic | `README.md` |
 | `docs/std/` | per-module API tables (generated from signatures) | `README.md` |
@@ -50,54 +51,60 @@ Decisions taken with the user before building:
 
 ## 4. Pipeline
 
+The installed compiler is `self/`. Stage 0 is still the Cranelift pipeline in section 6.
+
 ```mermaid
 flowchart LR
-  src[".llr"] --> sexpr["sexpr.rs lex+read"] --> parse["parse/ AST"] --> resolve["resolve.rs Program"]
-  resolve --> check["check/ THIR per instance"] --> mir["mir/lower* MIR"] --> borrow["borrow/ NLL-lite"]
-  borrow --> cg["codegen/ Cranelift"] --> obj[".o"] --> link["link.rs cc"]
+  src[".llr"] --> load["load.llr std.ast"] --> resolve["collect.llr resolve.llr"]
+  resolve --> check["check.llr thir*"] --> mir["lower* MIR"] --> borrow["borrow.llr lint.llr"]
+  borrow --> cg["cg_* x64_*"] --> obj["elf.llr or coff.llr"] --> link["link.llr cc or cl"]
 ```
 
-| pass | file(s) | key types |
-|------|---------|-----------|
-| read | `sexpr.rs` | `Sexpr::{Atom,Str(Vec<u8>),List}` with `Span` |
-| parse | `parse/mod.rs` items, `parse/expr.rs`, `parse/ty.rs` (generics `<T 'a>`, targs) | `ast::Item`, `ast::Expr`, `ast::TyExpr` |
-| resolve | `resolve.rs` | `Program { defs: Vec<Def>, modules, methods: HashMap<DefId, HashMap<name, DefId>>, prelude }`; `Loader` loads main, all of `std/`, and `proj.*` modules |
-| types | `ty.rs` | `Ty::{Int,F32,F64,Bool,Unit,Never,Ref,Ptr,Adt(DefId,args),Fn,Param,Infer}` |
-| check | `check/mod.rs` (unify, scopes, `check_fn(def, targs)`), `expr.rs`, `call.rs`, `pat.rs`, `zonk.rs` | `thir::{FnBody, Expr, ExprKind, Callee, Pat}` |
-| MIR | `mir/mod.rs` types + `needs_drop`, `lower.rs`, `lower_call.rs`, `lower_match.rs`, `print.rs` | `Body { locals, blocks }`, `Place { local, proj }`, `Operand::{Copy,Move,Const}`, `Rvalue`, `Stmt::{Assign,Drop,Forget,StorageDead}`, `Term` |
-| borrowck | `borrow/mod.rs` (accesses, overlap), `liveness.rs`, `moves.rs`, `loans.rs`, `holders.rs`, `check.rs` | `Loan { place, mutable, two_phase, point, span }`, `Holders` (per-point `(loan, local)` bitsets) |
-| codegen | `codegen/mod.rs` (module, symbols, data, ABI), `layout.rs`, `func.rs`, `ops.rs`, `term.rs`, `drop.rs` | `Instance = (DefId, Vec<Ty>)`, `Val::{Scalar,Agg(addr),Unit}` |
-| driver | `driver.rs` | checks all non-generic user fns, then mono worklist from `main` (or tests) via `cg.discovered` |
+| pass | file(s) | what it owns |
+|------|---------|--------------|
+| load | `load.llr` | main, sorted `std/`, host OS externs, then `proj.*`; std search is `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std` |
+| resolve | `collect.llr`, `resolve.llr`, `prog.llr` | def ids, methods, visibility |
+| types | `ty.llr` | ints, floats, bool, refs, pointers, adts, fns, closures, dyn, params, infer |
+| check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr` | one typed body per instance |
+| MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div` |
+| borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `lint.llr` | loans, holders, init, warnings |
+| codegen | `cg_mod.llr`, `cg_frame.llr`, `cg_op.llr`, `cg_term.llr`, `cg_drop.llr`, `x64_abi.llr`, `x64_buf.llr` | every local a slot; SysV or Win64 |
+| objects | `elf.llr`, `coff.llr` | ELF64 (PC32, PLT32, 64) or COFF (REL32, ADDR64) |
+| link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims |
+| driver | `llrs.llr`, `drive.llr` | `build`, `run`, `check`, `emit-mir`; reachable instances from `main` or `--test` |
 
-Generics are monomorphized by re-checking the body per instantiation (`check_fn` with
-concrete `targs`); there is no polymorphic checking. Only reachable instances are
-compiled; std bodies are checked lazily.
+Generics are monomorphized by re-checking the body per instantiation. Only reachable
+instances are compiled; std bodies are checked lazily.
 
 ## 5. Build, run, verify
 
 ```
-cargo build                                   # debug llrc
-cargo build --release
-cargo metadata --format-version 1 | ...target_directory   # sandbox may redirect via CARGO_TARGET_DIR
-LLRC=<path to llrc> tests/run.sh              # goldens + every std test + line check
+cargo build --release                         # stage 0 llrc; not installed
+scripts/self.sh                               # llrs0, llrs1, llrs2, byte-compare, then the suite
+scripts/self.sh --stage                       # stop after self|stage2=equal
+scripts/install.sh [PREFIX]                  # stage 0, install llrs2 as llrc, std, tools, hello
+scripts/install.ps1 [PREFIX]                 # same on Windows
+LLRC=<prefix>/bin/llrc tests/run.sh          # goldens + every std test + line check
 powershell -File tests/run.ps1                # same suite on Windows
-tests/self.sh [STAGE]                         # diff STAGE (default llr-check) against llrc check; non-zero until they match
+tests/self.sh [STAGE]                         # diff STAGE (default llr-check) against stage-0 llrc check
 powershell -File tests/self.ps1 [STAGE]       # same on Windows
 <llrc> run tests/run/hello.llr --std std
 <llrc> build std/re.llr --test --std std -o /tmp/t && /tmp/t [FILTER]
 <llrc> check tests/err/X.llr --std std 2> tests/err/X.err   # regenerate a golden after a deliberate change
 <llrc> build tests/panic/X.llr --std std -o /tmp/p && /tmp/p 2> tests/panic/X.err   # same for panic goldens (exit 101)
 <llrc> emit-mir FILE --std std                # MIR dump, for borrow errors
-<llrc> build f.llr --target aarch64-unknown-linux-gnu --emit-obj   # also riscv64gc-, s390x-, aarch64-apple-darwin
-scripts/install.sh /tmp/prefix                # release build, std copy, 7 tools, hello verify
 scripts/check-lines.sh                        # W at 500 lines, fail at 1000
 ```
 
-std discovery order in `driver::find_std`: `--std`, `$LLRST_STD`, `<exe>/../std`,
-`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`.
+`cargo build` still produces stage 0 at `target/release/llrc` (or `llrc.exe`). A sandbox
+may redirect that directory; `cargo metadata --format-version 1` prints `target_directory`.
 
-`llrc` accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
-for `llr-test`.
+std discovery order: `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`,
+`<exe>/../share/llrst/std`, `./std`. The installed `llrc` reads the executable path from
+`llr_exe_path`, not from `argv[0]`.
+
+The installed `llrc` accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"`
+works for `llr-test`.
 
 ## 6. Implementation notes (things you would otherwise rediscover)
 
@@ -278,6 +285,11 @@ Tools (`tools/`, `docs/tools/`)
 36. There is no Huffman coding, no HPACK dynamic table, no protobuf, and only one stream and one message (`std/grpc.llr`).
 37. The MQTT broker is one connection, QoS 0, exact topics, and a one-byte remaining length (`std/mqtt.llr`).
 38. A function pointer still cannot capture a needle. A trait method is not generic, an impl type is a concrete name, and a method that returns `Self` is not a trait object (`compiler/src/check/traits.rs`).
+39. The installed compiler accepts `--target` only when it is empty or an `x86_64` triple that does not contain `apple` (`self/drive.llr` `target_ok`). aarch64, riscv64, s390x, and apple-darwin objects stay on stage 0 `target/release/llrc` (`tests/cross.sh`).
+40. `--target` does not switch `sys_windows.llr` / `sys_posix.llr`. `self/load.llr` follows the host. The `x86_64-pc-windows-gnu` os_id check in `tests/cross.sh` needs stage 0.
+41. Unix link is host `cc` with `-pie -pthread` (`self/link.llr`), not `clang --target`. A Darwin host never sets the darwin renames, and Apple clang rejects `-pie`.
+42. Windows link is `cl` only (`self/link_win.llr`). The installed compiler does not compile `llr_win.c` / `llr_wsa.c` and does not probe clang or gcc.
+43. `llrc run` quotes arguments with POSIX single quotes (`self/llrs.llr` `quote`), so `cmd` does not receive the vector stage 0 passes.
 
 ## 9. Conventions to keep
 
