@@ -1,6 +1,7 @@
 ;; rbp frame. Every local is a slot. Caller-saved scratch is rax, rcx, rdx, r10, r11, xmm0.
 (use proj.cg_lay)
 (use proj.cg_mod)
+(use proj.elf)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
@@ -182,6 +183,7 @@
     (vec.push (&mut (. fx labs)) (x64_buf.label (&mut (. fx buf)))))
   (x64_int.push_r (&mut (. fx buf)) x64_buf.rbp)
   (x64_int.mov_rr (&mut (. fx buf)) 8 x64_buf.rbp x64_buf.rsp)
+  (probe g (&mut fx))
   (if (!= (. fx frame) 0) (x64_int.sub_ri (&mut (. fx buf)) 8 x64_buf.rsp (. fx frame)))
   (save_in g p (&mut fx) b)
   (zero_flags (&mut fx))
@@ -190,10 +192,18 @@
   (x64_int.jmp (&mut (. fx buf)) (@ (vec.get (& (. fx labs)) 0)))
   fx))
 
+(fn probe ((g (&mut cg_mod.cg)) (fx (&mut fncx))) unit
+  (if (not (. g win)) (ret))
+  (if (< (. fx frame) 4096) (ret))
+  (if (< (. g chkstk) 0)
+    (set (. g chkstk) (elf.add_sym (&mut (. g obj)) "__chkstk" elf.global elf.st_none elf.sec_undef 0 0)))
+  (x64_int.mov_ri (&mut (. fx buf)) 8 x64_buf.rax (. fx frame))
+  (x64_int.call_sym (&mut (. fx buf)) (. g chkstk)))
+
 (fn save_in ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (b (& mir.body))) unit
   (let cls (classes g p b))
   (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify x64_abi.sysv (& cls) (&mut args))
+  (x64_abi.classify (cg_mod.call_cc g) (& cls) (&mut args))
   (let mut ai 0)
   (let disp (. fx sret))
   (let sret (. fx has_sret))
@@ -205,9 +215,10 @@
       (do (save_param g p fx (vec.get (& args) ai) (& t) i k) (set ai (+ ai 1)) (set k (+ k 1))))))
 
 (fn save_one ((fx (&mut fncx)) (a (& x64_abi.arg)) (w i64) (disp i64) (xmm bool)) unit
-  (if (>= (. a off) 0)
-    (ret (do (ld fx w x64_buf.rax x64_buf.rbp (+ (. a off) 8)) (st fx w x64_buf.rbp disp x64_buf.rax))))
-  (if xmm (st_xmm fx w disp (. a reg)) (st fx w x64_buf.rbp disp (. a reg))))
+  (if (>= (. a reg) 0)
+    (ret (do (if xmm (st_xmm fx w disp (. a reg)) (st fx w x64_buf.rbp disp (. a reg))))))
+  (ld fx w x64_buf.rax x64_buf.rbp (+ (. a off) 8))
+  (st fx w x64_buf.rbp disp x64_buf.rax))
 
 (fn st_xmm ((fx (&mut fncx)) (w i64) (disp i64) (reg i64)) unit
   (if (== w 4)

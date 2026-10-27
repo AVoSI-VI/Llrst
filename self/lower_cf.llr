@@ -130,10 +130,9 @@
 
 (fn ret_val ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
   (let v (vec.get (& (. e kids)) 0))
+  (let o (lower.as_operand p w v))
   (if (not (ty.is_unit (& (. v ty))))
-    (do
-      (let o (lower.as_operand p w v))
-      (lower.push w (mir.sassign (mir.ploc 0) (mir.ruse o)))))
+    (lower.push w (mir.sassign (mir.ploc 0) (mir.ruse o))))
   (lower.drops_to w 0)
   (lower.terminate w (tret))
   (set (. w cur) (lower.new_block w)))
@@ -142,9 +141,9 @@
   (if (. e flag)
     (do
       (let v (vec.get (& (. e kids)) 0))
+      (let o (lower.as_operand p w v))
       (if (not (ty.is_unit (& (. v ty))))
         (do
-          (let o (lower.as_operand p w v))
           (let d (mir.pclone (& (. w idest))))
           (lower.push w (mir.sassign d (mir.ruse o)))))))
   (lower.drops_to w (. w idepth))

@@ -1,8 +1,9 @@
-;; Unix link: cc plus llr_stat.o. COFF is a later step.
+;; Host link. Unix is cc plus llr_stat.o. Windows is cl plus the prebuilt shims.
 (use std.fs)
 (use std.os)
 (use std.path)
 (use std.str)
+(use proj.link_win)
 
 (fn sh ((s (& str))) str
   (let mut o (str.from "'"))
@@ -22,23 +23,30 @@
 (pub (fn runtime ((name (& str))) str
   (let mut c (vec.new <str>))
   (match (os.env "LLRST_RUNTIME")
-    ((opt.some d) (push_cand (&mut c) (path.join (& d) name)))
+    ((opt.some d) (push_cand (&mut c) (path.join (& (slash (& d))) name)))
     ((opt.none) ()))
   (match (os.env "LLRST_STD")
-    ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& d))) name)))
+    ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& (slash (& d))))) name)))
     ((opt.none) ()))
   (match (os.arg 0)
     ((opt.some exe)
       (do
-        (let dir (path.dir (& exe)))
+        (let dir (path.dir (& (slash (& exe)))))
         (push_cand (&mut c) (path.join (& (path.join (& dir) "../share/llrst")) name))
         (push_cand (&mut c) (path.join (& (path.join (& dir) "../../runtime")) name))))
     ((opt.none) ()))
   (push_cand (&mut c) (path.join "runtime" name))
   (first (& c))))
 
-(pub (fn obj_path ((out (& str))) str
-  (path.join (& (path.dir out)) (& (str.cat (& (path.stem out)) ".o")))))
+(fn slash ((p (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  o)
+
+(pub (fn obj_path ((out (& str)) (win bool)) str
+  (let o (slash out))
+  (let ext (if win ".obj" ".o"))
+  (path.join (& (path.dir (& o))) (& (str.cat (& (path.stem (& o))) ext)))))
 
 (pub (fn cc ((obj (& str)) (out (& str))) i64
   (let mut cmd (str.from "cc "))
@@ -51,11 +59,31 @@
   (str.push (&mut cmd) " -pie -pthread")
   (os.shell (& cmd))))
 
-(pub (fn link ((bytes (& str)) (out (& str))) str
-  (let obj (obj_path out))
+(fn rm ((obj (& str))) unit (if (fs.exists obj) (let _ (fs.remove obj))))
+
+(fn miss ((name (& str))) str
+  (let mut s (str.from "E||0|0|0|link.failed|cmd=cl|got="))
+  (str.push (&mut s) name)
+  (str.push (&mut s) " missing")
+  s)
+
+(fn via_cl ((bytes (& str)) (out (& str))) str
+  (let obj (obj_path out true))
+  (match (fs.write (& obj) bytes) ((res.err e) (ret e)) ((res.ok _) ()))
+  (let wsa (runtime "llr_wsa.obj"))
+  (let shim (runtime "llr_win.obj"))
+  (if (or (== (str.len (& wsa)) 0) (== (str.len (& shim)) 0))
+    (do (rm (& obj)) (ret (miss "llr_win.obj"))))
+  (let err (link_win.link (& obj) out (& wsa) (& shim)))
+  (rm (& obj))
+  err)
+
+(pub (fn link ((bytes (& str)) (out (& str)) (win bool)) str
+  (if win (ret (via_cl bytes out)))
+  (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret e)) ((res.ok _) ()))
   (let code (cc (& obj) out))
-  (if (fs.exists (& obj)) (let _ (fs.remove (& obj))))
+  (rm (& obj))
   (if (== code 0) (str.new) (fail (& obj) code))))
 
 (fn fail ((obj (& str)) (code i64)) str

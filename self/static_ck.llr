@@ -1,0 +1,117 @@
+;; A `'static` local is a literal, a const address, a copy of one, or a call.
+(use proj.diag)
+(use proj.mir)
+(use proj.ty)
+
+(struct slot (seen bool) (bad bool) (got bool) (line i64) (col i64) (len i64) (src (vec i64)))
+
+(pub (fn run ((out (&mut (vec diag.dg))) (b (& mir.body))) (vec bool)
+  (let n (vec.len (& (. b locs))))
+  (let mut ss (vec.new <slot>))
+  (for i 0 n (vec.push (&mut ss) (fresh)))
+  (seed b (&mut ss))
+  (walk b (&mut ss))
+  (let stat (settle (& ss)))
+  (report out b (& ss) (& stat))
+  stat))
+
+(fn fresh () slot (slot false false false 0 0 0 (vec.new <i64>)))
+
+(fn seed ((b (& mir.body)) (ss (&mut (vec slot)))) unit
+  (for i 1 (+ (. b args) 1) (seed_one b ss i)))
+
+(fn seed_one ((b (& mir.body)) (ss (&mut (vec slot))) (i i64)) unit
+  (if (not (ty.static_ref (& (. (vec.get (& (. b locs)) i) ty)))) (ret))
+  (let s (vec.get_mut ss i))
+  (set (. s seen) true)
+  (vec.push (&mut (. s src)) (neg 1)))
+
+(fn walk ((b (& mir.body)) (ss (&mut (vec slot)))) unit
+  (for bi 0 (vec.len (& (. b blocks))) (walk_bb b ss bi)))
+
+(fn walk_bb ((b (& mir.body)) (ss (&mut (vec slot))) (bi i64)) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (for si 0 (vec.len (& (. blk stmts))) (note_st b ss (vec.get (& (. blk stmts)) si)))
+  (note_term b ss (& (. blk term))))
+
+(fn note_st ((b (& mir.body)) (ss (&mut (vec slot))) (s (& mir.st))) unit
+  (if (or (!= (. s kind) 0u8) (> (vec.len (& (. s pk))) 0)) (ret))
+  (let l (. s local))
+  (let slot (vec.get_mut ss l))
+  (stamp slot (. s line) (. s col) (. s len))
+  (note_rv slot (& (. s rv)) (ty.static_ref (& (. (vec.get (& (. b locs)) l) ty)))))
+
+(fn note_term ((b (& mir.body)) (ss (&mut (vec slot))) (t (& mir.term))) unit
+  (if (or (!= (. t kind) 3u8) (> (vec.len (& (. t dpk))) 0)) (ret))
+  (let l (. t dest))
+  (let slot (vec.get_mut ss l))
+  (stamp slot (. t line) (. t col) (. t len))
+  (if (ty.static_ref (& (. (vec.get (& (. b locs)) l) ty)))
+    (vec.push (&mut (. slot src)) (neg 1))
+    (set (. slot bad) true)))
+
+(fn stamp ((s (&mut slot)) (line i64) (col i64) (len i64)) unit
+  (set (. s seen) true)
+  (if (. s got) (ret))
+  (set (. s got) true)
+  (set (. s line) line)
+  (set (. s col) col)
+  (set (. s len) len))
+
+(fn note_rv ((s (&mut slot)) (r (& mir.rv)) (stat bool)) unit
+  (if (or (== (. r kind) 17u8) (str_use r)) (ret (push_src s (neg 1))))
+  (if (not (place_use r)) (ret (set (. s bad) true)))
+  (let op (vec.get (& (. r ops)) 0))
+  (if (== (vec.len (& (. op pk))) 0) (ret (push_src s (. op local))))
+  (if stat (push_src s (neg 1)) (set (. s bad) true)))
+
+(fn push_src ((s (&mut slot)) (n i64)) unit (vec.push (&mut (. s src)) n))
+
+(fn str_use ((r (& mir.rv))) bool
+  (and (== (. r kind) 0u8)
+    (and (> (vec.len (& (. r ops))) 0)
+      (and (== (. (vec.get (& (. r ops)) 0) kind) 2u8) (== (. (vec.get (& (. r ops)) 0) ck) 3u8)))))
+
+(fn place_use ((r (& mir.rv))) bool
+  (and (== (. r kind) 0u8)
+    (and (> (vec.len (& (. r ops))) 0)
+      (or (== (. (vec.get (& (. r ops)) 0) kind) 0u8) (== (. (vec.get (& (. r ops)) 0) kind) 1u8)))))
+
+(fn settle ((ss (& (vec slot)))) (vec bool)
+  (let mut stat (vec.new <bool>))
+  (for i 0 (vec.len ss) (vec.push (&mut stat) false))
+  (let mut ch true)
+  (while ch (set ch (pass ss (&mut stat))))
+  stat)
+
+(fn pass ((ss (& (vec slot))) (stat (&mut (vec bool)))) bool
+  (let mut ch false)
+  (for i 0 (vec.len ss) (if (ready ss stat i) (do (vec.set stat i true) (set ch true))))
+  ch)
+
+(fn ready ((ss (& (vec slot))) (stat (& (vec bool))) (i i64)) bool
+  (let s (vec.get ss i))
+  (and (. s seen) (and (not (. s bad)) (and (not (@ (vec.get stat i))) (src_ok s stat)))))
+
+(fn src_ok ((s (& slot)) (stat (& (vec bool))) ) bool
+  (let mut ok true)
+  (for i 0 (vec.len (& (. s src)))
+    (let n (@ (vec.get (& (. s src)) i)))
+    (if (and (>= n 0) (not (@ (vec.get stat n)))) (set ok false)))
+  ok)
+
+(fn report ((out (&mut (vec diag.dg))) (b (& mir.body)) (ss (& (vec slot))) (stat (& (vec bool)))) unit
+  (for i 0 (vec.len ss) (if (miss b stat i) (emit out b ss i))))
+
+(fn miss ((b (& mir.body)) (stat (& (vec bool))) (i i64)) bool
+  (and (ty.static_ref (& (. (vec.get (& (. b locs)) i) ty))) (not (@ (vec.get stat i)))))
+
+(fn emit ((out (&mut (vec diag.dg))) (b (& mir.body)) (ss (& (vec slot))) (i i64)) unit
+  (let s (vec.get ss i))
+  (let loc (vec.get (& (. b locs)) i))
+  (let line (if (. s got) (. s line) (. loc line)))
+  (let col (if (. s got) (. s col) (. loc col)))
+  (let len (if (. s got) (. s len) (. loc len)))
+  (let mut d (diag.make true (str.clone (& (. b path))) line col len (str.from "borrow.escape")))
+  (diag.add (&mut d) "lt" (str.from "static"))
+  (vec.push out d))

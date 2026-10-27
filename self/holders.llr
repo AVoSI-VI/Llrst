@@ -2,6 +2,7 @@
 (use std.str)
 (use proj.borrow)
 (use proj.diag)
+(use proj.static_ck)
 (use proj.liveness)
 (use proj.loans)
 (use proj.mir)
@@ -103,6 +104,8 @@
     (if (and (@ (vec.get b i)) (not (@ (vec.get a i)))) (do (vec.set a i true) (set ch true))))
   ch)
 
+(struct floc (local i64) (field i64) (loans (vec i64)))
+
 (fn transfer ((p (& prog.prog))
    (b (& mir.body))
    (ls (& (vec loans.loan)))
@@ -111,9 +114,10 @@
    (bb i64)
    (input (& (vec bool)))) (vec bool)
   (let mut st (borrow.clone_b input))
+  (let mut flds (vec.new <floc>))
   (let blk (vec.get (& (. b blocks)) bb))
   (for si 0 (vec.len (& (. blk stmts)))
-    (on_stmt b ls nloc (&mut st) (vec.get (& (. blk stmts)) si) bb si))
+    (on_stmt b ls nloc (&mut st) (&mut flds) (vec.get (& (. blk stmts)) si) bb si))
   (on_term p b ls nloc (&mut st) (& (. blk term)))
   st)
 
@@ -121,17 +125,122 @@
    (ls (& (vec loans.loan)))
    (nloc i64)
    (st (&mut (vec bool)))
+   (flds (&mut (vec floc)))
    (s (& mir.st))
    (bb i64)
    (si i64)) unit
   (if (== (. s kind) 5u8) (ret (on_loans ls nloc st s)))
-  (if (== (. s kind) 3u8) (ret (kill_local st nloc (vec.len ls) (. s local))))
+  (if (== (. s kind) 3u8)
+    (ret (do (kill_local st nloc (vec.len ls) (. s local)) (clear_notes flds (. s local)))))
   (if (!= (. s kind) 0u8) (ret))
   (let dest (mir.place (. s local) (copy_u (& (. s pk))) (copy_i (& (. s pi)))))
   (let gen (loans_of b ls nloc st (& (. s rv)) (. dest local) bb si))
   (if (mir.has_deref (& dest)) (ret (add_all st nloc (& gen) (. dest local))))
-  (if (mir.is_local (& dest))
-    (do (kill_local st nloc (vec.len ls) (. dest local)) (add_all st nloc (& gen) (. dest local)))))
+  (let field (mir.lone_field (& dest)))
+  (if (>= field 0) (ret (on_field st flds nloc (& gen) (. dest local) field)))
+  (if (mir.is_local (& dest)) (on_whole b ls nloc st flds s (& gen) (. dest local))))
+
+(fn on_whole ((b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (nloc i64)
+   (st (&mut (vec bool)))
+   (flds (&mut (vec floc)))
+   (s (& mir.st))
+   (gen (& (vec i64)))
+   (local i64)) unit
+  (let parts (field_gens b ls nloc st (& (. s rv)) local))
+  (kill_local st nloc (vec.len ls) local)
+  (clear_notes flds local)
+  (add_all st nloc gen local)
+  (for i 0 (vec.len (& parts)) (note_field flds local i (vec.get (& parts) i))))
+
+(fn on_field ((st (&mut (vec bool)))
+   (flds (&mut (vec floc)))
+   (nloc i64)
+   (gen (& (vec i64)))
+   (local i64)
+   (field i64)) unit
+  (kill_field st flds nloc local field)
+  (note_field flds local field gen)
+  (add_all st nloc gen local))
+
+(fn field_gens ((b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (nloc i64)
+   (st (& (vec bool)))
+   (r (& mir.rv))
+   (to i64)) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (if (not (or (== (. r kind) 7u8) (or (== (. r kind) 8u8) (== (. r kind) 18u8)))) (ret o))
+  (for i 0 (vec.len (& (. r ops)))
+    (let mut g (vec.new <i64>))
+    (flow_op b st nloc (vec.len ls) (vec.get (& (. r ops)) i) to (&mut g))
+    (vec.push (&mut o) g))
+  o)
+
+(fn kill_field ((st (&mut (vec bool))) (flds (&mut (vec floc))) (nloc i64) (local i64) (field i64)) unit
+  (let gone (take_field flds local field))
+  (for j 0 (vec.len (& gone)) (drop_bit st flds nloc local (@ (vec.get (& gone) j)))))
+
+(fn drop_bit ((st (&mut (vec bool))) (flds (& (vec floc))) (nloc i64) (local i64) (li i64)) unit
+  (if (not (still flds local li)) (let _ (borrow.setb st (idx nloc li local) false))))
+
+(fn take_field ((flds (&mut (vec floc))) (local i64) (field i64)) (vec i64)
+  (let mut i 0)
+  (while (< i (vec.len flds))
+    (let hit (is_field flds i local field))
+    (if hit (ret (note_loans (vec.remove flds i))) (set i (+ i 1))))
+  (vec.new <i64>))
+
+(fn note_loans ((e floc)) (vec i64) (clone_is (& (. e loans))))
+
+(fn note_field ((flds (&mut (vec floc))) (local i64) (field i64) (loans (& (vec i64)))) unit
+  (if (== (vec.len loans) 0) (ret))
+  (let i (find_note flds local field))
+  (if (< i 0)
+    (vec.push flds (floc local field (clone_is loans)))
+    (add_missing flds i loans)))
+
+(fn add_missing ((flds (&mut (vec floc))) (i i64) (loans (& (vec i64)))) unit
+  (for j 0 (vec.len loans)
+    (let li (@ (vec.get loans j)))
+    (let have (loan_in flds i li))
+    (if (not have) (push_loan flds i li))))
+
+(fn push_loan ((flds (&mut (vec floc))) (i i64) (li i64)) unit
+  (let e (vec.get_mut flds i))
+  (vec.push (&mut (. e loans)) li))
+
+(fn clear_notes ((flds (&mut (vec floc))) (local i64)) unit
+  (let mut i 0)
+  (while (< i (vec.len flds))
+    (let hit (is_local_note flds i local))
+    (if hit (let _ (vec.remove flds i)) (set i (+ i 1)))))
+
+(fn find_note ((flds (& (vec floc))) (local i64) (field i64)) i64
+  (for i 0 (vec.len flds) (if (is_field flds i local field) (ret i)))
+  (neg 1))
+
+(fn still ((flds (& (vec floc))) (local i64) (li i64)) bool
+  (for i 0 (vec.len flds) (if (and (is_local_note flds i local) (loan_in flds i li)) (ret true)))
+  false)
+
+(fn is_field ((flds (& (vec floc))) (i i64) (local i64) (field i64)) bool
+  (let e (vec.get flds i))
+  (and (== (. e local) local) (== (. e field) field)))
+
+(fn is_local_note ((flds (& (vec floc))) (i i64) (local i64)) bool
+  (== (. (vec.get flds i) local) local))
+
+(fn loan_in ((flds (& (vec floc))) (i i64) (li i64)) bool
+  (let ls (& (. (vec.get flds i) loans)))
+  (for j 0 (vec.len ls) (if (== (@ (vec.get ls j)) li) (ret true)))
+  false)
+
+(fn clone_is ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
 
 (fn loans_of ((b (& mir.body))
    (ls (& (vec loans.loan)))
@@ -261,11 +370,12 @@
    (input (& (vec bool)))) (vec (vec bool))
   (let mut pts (vec.new < (vec bool) >))
   (let mut st (borrow.clone_b input))
+  (let mut flds (vec.new <floc>))
   (let blk (vec.get (& (. b blocks)) bb))
   (for si 0 (vec.len (& (. blk stmts)))
     (do
       (vec.push (&mut pts) (borrow.clone_b (& st)))
-      (on_stmt b ls nloc (&mut st) (vec.get (& (. blk stmts)) si) bb si)))
+      (on_stmt b ls nloc (&mut st) (&mut flds) (vec.get (& (. blk stmts)) si) bb si)))
   (vec.push (&mut pts) (borrow.clone_b (& st)))
   pts)
 
@@ -280,37 +390,4 @@
   o)
 
 (pub (fn statics ((out (&mut (vec diag.dg))) (b (& mir.body))) (vec bool)
-  (let n (vec.len (& (. b locs))))
-  (let mut stat (borrow.bools n))
-  (for i 1 (+ (. b args) 1)
-    (if (ty.static_ref (& (. (vec.get (& (. b locs)) i) ty))) (vec.set (&mut stat) i true)))
-  (for bi 0 (vec.len (& (. b blocks))) (stat_blk out b (&mut stat) bi))
-  stat))
-
-(fn stat_blk ((out (&mut (vec diag.dg))) (b (& mir.body)) (stat (&mut (vec bool))) (bi i64)) unit
-  (let blk (vec.get (& (. b blocks)) bi))
-  (for si 0 (vec.len (& (. blk stmts))) (stat_st out b stat (vec.get (& (. blk stmts)) si))))
-
-(fn stat_st ((out (&mut (vec diag.dg))) (b (& mir.body)) (stat (&mut (vec bool))) (s (& mir.st))) unit
-  (if (or (!= (. s kind) 0u8) (> (vec.len (& (. s pk))) 0)) (ret))
-  (let l (. s local))
-  (if (not (ty.static_ref (& (. (vec.get (& (. b locs)) l) ty)))) (ret))
-  (if (not (stat_ok b s)) (bad_static out b s))
-  (if (stat_ok b s) (vec.set stat l true)))
-
-(fn bad_static ((out (&mut (vec diag.dg))) (b (& mir.body)) (s (& mir.st))) unit
-  (let mut d
-    (diag.make true
-      (str.clone (& (. b path)))
-      (. s line)
-      (. s col)
-      (. s len)
-      (str.from "borrow.escape")))
-  (diag.add (&mut d) "lt" (str.from "static"))
-  (vec.push out d))
-
-(fn stat_ok ((b (& mir.body)) (s (& mir.st))) bool
-  (let r (& (. s rv)))
-  (or (== (. r kind) 17u8)
-    (and (== (. r kind) 0u8)
-      (and (> (vec.len (& (. r ops))) 0) (== (. (vec.get (& (. r ops)) 0) ck) 3u8)))))
+  (static_ck.run out b)))

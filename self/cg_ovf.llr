@@ -23,8 +23,8 @@
   (let b (cg_mod.str_sym g msg))
   (let id (prog.std_fn p "sys" "abort"))
   (let sym (cg_mod.func_sym g p id (vec.new <ty.sty>)))
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rdi a)
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rsi b)
+  (x64_int.lea_rip (&mut (. fx buf)) (cg_mod.a0 g) a)
+  (x64_int.lea_rip (&mut (. fx buf)) (cg_mod.a1 g) b)
   (x64_int.call_sym (&mut (. fx buf)) sym)
   (x64_int.ud2 (&mut (. fx buf)))))
 

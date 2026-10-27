@@ -2,9 +2,11 @@
 (use std.str)
 (use proj.cg_bits)
 (use proj.cg_lay)
+(use proj.coff)
 (use proj.elf)
 (use proj.prog)
 (use proj.ty)
+(use proj.x64_abi)
 (use proj.x64_buf)
 
 (pub (struct cg
@@ -12,6 +14,8 @@
   (pub (lays cg_lay.lays))
   (pub (checked bool))
   (pub (darwin bool))
+  (pub (win bool))
+  (pub (chkstk i64))
   (pub (argc i64))
   (pub (argv i64))
   (pub (trace i64))
@@ -44,12 +48,14 @@
   (push_zeros (&mut (. (. g obj) data)) 8)
   (elf.add_sym (&mut (. g obj)) name bind elf.st_object elf.sec_data at 8))
 
-(pub (fn new ((checked bool) (darwin bool)) cg
+(pub (fn new ((checked bool) (darwin bool) (win bool)) cg
   (let mut g
     (cg (elf.new)
       (cg_lay.new)
       checked
       darwin
+      win
+      (neg 1)
       0
       0
       0
@@ -290,4 +296,12 @@
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
   (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b))))
 
-(pub (fn finish ((g (& cg))) str (elf.bytes (& (. g obj)))))
+(pub (fn call_cc ((g (& cg))) i64 (if (. g win) x64_abi.win64 x64_abi.sysv)))
+
+(pub (fn a0 ((g (& cg))) i64 (if (. g win) x64_buf.rcx x64_buf.rdi)))
+
+(pub (fn a1 ((g (& cg))) i64 (if (. g win) x64_buf.rdx x64_buf.rsi)))
+
+(pub (fn finish ((g (& cg))) str
+  (if (. g win) (ret (coff.bytes (& (. g obj)))))
+  (elf.bytes (& (. g obj)))))

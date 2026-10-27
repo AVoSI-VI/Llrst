@@ -406,14 +406,22 @@
   (if (and (>= id 16) (<= id 18)) (ret (ty.is_int t)))
   (ty.is_num t))
 
-(fn check_and ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
-  (let l (try (thir.check_bool p c (vec.get (& (. e kids)) 0))))
-  (let r (try (thir.check_bool p c (vec.get (& (. e kids)) 1))))
-  (let k (if (== (. e kind) 18u8) 22u8 23u8))
+(fn nest_logic ((c (& thir.ck)) (e (& expr)) (k u8) (l thir.ex) (r thir.ex)) thir.ex
   (let mut x (at c e k (ty.bool_ty)))
   (vec.push (&mut (. x kids)) l)
   (vec.push (&mut (. x kids)) r)
-  (res.ok x))
+  x)
+
+(fn check_and ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let n (vec.len (& (. e kids))))
+  (if (< n 2) (ret (res.err (thir.kv "parse.expect" "want" (str.from "2+")))))
+  (let k (if (== (. e kind) 18u8) 22u8 23u8))
+  (let mut acc (try (thir.check_bool p c (vec.get (& (. e kids)) 0))))
+  (for i 1 n
+    (do
+      (let r (try (thir.check_bool p c (vec.get (& (. e kids)) i))))
+      (set acc (nest_logic c e k acc r))))
+  (res.ok acc))
 
 (fn check_not ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
   (let v (try (thir.check_bool p c (vec.get (& (. e kids)) 0))))

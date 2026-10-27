@@ -1,0 +1,257 @@
+;; x86-64 COFF relocatable. Section numbers match elf (text data rdata bss)
+;; so a symbol shndx is copied through. Relocs are REL32 and ADDR64; the
+;; addend stays in the instruction, which the encoder leaves zero.
+(use proj.elf)
+(use proj.elf_out)
+(use proj.link)
+(use proj.x64_buf)
+(use proj.x64_int)
+(use std.fs)
+(use std.os)
+(use std.str)
+(use std.sys)
+(use std.vec)
+
+(const machine i64 34404)
+
+(const rel32 i64 4)
+
+(const addr64 i64 1)
+
+(const scn_text i64 1615855648)
+
+(const scn_data i64 3225419840)
+
+(const scn_rdata i64 1077936192)
+
+(const scn_bss i64 3225419904)
+
+(const class_ext i64 2)
+
+(const class_static i64 3)
+
+(fn mark ((off (&mut i64)) (n i64)) i64
+  (if (== n 0) (ret 0))
+  (while (!= (% (@ off) 4) 0) (set (@ off) (+ (@ off) 1)))
+  (let at (@ off))
+  (set (@ off) (+ at n))
+  at)
+
+(fn chunk ((b (&mut (vec u8))) (src (& (vec u8)))) unit
+  (if (== (vec.len src) 0) (ret))
+  (pad4 b)
+  (put_bytes b src))
+
+(fn reloc_kind ((k i64)) i64
+  (if (or (== k elf.pc32) (== k elf.plt32)) (ret rel32))
+  (if (== k elf.abs64) (ret addr64))
+  0)
+
+(fn put_short ((b (&mut (vec u8))) (name (& str))) unit
+  (for i 0 (str.len name) (vec.push b (str.at name i)))
+  (for i (str.len name) 8 (vec.push b 0u8)))
+
+(fn put_name ((b (&mut (vec u8))) (strs (&mut (vec u8))) (name (& str))) unit
+  (if (<= (str.len name) 8) (ret (put_short b name)))
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b (+ 4 (vec.len strs)) 4)
+  (for i 0 (str.len name) (vec.push strs (str.at name i)))
+  (vec.push strs 0u8))
+
+(fn storage ((s (& elf.sym))) i64
+  (if (or (== (. s sec) elf.sec_undef) (== (. s bind) elf.global)) class_ext class_static))
+
+(fn sym_type ((s (& elf.sym))) i64 (if (== (. s ty) elf.st_func) 32 0))
+
+(fn put_sym ((b (&mut (vec u8))) (strs (&mut (vec u8))) (s (& elf.sym))) unit
+  (put_name b strs (& (. s name)))
+  (elf_out.push_n b (. s value) 4)
+  (elf_out.push_n b (. s sec) 2)
+  (elf_out.push_n b (sym_type s) 2)
+  (vec.push b (as u8 (storage s)))
+  (vec.push b 0u8))
+
+(fn emit_syms ((o (& elf.obj)) (syms (&mut (vec u8))) (strs (&mut (vec u8)))) unit
+  (for i 1 (vec.len (& (. o syms))) (put_sym syms strs (vec.get (& (. o syms)) i))))
+
+(fn put_rel ((b (&mut (vec u8))) (r (& elf.rela))) unit
+  (elf_out.push_n b (. r at) 4)
+  (elf_out.push_n b (- (. r sym) 1) 4)
+  (elf_out.push_n b (reloc_kind (. r kind)) 2))
+
+(fn emit_rels ((o (& elf.obj)) (sec i64)) (vec u8)
+  (let mut b (vec.new <u8>))
+  (for i 0 (vec.len (& (. o rels)))
+    (let r (vec.get (& (. o rels)) i))
+    (if (== (. r sec) sec) (put_rel (&mut b) r)))
+  b)
+
+(fn put_bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit
+  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+
+(fn pad4 ((b (&mut (vec u8)))) unit (while (!= (% (vec.len b) 4) 0) (vec.push b 0u8)))
+
+(fn file_hdr ((b (&mut (vec u8))) (nsym i64) (sym_at i64)) unit
+  (elf_out.push_n b machine 2)
+  (elf_out.push_n b 4 2)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b sym_at 4)
+  (elf_out.push_n b nsym 4)
+  (elf_out.push_n b 0 2)
+  (elf_out.push_n b 0 2))
+
+(fn sec_name ((b (&mut (vec u8))) (name (& str))) unit (put_short b name))
+
+(fn sec_hdr ((b (&mut (vec u8)))
+   (name (& str))
+   (vsize i64)
+   (raw i64)
+   (raw_at i64)
+   (rel_at i64)
+   (nrel i64)
+   (flags i64)) unit
+  (sec_name b name)
+  (elf_out.push_n b vsize 4)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b raw 4)
+  (elf_out.push_n b raw_at 4)
+  (elf_out.push_n b rel_at 4)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b nrel 2)
+  (elf_out.push_n b 0 2)
+  (elf_out.push_n b flags 4))
+
+(fn nrel ((rels (& (vec u8)))) i64 (/ (vec.len rels) 10))
+
+(fn to_str ((b (& (vec u8)))) str
+  (let mut s (str.new))
+  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
+  s)
+
+(fn emit_raw ((b (&mut (vec u8)))
+   (text (& (vec u8)))
+   (rt (& (vec u8)))
+   (data (& (vec u8)))
+   (rd (& (vec u8)))
+   (ro (& (vec u8)))
+   (rr (& (vec u8)))
+   (syms (& (vec u8)))
+   (strs (& (vec u8)))) unit
+  (chunk b text)
+  (chunk b rt)
+  (chunk b data)
+  (chunk b rd)
+  (chunk b ro)
+  (chunk b rr)
+  (chunk b syms)
+  (elf_out.push_n b (+ 4 (vec.len strs)) 4)
+  (put_bytes b strs))
+
+(pub (fn bytes ((o (& elf.obj))) str
+  (let mut strs (vec.new <u8>))
+  (let mut syms (vec.new <u8>))
+  (emit_syms o (&mut syms) (&mut strs))
+  (let rt (emit_rels o elf.sec_text))
+  (let rd (emit_rels o elf.sec_data))
+  (let rr (emit_rels o elf.sec_rodata))
+  (let mut cur (+ 20 160))
+  (let text_at (mark (&mut cur) (vec.len (& (. o text)))))
+  (let rt_at (mark (&mut cur) (vec.len (& rt))))
+  (let data_at (mark (&mut cur) (vec.len (& (. o data)))))
+  (let rd_at (mark (&mut cur) (vec.len (& rd))))
+  (let ro_at (mark (&mut cur) (vec.len (& (. o rodata)))))
+  (let rr_at (mark (&mut cur) (vec.len (& rr))))
+  (let sym_at (mark (&mut cur) (vec.len (& syms))))
+  (let mut b (vec.new <u8>))
+  (file_hdr (&mut b) (/ (vec.len (& syms)) 18) sym_at)
+  (sec_hdr (&mut b) ".text" (vec.len (& (. o text))) (vec.len (& (. o text))) text_at rt_at (nrel (& rt)) scn_text)
+  (sec_hdr (&mut b) ".data" (vec.len (& (. o data))) (vec.len (& (. o data))) data_at rd_at (nrel (& rd)) scn_data)
+  (sec_hdr (&mut b) ".rdata" (vec.len (& (. o rodata))) (vec.len (& (. o rodata))) ro_at rr_at (nrel (& rr)) scn_rdata)
+  (sec_hdr (&mut b) ".bss" (. o bss) 0 0 0 0 scn_bss)
+  (emit_raw (&mut b) (& (. o text)) (& rt) (& (. o data)) (& rd) (& (. o rodata)) (& rr) (& syms) (& strs))
+  (to_str (& b))))
+
+(fn u_at ((s (& str)) (at i64) (n i64)) i64
+  (let mut v 0)
+  (for i 0 n (set v (+ v (shl (as i64 (str.at s (+ at i))) (* i 8)))))
+  v)
+
+(fn name_eq ((s (& str)) (at i64) (want (& str))) bool
+  (let n (str.len want))
+  (for i 0 n (if (!= (str.at s (+ at i)) (str.at want i)) (ret false)))
+  (== (str.at s (+ at n)) 0u8))
+
+(fn hello_text ((msg i64) (wr i64)) x64_buf.buf
+  (let mut b (x64_buf.new))
+  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp 40)
+  (x64_int.mov_ri (&mut b) 4 x64_buf.rcx 1)
+  (x64_int.lea_rip (&mut b) x64_buf.rdx msg)
+  (x64_int.mov_ri (&mut b) 4 x64_buf.r8 3)
+  (x64_int.call_sym (&mut b) wr)
+  (x64_int.xor_rr (&mut b) 4 x64_buf.rax x64_buf.rax)
+  (x64_int.add_ri (&mut b) 8 x64_buf.rsp 40)
+  (x64_int.ret (&mut b))
+  b)
+
+(fn copy_text ((o (&mut elf.obj)) (b (& x64_buf.buf))) unit
+  (for i 0 (x64_buf.len b) (vec.push (&mut (. o text)) (x64_buf.at b i)))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (elf.add_enc o elf.sec_text (. r at) (. r kind) (. r sym))))
+
+(fn hello_obj () elf.obj
+  (let mut o (elf.new))
+  (let msg (elf.add_sym (&mut o) "msg" elf.local elf.st_object elf.sec_rodata 0 3))
+  (let main (elf.add_sym (&mut o) "main" elf.global elf.st_func elf.sec_text 0 0))
+  (let wr (elf.add_sym (&mut o) "write" elf.global elf.st_none elf.sec_undef 0 0))
+  (let _ (elf.add_sym (&mut o) "llr_trace" elf.global elf.st_object elf.sec_data 0 8))
+  (for i 0 8 (vec.push (&mut (. o data)) 0u8))
+  (let b (hello_text msg wr))
+  (elf.set_sym (&mut o) main 0 (x64_buf.len (& b)))
+  (copy_text (&mut o) (& b))
+  (for i 0 3 (vec.push (&mut (. o rodata)) (str.at "ok\n" i)))
+  o)
+
+(fn hello () str (bytes (& (hello_obj))))
+
+(fn sec_at ((i i64)) i64 (+ 20 (* i 40)))
+
+(fn sym_at ((img (& str)) (i i64)) i64 (+ (u_at img 8 4) (* i 18)))
+
+(test coff_hello
+  (let img (hello))
+  (assert_eq (u_at (& img) 0 2) machine)
+  (assert_eq (u_at (& img) 2 2) 4)
+  (assert_eq (u_at (& img) 4 4) 0)
+  (assert_eq (u_at (& img) 16 2) 0)
+  (assert (name_eq (& img) (sec_at 0) ".text"))
+  (assert (name_eq (& img) (sec_at 1) ".data"))
+  (assert (name_eq (& img) (sec_at 2) ".rdata"))
+  (assert (name_eq (& img) (sec_at 3) ".bss"))
+  (assert_eq (u_at (& img) 12 4) 4)
+  (let rel (u_at (& img) (+ (sec_at 0) 24) 4))
+  (assert_eq (u_at (& img) (+ (sec_at 0) 32) 2) 2)
+  (assert_eq (u_at (& img) (+ rel 4) 4) 0)
+  (assert_eq (u_at (& img) (+ rel 8) 2) rel32)
+  (assert (< (u_at (& img) rel 4) (u_at (& img) (+ rel 10) 4)))
+  (assert_eq (u_at (& img) (+ rel 14) 4) 2)
+  (assert_eq (u_at (& img) (+ rel 18) 2) rel32)
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 1) 8) 4) 0)
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 1) 12) 2) elf.sec_text)
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 2) 12) 2) elf.sec_undef)
+  (assert_eq (str.at (& img) (+ (sym_at (& img) 2) 16)) (as u8 class_ext)))
+
+(fn rm ((path (& str))) unit (if (fs.exists path) (res.unwrap (fs.remove path))))
+
+(test coff_link
+  (if (!= sys.os_id 2) (ret))
+  (match (fs.mkdir "target") ((res.ok _) ()) ((res.err _) ()))
+  (let out (str.from "target/coff_main"))
+  (let exe (str.from "target\\coff_main.exe"))
+  (rm (& exe))
+  (let err (link.link (& (hello)) (& out) true))
+  (if (!= (str.len (& err)) 0) (assert_eq (& err) ""))
+  (let ran (os.capture (& exe)))
+  (rm (& exe))
+  (assert_eq (. ran code) 0)
+  (assert_eq (& (. ran out)) "ok\n"))

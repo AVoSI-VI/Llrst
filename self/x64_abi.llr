@@ -53,6 +53,8 @@
   (if (== n 3) (ret x64_buf.r9))
   (neg 1))
 
+(pub (fn gpr ((cc i64) (n i64)) i64 (if (== cc win64) (win_gpr n) (sysv_gpr n))))
+
 (fn win_slot ((n i64) (xmm bool)) i64 (if xmm n (win_gpr n)))
 
 (fn push_arg ((out (&mut (vec arg))) (reg i64) (xmm bool) (off i64)) unit

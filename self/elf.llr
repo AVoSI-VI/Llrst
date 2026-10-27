@@ -36,17 +36,28 @@
 
 (pub (const plt32 i64 4))
 
-(struct sym (name str) (bind i64) (ty i64) (sec i64) (value i64) (size i64))
+(pub (struct sym
+  (pub (name str))
+  (pub (bind i64))
+  (pub (ty i64))
+  (pub (sec i64))
+  (pub (value i64))
+  (pub (size i64))))
 
-(struct rela (sec i64) (at i64) (kind i64) (sym i64) (addend i64))
+(pub (struct rela
+  (pub (sec i64))
+  (pub (at i64))
+  (pub (kind i64))
+  (pub (sym i64))
+  (pub (addend i64))))
 
 (pub (struct obj
   (pub (text (vec u8)))
   (pub (data (vec u8)))
   (pub (rodata (vec u8)))
   (pub (bss i64))
-  (syms (vec sym))
-  (rels (vec rela))))
+  (pub (syms (vec sym)))
+  (pub (rels (vec rela)))))
 
 (pub (fn new () obj
   (let mut o (obj (vec.new <u8>) (vec.new <u8>) (vec.new <u8>) 0 (vec.new <sym>) (vec.new <rela>)))

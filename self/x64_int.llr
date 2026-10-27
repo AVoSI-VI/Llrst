@@ -71,6 +71,7 @@
   (mov_b8 b w dst imm)))
 
 (pub (fn movzx ((b (&mut x64_buf.buf)) (dst_w i64) (src_w i64) (dst i64) (src i64)) unit
+  (if (== src_w 4) (ret (mov_rr b 4 dst src)))
   (x64_buf.emit_rr2 b dst_w (if (== src_w 1) 182 183) dst src)))
 
 (pub (fn movsx ((b (&mut x64_buf.buf)) (dst_w i64) (src_w i64) (dst i64) (src i64)) unit

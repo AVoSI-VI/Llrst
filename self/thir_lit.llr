@@ -28,7 +28,7 @@
 (fn lit_str ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
   (let mut x (at c e 0u8 (thir.ref_str p)))
   (set (. x id) 3)
-  (set (. x text) (str.clone (& (. e text))))
+  (set (. x text) (lit.decode (& (. e text))))
   x)
 
 (fn lit_num ((c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)

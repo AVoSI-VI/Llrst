@@ -38,7 +38,8 @@
   (for i 0 (vec.len (& (. o pk))) (if (== (@ (vec.get (& (. o pk)) i)) 1u8) (ret)))
   (if (== (vec.len (& (. o pk))) 0) (ret (cg_frame.set_flag fx (. o local) false)))
   (if (and (== (vec.len (& (. o pk))) 1) (== (@ (vec.get (& (. o pk)) 0)) 0u8))
-    (cg_frame.set_field fx (. o local) (@ (vec.get (& (. o pi)) 0)) false)))
+    (ret (cg_frame.set_field fx (. o local) (@ (vec.get (& (. o pi)) 0)) false)))
+  (cg_frame.set_flag fx (. o local) false))
 
 (fn eval_const ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (o (& mir.op))) ty.sty
   (if (== (. o ck) 0u8)
@@ -233,6 +234,10 @@
   (cg_frame.ld fx 4 x64_buf.rax x64_buf.r11 0)
   (ty.int 6))
 
+(fn pointee ((t (& ty.sty))) ty.sty
+  (if (== (. t kind) 7u8) (ret (ty.inner t)))
+  (ty.clone t))
+
 (fn eval_padd ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut cg_frame.fncx))
@@ -242,7 +247,8 @@
   (let d (hold fx (& t)))
   (let it (eval_op g p fx locs (vec.get (& (. r ops)) 1)))
   (ext fx (& it))
-  (x64_int.imul_ri (&mut (. fx buf)) 8 x64_buf.rax (cg_lay.size (&mut (. g lays)) p (& (. r ty))))
+  (let elem (pointee (& (. r ty))))
+  (x64_int.imul_ri (&mut (. fx buf)) 8 x64_buf.rax (cg_lay.size (&mut (. g lays)) p (& elem)))
   (cg_frame.ld fx 8 x64_buf.rcx x64_buf.rbp d)
   (x64_int.add_rr (&mut (. fx buf)) 8 x64_buf.rax x64_buf.rcx)
   (ty.clone (& t)))
@@ -313,17 +319,42 @@
    (fx (&mut cg_frame.fncx))
    (from (& ty.sty))
    (to (& ty.sty))) unit
-  (let sb (* (cg_lay.width from) 8))
-  (let db (* (cg_lay.width to) 8))
+  (let sb (cg_lay.width from))
+  (let db (cg_lay.width to))
   (if (and (== (cg_lay.signed from) (cg_lay.signed to)) (>= db sb)) (ret))
   (if (and (not (cg_lay.signed from)) (and (cg_lay.signed to) (> db sb))) (ret))
   (ext fx from)
-  (let lim (if (cg_lay.signed to) (shl 1 (- db 1)) (shl 1 db)))
-  (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax lim)
-  (cg_ovf.trap g p fx (if (cg_lay.signed from) x64_buf.ge x64_buf.ae) "cast.overflow")
-  (if (cg_lay.signed from)
+  (if (and (cg_lay.signed from) (not (cg_lay.signed to))) (ret (cast_su g p fx sb db)))
+  (if (cg_lay.signed to) (cast_to_s g p fx from sb db) (cast_hi g p fx db)))
+
+(fn cast_su ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (sb i64) (db i64)) unit
+  (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax 0)
+  (cg_ovf.trap g p fx x64_buf.l "cast.overflow")
+  (if (< db sb) (cast_hi g p fx db)))
+
+(fn cast_hi ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (db i64)) unit
+  (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax (shl 1 (* db 8)))
+  (cg_ovf.trap g p fx x64_buf.ae "cast.overflow"))
+
+(fn cast_to_s ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (sb i64)
+   (db i64)) unit
+  (if (not (cg_lay.signed from))
+    (if (== db sb)
+      (do
+        (x64_int.cmp_ri (&mut (. fx buf)) sb x64_buf.rax 0)
+        (cg_ovf.trap g p fx x64_buf.l "cast.overflow"))
+      (do
+        (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax (- (shl 1 (- (* db 8) 1)) 1))
+        (cg_ovf.trap g p fx x64_buf.a "cast.overflow")))
     (do
-      (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax (neg lim))
+      (let bits (- (* db 8) 1))
+      (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax (- (shl 1 bits) 1))
+      (cg_ovf.trap g p fx x64_buf.g "cast.overflow")
+      (x64_int.cmp_ri (&mut (. fx buf)) 8 x64_buf.rax (neg (shl 1 bits)))
       (cg_ovf.trap g p fx x64_buf.l "cast.overflow"))))
 
 (fn itof ((g (&mut cg_mod.cg))
@@ -400,6 +431,7 @@
   (let done (x64_buf.label (&mut (. fx buf))))
   (if single (x64_sse.ucomiss (&mut (. fx buf)) 0 0) (x64_sse.ucomisd (&mut (. fx buf)) 0 0))
   (x64_int.jcc (&mut (. fx buf)) x64_buf.p nan)
+  (trunc_f fx single)
   (fbound fx single (fmin to bits))
   (if single (x64_sse.ucomiss (&mut (. fx buf)) 0 1) (x64_sse.ucomisd (&mut (. fx buf)) 0 1))
   (x64_int.jcc (&mut (. fx buf)) x64_buf.b lo)
@@ -424,6 +456,19 @@
     (x64_sse.cvttss2si (&mut (. fx buf)) x64_buf.rax 0 (if (== bits 64) 8 4))
     (x64_sse.cvttsd2si (&mut (. fx buf)) x64_buf.rax 0 (if (== bits 64) 8 4)))
   (x64_buf.bind (&mut (. fx buf)) done))
+
+(fn trunc_f ((fx (&mut cg_frame.fncx)) (single bool)) unit
+  (let keep (x64_buf.label (&mut (. fx buf))))
+  (if single
+    (x64_sse.cvttss2si (&mut (. fx buf)) x64_buf.rax 0 8)
+    (x64_sse.cvttsd2si (&mut (. fx buf)) x64_buf.rax 0 8))
+  (x64_int.mov_ri (&mut (. fx buf)) 8 x64_buf.rcx (shl 1 63))
+  (x64_int.cmp_rr (&mut (. fx buf)) 8 x64_buf.rax x64_buf.rcx)
+  (x64_int.jcc (&mut (. fx buf)) x64_buf.e keep)
+  (if single
+    (x64_sse.cvtsi2ss (&mut (. fx buf)) 0 x64_buf.rax 8)
+    (x64_sse.cvtsi2sd (&mut (. fx buf)) 0 x64_buf.rax 8))
+  (x64_buf.bind (&mut (. fx buf)) keep))
 
 (fn chk_f ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx))) unit
   (if (. g checked) (cg_ovf.abort g p fx "cast.overflow")))

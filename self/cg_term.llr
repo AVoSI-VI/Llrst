@@ -233,7 +233,7 @@
   (let mut formals (vec.new <ty.sty>))
   (for i 0 (vec.len (& (. d spars)))
     (vec.push (&mut formals) (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) (& (. t targs)))))
-  (marshal g p fx b t (& ret) (& formals) sym (neg 1) (neg 1)))
+  (marshal g p fx b t (& ret) (& formals) sym (neg 1) (neg 1) false))
 
 (fn call_ptr ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -244,7 +244,7 @@
   (let fp (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 x64_buf.rbp fp x64_buf.rax)
   (let parts (split_fn (& fty)))
-  (marshal g p fx b t (& (. parts ret)) (& (. parts args)) (neg 1) fp (neg 1)))
+  (marshal g p fx b t (& (. parts ret)) (& (. parts args)) (neg 1) fp (neg 1) false))
 
 (pub (struct parts (pub (args (vec ty.sty))) (pub (ret ty.sty))))
 
@@ -267,7 +267,7 @@
   (let env (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 x64_buf.rbp env x64_buf.rax)
   (let parts (split_fn (& fty)))
-  (marshal g p fx b t (& (. parts ret)) (& (. parts args)) (neg 1) code env))
+  (marshal g p fx b t (& (. parts ret)) (& (. parts args)) (neg 1) code env false))
 
 (fn call_dyn ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -291,7 +291,7 @@
   (let mut formals (vec.new <ty.sty>))
   (for i 1 (vec.len (& (. sig params)))
     (vec.push (&mut formals) (ty.clone (vec.get (& (. sig params)) i))))
-  (marshal g p fx b t (& ret) (& formals) (neg 1) fp data))
+  (marshal g p fx b t (& ret) (& formals) (neg 1) fp data true))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
   (let mut o (vec.new <ty.sty>))
@@ -307,16 +307,17 @@
    (formals (& (vec ty.sty)))
    (sym i64)
    (fp i64)
-   (env i64)) unit
+   (env i64)
+   (peel bool)) unit
   (let _ (cg_frame.place g p fx (& (. b locs)) (. t dest) (& (. t dpk)) (& (. t dpi))))
   (let dest (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 x64_buf.rbp dest x64_buf.r11)
   (let mut ds (vec.new <i64>))
   (let mut cls (vec.new <i64>))
   (if (cg_lay.is_agg ret) (do (vec.push (&mut ds) dest) (vec.push (&mut cls) x64_abi.cls_int)))
-  (if (>= env 0) (do (vec.push (&mut ds) env) (vec.push (&mut cls) x64_abi.cls_int)))
+  (if (!= env (neg 1)) (do (vec.push (&mut ds) env) (vec.push (&mut cls) x64_abi.cls_int)))
   (let mut ai (if (== (. t fk) 3u8) 1 0))
-  (for i 0 (vec.len formals) (set ai (take_arg g p fx b t formals i ai (&mut ds) (&mut cls))))
+  (for i 0 (vec.len formals) (set ai (take_arg g p fx b t formals i ai (&mut ds) (&mut cls) peel)))
   (pass g fx (& ds) (& cls) sym fp)
   (cg_frame.ld fx 8 x64_buf.r10 x64_buf.rbp dest)
   (if (and (not (ty.is_unit ret)) (not (cg_lay.is_agg ret))) (cg_frame.store_s fx ret))
@@ -336,16 +337,21 @@
    (i i64)
    (ai i64)
    (ds (&mut (vec i64)))
-   (cls (&mut (vec i64)))) i64
+   (cls (&mut (vec i64)))
+   (peel bool)) i64
   (let ft (vec.get formals i))
   (if (ty.is_unit ft) (ret ai))
   (let ty (cg_op.eval_op g p fx (& (. b locs)) (vec.get (& (. t args)) ai)))
   (let d (cg_frame.tmp fx 8 8))
-  (if (cg_lay.is_agg (& ty))
+  (if (and peel (== (. ty kind) 11u8))
+    (do
+      (cg_frame.ld fx 8 x64_buf.rax x64_buf.r11 0)
+      (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax))
+    (if (cg_lay.is_agg (& ty))
     (cg_frame.st fx 8 x64_buf.rbp d x64_buf.r11)
     (if (cg_lay.is_float (& ty))
       (cg_frame.bsdst (&mut (. fx buf)) x64_buf.rbp d 0)
-      (do (cg_op_ext fx (& ty)) (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax))))
+      (do (cg_op_ext fx (& ty)) (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax)))))
   (vec.push ds d)
   (vec.push cls (if (cg_lay.is_float ft) x64_abi.cls_float x64_abi.cls_int))
   (+ ai 1))
@@ -364,9 +370,9 @@
    (sym i64)
    (fp i64)) unit
   (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify x64_abi.sysv cls (&mut args))
+  (x64_abi.classify (cg_mod.call_cc g) cls (&mut args))
   (for i 0 (vec.len (& args)) (pass_reg fx (vec.get (& args) i) (@ (vec.get ds i))))
-  (for i 0 (vec.len (& args)) (pass_mem fx (vec.get (& args) i) (@ (vec.get ds i))))
+  (for i 0 (vec.len (& args)) (pass_mem fx (vec.get (& args) i) (@ (vec.get ds i)) (. g win)))
   (if (>= sym 0)
     (x64_int.call_sym (&mut (. fx buf)) sym)
     (do
@@ -379,9 +385,10 @@
   (if (. a xmm) (ret (cg_frame.bsdld (&mut (. fx buf)) (. a reg) x64_buf.rbp d)))
   (cg_frame.ld fx 8 (. a reg) x64_buf.rbp d))
 
-(fn pass_mem ((fx (&mut cg_frame.fncx)) (a (& x64_abi.arg)) (d i64)) unit
+(fn pass_mem ((fx (&mut cg_frame.fncx)) (a (& x64_abi.arg)) (d i64) (win bool)) unit
   (if (>= (. a reg) 0) (ret))
-  (let disp (- (. fx frame) (- (. a off) 8)))
+  (let raw (- (. fx frame) (- (. a off) 8)))
+  (let disp (if win (neg raw) raw))
   (if (. a xmm)
     (do
       (cg_frame.bsdld (&mut (. fx buf)) 0 x64_buf.rbp d)

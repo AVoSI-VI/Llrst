@@ -4,6 +4,7 @@
 (use std.opt)
 (use std.path)
 (use std.str)
+(use std.sys)
 (use proj.borrow)
 (use proj.cg_drop)
 (use proj.cg_entry)
@@ -42,8 +43,11 @@
 (fn target_ok ((t (& str))) bool
   (if (== (str.len t) 0) (ret true))
   (if (not (str.has t "x86_64")) (ret false))
-  (if (str.has t "windows") (ret false))
   (not (str.has t "apple")))
+
+(fn is_win ((t (& str))) bool
+  (if (> (str.len t) 0) (ret (str.has t "windows")))
+  (== sys.os_id 2))
 
 (fn bad ((code (& str)) (got (& str))) i64
   (let mut s (str.from "E||0|0|0|"))
@@ -59,7 +63,7 @@
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
   (if (or (str.eq (& (. o cmd)) "check") (str.eq (& (. o cmd)) "emit-mir"))
     (ret (finish o (&mut ds))))
-  (let mut g (cg_mod.new (. o checked) (str.has (& (. o target)) "apple")))
+  (let mut g (cg_mod.new (. o checked) (str.has (& (. o target)) "apple") (is_win (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
   (pump (&mut g) (& p) (&mut ds))
@@ -67,7 +71,7 @@
   (cg_entry.emit_main (&mut g) entry)
   (let bytes (cg_mod.finish (& g)))
   (if (. o emit_obj) (ret (write_obj o (& bytes) (&mut ds))))
-  (let err (link.link (& bytes) (& (out_path o))))
+  (let err (link.link (& bytes) (& (out_path o)) (is_win (& (. o target)))))
   (if (> (str.len (& err)) 0) (do (io.eputs (& err)) (ret 1)))
   (finish o (&mut ds)))
 
@@ -89,7 +93,7 @@
   (path.join (& (path.dir (& (. o file)))) (& (path.stem (& (. o file))))))
 
 (fn write_obj ((o (& flags)) (bytes (& str)) (ds (&mut (vec diag.dg)))) i64
-  (match (fs.write (& (link.obj_path (& (out_path o)))) bytes)
+  (match (fs.write (& (link.obj_path (& (out_path o)) (is_win (& (. o target))))) bytes)
     ((res.err e) (do (io.eputs (& e)) (ret 1)))
     ((res.ok _) (finish o ds))))
 

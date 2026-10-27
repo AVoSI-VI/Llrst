@@ -11,6 +11,24 @@ function Die($msg) {
     exit 1
 }
 
+function Compile-Shim($dir, $name) {
+    $c = Join-Path $dir $name
+    $obj = Join-Path $dir ($name -replace '\.c$', '.obj')
+    $cl = Get-Command cl -ErrorAction SilentlyContinue
+    if ($cl) {
+        & cl.exe /nologo /c "/Fo$obj" $c
+        if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
+        return
+    }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) { Die 'setup|cl=missing' }
+    $inst = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+    if (-not $inst) { Die 'setup|cl=missing' }
+    $bat = Join-Path $inst.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
+    cmd /c "call `"$bat`" >nul && cl /nologo /c /Fo`"$obj`" `"$c`""
+    if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
+}
+
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     Die 'setup|cargo=missing|fix=install rustup'
 }
@@ -30,6 +48,11 @@ if (Test-Path -LiteralPath $stdDest) { Remove-Item -LiteralPath $stdDest -Recurs
 Copy-Item -LiteralPath (Join-Path $root 'std') -Destination $stdDest -Recurse
 Copy-Item -LiteralPath (Join-Path $root 'runtime\llr_win.c') -Destination (Join-Path $share 'llr_win.c') -Force
 Copy-Item -LiteralPath (Join-Path $root 'runtime\llr_wsa.c') -Destination (Join-Path $share 'llr_wsa.c') -Force
+Write-Output 'step|runtime'
+foreach ($name in @('llr_wsa.c', 'llr_win.c')) {
+    Compile-Shim $share $name
+}
+Write-Output "ok|runtime|$share"
 Copy-Item -LiteralPath $llrc -Destination (Join-Path $bin 'llrc.exe') -Force
 Write-Output "ok|llrc|$bin\llrc.exe"
 Write-Output "ok|std|$stdDest"
