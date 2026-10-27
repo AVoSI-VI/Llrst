@@ -1,0 +1,8 @@
+(use std.io)
+
+(fn main () unit
+  (io.puts (& (str.from_int (as i64 (as i32 1.9)))))
+  (io.puts (& (str.from_int (as i64 (as i8 -128.9)))))
+  (io.puts (& (str.from_int (as i64 (as u8 255.0)))))
+  (io.puts (& (str.from_int (as i64 (as u8 -0.9)))))
+  (io.puts (& (str.from_int (as i64 (as f32 16777216))))))

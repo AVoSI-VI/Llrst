@@ -1,0 +1,144 @@
+;; Surface types to semantic types. Lifetimes on refs are stored without the quote.
+(use std.ast)
+(use std.str)
+(use proj.diag)
+(use proj.prog)
+(use proj.ty)
+
+(fn gen_i ((gens (& (vec str))) (name (& str))) i64
+  (for i 0 (vec.len gens) (if (str.eq (vec.get gens i) name) (ret i)))
+  (neg 1))
+
+(fn ref_mut ((text (& str))) bool (or (str.eq text "mut") (str.starts text "mut ")))
+
+(fn ref_lt ((text (& str))) str
+  (let mut s (str.clone text))
+  (if (str.starts text "mut ") (set s (str.slice text 4 (str.len text))))
+  (if (str.starts (& s) "'") (ret (str.slice (& s) 1 (str.len (& s)))))
+  (str.new))
+
+(fn prim ((n (& str))) (opt ty.sty)
+  (let i (ty.int_id n))
+  (if (>= i 0) (ret (opt.some (ty.int i))))
+  (if (str.eq n "f32") (ret (opt.some (ty.mk 1u8 0 false (str.new) (vec.new <ty.sty>)))))
+  (if (str.eq n "f64") (ret (opt.some (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))))
+  (if (str.eq n "bool") (ret (opt.some (ty.bool_ty))))
+  (if (str.eq n "unit") (ret (opt.some (ty.unit))))
+  (if (str.eq n "never") (ret (opt.some (ty.never))))
+  (opt.none))
+
+(fn map_res ((p (& prog.prog)) (m i64) (gens (& (vec str))) (xs (& (vec ty)))) (res (vec ty.sty) str)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len xs) (vec.push (&mut o) (try (resolve p m gens (vec.get xs i)))))
+  (res.ok o))
+
+(fn adt_arity ((p (& prog.prog)) (id i64)) i64 (vec.len (& (. (vec.get (& (. p defs)) id) gens))))
+
+(fn span_dg ((p (& prog.prog)) (m i64) (t (& ty)) (code str)) diag.dg
+  (diag.make true
+    (str.clone (& (. (vec.get (& (. p mods)) m) file)))
+    (. t line)
+    (. t col)
+    (. t len)
+    code))
+
+(fn with3 ((d diag.dg) (k (& str)) (v str) (k2 (& str)) (v2 str) (k3 (& str)) (v3 str)) str
+  (let mut g d)
+  (diag.add (&mut g) k v)
+  (diag.add (&mut g) k2 v2)
+  (diag.add (&mut g) k3 v3)
+  (diag.render (& g)))
+
+(fn priv_err ((p (& prog.prog)) (m i64) (t (& ty)) (id i64)) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (with3 (span_dg p m t (str.from "name.private"))
+    "name"
+    (str.clone (& (. d name)))
+    "module"
+    modp
+    "fix"
+    (str.from "(pub ...)")))
+
+(fn arity_err ((p (& prog.prog)) (m i64) (t (& ty)) (n (& str)) (want i64) (got i64)) str
+  (with3 (span_dg p m t (str.from "type.generic_arity"))
+    "name"
+    (str.clone n)
+    "want"
+    (str.from_int want)
+    "got"
+    (str.from_int got)))
+
+(fn why_err ((p (& prog.prog)) (m i64) (t (& ty)) (why str)) str
+  (let mut g (span_dg p m t (str.from "trait.object")))
+  (diag.add (&mut g) "why" why)
+  (diag.render (& g)))
+
+(fn named ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty)) (nargs i64)) (res ty.sty str)
+  (let n (& (. t text)))
+  (match (prim n) ((opt.some found) (if (== nargs 0) (ret (res.ok found)))) ((opt.none) ()))
+  (let gi (gen_i gens n))
+  (if (and (>= gi 0) (== nargs 0)) (ret (res.ok (ty.param gi (str.clone n)))))
+  (if (and (str.eq n "Self") (== nargs 0)) (ret (res.ok (ty.self_ty))))
+  (let id (prog.lookup_type p m n))
+  (if (< id 0) (ret (res.err (str.from "name.not_type"))))
+  (if (not (prog.visible p m id)) (ret (res.err (priv_err p m t id))))
+  (if (!= (adt_arity p id) nargs) (ret (res.err (arity_err p m t n (adt_arity p id) nargs))))
+  (res.ok (ty.adt id (vec.new <ty.sty>))))
+
+(fn is_dyn ((t (& ty))) bool (and (== (. t kind) 1u8) (str.eq (& (. t text)) "dyn")))
+
+(fn dyn_of ((p (& prog.prog)) (m i64) (t (& ty)) (mut bool)) (res ty.sty str)
+  (if (!= (vec.len (& (. t args))) 1) (ret (res.err (str.from "trait.object"))))
+  (let n (& (. (vec.get (& (. t args)) 0) text)))
+  (let id (prog.lookup_trait p m n))
+  (if (< id 0) (ret (res.err (str.from "name.unknown"))))
+  (if (not (. (vec.get (& (. p defs)) id) safe)) (ret (res.err (why_err p m t (str.from "self")))))
+  (if (not (prog.visible p m id)) (ret (res.err (priv_err p m t id))))
+  (res.ok (ty.dyn_ty mut id)))
+
+(pub (fn resolve ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
+  (if (== (. t kind) 0u8) (ret (named p m gens t 0)))
+  (if (== (. t kind) 1u8) (ret (resolve_app p m gens t)))
+  (if (== (. t kind) 2u8) (ret (resolve_ref p m gens t)))
+  (if (== (. t kind) 3u8)
+    (ret (res.ok (ty.ptr_ty (try (resolve p m gens (vec.get (& (. t args)) 0)))))))
+  (if (or (== (. t kind) 4u8) (== (. t kind) 5u8)) (ret (resolve_fun p m gens t)))
+  (res.err (str.from "type.bad"))))
+
+(fn resolve_app ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
+  (if (is_dyn t) (ret (res.err (why_err p m t (str.from "ref")))))
+  (let args (try (map_res p m gens (& (. t args)))))
+  (let base (try (named p m gens t (vec.len (& args)))))
+  (res.ok (ty.adt (. base id) args)))
+
+(fn resolve_ref ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
+  (let inner (vec.get (& (. t args)) 0))
+  (let mutb (ref_mut (& (. t text))))
+  (if (is_dyn inner) (ret (dyn_of p m inner mutb)))
+  (let inn (try (resolve p m gens inner)))
+  (res.ok (ty.ref_ty mutb (ref_lt (& (. t text))) inn)))
+
+(fn resolve_fun ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
+  (let args (try (map_res p m gens (& (. t args)))))
+  (res.ok (ty.fun (== (. t kind) 5u8) args)))
+
+(pub (fn type_gens ((raw (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len raw)
+    (let g (vec.get raw i))
+    (if (not (str.starts g "'")) (vec.push (&mut o) (strip_bound g))))
+  o))
+
+(fn strip_bound ((s (& str))) str
+  (let mut hi (str.len s))
+  (for i 0 (str.len s) (if (== (str.at s i) 58u8) (do (set hi i) (brk))))
+  (str.slice s 0 hi))
+
+(pub (fn self_by_value ((t (& ty.sty))) bool
+  (if (== (. t kind) 12u8) (ret true))
+  (if (or (== (. t kind) 6u8) (== (. t kind) 7u8)) (ret false))
+  (for i 0 (vec.len (& (. t args))) (if (self_by_value (vec.get (& (. t args)) i)) (ret true)))
+  false))
+
+(pub (fn ref_self ((t (& ty.sty))) bool (and (== (. t kind) 6u8) (== (. (ty.inner t) kind) 12u8))))

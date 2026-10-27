@@ -50,8 +50,7 @@ impl<'a> Checker<'a> {
             }
             A::Do(items) => self.check_block(items, want, sp)?,
             A::If { cond, then, els } => {
-                let cond = self.check_expr(cond, Some(&Ty::Bool))?;
-                self.expect(&cond, &Ty::Bool)?;
+                let cond = self.check_bool(cond)?;
                 match els {
                     None => {
                         // The then-branch value is discarded; any type is accepted.
@@ -67,8 +66,7 @@ impl<'a> Checker<'a> {
                 }
             }
             A::While { cond, body } => {
-                let cond = self.check_expr(cond, Some(&Ty::Bool))?;
-                self.expect(&cond, &Ty::Bool)?;
+                let cond = self.check_bool(cond)?;
                 self.enter_loop();
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
@@ -175,16 +173,13 @@ impl<'a> Checker<'a> {
             }
             A::Bin { op, l, r } => self.check_bin(*op, l, r, want, sp)?,
             A::And(l, r) | A::Or(l, r) => {
-                let l = self.check_expr(l, Some(&Ty::Bool))?;
-                self.expect(&l, &Ty::Bool)?;
-                let r = self.check_expr(r, Some(&Ty::Bool))?;
-                self.expect(&r, &Ty::Bool)?;
+                let l = self.check_bool(l)?;
+                let r = self.check_bool(r)?;
                 let k = if matches!(e.kind, A::And(..)) { ExprKind::And(Box::new(l), Box::new(r)) } else { ExprKind::Or(Box::new(l), Box::new(r)) };
                 mk(k, Ty::Bool, sp)
             }
             A::Not(x) => {
-                let x = self.check_expr(x, Some(&Ty::Bool))?;
-                self.expect(&x, &Ty::Bool)?;
+                let x = self.check_bool(x)?;
                 mk(ExprKind::Not(Box::new(x)), Ty::Bool, sp)
             }
             A::WNeg(x) | A::Neg(x) => {
@@ -217,8 +212,7 @@ impl<'a> Checker<'a> {
                 mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, msg] }, Ty::Never, sp)
             }
             A::Assert(c) => {
-                let c = self.check_expr(c, Some(&Ty::Bool))?;
-                self.expect(&c, &Ty::Bool)?;
+                let c = self.check_bool(c)?;
                 let f = self.std_fn("test", "fail").ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", "test.fail"))?;
                 let loc = self.loc_lit(sp);
                 let msg = mk(ExprKind::Lit(Lit::Str(b"assert".to_vec())), self.ref_str(), sp);
@@ -429,6 +423,18 @@ impl<'a> Checker<'a> {
                 Ok(mk(ExprKind::Try { expr: Box::new(inner), is_res: false }, a[0].clone(), sp))
             }
             _ => Err(Diag::error(sp, "type.try").kv("got", self.show(&t)).kv("ret", self.show(&ret))),
+        }
+    }
+
+    /// Checks a condition. A failure to be `bool` is `type.not_bool`, not `type.mismatch`.
+    fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
+        match self.check_expr(e, Some(&Ty::Bool)) {
+            Ok(v) => Ok(v),
+            Err(d) if d.code == "type.mismatch" && d.span == e.span && d.kv.iter().any(|(k, v)| *k == "want" && v == "bool") => {
+                let got = d.kv.iter().find(|(k, _)| *k == "got").map(|(_, v)| v.clone()).unwrap_or_default();
+                Err(Diag::error(d.span, "type.not_bool").kv("got", got))
+            }
+            Err(d) => Err(d),
         }
     }
 

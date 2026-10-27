@@ -1,0 +1,1 @@
+E|tests/err/type_not_bool.llr|1|22|3|type.not_bool|got=(& str)

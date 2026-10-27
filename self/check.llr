@@ -1,0 +1,34 @@
+;; llrs check: typecheck, lower, borrowck, lint.
+(use std.str)
+(use proj.borrow)
+(use proj.diag)
+(use proj.lower)
+(use proj.lint)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (fn run ((p (& prog.prog)) (deny (& str)) (out (&mut (vec diag.dg)))) unit
+  (diag.append out (& (. p notes)))
+  (if (diag.any_err out deny) (ret))
+  (for i 0 (vec.len (& (. p defs))) (if (user_fn p i) (one p out i)))
+  (lint.items p out)))
+
+(fn user_fn ((p (& prog.prog)) (id i64)) bool
+  (let d (vec.get (& (. p defs)) id))
+  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret false))
+  (if (!= (. d kind) 2u8) (ret false))
+  (if (. d extern) (ret false))
+  (if (> (vec.len (& (. d gens))) 0) (ret false))
+  true)
+
+(fn one ((p (& prog.prog)) (out (&mut (vec diag.dg))) (id i64)) unit
+  (let empty (vec.new <ty.sty>))
+  (let got (thir.check_fn p id empty out))
+  (match got
+    ((res.err _) ())
+    ((res.ok e)
+      (do
+        (let b (lower.lower_fn p e (prog.fn_path p id) out))
+        (borrow.run p out (& b))
+        (lint.body out (& b))))))

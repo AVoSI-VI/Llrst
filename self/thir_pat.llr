@@ -1,0 +1,288 @@
+;; Match patterns. Pat kind: 0 wild, 1 bind, 2 lit, 3 variant.
+(use std.ast)
+(use std.str)
+(use proj.lit)
+(use proj.prog)
+(use proj.thir)
+(use proj.thir_expr)
+(use proj.ty)
+
+(fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
+  (let mut x (thir.ex_new k t (. e line) (. e col) (. c file)))
+  (set (. x len) (. e len))
+  x)
+
+(pub (fn check_match ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)
+  (let scrut (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let st (thir.shallow c (& (. scrut ty))))
+  (let by (by_ref (& st)))
+  (let inner (if (>= by 0) (ty.inner (& st)) (ty.clone (& st))))
+  (let mut x (at c e 13u8 (ty.unit)))
+  (set (. x id) by)
+  (vec.push (&mut (. x kids)) scrut)
+  (let mut covered (vec.new <i64>))
+  (let mut bits (bits false false false))
+  (let mut result (if won (ty.clone want) (ty.unit)))
+  (let mut have false)
+  (if won (set have true))
+  (let n (vec.len (& (. e kids))))
+  (let mut i 1)
+  (while (< i n)
+    (thir.push_scope c)
+    (let pat (try (check_pat p c (vec.get (& (. e kids)) i) (& inner) by)))
+    (note_pat (& pat) (&mut covered) (&mut bits))
+    (let body (try (arm_body p c (vec.get (& (. e kids)) (+ i 1)) have (& result))))
+    (thir.pop_scope c)
+    (if (not have)
+      (if (!= (. (. body ty) kind) 5u8)
+        (do (set result (ty.clone (& (. body ty)))) (set have true))))
+    (if (and have (not (thir.unify c (& (. body ty)) (& result))))
+      (ret (res.err (str.from "type.mismatch"))))
+    (vec.push (&mut (. x pats)) pat)
+    (vec.push (&mut (. x kids)) body)
+    (set i (+ i 2)))
+  (if (not (exhaustive p (& inner) (. bits wild) (& covered) (. bits bt) (. bits bf)))
+    (ret (res.err (str.from "match.missing"))))
+  (set (. x ty) (if have result (ty.never)))
+  (res.ok x)))
+
+(fn by_ref ((t (& ty.sty))) i64 (if (!= (. t kind) 6u8) (ret (neg 1))) (if (. t flag) 1 0))
+
+(fn arm_body ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (have bool) (result (& ty.sty))) (res thir.ex str)
+  (let body (try (thir_expr.check_expr p c e have result)))
+  (if (not (thir.is_stmt (& body))) (ret (res.ok body)))
+  (let mut b (thir.ex_new 5u8 (ty.unit) (. body line) (. body col) (. body file)))
+  (set (. b len) (. body len))
+  (vec.push (&mut (. b kids)) body)
+  (res.ok b))
+
+(pub (struct bits (pub (wild bool)) (pub (bt bool)) (pub (bf bool))))
+
+(fn note_pat ((pat (& thir.pat)) (covered (&mut (vec i64))) (b (&mut bits))) unit
+  (if (or (== (. pat kind) 0u8) (== (. pat kind) 1u8)) (set (. b wild) true))
+  (if (and (== (. pat kind) 3u8) (irref_subs pat)) (vec.push covered (. pat id)))
+  (if (and (== (. pat kind) 2u8) (str.eq (& (. pat text)) "true")) (set (. b bt) true))
+  (if (and (== (. pat kind) 2u8) (str.eq (& (. pat text)) "false")) (set (. b bf) true)))
+
+(fn irref_subs ((pat (& thir.pat))) bool
+  (for i 0 (vec.len (& (. pat subs)))
+    (let s (vec.get (& (. pat subs)) i))
+    (if (not (or (== (. s kind) 0u8) (== (. s kind) 1u8))) (ret false)))
+  true)
+
+(fn exhaustive ((p (& prog.prog)) (inner (& ty.sty)) (wild bool) (covered (& (vec i64))) (bt bool) (bf bool)) bool
+  (if wild (ret true))
+  (if (and (== (. inner kind) 8u8) (== (. (vec.get (& (. p defs)) (. inner id)) kind) 1u8))
+    (ret (all_vars (vec.get (& (. p defs)) (. inner id)) covered)))
+  (if (== (. inner kind) 3u8) (ret (and bt bf)))
+  false)
+
+(fn all_vars ((d (& prog.def)) (covered (& (vec i64)))) bool
+  (for i 0 (vec.len (& (. d svars))) (if (not (has_i covered i)) (ret false)))
+  true)
+
+(fn has_i ((v (& (vec i64))) (n i64)) bool
+  (for i 0 (vec.len v) (if (== (@ (vec.get v i)) n) (ret true)))
+  false)
+
+(fn check_pat ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64)) (res thir.pat str)
+  (if (and (== (. e kind) 1u8) (str.eq (& (. e text)) "_"))
+    (ret (res.ok (thir.pat_new 0u8 0 (str.new) (. e line) (. e col)))))
+  (if (== (. e kind) 0u8) (ret (pat_lit c e ty_)))
+  (if (and (== (. e kind) 1u8) (str.has (& (. e text)) "."))
+    (ret (pat_var p c e ty_ by (vec.new <expr>))))
+  (if (== (. e kind) 23u8) (ret (pat_var p c e ty_ by (kids_of e))))
+  (if (== (. e kind) 1u8) (ret (pat_bind c e ty_ by)))
+  (res.err (str.from "match.bad_lit")))
+
+(fn kids_of ((e (& expr))) (vec expr)
+  (let mut o (vec.new <expr>))
+  (for i 0 (vec.len (& (. e kids)))
+    (let x (vec.get (& (. e kids)) i))
+    (vec.push (&mut o)
+      (expr (. x kind)
+        (str.clone (& (. x text)))
+        (. x mut)
+        (vec.new <expr>)
+        (vec.new <ty>)
+        (. x line)
+        (. x col)
+        (. x len))))
+  o)
+
+(fn pat_bind ((c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64)) (res thir.pat str)
+  (let t (if (>= by 0) (ty.ref_ty (== by 1) (str.new) (ty.clone ty_)) (ty.clone ty_)))
+  (let id (try (thir.declare c (& (. e text)) t false (. e line) (. e col) (. e len))))
+  (res.ok (thir.pat_new 1u8 id (str.new) (. e line) (. e col))))
+
+(fn pat_lit ((c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty))) (res thir.pat str)
+  (let n (lit.parse_num (& (. e text))))
+  (if (and (. n ok) (not (. n float)))
+    (do
+      (if (not (ty.is_int (& (thir.shallow c ty_)))) (ret (res.err (str.from "type.mismatch"))))
+      (ret (res.ok (thir.pat_new 2u8 (. n val) (str.clone (& (. e text))) (. e line) (. e col))))))
+  (if (or (str.eq (& (. e text)) "true") (str.eq (& (. e text)) "false"))
+    (do
+      (if (not (thir.unify c ty_ (& (ty.bool_ty)))) (ret (res.err (str.from "type.mismatch"))))
+      (ret (res.ok (thir.pat_new 2u8 0 (str.clone (& (. e text))) (. e line) (. e col))))))
+  (res.err (str.from "match.bad_lit")))
+
+(fn pat_var ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64) (subs (vec expr))) (res thir.pat str)
+  (if (not (and (== (. ty_ kind) 8u8) (== (. (vec.get (& (. p defs)) (. ty_ id)) kind) 1u8)))
+    (ret (res.err (str.from "match.not_enum"))))
+  (let dot (last_dot (& (. e text))))
+  (if (< dot 0) (ret (res.err (str.from "type.no_variant"))))
+  (let path (str.slice (& (. e text)) 0 dot))
+  (let var (str.slice (& (. e text)) (+ dot 1) (str.len (& (. e text)))))
+  (let pt (prog.lookup_type p (. c module) (& path)))
+  (if (!= pt (. ty_ id)) (ret (res.err (str.from "type.mismatch"))))
+  (let d (vec.get (& (. p defs)) (. ty_ id)))
+  (let idx (var_i d (& var)))
+  (if (< idx 0) (ret (res.err (str.from "type.no_variant"))))
+  (let ftys (var_tys (vec.get (& (. d svars)) idx) (& (. ty_ args))))
+  (if (!= (vec.len (& ftys)) (vec.len (& subs))) (ret (res.err (str.from "type.arity"))))
+  (let mut out (thir.pat_new 3u8 idx (str.new) (. e line) (. e col)))
+  (let mut ss subs)
+  (for i 0 (vec.len (& ftys))
+    (let sub (vec.remove (&mut ss) 0))
+    (let st (thir.shallow c (vec.get (& ftys) i)))
+    (vec.push (&mut (. out subs)) (try (check_pat p c (& sub) (& st) by))))
+  (res.ok out))
+
+(fn last_dot ((s (& str))) i64
+  (let mut at (neg 1))
+  (for i 0 (str.len s) (if (== (str.at s i) 46u8) (set at i)))
+  at)
+
+(fn var_i ((d (& prog.def)) (name (& str))) i64
+  (for i 0 (vec.len (& (. d svars)))
+    (if (str.eq (& (. (vec.get (& (. d svars)) i) name)) name) (ret i)))
+  (neg 1))
+
+(fn var_tys ((v (& prog.svar)) (args (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len (& (. v tys))) (vec.push (&mut o) (ty.subst (vec.get (& (. v tys)) i) args)))
+  o)
+
+(pub (fn priv_code ((p (& prog.prog)) (id i64)) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let mid (thir.kv2 "name.private" "name" (prog.fn_path p id) "module" modp))
+  (thir.kv (& mid) "fix" (str.from "(pub ...)"))))
+
+(fn wrap_pub ((name (& str)) (shown (& str))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) name)
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) shown)
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_field_msg ((p (& prog.prog)) (id i64) (f (& prog.sfield)) (args (& (vec ty.sty)))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let shown (thir.nshow p (& (ty.subst (& (. f ty)) args))))
+  (let fix (wrap_pub (& (. f name)) (& shown)))
+  (let a
+    (thir.kv2 "name.private_field"
+      "field"
+      (str.clone (& (. f name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(fn field_vis ((p (& prog.prog)) (c (& thir.ck)) (id i64) (f (& prog.sfield))) bool
+  (or (. f is_pub) (== (. (vec.get (& (. p defs)) id) module) (. c module))))
+
+(fn hidden_field ((p (& prog.prog)) (c (& thir.ck)) (s (& ty.sty)) (name (& str))) str
+  (if (!= (. s kind) 8u8) (ret (str.new)))
+  (let d (vec.get (& (. p defs)) (. s id)))
+  (if (!= (. d kind) 0u8) (ret (str.new)))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let f (vec.get (& (. d sfields)) i))
+    (if (and (str.eq (& (. f name)) name) (not (field_vis p c (. s id) f)))
+      (ret (priv_field_msg p (. s id) f (& (. s args))))))
+  (str.new))
+
+(pub (fn field_err ((p (& prog.prog)) (c (& thir.ck)) (base (& ty.sty)) (name (& str))) str
+  (let s (thir.shallow c base))
+  (let hid (hidden_field p c (& s) name))
+  (if (> (str.len (& hid)) 0) (ret hid))
+  (thir.kv2 "type.no_field" "ty" (thir.nshow p (& s)) "field" (str.clone name))))
+
+(fn var_fix ((p (& prog.prog)) (v (& prog.svar))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) (& (. v name)))
+  (for i 0 (vec.len (& (. v tys)))
+    (do
+      (let shown (thir.nshow p (vec.get (& (. v tys)) i)))
+      (str.push_byte (&mut s) 32u8)
+      (str.push (&mut s) (& shown))))
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_var ((p (& prog.prog)) (id i64) (v (& prog.svar))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let fix (var_fix p v))
+  (let a
+    (thir.kv2 "name.private_variant"
+      "variant"
+      (str.clone (& (. v name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(pub (fn var_err ((p (& prog.prog)) (c (& thir.ck)) (id i64) (idx i64) (var str)) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (< idx 0) (ret (thir.kv2 "type.no_variant" "ty" (str.clone (& (. d name))) "variant" var)))
+  (let v (vec.get (& (. d svars)) idx))
+  (if (or (. v is_pub) (== (. d module) (. c module))) (ret (str.new)))
+  (priv_var p id v)))
+
+(pub (fn check_panic ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let msg (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) true (& (thir.ref_str p)))))
+  (let f (thir.std_fn p "sys" "panic"))
+  (let mut x (at c e 24u8 (ty.never)))
+  (set (. x id) 0)
+  (set (. x id2) f)
+  (vec.push (&mut (. x kids)) (loc_ex p c e))
+  (vec.push (&mut (. x kids)) msg)
+  (res.ok x)))
+
+(fn loc_ex ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
+  (let mut x (at c e 0u8 (thir.ref_str p)))
+  (set (. x id) 3)
+  (set (. x text) (thir.loc_text p (. c file) (. e line) (. e col)))
+  x)
+
+(pub (fn check_assert ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let cond (try (thir.check_bool p c (vec.get (& (. e kids)) 0))))
+  (let f (thir.std_fn p "test" "fail"))
+  (let mut call (at c e 24u8 (ty.never)))
+  (set (. call id) 0)
+  (set (. call id2) f)
+  (vec.push (&mut (. call kids)) (loc_ex p c e))
+  (vec.push (&mut (. call kids)) (assert_msg p c e))
+  (let mut nt (at c e 21u8 (ty.bool_ty)))
+  (vec.push (&mut (. nt kids)) cond)
+  (let mut x (at c e 6u8 (ty.unit)))
+  (vec.push (&mut (. x kids)) nt)
+  (vec.push (&mut (. x kids)) call)
+  (res.ok x)))
+
+(fn assert_msg ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
+  (let mut x (at c e 0u8 (thir.ref_str p)))
+  (set (. x id) 3)
+  (set (. x text) (str.from "assert"))
+  x)
+
+(pub (fn check_drop ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let v (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let mut x (at c e 24u8 (ty.unit)))
+  (set (. x id) 3)
+  (set (. x id2) 9)
+  (vec.push (&mut (. x kids)) v)
+  (res.ok x)))

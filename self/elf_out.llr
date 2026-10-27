@@ -1,0 +1,242 @@
+;; ELF64 relocatable container. Sections 1..4 are always .text .data .rodata .bss,
+;; so a symbol shndx does not change when an empty rela blob is left out.
+;; Relocs are RELA. The payload bytes are not added to r_addend.
+(use std.str)
+(use std.vec)
+
+(const sht_prog i64 1)
+
+(const sht_sym i64 2)
+
+(const sht_str i64 3)
+
+(const sht_rela i64 4)
+
+(const sht_nobits i64 8)
+
+(const shf_write i64 1)
+
+(const shf_alloc i64 2)
+
+(const shf_exec i64 4)
+
+(const shf_info i64 64)
+
+(struct lay
+  (text i64)
+  (data i64)
+  (ro i64)
+  (bss i64)
+  (rt i64)
+  (rd i64)
+  (rr i64)
+  (sym i64)
+  (str i64)
+  (shstr i64)
+  (shoff i64))
+
+(struct names
+  (tab (vec u8))
+  (text i64)
+  (data i64)
+  (ro i64)
+  (bss i64)
+  (rt i64)
+  (rd i64)
+  (rr i64)
+  (sym i64)
+  (str i64)
+  (sh i64))
+
+(pub (struct parts
+  (pub (text (vec u8)))
+  (pub (data (vec u8)))
+  (pub (rodata (vec u8)))
+  (pub (bss i64))
+  (pub (syms (vec u8)))
+  (pub (strs (vec u8)))
+  (pub (rel_text (vec u8)))
+  (pub (rel_data (vec u8)))
+  (pub (rel_rodata (vec u8)))
+  (pub (sym_info i64))))
+
+(fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
+
+(pub (fn push_n ((b (&mut (vec u8))) (n i64) (count i64)) unit
+  (for i 0 count (vec.push b (lo n (* i 8))))))
+
+(pub (fn cstr ((tab (&mut (vec u8))) (name (& str))) i64
+  (if (== (str.len name) 0) (ret 0))
+  (let at (vec.len tab))
+  (for i 0 (str.len name) (vec.push tab (str.at name i)))
+  (vec.push tab 0u8)
+  at))
+
+(fn align_up ((n i64) (a i64)) i64 (let m (% n a)) (if (== m 0) n (+ n (- a m))))
+
+(fn append ((b (&mut (vec u8))) (src (& (vec u8)))) unit
+  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+
+(fn emit_at ((b (&mut (vec u8))) (off i64) (src (& (vec u8)))) unit
+  (while (< (vec.len b) off) (vec.push b 0u8))
+  (append b src))
+
+(fn emit_blob ((b (&mut (vec u8))) (src (& (vec u8))) (off i64)) unit
+  (if (== (vec.len src) 0) (ret))
+  (emit_at b off src))
+
+(fn to_str ((b (& (vec u8)))) str
+  (let mut s (str.new))
+  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
+  s)
+
+(fn shdr ((b (&mut (vec u8)))
+   (name i64)
+   (ty i64)
+   (flags i64)
+   (off i64)
+   (size i64)
+   (link i64)
+   (info i64)
+   (align i64)
+   (entsize i64)) unit
+  (push_n b name 4)
+  (push_n b ty 4)
+  (push_n b flags 8)
+  (push_n b 0 8)
+  (push_n b off 8)
+  (push_n b size 8)
+  (push_n b link 4)
+  (push_n b info 4)
+  (push_n b align 8)
+  (push_n b entsize 8))
+
+(fn ehdr ((b (&mut (vec u8))) (shoff i64) (shnum i64) (shstr i64)) unit
+  (vec.push b 127u8)
+  (vec.push b 69u8)
+  (vec.push b 76u8)
+  (vec.push b 70u8)
+  (vec.push b 2u8)
+  (vec.push b 1u8)
+  (vec.push b 1u8)
+  (for i 0 9 (vec.push b 0u8))
+  (push_n b 1 2)
+  (push_n b 62 2)
+  (push_n b 1 4)
+  (push_n b 0 8)
+  (push_n b 0 8)
+  (push_n b shoff 8)
+  (push_n b 0 4)
+  (push_n b 64 2)
+  (push_n b 0 2)
+  (push_n b 0 2)
+  (push_n b 64 2)
+  (push_n b shnum 2)
+  (push_n b shstr 2))
+
+(fn shstr () names
+  (let mut t (vec.new <u8>))
+  (vec.push (&mut t) 0u8)
+  (let text (cstr (&mut t) ".text"))
+  (let data (cstr (&mut t) ".data"))
+  (let ro (cstr (&mut t) ".rodata"))
+  (let bss (cstr (&mut t) ".bss"))
+  (let rt (cstr (&mut t) ".rela.text"))
+  (let rd (cstr (&mut t) ".rela.data"))
+  (let rr (cstr (&mut t) ".rela.rodata"))
+  (let sym (cstr (&mut t) ".symtab"))
+  (let strb (cstr (&mut t) ".strtab"))
+  (let sh (cstr (&mut t) ".shstrtab"))
+  (names t text data ro bss rt rd rr sym strb sh))
+
+(fn count_sh ((p (& parts))) i64
+  (let mut n 8)
+  (if (> (vec.len (& (. p rel_text))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p rel_data))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p rel_rodata))) 0) (set n (+ n 1)))
+  n)
+
+(fn layout ((p (& parts)) (sh_n i64)) lay
+  (let mut off 64)
+  (let text (align_up off 16))
+  (set off (+ text (vec.len (& (. p text)))))
+  (let data (align_up off 8))
+  (set off (+ data (vec.len (& (. p data)))))
+  (let ro (align_up off 8))
+  (set off (+ ro (vec.len (& (. p rodata)))))
+  (let bss (align_up off 8))
+  (let mut rt 0)
+  (let mut rd 0)
+  (let mut rr 0)
+  (let rt_n (vec.len (& (. p rel_text))))
+  (let rd_n (vec.len (& (. p rel_data))))
+  (let rr_n (vec.len (& (. p rel_rodata))))
+  (if (> rt_n 0) (do (set rt (align_up off 8)) (set off (+ rt rt_n))))
+  (if (> rd_n 0) (do (set rd (align_up off 8)) (set off (+ rd rd_n))))
+  (if (> rr_n 0) (do (set rr (align_up off 8)) (set off (+ rr rr_n))))
+  (let sym (align_up off 8))
+  (set off (+ sym (vec.len (& (. p syms)))))
+  (let strb off)
+  (set off (+ strb (vec.len (& (. p strs)))))
+  (let shstr off)
+  (set off (+ shstr sh_n))
+  (lay text data ro bss rt rd rr sym strb shstr (align_up off 8)))
+
+(fn put_body ((out (&mut (vec u8))) (p (& parts)) (lay (& lay)) (names (& names))) unit
+  (emit_at out (. lay text) (& (. p text)))
+  (emit_at out (. lay data) (& (. p data)))
+  (emit_at out (. lay ro) (& (. p rodata)))
+  (emit_blob out (& (. p rel_text)) (. lay rt))
+  (emit_blob out (& (. p rel_data)) (. lay rd))
+  (emit_blob out (& (. p rel_rodata)) (. lay rr))
+  (emit_at out (. lay sym) (& (. p syms)))
+  (emit_at out (. lay str) (& (. p strs)))
+  (emit_at out (. lay shstr) (& (. names tab))))
+
+(fn shdr_rel ((out (&mut (vec u8))) (blob (& (vec u8))) (name i64) (off i64) (sym i64) (sec i64)) unit
+  (if (== (vec.len blob) 0) (ret))
+  (shdr out name sht_rela shf_info off (vec.len blob) sym sec 8 24))
+
+(fn put_shdrs ((out (&mut (vec u8))) (p (& parts)) (lay (& lay)) (names (& names)) (n i64)) unit
+  (let sym_i (- n 3))
+  (let str_i (- n 2))
+  (while (< (vec.len out) (. lay shoff)) (vec.push out 0u8))
+  (shdr out 0 0 0 0 0 0 0 0 0)
+  (shdr out
+    (. names text)
+    sht_prog
+    (+ shf_alloc shf_exec)
+    (. lay text)
+    (vec.len (& (. p text)))
+    0
+    0
+    16
+    0)
+  (shdr out
+    (. names data)
+    sht_prog
+    (+ shf_write shf_alloc)
+    (. lay data)
+    (vec.len (& (. p data)))
+    0
+    0
+    8
+    0)
+  (shdr out (. names ro) sht_prog shf_alloc (. lay ro) (vec.len (& (. p rodata))) 0 0 8 0)
+  (shdr out (. names bss) sht_nobits (+ shf_write shf_alloc) (. lay bss) (. p bss) 0 0 8 0)
+  (shdr_rel out (& (. p rel_text)) (. names rt) (. lay rt) sym_i 1)
+  (shdr_rel out (& (. p rel_data)) (. names rd) (. lay rd) sym_i 2)
+  (shdr_rel out (& (. p rel_rodata)) (. names rr) (. lay rr) sym_i 3)
+  (shdr out (. names sym) sht_sym 0 (. lay sym) (vec.len (& (. p syms))) str_i (. p sym_info) 8 24)
+  (shdr out (. names str) sht_str 0 (. lay str) (vec.len (& (. p strs))) 0 0 1 0)
+  (shdr out (. names sh) sht_str 0 (. lay shstr) (vec.len (& (. names tab))) 0 0 1 0))
+
+(pub (fn assemble ((p (& parts))) str
+  (let names (shstr))
+  (let n (count_sh p))
+  (let lay (layout p (vec.len (& (. names tab)))))
+  (let mut out (vec.new <u8>))
+  (ehdr (&mut out) (. lay shoff) n (- n 1))
+  (put_body (&mut out) p (& lay) (& names))
+  (put_shdrs (&mut out) p (& lay) (& names) n)
+  (to_str (& out))))

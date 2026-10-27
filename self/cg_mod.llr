@@ -1,0 +1,307 @@
+;; ELF object, symbols, and the 24-byte static str record.
+(use std.str)
+(use proj.cg_bits)
+(use proj.cg_lay)
+(use proj.coff)
+(use proj.elf)
+(use proj.prog)
+(use proj.ty)
+(use proj.x64_abi)
+(use proj.x64_buf)
+
+(pub (struct cg
+  (pub (obj elf.obj))
+  (pub (lays cg_lay.lays))
+  (pub (checked bool))
+  (pub (darwin bool))
+  (pub (win bool))
+  (pub (chkstk i64))
+  (pub (argc i64))
+  (pub (argv i64))
+  (pub (trace i64))
+  (pub (fid (vec i64)))
+  (pub (fargs (vec (vec ty.sty))))
+  (pub (fsym (vec i64)))
+  (pub (fdone (vec bool)))
+  (pub (eid (vec i64)))
+  (pub (esym (vec i64)))
+  (pub (skey (vec str)))
+  (pub (ssym (vec i64)))
+  (pub (dty (vec ty.sty)))
+  (pub (dsym (vec i64)))
+  (pub (ddone (vec bool)))
+  (pub (vkey (vec str)))
+  (pub (vsym (vec i64)))
+  (pub (pend (vec i64)))
+  (pub (pargs (vec (vec ty.sty))))
+  (pub (dpend (vec i64)))))
+
+(fn push_zeros ((v (&mut (vec u8))) (n i64)) unit (for i 0 n (vec.push v 0u8)))
+
+(fn pad ((v (&mut (vec u8))) (a i64)) unit
+  (if (<= a 1) (ret))
+  (while (!= (% (vec.len v) a) 0) (vec.push v 0u8)))
+
+(fn data_sym ((g (&mut cg)) (name (& str)) (bind i64)) i64
+  (pad (&mut (. (. g obj) data)) 8)
+  (let at (vec.len (& (. (. g obj) data))))
+  (push_zeros (&mut (. (. g obj) data)) 8)
+  (elf.add_sym (&mut (. g obj)) name bind elf.st_object elf.sec_data at 8))
+
+(pub (fn new ((checked bool) (darwin bool) (win bool)) cg
+  (let mut g
+    (cg (elf.new)
+      (cg_lay.new)
+      checked
+      darwin
+      win
+      (neg 1)
+      0
+      0
+      0
+      (vec.new <i64>)
+      (vec.new < (vec ty.sty) >)
+      (vec.new <i64>)
+      (vec.new <bool>)
+      (vec.new <i64>)
+      (vec.new <i64>)
+      (vec.new <str>)
+      (vec.new <i64>)
+      (vec.new <ty.sty>)
+      (vec.new <i64>)
+      (vec.new <bool>)
+      (vec.new <str>)
+      (vec.new <i64>)
+      (vec.new <i64>)
+      (vec.new < (vec ty.sty) >)
+      (vec.new <i64>)))
+  (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
+  (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
+  (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
+  g))
+
+(fn host_name ((name (& str)) (darwin bool)) str
+  (if (not darwin) (ret (str.clone name)))
+  (if (str.eq name "open") (ret (str.from "llr_open")))
+  (if (str.eq name "fcntl") (ret (str.from "llr_fcntl")))
+  (if (str.eq name "bind") (ret (str.from "llr_bind")))
+  (if (str.eq name "connect") (ret (str.from "llr_connect")))
+  (if (str.eq name "socket") (ret (str.from "llr_socket")))
+  (if (str.eq name "setrlimit") (ret (str.from "llr_setrlimit")))
+  (str.clone name))
+
+(fn mix ((h i64) (c i64)) i64 (wmul (bxor h c) 16777619))
+
+(fn hash_str ((h i64) (s (& str))) i64
+  (let mut n h)
+  (for i 0 (str.len s) (set n (mix n (as i64 (str.at s i)))))
+  n)
+
+(fn hash_tys ((ts (& (vec ty.sty)))) i64
+  (let mut h 2166136261)
+  (for i 0 (vec.len ts) (set h (hash_str h (& (ty.show (vec.get ts i))))))
+  h)
+
+(fn hex8 ((n i64)) str
+  (let digits "0123456789abcdef")
+  (let mut s (str.new))
+  (let mut i 7)
+  (while (>= i 0)
+    (let d (band (shr n (* i 4)) 15))
+    (str.push_byte (&mut s) (str.at digits d))
+    (set i (- i 1)))
+  s)
+
+(pub (fn mangle ((path (& str)) (args (& (vec ty.sty)))) str
+  (let mut s (str.from "llr_"))
+  (for i 0 (str.len path) (let c (str.at path i)) (str.push_byte (&mut s) (if (== c 46u8) 95u8 c)))
+  (if (> (vec.len args) 0)
+    (do (str.push_byte (&mut s) 95u8) (str.push (&mut s) (& (hex8 (hash_tys args))))))
+  s))
+
+(fn args_eq ((a (& (vec ty.sty))) (b (& (vec ty.sty)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret false))
+  (for i 0 (vec.len a) (if (not (ty.eq (vec.get a i) (vec.get b i))) (ret false)))
+  true)
+
+(fn find_fn ((g (& cg)) (id i64) (args (& (vec ty.sty)))) i64
+  (for i 0 (vec.len (& (. g fid)))
+    (if (and (== (@ (vec.get (& (. g fid)) i)) id) (args_eq (vec.get (& (. g fargs)) i) args))
+      (ret i)))
+  (neg 1))
+
+(fn decl_fn ((g (&mut cg)) (name (& str))) i64
+  (elf.add_sym (&mut (. g obj)) name elf.local elf.st_func elf.sec_text 0 0))
+
+(pub (fn func_sym ((g (&mut cg)) (p (& prog.prog)) (id i64) (args (vec ty.sty))) i64
+  (let hit (find_fn g id (& args)))
+  (if (>= hit 0) (ret (@ (vec.get (& (. g fsym)) hit))))
+  (let d (vec.get (& (. p defs)) id))
+  (if (. d extern) (ret (extern_sym g p id)))
+  (let sym (decl_fn g (& (mangle (& (prog.fn_path p id)) (& args)))))
+  (vec.push (&mut (. g fid)) id)
+  (vec.push (&mut (. g fargs)) args)
+  (vec.push (&mut (. g fsym)) sym)
+  (vec.push (&mut (. g fdone)) false)
+  (vec.push (&mut (. g pend)) id)
+  (vec.push (&mut (. g pargs))
+    (clone_tys (vec.get (& (. g fargs)) (- (vec.len (& (. g fargs))) 1))))
+  sym))
+
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
+  o)
+
+(pub (fn extern_sym ((g (&mut cg)) (p (& prog.prog)) (id i64)) i64
+  (for i 0 (vec.len (& (. g eid)))
+    (if (== (@ (vec.get (& (. g eid)) i)) id) (ret (@ (vec.get (& (. g esym)) i)))))
+  (let d (vec.get (& (. p defs)) id))
+  (let sym
+    (elf.add_sym (&mut (. g obj))
+      (& (host_name (& (. d name)) (. g darwin)))
+      elf.global
+      elf.st_none
+      elf.sec_undef
+      0
+      0))
+  (vec.push (&mut (. g eid)) id)
+  (vec.push (&mut (. g esym)) sym)
+  sym))
+
+(pub (fn mark_done ((g (&mut cg)) (id i64) (args (& (vec ty.sty)))) unit
+  (let hit (find_fn g id args))
+  (if (>= hit 0) (vec.set (&mut (. g fdone)) hit true))))
+
+(pub (fn is_done ((g (& cg)) (id i64) (args (& (vec ty.sty)))) bool
+  (let hit (find_fn g id args))
+  (and (>= hit 0) (@ (vec.get (& (. g fdone)) hit)))))
+
+(fn find_str ((g (& cg)) (s (& str))) i64
+  (for i 0 (vec.len (& (. g skey))) (if (str.eq (vec.get (& (. g skey)) i) s) (ret i)))
+  (neg 1))
+
+(fn ro_bytes ((g (&mut cg)) (bytes (& (vec u8))) (align i64)) i64
+  (pad (&mut (. (. g obj) rodata)) align)
+  (let at (vec.len (& (. (. g obj) rodata))))
+  (for i 0 (vec.len bytes) (vec.push (&mut (. (. g obj) rodata)) (@ (vec.get bytes i))))
+  at)
+
+(fn ro_sym ((g (&mut cg)) (name (& str)) (at i64) (n i64)) i64
+  (elf.add_sym (&mut (. g obj)) name elf.local elf.st_object elf.sec_rodata at n))
+
+(pub (fn cstr_sym ((g (&mut cg)) (s (& str))) i64
+  (let mut bytes (vec.new <u8>))
+  (for i 0 (str.len s) (vec.push (&mut bytes) (str.at s i)))
+  (vec.push (&mut bytes) 0u8)
+  (let at (ro_bytes g (& bytes) 1))
+  (let mut name (str.from "llr_nm"))
+  (str.push (&mut name) (& (str.from_int (vec.len (& (. g skey))))))
+  (ro_sym g (& name) at (vec.len (& bytes)))))
+
+(pub (fn str_sym ((g (&mut cg)) (s (& str))) i64
+  (let hit (find_str g s))
+  (if (>= hit 0) (ret (@ (vec.get (& (. g ssym)) hit))))
+  (let mut raw (vec.new <u8>))
+  (for i 0 (str.len s) (vec.push (&mut raw) (str.at s i)))
+  (vec.push (&mut raw) 0u8)
+  (let n (vec.len (& (. g skey))))
+  (let mut nb (str.from "llr_sb"))
+  (str.push (&mut nb) (& (str.from_int n)))
+  (let bat (ro_bytes g (& raw) 1))
+  (let bsym (ro_sym g (& nb) bat (vec.len (& raw))))
+  (let mut rec (vec.new <u8>))
+  (push_zeros (&mut rec) 24)
+  (let mut rat (ro_bytes g (& rec) 8))
+  (put_u64 (&mut (. (. g obj) rodata)) (+ rat 8) (str.len s))
+  (elf.add_rel (&mut (. g obj)) elf.sec_rodata rat elf.abs64 bsym 0)
+  (let mut ns (str.from "llr_ss"))
+  (str.push (&mut ns) (& (str.from_int n)))
+  (let sym (ro_sym g (& ns) rat 24))
+  (vec.push (&mut (. g skey)) (str.clone s))
+  (vec.push (&mut (. g ssym)) sym)
+  sym))
+
+(fn put_u64 ((v (&mut (vec u8))) (at i64) (n i64)) unit
+  (let mut x n)
+  (for i 0 8 (vec.set v (+ at i) (as u8 (band x 255))) (set x (shr x 8))))
+
+(pub (fn scalar_sym ((g (&mut cg)) (ck i64) (v i64) (text (& str)) (t (& ty.sty))) i64
+  (let bytes (cg_bits.scalar_bytes ck v text t))
+  (let key (key_of ck v text))
+  (let hit (find_key g (& key)))
+  (if (>= hit 0) (ret hit))
+  (let al (if (== (vec.len (& bytes)) 0) 1 (vec.len (& bytes))))
+  (let at (ro_bytes g (& bytes) al))
+  (let mut name (str.from "llr_k"))
+  (str.push (&mut name) (& (str.from_int (vec.len (& (. g vkey))))))
+  (let sym (ro_sym g (& name) at (vec.len (& bytes))))
+  (vec.push (&mut (. g vkey)) key)
+  (vec.push (&mut (. g vsym)) sym)
+  sym))
+
+(fn key_of ((ck i64) (v i64) (text (& str))) str
+  (let mut s (str.from_int ck))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (str.from_int v)))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) text)
+  s)
+
+(fn find_key ((g (& cg)) (k (& str))) i64
+  (for i 0 (vec.len (& (. g vkey)))
+    (if (str.eq (vec.get (& (. g vkey)) i) k) (ret (@ (vec.get (& (. g vsym)) i)))))
+  (neg 1))
+
+(fn find_drop ((g (& cg)) (t (& ty.sty))) i64
+  (for i 0 (vec.len (& (. g dty))) (if (ty.eq (vec.get (& (. g dty)) i) t) (ret i)))
+  (neg 1))
+
+(pub (fn drop_sym ((g (&mut cg)) (t (& ty.sty))) i64
+  (let hit (find_drop g t))
+  (if (>= hit 0) (ret (@ (vec.get (& (. g dsym)) hit))))
+  (let mut name (str.from "llr_drop_"))
+  (str.push (&mut name) (& (hex8 (hash_str 2166136261 (& (ty.show t))))))
+  (let sym (decl_fn g (& name)))
+  (vec.push (&mut (. g dty)) (ty.clone t))
+  (vec.push (&mut (. g dsym)) sym)
+  (vec.push (&mut (. g ddone)) false)
+  (vec.push (&mut (. g dpend)) (- (vec.len (& (. g dty))) 1))
+  sym))
+
+(pub (fn drop_pending ((g (& cg)) (i i64)) bool (not (@ (vec.get (& (. g ddone)) i)))))
+
+(pub (fn mark_drop ((g (&mut cg)) (i i64)) unit (vec.set (&mut (. g ddone)) i true)))
+
+(fn find_vt ((g (& cg)) (k (& str))) i64
+  (for i 0 (vec.len (& (. g vkey)))
+    (if (str.eq (vec.get (& (. g vkey)) i) k) (ret (@ (vec.get (& (. g vsym)) i)))))
+  (neg 1))
+
+(pub (fn vt_get ((g (& cg)) (k (& str))) i64 (find_vt g k)))
+
+(pub (fn vt_put ((g (&mut cg)) (k str) (sym i64)) unit
+  (vec.push (&mut (. g vkey)) k)
+  (vec.push (&mut (. g vsym)) sym)))
+
+(pub (fn ro_sym_at ((g (&mut cg)) (name (& str)) (bytes (& (vec u8))) (align i64)) i64
+  (let at (ro_bytes g bytes align))
+  (ro_sym g name at (vec.len bytes))))
+
+(pub (fn append_fn ((g (&mut cg)) (sym i64) (b (& x64_buf.buf))) unit
+  (let base (vec.len (& (. (. g obj) text))))
+  (for i 0 (x64_buf.len b) (vec.push (&mut (. (. g obj) text)) (x64_buf.at b i)))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
+  (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b))))
+
+(pub (fn call_cc ((g (& cg))) i64 (if (. g win) x64_abi.win64 x64_abi.sysv)))
+
+(pub (fn a0 ((g (& cg))) i64 (if (. g win) x64_buf.rcx x64_buf.rdi)))
+
+(pub (fn a1 ((g (& cg))) i64 (if (. g win) x64_buf.rdx x64_buf.rsi)))
+
+(pub (fn finish ((g (& cg))) str
+  (if (. g win) (ret (coff.bytes (& (. g obj)))))
+  (elf.bytes (& (. g obj)))))

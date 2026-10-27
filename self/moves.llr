@@ -1,0 +1,195 @@
+;; Maybe-moved and uninitialized locals.
+(use std.str)
+(use proj.borrow)
+(use proj.diag)
+(use proj.mir)
+
+(struct mv
+  (whole (vec bool))
+  (uninit (vec bool))
+  (fl (vec i64))
+  (ff (vec i64))
+  (wl (vec i64))
+  (wc (vec i64))
+  (wn (vec i64)))
+
+(fn negn ((n i64)) (vec i64) (let mut v (vec.new <i64>)) (for i 0 n (vec.push (&mut v) (neg 1))) v)
+
+(fn mv_new ((n i64)) mv
+  (mv (borrow.bools n) (borrow.bools n) (vec.new <i64>) (vec.new <i64>) (negn n) (negn n) (negn n)))
+
+(fn mv_clone ((m (& mv)) (n i64)) mv
+  (mv (borrow.clone_b (& (. m whole)))
+    (borrow.clone_b (& (. m uninit)))
+    (copy_i (& (. m fl)))
+    (copy_i (& (. m ff)))
+    (copy_i (& (. m wl)))
+    (copy_i (& (. m wc)))
+    (copy_i (& (. m wn)))))
+
+(fn copy_i ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(fn has_field ((m (& mv)) (l i64) (f i64)) bool
+  (for i 0 (vec.len (& (. m fl)))
+    (if (and (== (@ (vec.get (& (. m fl)) i)) l) (== (@ (vec.get (& (. m ff)) i)) f)) (ret true)))
+  false)
+
+(fn add_field ((m (&mut mv)) (l i64) (f i64)) unit
+  (if (not (has_field m l f)) (do (vec.push (&mut (. m fl)) l) (vec.push (&mut (. m ff)) f))))
+
+(fn drop_local ((m (&mut mv)) (l i64)) unit
+  (let mut fl (vec.new <i64>))
+  (let mut ff (vec.new <i64>))
+  (for i 0 (vec.len (& (. m fl)))
+    (if (!= (@ (vec.get (& (. m fl)) i)) l)
+      (do
+        (vec.push (&mut fl) (@ (vec.get (& (. m fl)) i)))
+        (vec.push (&mut ff) (@ (vec.get (& (. m ff)) i))))))
+  (set (. m fl) fl)
+  (set (. m ff) ff))
+
+(fn or_bit ((a (&mut (vec bool))) (b (& (vec bool))) (i i64)) bool
+  (if (and (@ (vec.get b i)) (not (@ (vec.get a i)))) (do (vec.set a i true) (ret true)))
+  false)
+
+(fn union_bits ((a (&mut mv)) (b (& mv))) bool
+  (let mut ch false)
+  (for i 0 (vec.len (& (. a whole)))
+    (do
+      (if (or_bit (&mut (. a whole)) (& (. b whole)) i) (set ch true))
+      (if (or_bit (&mut (. a uninit)) (& (. b uninit)) i) (set ch true))))
+  ch)
+
+(fn union_fields ((a (&mut mv)) (b (& mv))) bool
+  (let mut ch false)
+  (for i 0 (vec.len (& (. b fl)))
+    (if (not (has_field a (@ (vec.get (& (. b fl)) i)) (@ (vec.get (& (. b ff)) i))))
+      (do (add_field a (@ (vec.get (& (. b fl)) i)) (@ (vec.get (& (. b ff)) i))) (set ch true))))
+  ch)
+
+(fn copy_spans ((a (&mut mv)) (b (& mv))) unit
+  (for i 0 (vec.len (& (. a wl)))
+    (if (and (< (@ (vec.get (& (. a wl)) i)) 0) (>= (@ (vec.get (& (. b wl)) i)) 0))
+      (do
+        (vec.set (&mut (. a wl)) i (@ (vec.get (& (. b wl)) i)))
+        (vec.set (&mut (. a wc)) i (@ (vec.get (& (. b wc)) i)))
+        (vec.set (&mut (. a wn)) i (@ (vec.get (& (. b wn)) i)))))))
+
+(fn union_mv ((a (&mut mv)) (b (& mv))) bool
+  (let b1 (union_bits a b))
+  (let b2 (union_fields a b))
+  (copy_spans a b)
+  (or b1 b2))
+
+(pub (fn run ((out (&mut (vec diag.dg))) (b (& mir.body))) unit
+  (let n (vec.len (& (. b locs))))
+  (let nb (vec.len (& (. b blocks))))
+  (if (== nb 0) (ret))
+  (let mut inn (vec.new <mv>))
+  (for i 0 nb (vec.push (&mut inn) (mv_new n)))
+  (let z (vec.get_mut (&mut inn) 0))
+  (for i (+ (. b args) 1) n (vec.set (&mut (. z uninit)) i true))
+  (flow (&mut inn) b n nb)
+  (report out b (& inn) n nb)))
+
+(fn flow ((inn (&mut (vec mv))) (b (& mir.body)) (n i64) (nb i64)) unit
+  (let mut changed true)
+  (while changed (do (set changed false) (for bb 0 nb (if (step inn b n bb) (set changed true))))))
+
+(fn step ((inn (&mut (vec mv))) (b (& mir.body)) (n i64) (bb i64)) bool
+  (let mut st (mv_clone (vec.get inn bb) n))
+  (xfer b bb (&mut st))
+  (let mut ch false)
+  (let blk (vec.get (& (. b blocks)) bb))
+  (let ss (mir.succs (& (. blk term))))
+  (for i 0 (vec.len (& ss))
+    (if (union_mv (vec.get_mut inn (@ (vec.get (& ss) i))) (& st)) (set ch true)))
+  ch)
+
+(fn xfer ((b (& mir.body)) (bb i64) (st (&mut mv))) unit
+  (let blk (vec.get (& (. b blocks)) bb))
+  (for si 0 (vec.len (& (. blk stmts)))
+    (xfer_acc st (borrow.stmt_acc (vec.get (& (. blk stmts)) si))))
+  (xfer_acc st (borrow.term_acc (& (. blk term)))))
+
+(fn xfer_acc ((st (&mut mv)) (accs (vec borrow.acc))) unit
+  (for i 0 (vec.len (& accs)) (note_kill st (vec.get (& accs) i))))
+
+(fn uses ((k u8)) bool (or (== k 0u8) (or (== k 2u8) (or (== k 3u8) (== k 4u8)))))
+
+(fn note_kill ((st (&mut mv)) (a (& borrow.acc))) unit
+  (let l (. (. a pl) local))
+  (if (and (== (. a kind) 2u8) (not (mir.has_deref (& (. a pl)))))
+    (do
+      (let f (mir.lone_field (& (. a pl))))
+      (if (>= f 0)
+        (add_field st l f)
+        (do
+          (let _ (borrow.setb (&mut (. st whole)) l true))
+          (if (< (@ (vec.get (& (. st wl)) l)) 0)
+            (do
+              (vec.set (&mut (. st wl)) l (. a line))
+              (vec.set (&mut (. st wc)) l (. a col))
+              (vec.set (&mut (. st wn)) l (. a len))))))))
+  (if (and (== (. a kind) 1u8) (mir.is_local (& (. a pl))))
+    (do
+      (borrow.setb (&mut (. st whole)) l false)
+      (borrow.setb (&mut (. st uninit)) l false)
+      (drop_local st l))))
+
+(fn report ((out (&mut (vec diag.dg))) (b (& mir.body)) (inn (& (vec mv))) (n i64) (nb i64)) unit
+  (for bb 0 nb (report_bb out b (mv_clone (vec.get inn bb) n) bb)))
+
+(fn report_bb ((out (&mut (vec diag.dg))) (b (& mir.body)) (st mv) (bb i64)) unit
+  (let mut st st)
+  (let blk (vec.get (& (. b blocks)) bb))
+  (for si 0 (vec.len (& (. blk stmts)))
+    (report_acc out b (&mut st) (borrow.stmt_acc (vec.get (& (. blk stmts)) si))))
+  (report_acc out b (&mut st) (borrow.term_acc (& (. blk term)))))
+
+(fn report_acc ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (&mut mv)) (accs (vec borrow.acc))) unit
+  (for i 0 (vec.len (& accs)) (emit_use out b st (vec.get (& accs) i)))
+  (for i 0 (vec.len (& accs)) (note_kill st (vec.get (& accs) i))))
+
+(fn emit_use ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc))) unit
+  (let l (. (. a pl) local))
+  (if (and (uses (. a kind)) (borrow.bit (& (. st uninit)) l)) (emit_init out b a))
+  (if (or (uses (. a kind)) (and (== (. a kind) 1u8) (not (mir.is_local (& (. a pl))))))
+    (if (borrow.bit (& (. st whole)) l) (emit_move out b st a l))))
+
+(fn emit_init ((out (&mut (vec diag.dg))) (b (& mir.body)) (a (& borrow.acc))) unit
+  (let name (str.clone (& (. (vec.get (& (. b locs)) (. (. a pl) local)) name))))
+  (let mut d
+    (diag.make true
+      (str.clone (& (. b path)))
+      (. a line)
+      (. a col)
+      (. a len)
+      (str.from "init.uninit")))
+  (diag.add (&mut d) "name" name)
+  (vec.push out d))
+
+(fn emit_move ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc)) (l i64)) unit
+  (let name (str.clone (& (. (vec.get (& (. b locs)) l) name))))
+  (let mut d
+    (diag.make true
+      (str.clone (& (. b path)))
+      (. a line)
+      (. a col)
+      (. a len)
+      (str.from "move.used")))
+  (diag.add (&mut d) "name" name)
+  (if (>= (@ (vec.get (& (. st wl)) l)) 0)
+    (diag.add (&mut d)
+      "moved_at"
+      (mv_at (@ (vec.get (& (. st wl)) l)) (@ (vec.get (& (. st wc)) l)))))
+  (vec.push out d))
+
+(fn mv_at ((line i64) (col i64)) str
+  (let mut s (str.from_int line))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (str.from_int col)))
+  s)

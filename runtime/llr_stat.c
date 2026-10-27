@@ -6,6 +6,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 int64_t llr_stat_mtime(const char *path, int64_t *out) {
     struct stat st;
@@ -30,6 +33,27 @@ const char *llr_readdir_name(const void *ent) {
         return 0;
     }
     return ((const struct dirent *)ent)->d_name;
+}
+
+/* Bytes written, not including the NUL, or -1 when the buffer is too small. */
+int64_t llr_exe_path(char *buf, uint64_t n) {
+    if (buf == 0 || n == 0) {
+        return -1;
+    }
+#ifdef __APPLE__
+    uint32_t sz = n > 0xffffffffu ? 0xffffffffu : (uint32_t)n;
+    if (_NSGetExecutablePath(buf, &sz) != 0) {
+        return -1;
+    }
+    return (int64_t)strlen(buf);
+#else
+    ssize_t got = readlink("/proc/self/exe", buf, (size_t)n);
+    if (got < 0 || (uint64_t)got >= n) {
+        return -1;
+    }
+    buf[got] = 0;
+    return (int64_t)got;
+#endif
 }
 
 struct llr_frame {

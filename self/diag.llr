@@ -1,0 +1,102 @@
+;; One llrc diagnostic record. err is false for a warning.
+(use std.io)
+(use std.str)
+
+(pub (struct dg
+  (pub (err bool))
+  (pub (path str))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))
+  (pub (code str))
+  (pub (ks (vec str)))
+  (pub (vs (vec str)))))
+
+(pub (fn make ((err bool) (path str) (line i64) (col i64) (len i64) (code str)) dg
+  (dg err path line col len code (vec.new <str>) (vec.new <str>))))
+
+(pub (fn add ((d (&mut dg)) (k (& str)) (v str)) unit
+  (vec.push (&mut (. d ks)) (str.from k))
+  (vec.push (&mut (. d vs)) v)))
+
+(fn esc_at ((o (&mut str)) (c u8)) unit
+  (if (== c 124u8) (ret (str.push o "\\x7c")))
+  (if (== c 10u8) (ret (str.push o "\\n")))
+  (str.push_byte o c))
+
+(fn esc ((s (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len s) (esc_at (&mut o) (str.at s i)))
+  o)
+
+(fn kv_at ((s (&mut str)) (d (& dg)) (i i64)) unit
+  (str.push_byte s 124u8)
+  (str.push s (vec.get (& (. d ks)) i))
+  (str.push_byte s 61u8)
+  (str.push s (& (esc (vec.get (& (. d vs)) i)))))
+
+(pub (fn render ((d (& dg))) str
+  (let mut s (str.from (if (. d err) "E" "W")))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (. d path)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. d line))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. d col))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. d len))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (. d code)))
+  (for i 0 (vec.len (& (. d ks))) (kv_at (&mut s) d i))
+  s))
+
+(fn before ((a (& dg)) (b (& dg))) bool
+  (if (< (str.cmp (& (. a path)) (& (. b path))) 0) (ret true))
+  (if (> (str.cmp (& (. a path)) (& (. b path))) 0) (ret false))
+  (if (< (. a line) (. b line)) (ret true))
+  (if (> (. a line) (. b line)) (ret false))
+  (< (. a col) (. b col)))
+
+(fn clone_dg ((d (& dg))) dg
+  (let mut n
+    (make (. d err)
+      (str.clone (& (. d path)))
+      (. d line)
+      (. d col)
+      (. d len)
+      (str.clone (& (. d code)))))
+  (for i 0 (vec.len (& (. d ks)))
+    (add (&mut n) (vec.get (& (. d ks)) i) (str.clone (vec.get (& (. d vs)) i))))
+  n)
+
+(fn swap ((xs (&mut (vec dg))) (j i64)) unit
+  (let a (clone_dg (vec.get xs j)))
+  (vec.set xs j (clone_dg (vec.get xs (- j 1))))
+  (vec.set xs (- j 1) a))
+
+(fn sort_at ((xs (&mut (vec dg))) (i i64)) unit
+  (let mut j i)
+  (while (and (> j 0) (before (vec.get xs j) (vec.get xs (- j 1))))
+    (do (swap xs j) (set j (- j 1)))))
+
+(fn sort ((xs (&mut (vec dg)))) unit (for i 1 (vec.len xs) (sort_at xs i)))
+
+(fn promote ((d (&mut dg)) (deny (& str))) unit
+  (if (and (not (. d err)) (and (> (str.len deny) 0) (str.eq (& (. d code)) deny)))
+    (set (. d err) true)))
+
+(fn bad ((d (& dg)) (deny (& str))) bool
+  (or (. d err) (and (> (str.len deny) 0) (str.eq (& (. d code)) deny))))
+
+(pub (fn any_err ((xs (& (vec dg))) (deny (& str))) bool
+  (for i 0 (vec.len xs) (if (bad (vec.get xs i) deny) (ret true)))
+  false))
+
+(fn emit_one ((d (&mut dg)) (deny (& str))) unit (promote d deny) (io.eputs (& (render d))))
+
+(pub (fn flush ((xs (&mut (vec dg))) (deny (& str))) unit
+  (sort xs)
+  (for i 0 (vec.len xs) (emit_one (vec.get_mut xs i) deny))))
+
+(pub (fn append ((o (&mut (vec dg))) (v (& (vec dg)))) unit
+  (for i 0 (vec.len v) (vec.push o (clone_dg (vec.get v i))))))

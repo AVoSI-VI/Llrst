@@ -1,0 +1,144 @@
+;; Drop flags and per-type glue. Glue takes one pointer and does not push a panic frame.
+(use proj.cg_frame)
+(use proj.cg_lay)
+(use proj.cg_mod)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+(use proj.x64_buf)
+(use proj.x64_int)
+
+(pub (fn place ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (local i64)
+   (pk (& (vec u8)))
+   (pi (& (vec i64)))) unit
+  (let row (vec.get (& (. fx ff)) local))
+  (if (and (== (vec.len pk) 0) (> (vec.len row) 0)) (ret (fields g p fx locs local)))
+  (let ty (cg_frame.place g p fx locs local pk pi))
+  (if (not (prog.needs_drop p (& ty))) (ret))
+  (let sym (cg_mod.drop_sym g (& ty)))
+  (if (and (== (vec.len pk) 0) (@ (vec.get (& (. fx fon)) local))) (ret (guarded g fx local sym)))
+  (x64_int.mov_rr (&mut (. fx buf)) 8 (cg_mod.a0 g) x64_buf.r11)
+  (x64_int.call_sym (&mut (. fx buf)) sym)))
+
+(fn guarded ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (local i64) (sym i64)) unit
+  (let skip (x64_buf.label (&mut (. fx buf))))
+  (cg_frame.ld fx 1 x64_buf.rax x64_buf.rbp (@ (vec.get (& (. fx flag)) local)))
+  (x64_int.test_rr (&mut (. fx buf)) 1 x64_buf.rax x64_buf.rax)
+  (x64_int.jcc (&mut (. fx buf)) x64_buf.e skip)
+  (cg_frame.addr_local fx (cg_mod.a0 g) local)
+  (x64_int.call_sym (&mut (. fx buf)) sym)
+  (cg_frame.set_flag fx local false)
+  (x64_buf.bind (&mut (. fx buf)) skip)
+  (let _ g))
+
+(fn fields ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (local i64)) unit
+  (let ty (ty.clone (& (. (vec.get locs local) ty))))
+  (let d (vec.get (& (. p defs)) (. ty id)))
+  (let l (cg_lay.of (&mut (. g lays)) p (& ty)))
+  (for i 0 (vec.len (& (. d sfields))) (field_one g p fx local (& ty) d (& l) i)))
+
+(fn ff_disp ((fx (& cg_frame.fncx)) (local i64) (i i64)) i64
+  (@ (vec.get (vec.get (& (. fx ff)) local) i)))
+
+(fn field_one ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (local i64)
+   (ty (& ty.sty))
+   (d (& prog.def))
+   (l (& cg_lay.lay))
+   (i i64)) unit
+  (let disp (ff_disp fx local i))
+  (if (< disp 0) (ret))
+  (let ft (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. ty args))))
+  (let sym (cg_mod.drop_sym g (& ft)))
+  (let skip (x64_buf.label (&mut (. fx buf))))
+  (cg_frame.ld fx 1 x64_buf.rax x64_buf.rbp disp)
+  (x64_int.test_rr (&mut (. fx buf)) 1 x64_buf.rax x64_buf.rax)
+  (x64_int.jcc (&mut (. fx buf)) x64_buf.e skip)
+  (cg_frame.addr_local fx (cg_mod.a0 g) local)
+  (x64_int.add_ri (&mut (. fx buf)) 8 (cg_mod.a0 g) (@ (vec.get (& (. l fields)) i)))
+  (x64_int.call_sym (&mut (. fx buf)) sym)
+  (cg_frame.set_field fx local i false)
+  (x64_buf.bind (&mut (. fx buf)) skip))
+
+(pub (fn glue ((g (&mut cg_mod.cg)) (p (& prog.prog)) (t (& ty.sty)) (sym i64)) unit
+  (let mut b (x64_buf.new))
+  (x64_int.push_r (&mut b) x64_buf.rbp)
+  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
+  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp (if (. g win) 48 16))
+  (cg_frame.bstore (&mut b) 8 x64_buf.rbp (neg 8) (cg_mod.a0 g))
+  (if (== (. t kind) 10u8) (glue_clos (&mut b) (cg_mod.a0 g)) (glue_adt g p (&mut b) t))
+  (x64_int.mov_rr (&mut b) 8 x64_buf.rsp x64_buf.rbp)
+  (x64_int.pop_r (&mut b) x64_buf.rbp)
+  (x64_int.ret (&mut b))
+  (let _ (x64_buf.finish (&mut b)))
+  (cg_mod.append_fn g sym (& b))))
+
+(fn glue_clos ((b (&mut x64_buf.buf)) (arg i64)) unit
+  (cg_frame.bload b 8 x64_buf.r10 arg 8)
+  (cg_frame.bload b 8 arg arg 16)
+  (x64_int.call_r b x64_buf.r10))
+
+(fn glue_adt ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (t (& ty.sty))) unit
+  (let meth (prog.meth_id p (. t id) "drop"))
+  (if (>= meth 0) (call_meth g p b meth (& (. t args))))
+  (let d (vec.get (& (. p defs)) (. t id)))
+  (if (== (. d kind) 0u8) (glue_struct g p b t d) (glue_enum g p b t d)))
+
+(fn call_meth ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (id i64) (args (& (vec ty.sty)))) unit
+  (let sym (cg_mod.func_sym g p id (clone_tys args)))
+  (cg_frame.bload b 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
+  (x64_int.call_sym b sym))
+
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
+  o)
+
+(fn glue_struct ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (t (& ty.sty)) (d (& prog.def))) unit
+  (let l (cg_lay.of (&mut (. g lays)) p t))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let ft (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args))))
+    (if (prog.needs_drop p (& ft)) (drop_off g b (& ft) (@ (vec.get (& (. l fields)) i))))))
+
+(fn drop_off ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (t (& ty.sty)) (off i64)) unit
+  (let sym (cg_mod.drop_sym g t))
+  (cg_frame.bload b 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
+  (x64_int.add_ri b 8 (cg_mod.a0 g) off)
+  (x64_int.call_sym b sym))
+
+(fn glue_enum ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (t (& ty.sty)) (d (& prog.def))) unit
+  (let l (cg_lay.of (&mut (. g lays)) p t))
+  (let done (x64_buf.label b))
+  (cg_frame.bload b 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
+  (cg_frame.bload b 4 x64_buf.rax (cg_mod.a0 g) 0)
+  (for i 0 (vec.len (& (. d svars))) (enum_arm g p b t d (& l) i done))
+  (x64_buf.bind b done))
+
+(fn enum_arm ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (b (&mut x64_buf.buf))
+   (t (& ty.sty))
+   (d (& prog.def))
+   (l (& cg_lay.lay))
+   (i i64)
+   (done i64)) unit
+  (let v (vec.get (& (. d svars)) i))
+  (let next (x64_buf.label b))
+  (x64_int.cmp_ri b 4 x64_buf.rax i)
+  (x64_int.jcc b x64_buf.ne next)
+  (for f 0 (vec.len (& (. v tys)))
+    (let ft (ty.subst (vec.get (& (. v tys)) f) (& (. t args))))
+    (if (prog.needs_drop p (& ft)) (drop_off g b (& ft) (@ (vec.get (vec.get (& (. l vars)) i) f)))))
+  (x64_int.jmp b done)
+  (x64_buf.bind b next))

@@ -1,0 +1,221 @@
+;; Integer and control-flow encodings. The reg field is the destination (03 / 8B).
+;; bsr, not lzcnt: this subset is baseline integer plus SSE2.
+(use proj.x64_buf)
+
+(const ext_add i64 0)
+
+(const ext_or i64 1)
+
+(const ext_not i64 2)
+
+(const ext_neg i64 3)
+
+(const ext_and i64 4)
+
+(const ext_sub i64 5)
+
+(const ext_xor i64 6)
+
+(const ext_cmp i64 7)
+
+(const ext_mul i64 4)
+
+(const ext_imul i64 5)
+
+(const ext_div i64 6)
+
+(const ext_idiv i64 7)
+
+(const ext_shl i64 4)
+
+(const ext_shr i64 5)
+
+(const ext_sar i64 7)
+
+(fn mem_op ((op i64) (w i64)) i64 (if (== w 1) (band op 254) op))
+
+(fn mov_abs ((b (&mut x64_buf.buf)) (dst i64) (imm i64)) unit
+  (x64_buf.rex b 8 0 0 dst false)
+  (x64_buf.push b (as u8 (+ 184 (band dst 7))))
+  (x64_buf.push_n b imm 8))
+
+(fn mov_i8 ((b (&mut x64_buf.buf)) (dst i64) (imm i64)) unit
+  (x64_buf.rex b 1 0 0 dst (x64_buf.low_byte 1 dst))
+  (x64_buf.push b (as u8 (+ 176 (band dst 7))))
+  (x64_buf.push_n b imm 1))
+
+(fn mov_c7 ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.pre b w)
+  (x64_buf.rex b w 0 0 dst false)
+  (x64_buf.push b 199u8)
+  (x64_buf.push b (as u8 (x64_buf.modrm 3 0 dst)))
+  (x64_buf.push_n b imm (if (== w 2) 2 4)))
+
+(fn mov_b8 ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.pre b w)
+  (x64_buf.rex b w 0 0 dst false)
+  (x64_buf.push b (as u8 (+ 184 (band dst 7))))
+  (x64_buf.push_n b imm (if (== w 2) 2 4)))
+
+(fn op_r ((b (&mut x64_buf.buf)) (r i64) (base i64)) unit
+  (x64_buf.rex b 4 0 0 r false)
+  (x64_buf.push b (as u8 (+ base (band r 7)))))
+
+(pub (fn mov_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 139 dst src)))
+
+(pub (fn mov_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (if (and (== w 8) (not (x64_buf.fits_i32 imm))) (ret (mov_abs b dst imm)))
+  (if (== w 1) (ret (mov_i8 b dst imm)))
+  (if (== w 8) (ret (mov_c7 b w dst imm)))
+  (mov_b8 b w dst imm)))
+
+(pub (fn movzx ((b (&mut x64_buf.buf)) (dst_w i64) (src_w i64) (dst i64) (src i64)) unit
+  (if (== src_w 4) (ret (mov_rr b 4 dst src)))
+  (x64_buf.emit_rr2 b dst_w (if (== src_w 1) 182 183) dst src)))
+
+(pub (fn movsx ((b (&mut x64_buf.buf)) (dst_w i64) (src_w i64) (dst i64) (src i64)) unit
+  (if (== src_w 4) (ret (x64_buf.emit_rr b dst_w 99 dst src)))
+  (x64_buf.emit_rr2 b dst_w (if (== src_w 1) 190 191) dst src)))
+
+(pub (fn add_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 3 dst src)))
+
+(pub (fn sub_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 43 dst src)))
+
+(pub (fn and_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 35 dst src)))
+
+(pub (fn or_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 11 dst src)))
+
+(pub (fn xor_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 51 dst src)))
+
+(pub (fn cmp_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 59 dst src)))
+
+(pub (fn test_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr b w 133 dst src)))
+
+(pub (fn add_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_add dst imm)))
+
+(pub (fn sub_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_sub dst imm)))
+
+(pub (fn and_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_and dst imm)))
+
+(pub (fn or_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_or dst imm)))
+
+(pub (fn xor_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_xor dst imm)))
+
+(pub (fn cmp_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_ri b w ext_cmp dst imm)))
+
+(pub (fn neg_r ((b (&mut x64_buf.buf)) (w i64) (dst i64)) unit (x64_buf.emit_f7 b w ext_neg dst)))
+
+(pub (fn not_r ((b (&mut x64_buf.buf)) (w i64) (dst i64)) unit (x64_buf.emit_f7 b w ext_not dst)))
+
+(pub (fn imul_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr2 b w 175 dst src)))
+
+(pub (fn imul_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.pre b w)
+  (x64_buf.rex b w dst 0 dst false)
+  (x64_buf.push b (as u8 (if (x64_buf.fits_i8 imm) 107 105)))
+  (x64_buf.push b (as u8 (x64_buf.modrm 3 dst dst)))
+  (if (x64_buf.fits_i8 imm) (x64_buf.push b (as u8 imm)) (x64_buf.push_n b imm (if (== w 2) 2 4)))))
+
+(pub (fn mul_r ((b (&mut x64_buf.buf)) (w i64) (src i64)) unit (x64_buf.emit_f7 b w ext_mul src)))
+
+(pub (fn imul_r ((b (&mut x64_buf.buf)) (w i64) (src i64)) unit (x64_buf.emit_f7 b w ext_imul src)))
+
+(pub (fn div_r ((b (&mut x64_buf.buf)) (w i64) (src i64)) unit (x64_buf.emit_f7 b w ext_div src)))
+
+(pub (fn idiv_r ((b (&mut x64_buf.buf)) (w i64) (src i64)) unit (x64_buf.emit_f7 b w ext_idiv src)))
+
+(fn cdq_w ((b (&mut x64_buf.buf)) (w i64)) unit
+  (x64_buf.pre b w)
+  (x64_buf.rex b w 0 0 0 false)
+  (x64_buf.push b 153u8))
+
+(pub (fn cqo ((b (&mut x64_buf.buf))) unit (cdq_w b 8)))
+
+(pub (fn cdq ((b (&mut x64_buf.buf))) unit (cdq_w b 4)))
+
+(pub (fn shl_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_sh b w ext_shl dst imm false)))
+
+(pub (fn shl_cl ((b (&mut x64_buf.buf)) (w i64) (dst i64)) unit (x64_buf.emit_sh b w ext_shl dst 0 true)))
+
+(pub (fn shr_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_sh b w ext_shr dst imm false)))
+
+(pub (fn shr_cl ((b (&mut x64_buf.buf)) (w i64) (dst i64)) unit (x64_buf.emit_sh b w ext_shr dst 0 true)))
+
+(pub (fn sar_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
+  (x64_buf.emit_sh b w ext_sar dst imm false)))
+
+(pub (fn sar_cl ((b (&mut x64_buf.buf)) (w i64) (dst i64)) unit (x64_buf.emit_sh b w ext_sar dst 0 true)))
+
+(pub (fn lea ((b (&mut x64_buf.buf)) (w i64) (dst i64) (m (& x64_buf.mem))) unit
+  (x64_buf.emit_mem b w 141 dst m)))
+
+(pub (fn load ((b (&mut x64_buf.buf)) (w i64) (dst i64) (m (& x64_buf.mem))) unit
+  (x64_buf.emit_mem b w (mem_op 139 w) dst m)))
+
+(pub (fn store ((b (&mut x64_buf.buf)) (w i64) (m (& x64_buf.mem)) (src i64)) unit
+  (x64_buf.emit_mem b w (mem_op 137 w) src m)))
+
+(pub (fn push_r ((b (&mut x64_buf.buf)) (r i64)) unit (op_r b r 80)))
+
+(pub (fn pop_r ((b (&mut x64_buf.buf)) (r i64)) unit (op_r b r 88)))
+
+(pub (fn setcc ((b (&mut x64_buf.buf)) (cc i64) (dst i64)) unit
+  (x64_buf.rex b 1 0 0 dst (x64_buf.low_byte 1 dst))
+  (x64_buf.push b 15u8)
+  (x64_buf.push b (as u8 (+ 144 cc)))
+  (x64_buf.push b (as u8 (x64_buf.modrm 3 0 dst)))))
+
+(pub (fn cmovcc ((b (&mut x64_buf.buf)) (w i64) (cc i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr2 b w (+ 64 cc) dst src)))
+
+(pub (fn bsr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_rr2 b w 189 dst src)))
+
+(pub (fn jmp ((b (&mut x64_buf.buf)) (lab i64)) unit
+  (x64_buf.push b 233u8)
+  (x64_buf.fixup b lab x64_buf.rel32)))
+
+(pub (fn jcc ((b (&mut x64_buf.buf)) (cc i64) (lab i64)) unit
+  (x64_buf.push b 15u8)
+  (x64_buf.push b (as u8 (+ 128 cc)))
+  (x64_buf.fixup b lab x64_buf.rel32)))
+
+(pub (fn call ((b (&mut x64_buf.buf)) (lab i64)) unit
+  (x64_buf.push b 232u8)
+  (x64_buf.fixup b lab x64_buf.rel32)))
+
+(pub (fn call_r ((b (&mut x64_buf.buf)) (r i64)) unit
+  (x64_buf.rex b 4 0 0 r false)
+  (x64_buf.push b 255u8)
+  (x64_buf.push b (as u8 (x64_buf.modrm 3 2 r)))))
+
+(pub (fn ret ((b (&mut x64_buf.buf))) unit (x64_buf.push b 195u8)))
+
+(pub (fn ud2 ((b (&mut x64_buf.buf))) unit (x64_buf.push b 15u8) (x64_buf.push b 11u8)))
+
+(pub (fn lea_rip ((b (&mut x64_buf.buf)) (dst i64) (sym i64)) unit
+  (x64_buf.rex b 8 dst 0 0 false)
+  (x64_buf.push b 141u8)
+  (x64_buf.push b (as u8 (x64_buf.modrm 0 dst 5)))
+  (x64_buf.reloc b x64_buf.pc32 sym)))
+
+(pub (fn call_sym ((b (&mut x64_buf.buf)) (sym i64)) unit
+  (x64_buf.push b 232u8)
+  (x64_buf.reloc b x64_buf.plt32 sym)))

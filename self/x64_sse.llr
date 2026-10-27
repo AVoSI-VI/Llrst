@@ -1,0 +1,60 @@
+;; Scalar SSE2. xorps and xorpd are the sign-bit flips; a saturating cast is a later sequence.
+(use proj.x64_buf)
+
+(fn sse ((b (&mut x64_buf.buf)) (pre i64) (op i64) (dst i64) (src i64)) unit
+  (x64_buf.emit_sse b pre op dst src 4))
+
+(fn sse_m ((b (&mut x64_buf.buf)) (pre i64) (op i64) (reg i64) (m (& x64_buf.mem))) unit
+  (x64_buf.emit_sse_mem b pre op reg m 4))
+
+(pub (fn addss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 88 dst src)))
+
+(pub (fn addsd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 88 dst src)))
+
+(pub (fn subss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 92 dst src)))
+
+(pub (fn subsd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 92 dst src)))
+
+(pub (fn mulss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 89 dst src)))
+
+(pub (fn mulsd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 89 dst src)))
+
+(pub (fn divss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 94 dst src)))
+
+(pub (fn divsd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 94 dst src)))
+
+(pub (fn ucomiss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 0 46 dst src)))
+
+(pub (fn ucomisd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 102 46 dst src)))
+
+(pub (fn movss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 16 dst src)))
+
+(pub (fn movsd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 16 dst src)))
+
+(pub (fn movss_load ((b (&mut x64_buf.buf)) (dst i64) (m (& x64_buf.mem))) unit (sse_m b 243 16 dst m)))
+
+(pub (fn movss_store ((b (&mut x64_buf.buf)) (m (& x64_buf.mem)) (src i64)) unit (sse_m b 243 17 src m)))
+
+(pub (fn movsd_load ((b (&mut x64_buf.buf)) (dst i64) (m (& x64_buf.mem))) unit (sse_m b 242 16 dst m)))
+
+(pub (fn movsd_store ((b (&mut x64_buf.buf)) (m (& x64_buf.mem)) (src i64)) unit (sse_m b 242 17 src m)))
+
+(pub (fn cvtsi2ss ((b (&mut x64_buf.buf)) (dst i64) (src i64) (w i64)) unit
+  (x64_buf.emit_sse b 243 42 dst src w)))
+
+(pub (fn cvtsi2sd ((b (&mut x64_buf.buf)) (dst i64) (src i64) (w i64)) unit
+  (x64_buf.emit_sse b 242 42 dst src w)))
+
+(pub (fn cvttss2si ((b (&mut x64_buf.buf)) (dst i64) (src i64) (w i64)) unit
+  (x64_buf.emit_sse b 243 44 dst src w)))
+
+(pub (fn cvttsd2si ((b (&mut x64_buf.buf)) (dst i64) (src i64) (w i64)) unit
+  (x64_buf.emit_sse b 242 44 dst src w)))
+
+(pub (fn cvtss2sd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 243 90 dst src)))
+
+(pub (fn cvtsd2ss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 90 dst src)))
+
+(pub (fn xorps ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 0 87 dst src)))
+
+(pub (fn xorpd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 102 87 dst src)))

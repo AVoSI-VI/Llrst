@@ -11,6 +11,6 @@
   (cli.parse (&mut c) (os.args))
   (let path (cli.at (& c) 0))
   (match (check.check path)
-    ((opt.some d)
+    ((res.err d)
       (do (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& d)))) (os.exit 1)))
-    ((opt.none) ())))
+    ((res.ok _) ())))

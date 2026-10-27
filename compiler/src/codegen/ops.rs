@@ -127,19 +127,17 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 }
             }
             (Ty::Int(f), Ty::F32 | Ty::F64) => {
-                let ft = clif_type(to).unwrap();
-                if f.signed() {
-                    self.b.ins().fcvt_from_sint(ft, x)
+                if self.cg.checked {
+                    self.checked_int_to_float(x, *f, to, span)
                 } else {
-                    self.b.ins().fcvt_from_uint(ft, x)
+                    self.int_to_float(x, *f, to)
                 }
             }
             (Ty::F32 | Ty::F64, Ty::Int(t)) => {
-                let it = clif_type(to).unwrap();
-                if t.signed() {
-                    self.b.ins().fcvt_to_sint_sat(it, x)
+                if self.cg.checked {
+                    self.checked_float_to_int(x, from, *t, span)
                 } else {
-                    self.b.ins().fcvt_to_uint_sat(it, x)
+                    self.float_to_int(x, *t, to)
                 }
             }
             (Ty::F32, Ty::F64) => self.b.ins().fpromote(types::F64, x),
@@ -158,6 +156,24 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             self.b.ins().sextend(clif_type(&to).unwrap(), x)
         } else {
             self.b.ins().uextend(clif_type(&to).unwrap(), x)
+        }
+    }
+
+    pub fn int_to_float(&mut self, x: Value, from: crate::ty::IntTy, to: &Ty) -> Value {
+        let ft = clif_type(to).unwrap();
+        if from.signed() {
+            self.b.ins().fcvt_from_sint(ft, x)
+        } else {
+            self.b.ins().fcvt_from_uint(ft, x)
+        }
+    }
+
+    pub fn float_to_int(&mut self, x: Value, to: crate::ty::IntTy, dst: &Ty) -> Value {
+        let it = clif_type(dst).unwrap();
+        if to.signed() {
+            self.b.ins().fcvt_to_sint_sat(it, x)
+        } else {
+            self.b.ins().fcvt_to_uint_sat(it, x)
         }
     }
 

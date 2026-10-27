@@ -1,0 +1,170 @@
+;; Load order matches llrc: main, sorted std, host OS externs, then proj modules.
+(use std.ast)
+(use std.fs)
+(use std.os)
+(use std.path)
+(use std.str)
+(use std.sys)
+(use proj.collect)
+(use proj.prog)
+(use proj.src)
+
+(fn slash ((p (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  o)
+
+(fn exe_buf () str
+  (let mut buf (str.new))
+  (let mut n 256)
+  (while (<= n 65536)
+    (do
+      (str.reserve (&mut buf) (- n (. buf len)))
+      (let got (sys.llr_exe_path (. buf p) (as u64 n)))
+      (if (> got 0) (do (set (. buf len) got) (ret buf)))
+      (set n (* n 2))))
+  (str.new))
+
+(pub (fn exe_dir () str
+  (let p (exe_buf))
+  (if (== (str.len (& p)) 0) (ret (str.new)))
+  (path.dir (& (slash (& p))))))
+
+(fn has_sys ((dir (& str))) bool (fs.exists (& (path.join dir "sys.llr"))))
+
+(fn std_hit ((dir (& str))) str
+  (if (== (str.len dir) 0) (ret (str.new)))
+  (let a (path.join dir "../std"))
+  (if (has_sys (& a)) (ret a))
+  (let b (path.join dir "../../std"))
+  (if (has_sys (& b)) (ret b))
+  (let c (path.join (& (path.join dir "../share/llrst")) "std"))
+  (if (has_sys (& c)) (ret c))
+  (str.new))
+
+(fn std_found () str
+  (let hit (std_hit (& (exe_dir))))
+  (if (> (str.len (& hit)) 0) hit (str.from "std")))
+
+(fn std_dir () str
+  (match (os.env "LLRST_STD") ((opt.some s) (slash (& s))) ((opt.none) (std_found))))
+
+(fn os_name () str
+  (match (os.env "OS")
+    ((opt.some s)
+      (if (str.eq (& s) "Windows_NT") (str.from "sys_windows.llr") (str.from "sys_posix.llr")))
+    ((opt.none) (str.from "sys_posix.llr"))))
+
+(fn push_src ((srcs (&mut (vec src.loaded)))
+   (paths (&mut (vec str)))
+   (path str)
+   (file str)
+   (is_std bool)
+   (items (vec item))) i64
+  (vec.push paths path)
+  (vec.push srcs (src.loaded (str.clone (vec.get paths (- (vec.len paths) 1))) file is_std items))
+  (- (vec.len srcs) 1))
+
+(fn path_i ((paths (& (vec str))) (p (& str))) i64
+  (for i 0 (vec.len paths) (if (str.eq (vec.get paths i) p) (ret i)))
+  (neg 1))
+
+(fn read_items ((file (& str))) (res (vec item) str)
+  (let text (try (fs.read file)))
+  (ast.parse_src (& text)))
+
+(fn skip_os ((name (& str))) bool
+  (or (str.eq name "sys_posix.llr") (str.eq name "sys_windows.llr")))
+
+(fn load_one ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (modp str) (file str) (is_std bool)) (res i64 str)
+  (if (>= (path_i paths (& modp)) 0) (ret (res.ok (path_i paths (& modp)))))
+  (let items (try (read_items (& file))))
+  (res.ok (push_src srcs paths modp (slash (& file)) is_std items)))
+
+(fn rooted ((p (& str))) bool
+  (if (str.starts p "/") (ret true))
+  (and (> (str.len p) 2) (and (== (str.at p 1) 58u8) (== (str.at p 2) 47u8))))
+
+(fn abs_path ((p (& str))) str
+  (let s (slash p))
+  (if (rooted (& s)) s (path.join (& (slash (& (os.cwd)))) (& s))))
+
+(fn same_std ((main (& str)) (std (& str)) (name (& str))) bool
+  (let joined (abs_path (& (path.join std name))))
+  (let m (abs_path main))
+  (str.eq (& m) (& joined)))
+
+(fn load_stds ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str)) (dir (& str))) (res unit str)
+  (let names (try (fs.list dir)))
+  (for i 0 (vec.len (& names))
+    (let name (vec.get (& names) i))
+    (if (and (str.ends name ".llr") (not (skip_os name)))
+      (if (same_std main dir name)
+        (alias_main srcs paths name)
+        (do (try (load_one srcs paths (mod_std name) (path.join dir name) true)) ()))))
+  (res.ok ()))
+
+(fn mod_std ((name (& str))) str
+  (let mut s (str.from "std."))
+  (str.push (&mut s) (& (path.stem name)))
+  s)
+
+(fn alias_main ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (name (& str))) unit
+  (let s (vec.get_mut srcs 0))
+  (set (. s path) (mod_std name))
+  (set (. s is_std) true)
+  (vec.set paths 0 (mod_std name)))
+
+(fn append_os ((srcs (&mut (vec src.loaded))) (dir (& str))) (res unit str)
+  (let file (path.join dir (& (os_name))))
+  (let extra (try (read_items (& file))))
+  (let mut found (neg 1))
+  (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) path)) "std.sys") (set found i)))
+  (if (< found 0) (ret (res.err (str.from "io.read"))))
+  (let s (vec.get_mut srcs found))
+  (let mut more extra)
+  (while (> (vec.len (& more)) 0) (vec.push (&mut (. s items)) (vec.remove (&mut more) 0)))
+  (res.ok ()))
+
+(fn use_proj ((it (& item))) bool (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj.")))
+
+(fn load_projs ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str))) (res unit str)
+  (let dir (path.dir main))
+  (let mut i 0)
+  (while (< i (vec.len srcs))
+    (let n (vec.len (& (. (vec.get srcs i) items))))
+    (for k 0 n
+      (let name (str.clone (& (. (vec.get (& (. (vec.get srcs i) items)) k) name))))
+      (let kind (. (vec.get (& (. (vec.get srcs i) items)) k) kind))
+      (if (and (== kind 0u8) (str.starts (& name) "proj."))
+        (try (load_proj srcs paths (& dir) (& name)))))
+    (set i (+ i 1)))
+  (res.ok ()))
+
+(fn load_proj ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (dir (& str)) (modp (& str))) (res unit str)
+  (if (>= (path_i paths modp) 0) (ret (res.ok ())))
+  (let file (path.join dir (& (str_cat (& (last_seg modp)) ".llr"))))
+  (try (load_one srcs paths (str.clone modp) file false))
+  (res.ok ()))
+
+(fn last_seg ((s (& str))) str
+  (let mut i (- (str.len s) 1))
+  (while (>= i 0)
+    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
+    (set i (- i 1)))
+  (str.clone s))
+
+(fn str_cat ((a (& str)) (b (& str))) str (let mut s (str.clone a)) (str.push (&mut s) b) s)
+
+(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "")))
+
+(pub (fn load_at ((file (& str)) (dir (& str))) (res prog.prog str)
+  (let root (if (> (str.len dir) 0) (slash dir) (std_dir)))
+  (let mut srcs (vec.new <src.loaded>))
+  (let mut paths (vec.new <str>))
+  (let mainp (slash file))
+  (try (load_one (&mut srcs) (&mut paths) (str.from "main") (str.clone (& mainp)) false))
+  (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
+  (try (append_os (&mut srcs) (& root)))
+  (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
+  (collect.collect srcs)))

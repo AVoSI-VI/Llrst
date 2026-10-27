@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds llrc, compiles every tool in tools/, installs binaries and std, verifies.
+# Builds stage-0 llrc, installs llrs2 as llrc, compiles every tool, verifies.
 # Usage: scripts/install.sh [PREFIX]   (default ~/.local)
 # Output: one pipe record per step. Exit 1 on failure.
 set -u
@@ -13,8 +13,6 @@ die() { echo "fail|$*"; exit 1; }
 
 command -v cargo >/dev/null || die "setup|cargo=missing|fix=install rustup"
 command -v cc >/dev/null || die "setup|cc=missing|fix=install a C toolchain (used as linker)"
-# --emit-obj does not link. A full `llrc build --target TRIPLE` link runs
-# `clang --target=TRIPLE` and needs a sysroot for that triple.
 
 say "step|build-llrc"
 ( cd "$root" && cargo build --release -q ) || die "build-llrc|cargo build --release"
@@ -27,8 +25,12 @@ mkdir -p "$bin" "$share" || die "install|mkdir=$prefix"
 rm -rf "$share/std" && cp -r "$root/std" "$share/std" || die "install|copy=std"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
 say "ok|runtime|$share/llr_stat.o"
-cp "$llrc" "$bin/llrc" || die "install|copy=llrc"
-say "ok|llrc|$bin/llrc"
+LLRC="$llrc" "$root/scripts/self.sh" --stage || exit 1
+stage="$root/target/self/llrs2"
+[ -f "$stage" ] || stage="$root/target/self/llrs2.exe"
+[ -f "$stage" ] || die "install|llrs2=missing|path=$root/target/self/llrs2"
+cp "$stage" "$bin/llrc" || die "install|copy=llrs2"
+say "ok|llrs2|$bin/llrc"
 say "ok|std|$share/std"
 
 export LLRST_STD="$share/std"

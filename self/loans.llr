@@ -1,0 +1,116 @@
+;; Loans created by reference rvalues, and which call arguments flow them.
+(use std.str)
+(use proj.mir)
+(use proj.prog)
+(use proj.ty)
+
+(pub (struct loan
+  (pub (pl mir.place))
+  (pub (mut bool))
+  (pub (two bool))
+  (pub (bb i64))
+  (pub (idx i64))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (len i64))))
+
+(pub (fn collect ((b (& mir.body))) (vec loan)
+  (let mut o (vec.new <loan>))
+  (for bi 0 (vec.len (& (. b blocks))) (collect_bb b bi (&mut o)))
+  o))
+
+(fn collect_bb ((b (& mir.body)) (bi i64) (o (&mut (vec loan)))) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (for si 0 (vec.len (& (. blk stmts))) (collect_st (vec.get (& (. blk stmts)) si) bi si o)))
+
+(fn collect_st ((s (& mir.st)) (bb i64) (idx i64) (o (&mut (vec loan)))) unit
+  (if (and (== (. s kind) 0u8) (== (. (. s rv) kind) 1u8))
+    (vec.push o
+      (loan (mir.place (. (. s rv) local) (pk s) (pi s))
+        (. (. s rv) flag)
+        (. (. s rv) two)
+        bb
+        idx
+        (. s line)
+        (. s col)
+        (. s len)))))
+
+(fn pk ((s (& mir.st))) (vec u8)
+  (let mut v (vec.new <u8>))
+  (for i 0 (vec.len (& (. (. s rv) pk))) (vec.push (&mut v) (@ (vec.get (& (. (. s rv) pk)) i))))
+  v)
+
+(fn pi ((s (& mir.st))) (vec i64)
+  (let mut v (vec.new <i64>))
+  (for i 0 (vec.len (& (. (. s rv) pi))) (vec.push (&mut v) (@ (vec.get (& (. (. s rv) pi)) i))))
+  v)
+
+(fn shares ((a (& (vec str))) (b (& (vec str)))) bool
+  (let mut yes false)
+  (for i 0 (vec.len a) (if (share_row a b i) (set yes true)))
+  yes)
+
+(fn share_row ((a (& (vec str))) (b (& (vec str))) (i i64)) bool
+  (let mut yes false)
+  (for j 0 (vec.len b) (if (str.eq (vec.get a i) (vec.get b j)) (set yes true)))
+  yes)
+
+(pub (fn eligible ((p (& prog.prog)) (t (& mir.term)) (b (& mir.body))) (vec i64)
+  (if (!= (. t fk) 0u8) (ret (ref_ops b (& (. t args)))))
+  (param_flow (vec.get (& (. p defs)) (. t fid)) (& (. t targs)))))
+
+(pub (fn param_flow ((d (& prog.def)) (targs (& (vec ty.sty)))) (vec i64)
+  (let ret (ty.subst (& (. d ret)) targs))
+  (let mut ret_l (vec.new <str>))
+  (ty.lts (& ret) (&mut ret_l))
+  (if (> (vec.len (& ret_l)) 0) (ret (life_args d targs (& ret_l))))
+  (if (not (ty.has_ref (& ret))) (ret (vec.new <i64>)))
+  (let refs (ref_params d targs))
+  (if (== (vec.len (& refs)) 1) (ret refs))
+  (if (self_ref d targs) (ret (one 0)))
+  refs))
+
+(fn self_ref ((d (& prog.def)) (targs (& (vec ty.sty)))) bool
+  (and (> (vec.len (& (. d spars))) 0)
+    (and (str.eq (& (. (vec.get (& (. d spars)) 0) name)) "self")
+      (ty.has_ref (& (ty.subst (& (. (vec.get (& (. d spars)) 0) ty)) targs))))))
+
+(fn one ((n i64)) (vec i64) (let mut v (vec.new <i64>)) (vec.push (&mut v) n) v)
+
+(fn life_args ((d (& prog.def)) (targs (& (vec ty.sty))) (ret_l (& (vec str)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len (& (. d spars)))
+    (let mut ls (vec.new <str>))
+    (ty.lts (& (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) targs)) (&mut ls))
+    (if (shares (& ls) ret_l) (vec.push (&mut o) i)))
+  o)
+
+(fn ref_params ((d (& prog.def)) (targs (& (vec ty.sty)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len (& (. d spars)))
+    (if (ty.has_ref (& (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) targs)))
+      (vec.push (&mut o) i)))
+  o)
+
+(fn ref_ops ((b (& mir.body)) (args (& (vec mir.op)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len args) (maybe_ref b (vec.get args i) i (&mut o)))
+  o)
+
+(fn maybe_ref ((b (& mir.body)) (op (& mir.op)) (i i64) (o (&mut (vec i64)))) unit
+  (if (and (!= (. op kind) 2u8) (ty.has_ref (& (. (vec.get (& (. b locs)) (. op local)) ty))))
+    (vec.push o i)))
+
+(pub (fn sinks ((p (& prog.prog)) (t (& mir.term))) (vec i64)
+  (if (!= (. t fk) 0u8) (ret (vec.new <i64>)))
+  (let d (vec.get (& (. p defs)) (. t fid)))
+  (let mut o (vec.new <i64>))
+  (for i 0 (min (vec.len (& (. d spars))) (vec.len (& (. t args)))) (sink_i d t i (&mut o)))
+  o))
+
+(fn sink_i ((d (& prog.def)) (t (& mir.term)) (i i64) (o (&mut (vec i64)))) unit
+  (let ty (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) (& (. t targs))))
+  (if (and (== (. ty kind) 6u8) (and (. ty flag) (ty.has_ref (vec.get (& (. ty args)) 0))))
+    (vec.push o i)))
+
+(fn min ((a i64) (b i64)) i64 (if (< a b) a b))

@@ -11,7 +11,7 @@ Source: `std/ast.llr`. Import with `(use std.ast)` for module functions; types a
 - `(struct param (pub (name str)) (pub (ty ty)))`
 - `(struct field (pub (name str)) (pub (ty ty)) (pub (is_pub bool)))`
 - `(struct variant (pub (name str)) (pub (tys (vec ty))) (pub (is_pub bool)))`
-- `(struct item (pub (kind u8)) (pub (name str)) (pub (is_pub bool)) (pub (gens (vec str))) (pub (params (vec param))) (pub (fields (vec field))) (pub (variants (vec variant))) (pub (ret ty)) (pub (body (vec expr))) (pub (fns (vec item))) (pub (line i64)) (pub (col i64)))`
+- `(struct item (pub (kind u8)) (pub (name str)) (pub (is_pub bool)) (pub (gens (vec str))) (pub (params (vec param))) (pub (fields (vec field))) (pub (variants (vec variant))) (pub (ret ty)) (pub (body (vec expr))) (pub (fns (vec item))) (pub (line i64)) (pub (col i64)) (pub (inline bool)) (pub (len i64)))`
 
 ## Functions
 
@@ -22,4 +22,4 @@ Source: `std/ast.llr`. Import with `(use std.ast)` for module functions; types a
 
 ## Tests
 
-`ast_fn`, `ast_struct`, `ast_enum_impl`, `ast_bad`
+`ast_fn`, `ast_struct`, `ast_enum_impl`, `ast_clos`, `ast_inline`, `ast_trait_impl`, `ast_bad`

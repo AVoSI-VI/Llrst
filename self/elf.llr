@@ -1,0 +1,396 @@
+;; ELF64 relocatable writer: text, data, rodata, bss, symtab, strtab.
+;; PC32, PLT32, and 64 are RELA. new inserts the null symbol, so the first
+;; add_sym index is 1. Encoder disp32 slots are zeros, so PC32 and PLT32 addends are -4.
+(use proj.elf_out)
+(use proj.x64_buf)
+(use proj.x64_int)
+(use std.fs)
+(use std.os)
+(use std.str)
+(use std.sys)
+(use std.vec)
+
+(pub (const sec_undef i64 0))
+
+(pub (const sec_text i64 1))
+
+(pub (const sec_data i64 2))
+
+(pub (const sec_rodata i64 3))
+
+(pub (const sec_bss i64 4))
+
+(pub (const local i64 0))
+
+(pub (const global i64 1))
+
+(pub (const st_none i64 0))
+
+(pub (const st_object i64 1))
+
+(pub (const st_func i64 2))
+
+(pub (const abs64 i64 1))
+
+(pub (const pc32 i64 2))
+
+(pub (const plt32 i64 4))
+
+(pub (struct sym
+  (pub (name str))
+  (pub (bind i64))
+  (pub (ty i64))
+  (pub (sec i64))
+  (pub (value i64))
+  (pub (size i64))))
+
+(pub (struct rela
+  (pub (sec i64))
+  (pub (at i64))
+  (pub (kind i64))
+  (pub (sym i64))
+  (pub (addend i64))))
+
+(pub (struct obj
+  (pub (text (vec u8)))
+  (pub (data (vec u8)))
+  (pub (rodata (vec u8)))
+  (pub (bss i64))
+  (pub (syms (vec sym)))
+  (pub (rels (vec rela)))))
+
+(pub (fn new () obj
+  (let mut o (obj (vec.new <u8>) (vec.new <u8>) (vec.new <u8>) 0 (vec.new <sym>) (vec.new <rela>)))
+  (add_sym (&mut o) "" local st_none sec_undef 0 0)
+  o))
+
+(pub (fn add_sym ((o (&mut obj)) (name (& str)) (bind i64) (ty i64) (sec i64) (value i64) (size i64)) i64
+  (let i (vec.len (& (. o syms))))
+  (vec.push (&mut (. o syms)) (sym (str.from name) bind ty sec value size))
+  i))
+
+(pub (fn set_sym ((o (&mut obj)) (i i64) (value i64) (size i64)) unit
+  (set (. (vec.get_mut (&mut (. o syms)) i) value) value)
+  (set (. (vec.get_mut (&mut (. o syms)) i) size) size)))
+
+(pub (fn add_rel ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64) (addend i64)) unit
+  (vec.push (&mut (. o rels)) (rela sec at kind sym addend))))
+
+(pub (fn enc_kind ((k i64)) i64
+  (if (== k x64_buf.abs64) (ret abs64))
+  (if (== k x64_buf.pc32) (ret pc32))
+  (if (== k x64_buf.plt32) (ret plt32))
+  0))
+
+(pub (fn enc_addend ((k i64)) i64 (if (== k x64_buf.abs64) 0 (neg 4))))
+
+(pub (fn add_enc ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64)) unit
+  (add_rel o sec at (enc_kind kind) sym (enc_addend kind))))
+
+;; Locals stay before globals. Reloc symbol indexes are rewritten to match.
+(fn push_bind ((o (& obj)) (ord (&mut (vec i64))) (map (&mut (vec i64))) (want i64)) unit
+  (let n (vec.len (& (. o syms))))
+  (for i 0 n
+    (if (== (. (vec.get (& (. o syms)) i) bind) want)
+      (do (vec.push ord i) (vec.set map i (- (vec.len ord) 1))))))
+
+(fn order ((o (& obj)) (ord (&mut (vec i64))) (map (&mut (vec i64)))) i64
+  (let n (vec.len (& (. o syms))))
+  (for i 0 n (vec.push map 0))
+  (push_bind o ord map local)
+  (let info (vec.len ord))
+  (push_bind o ord map global)
+  info)
+
+(fn emit_sym ((syms (&mut (vec u8))) (strs (&mut (vec u8))) (s (& sym))) unit
+  (elf_out.push_n syms (elf_out.cstr strs (& (. s name))) 4)
+  (vec.push syms (as u8 (+ (shl (. s bind) 4) (. s ty))))
+  (vec.push syms 0u8)
+  (elf_out.push_n syms (. s sec) 2)
+  (elf_out.push_n syms (. s value) 8)
+  (elf_out.push_n syms (. s size) 8))
+
+(fn build_syms ((o (& obj)) (ord (& (vec i64))) (syms (&mut (vec u8))) (strs (&mut (vec u8)))) unit
+  (vec.push strs 0u8)
+  (for i 0 (vec.len ord) (emit_sym syms strs (vec.get (& (. o syms)) (@ (vec.get ord i))))))
+
+(fn emit_rel ((out (&mut (vec u8))) (r (& rela)) (map (& (vec i64)))) unit
+  (elf_out.push_n out (. r at) 8)
+  (let sym (@ (vec.get map (. r sym))))
+  (elf_out.push_n out (+ (shl sym 32) (. r kind)) 8)
+  (elf_out.push_n out (. r addend) 8))
+
+(fn rels_of ((o (& obj)) (sec i64) (map (& (vec i64)))) (vec u8)
+  (let mut out (vec.new <u8>))
+  (for i 0 (vec.len (& (. o rels)))
+    (let r (vec.get (& (. o rels)) i))
+    (if (== (. r sec) sec) (emit_rel (&mut out) r map)))
+  out)
+
+(fn clone_bytes ((src (& (vec u8)))) (vec u8)
+  (let mut d (vec.new <u8>))
+  (for i 0 (vec.len src) (vec.push (&mut d) (@ (vec.get src i))))
+  d)
+
+(pub (fn bytes ((o (& obj))) str
+  (let mut ord (vec.new <i64>))
+  (let mut map (vec.new <i64>))
+  (let info (order o (&mut ord) (&mut map)))
+  (let mut syms (vec.new <u8>))
+  (let mut strs (vec.new <u8>))
+  (build_syms o (& ord) (&mut syms) (&mut strs))
+  (let rt (rels_of o sec_text (& map)))
+  (let rd (rels_of o sec_data (& map)))
+  (let rr (rels_of o sec_rodata (& map)))
+  (let p
+    (elf_out.parts (clone_bytes (& (. o text)))
+      (clone_bytes (& (. o data)))
+      (clone_bytes (& (. o rodata)))
+      (. o bss)
+      syms
+      strs
+      rt
+      rd
+      rr
+      info))
+  (elf_out.assemble (& p))))
+
+;; Entered with rsp 8 mod 16. The call needs rsp 0 mod 16.
+(fn hello_text ((msg i64) (wr i64)) x64_buf.buf
+  (let mut b (x64_buf.new))
+  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp 8)
+  (x64_int.mov_ri (&mut b) 4 x64_buf.rdi 1)
+  (x64_int.lea_rip (&mut b) x64_buf.rsi msg)
+  (x64_int.mov_ri (&mut b) 4 x64_buf.rdx 3)
+  (x64_int.call_sym (&mut b) wr)
+  (x64_int.xor_rr (&mut b) 4 x64_buf.rax x64_buf.rax)
+  (x64_int.add_ri (&mut b) 8 x64_buf.rsp 8)
+  (x64_int.ret (&mut b))
+  b)
+
+(fn put_str ((b (&mut (vec u8))) (s (& str))) unit (for i 0 (str.len s) (vec.push b (str.at s i))))
+
+(fn copy_text ((o (&mut obj)) (b (& x64_buf.buf))) unit
+  (for i 0 (x64_buf.len b) (vec.push (&mut (. o text)) (x64_buf.at b i)))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (add_enc o sec_text (. r at) (. r kind) (. r sym))))
+
+(pub (fn hello () str
+  (let mut o (new))
+  (let msg (add_sym (&mut o) "msg" local st_object sec_rodata 0 3))
+  (let main (add_sym (&mut o) "main" global st_func sec_text 0 0))
+  (let wr (add_sym (&mut o) "write" global st_none sec_undef 0 0))
+  (let b (hello_text msg wr))
+  (set (. (vec.get_mut (&mut (. o syms)) main) size) (x64_buf.len (& b)))
+  (copy_text (&mut o) (& b))
+  (put_str (&mut (. o rodata)) "ok\n")
+  (bytes (& o))))
+
+(fn u_at ((s (& str)) (at i64) (n i64)) i64
+  (let mut v 0)
+  (for i 0 n (set v (+ v (shl (as i64 (str.at s (+ at i))) (* i 8)))))
+  v)
+
+(fn sh_at ((img (& str)) (i i64)) i64 (+ (u_at img 40 8) (* i 64)))
+
+(fn sh_u32 ((img (& str)) (i i64) (f i64)) i64 (u_at img (+ (sh_at img i) f) 4))
+
+(fn sh_u64 ((img (& str)) (i i64) (f i64)) i64 (u_at img (+ (sh_at img i) f) 8))
+
+(fn cstr_eq ((s (& str)) (at i64) (want (& str))) bool
+  (let n (str.len want))
+  (if (> (+ at n) (str.len s)) (ret false))
+  (for i 0 n (if (!= (str.at s (+ at i)) (str.at want i)) (ret false)))
+  (if (>= (+ at n) (str.len s)) (ret false))
+  (== (str.at s (+ at n)) 0u8))
+
+(fn name_at ((img (& str)) (i i64)) i64
+  (let shstr (sh_u64 img (u_at img 62 2) 24))
+  (+ shstr (sh_u32 img i 0)))
+
+(fn find_sec ((img (& str)) (name (& str))) i64
+  (let n (u_at img 60 2))
+  (for i 0 n (if (cstr_eq img (name_at img i) name) (ret i)))
+  (neg 1))
+
+(fn sec_eq ((img (& str)) (name (& str)) (want (& str))) bool
+  (let i (find_sec img name))
+  (if (< i 0) (ret false))
+  (let off (sh_u64 img i 24))
+  (let n (sh_u64 img i 32))
+  (if (!= n (str.len want)) (ret false))
+  (str.eq (& (str.slice img off (+ off n))) want))
+
+(fn sym_at ((img (& str)) (i i64)) i64 (+ (sh_u64 img (find_sec img ".symtab") 24) (* i 24)))
+
+(fn sym_name ((img (& str)) (i i64)) i64
+  (let tab (find_sec img ".symtab"))
+  (let strs (sh_u64 img (sh_u32 img tab 40) 24))
+  (+ strs (u_at img (sym_at img i) 4)))
+
+(fn find_sym ((img (& str)) (name (& str))) i64
+  (let tab (find_sec img ".symtab"))
+  (let n (/ (sh_u64 img tab 32) 24))
+  (for i 0 n (if (cstr_eq img (sym_name img i) name) (ret i)))
+  (neg 1))
+
+(fn rela_u ((img (& str)) (sec i64) (i i64) (off i64) (n i64)) i64
+  (u_at img (+ (+ (sh_u64 img sec 24) (* i 24)) off) n))
+
+(fn tail_ok ((img (& str))) bool
+  (let shoff (u_at img 40 8))
+  (let n (u_at img 60 2))
+  (== (str.len img) (+ shoff (* n 64))))
+
+(fn abs_obj () str
+  (let mut o (new))
+  (let msg (add_sym (&mut o) "msg" local st_object sec_rodata 0 3))
+  (add_sym (&mut o) "main" global st_func sec_text 0 1)
+  (add_sym (&mut o) "write" global st_none sec_undef 0 0)
+  (let slot (add_sym (&mut o) "slot" global st_object sec_data 0 8))
+  (vec.push (&mut (. o text)) 195u8)
+  (put_str (&mut (. o rodata)) "ok\n")
+  (for i 0 8 (vec.push (&mut (. o data)) 0u8))
+  (set (. o bss) 16)
+  (add_rel (&mut o) sec_text 0 pc32 msg (neg 4))
+  (add_rel (&mut o) sec_data 0 abs64 slot 0)
+  (bytes (& o)))
+
+;; Host Unix link from link.rs: cc obj -o out, then -pie except on Darwin, then -pthread.
+(fn cc_line ((obj (& str)) (out (& str))) str
+  (let mut s (str.from "cc "))
+  (str.push (&mut s) obj)
+  (str.push (&mut s) " -o ")
+  (str.push (&mut s) out)
+  (let u (os.capture "uname"))
+  (if (not (str.eq (& (. u out)) "Darwin\n")) (str.push (&mut s) " -pie"))
+  (str.push (&mut s) " -pthread 2>&1")
+  s)
+
+(fn rm ((path (& str))) unit (if (fs.exists path) (res.unwrap (fs.remove path))))
+
+(fn hello_bytes () (& str)
+  "\x48\x83\xec\x08\xbf\x01\x00\x00\x00\x48\x8d\x35\x00\x00\x00\x00\xba\x03\x00\x00\x00\xe8\x00\x00\x00\x00\x33\xc0\x48\x83\xc4\x08\xc3")
+
+(test elf_norel
+  (let mut o (new))
+  (add_sym (&mut o) "main" global st_func sec_text 0 1)
+  (vec.push (&mut (. o text)) 195u8)
+  (let img (bytes (& o)))
+  (assert_eq (str.at (& img) 0) 127u8)
+  (assert_eq (str.at (& img) 1) 69u8)
+  (assert_eq (str.at (& img) 4) 2u8)
+  (assert_eq (str.at (& img) 5) 1u8)
+  (assert_eq (u_at (& img) 16 2) 1)
+  (assert_eq (u_at (& img) 18 2) 62)
+  (assert_eq (u_at (& img) 32 8) 0)
+  (assert_eq (u_at (& img) 52 2) 64)
+  (assert_eq (u_at (& img) 56 2) 0)
+  (assert_eq (u_at (& img) 58 2) 64)
+  (assert_eq (u_at (& img) 60 2) 8)
+  (assert (tail_ok (& img)))
+  (assert_eq (find_sec (& img) ".text") 1)
+  (assert_eq (find_sec (& img) ".data") 2)
+  (assert_eq (find_sec (& img) ".rodata") 3)
+  (assert_eq (find_sec (& img) ".bss") 4)
+  (assert_eq (find_sec (& img) ".rela.text") (neg 1))
+  (assert (cstr_eq (& img) (name_at (& img) (u_at (& img) 62 2)) ".shstrtab"))
+  (assert (sec_eq (& img) ".text" "\xc3"))
+  (assert_eq (sh_u64 (& img) 1 8) 6)
+  (assert_eq (sh_u64 (& img) 2 8) 3)
+  (assert_eq (sh_u64 (& img) 3 8) 2)
+  (assert_eq (sh_u32 (& img) 1 4) 1)
+  (assert_eq (sh_u32 (& img) 4 4) 8)
+  (assert_eq (sh_u64 (& img) 2 32) 0)
+  (assert_eq (sh_u64 (& img) 4 32) 0)
+  (assert_eq (% (sh_u64 (& img) 1 24) 16) 0)
+  (assert_eq (find_sym (& img) "main") 1)
+  (assert_eq (sh_u32 (& img) (find_sec (& img) ".symtab") 44) 1)
+  (assert_eq (u_at (& img) (sym_at (& img) 0) 4) 0))
+
+(test elf_hello
+  (assert_eq (enc_kind x64_buf.pc32) pc32)
+  (assert_eq (enc_kind x64_buf.plt32) plt32)
+  (assert_eq (enc_kind x64_buf.abs64) abs64)
+  (assert_eq (enc_addend x64_buf.pc32) (neg 4))
+  (assert_eq (enc_addend x64_buf.abs64) 0)
+  (let img (hello))
+  (assert (sec_eq (& img) ".text" (hello_bytes)))
+  (assert (sec_eq (& img) ".rodata" "ok\n"))
+  (assert_eq (find_sym (& img) "msg") 1)
+  (assert_eq (find_sym (& img) "main") 2)
+  (assert_eq (find_sym (& img) "write") 3)
+  (assert_eq (str.at (& img) (+ (sym_at (& img) 2) 4)) (as u8 (+ (shl global 4) st_func)))
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 2) 6) 2) sec_text)
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 2) 16) 8) 33)
+  (assert_eq (str.at (& img) (+ (sym_at (& img) 3) 4)) (as u8 (shl global 4)))
+  (assert_eq (u_at (& img) (+ (sym_at (& img) 3) 6) 2) sec_undef)
+  (let rela (find_sec (& img) ".rela.text"))
+  (assert_eq rela 5)
+  (assert_eq (find_sec (& img) ".rela.data") (neg 1))
+  (assert_eq (sh_u64 (& img) rela 32) 48)
+  (assert_eq (sh_u64 (& img) rela 56) 24)
+  (assert_eq (sh_u32 (& img) rela 44) sec_text)
+  (assert_eq (sh_u32 (& img) rela 40) (find_sec (& img) ".symtab"))
+  (assert_eq (rela_u (& img) rela 0 0 8) 12)
+  (assert_eq (band (rela_u (& img) rela 0 8 8) 4294967295) pc32)
+  (assert_eq (shr (rela_u (& img) rela 0 8 8) 32) 1)
+  (assert_eq (rela_u (& img) rela 0 16 8) (neg 4))
+  (assert_eq (rela_u (& img) rela 1 0 8) 22)
+  (assert_eq (band (rela_u (& img) rela 1 8 8) 4294967295) plt32)
+  (assert_eq (shr (rela_u (& img) rela 1 8 8) 32) 3)
+  (assert_eq (rela_u (& img) rela 1 16 8) (neg 4))
+  (assert_eq (sh_u32 (& img) (find_sec (& img) ".symtab") 44) 2)
+  (assert (tail_ok (& img))))
+
+(test elf_abs
+  (let img (abs_obj))
+  (assert_eq (find_sec (& img) ".rela.text") 5)
+  (assert_eq (find_sec (& img) ".rela.data") 6)
+  (assert_eq (find_sec (& img) ".rela.rodata") (neg 1))
+  (assert (sec_eq (& img) ".data" "\0\0\0\0\0\0\0\0"))
+  (assert_eq (sh_u64 (& img) 4 32) 16)
+  (assert_eq (sh_u32 (& img) 4 4) 8)
+  (assert_eq (% (sh_u64 (& img) 4 24) 8) 0)
+  (let ro_end (+ (sh_u64 (& img) 3 24) (sh_u64 (& img) 3 32)))
+  (let next (sh_u64 (& img) 5 24))
+  (assert (>= next ro_end))
+  (assert (< (- next ro_end) 8))
+  (let sec (find_sec (& img) ".rela.data"))
+  (assert_eq (rela_u (& img) sec 0 0 8) 0)
+  (assert_eq (band (rela_u (& img) sec 0 8 8) 4294967295) abs64)
+  (assert_eq (shr (rela_u (& img) sec 0 8 8) 32) (find_sym (& img) "slot"))
+  (assert_eq (rela_u (& img) sec 0 16 8) 0)
+  (assert_eq (sh_u32 (& img) sec 44) sec_data)
+  (assert (tail_ok (& img))))
+
+(test elf_order
+  (let mut o (new))
+  (add_sym (&mut o) "g" global st_none sec_text 0 0)
+  (let loc (add_sym (&mut o) "loc" local st_object sec_rodata 0 0))
+  (add_rel (&mut o) sec_text 4 pc32 loc (neg 4))
+  (let img (bytes (& o)))
+  (assert_eq (find_sym (& img) "loc") 1)
+  (assert_eq (find_sym (& img) "g") 2)
+  (let sec (find_sec (& img) ".rela.text"))
+  (assert_eq (rela_u (& img) sec 0 0 8) 4)
+  (assert_eq (band (rela_u (& img) sec 0 8 8) 4294967295) pc32)
+  (assert_eq (shr (rela_u (& img) sec 0 8 8) 32) 1)
+  (assert_eq (rela_u (& img) sec 0 16 8) (neg 4))
+  (assert_eq (sh_u32 (& img) (find_sec (& img) ".symtab") 44) 2))
+
+(test elf_link
+  (if (== sys.os_id 2) (ret))
+  (let obj (str.from "/tmp/llr_elf_main.o"))
+  (let out (str.from "/tmp/llr_elf_main"))
+  (rm (& obj))
+  (rm (& out))
+  (res.unwrap (fs.write (& obj) (& (hello))))
+  (let linked (os.capture (& (cc_line (& obj) (& out)))))
+  (if (!= (. linked code) 0) (assert_eq (& (. linked out)) ""))
+  (let ran (os.capture (& out)))
+  (rm (& obj))
+  (rm (& out))
+  (assert_eq (. ran code) 0)
+  (assert_eq (& (. ran out)) "ok\n"))

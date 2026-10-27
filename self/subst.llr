@@ -1,0 +1,71 @@
+;; Substitute concrete type arguments and typecheck that instance.
+(use std.check_expr)
+(use std.check_ty)
+(use std.str)
+
+(pub (struct checked (pub (body texpr)) (pub (exprs (vec expr)))))
+
+(fn gen_i ((gens (& (vec str))) (name (& str))) i64
+  (for i 0 (vec.len gens) (if (str.eq (vec.get gens i) name) (ret i)))
+  (neg 1))
+
+(pub (fn fn_item ((srcs (& (vec source))) (d (& def))) (& item)
+  (let it (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
+  (if (< (. d fi) 0) it (vec.get (& (. it fns)) (. d fi)))))
+
+(pub (fn gen_names ((srcs (& (vec source))) (d (& def))) (vec str)
+  (let mut g (vec.new <str>))
+  (if (>= (. d fi) 0)
+    (do
+      (let impl (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
+      (for i 0 (vec.len (& (. impl gens)))
+        (vec.push (&mut g) (str.clone (vec.get (& (. impl gens)) i))))))
+  (let f (fn_item srcs d))
+  (for i 0 (vec.len (& (. f gens))) (vec.push (&mut g) (str.clone (vec.get (& (. f gens)) i))))
+  g))
+
+(fn subst_ty ((t (& ty)) (gens (& (vec str))) (args (& (vec str)))) ty
+  (if (== (. t kind) 0u8)
+    (do
+      (let i (gen_i gens (& (. t text))))
+      (if (>= i 0)
+        (ret (ty 0u8 (str.clone (vec.get args i)) (vec.new <ty>) (. t line) (. t col) (. t len))))))
+  (let mut as (vec.new <ty>))
+  (for i 0 (vec.len (& (. t args)))
+    (vec.push (&mut as) (subst_ty (vec.get (& (. t args)) i) gens args)))
+  (ty (. t kind) (str.clone (& (. t text))) as (. t line) (. t col) (. t len)))
+
+(pub (fn subst_expr ((e (& expr)) (gens (& (vec str))) (args (& (vec str)))) expr
+  (let mut tys (vec.new <ty>))
+  (for i 0 (vec.len (& (. e tys)))
+    (vec.push (&mut tys) (subst_ty (vec.get (& (. e tys)) i) gens args)))
+  (let mut kids (vec.new <expr>))
+  (for i 0 (vec.len (& (. e kids)))
+    (vec.push (&mut kids) (subst_expr (vec.get (& (. e kids)) i) gens args)))
+  (expr (. e kind) (str.clone (& (. e text))) (. e mut) kids tys (. e line) (. e col) (. e len))))
+
+(fn param_loc ((p (& param)) (gens (& (vec str))) (args (& (vec str)))) loc
+  (let ty (subst_ty (& (. p ty)) gens args))
+  (let show (check_ty.show_ty (& ty) (& (vec.new <str>)) (& (vec.new <info>))))
+  (loc (str.clone (& (. p name)))
+    (info show (str.new) (str.new))
+    false
+    (. (. p ty) line)
+    (. (. p ty) col)
+    0))
+
+(pub (fn check_inst ((defs (& (vec def))) (srcs (& (vec source))) (d (& def)) (args (& (vec str)))) (res checked str)
+  (let gens (gen_names srcs d))
+  (let f (fn_item srcs d))
+  (let mut locs (vec.new <loc>))
+  (for i 0 (vec.len (& (. f params)))
+    (vec.push (&mut locs) (param_loc (vec.get (& (. f params)) i) (& gens) args)))
+  (let mut exprs (vec.new <expr>))
+  (let mut kids (vec.new <texpr>))
+  (for i 0 (vec.len (& (. f body)))
+    (let e (subst_expr (vec.get (& (. f body)) i) (& gens) args))
+    (let o (try (check_expr.check_expr defs srcs (. d si) (& e) (&mut locs))))
+    (vec.push (&mut kids) (. o ex))
+    (vec.push (&mut exprs) e))
+  (let body (texpr 4u8 (str.from "unit") (str.new) (neg 1) kids (. f line) (. f col) (. f len)))
+  (res.ok (checked body exprs))))

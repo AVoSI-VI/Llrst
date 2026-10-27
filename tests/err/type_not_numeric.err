@@ -1,0 +1,1 @@
+E|tests/err/type_not_numeric.llr|1|18|11|type.not_numeric|op=Add|got=(& str)

@@ -1,0 +1,191 @@
+;; Unused names, unused items, and unreachable blocks.
+(use std.str)
+(use proj.diag)
+(use proj.mir)
+(use proj.prog)
+
+(pub (fn body ((out (&mut (vec diag.dg))) (b (& mir.body))) unit (unreachable out b) (unused out b)))
+
+(fn unreachable ((out (&mut (vec diag.dg))) (b (& mir.body))) unit
+  (let n (vec.len (& (. b blocks))))
+  (if (== n 0) (ret))
+  (let mut seen (vec.new <bool>))
+  (for i 0 n (vec.push (&mut seen) false))
+  (vec.set (&mut seen) 0 true)
+  (reach b (&mut seen) 0)
+  (for i 0 n (if (not (@ (vec.get (& seen) i))) (warn_blk out b i))))
+
+(fn reach ((b (& mir.body)) (seen (&mut (vec bool))) (bb i64)) unit
+  (let blk (vec.get (& (. b blocks)) bb))
+  (let ss (mir.succs (& (. blk term))))
+  (for i 0 (vec.len (& ss)) (step b seen (@ (vec.get (& ss) i)))))
+
+(fn step ((b (& mir.body)) (seen (&mut (vec bool))) (s i64)) unit
+  (if (@ (vec.get seen s)) (ret))
+  (vec.set seen s true)
+  (reach b seen s))
+
+(fn warn_blk ((out (&mut (vec diag.dg))) (b (& mir.body)) (i i64)) unit
+  (let blk (vec.get (& (. b blocks)) i))
+  (for k 0 (vec.len (& (. blk stmts)))
+    (let s (vec.get (& (. blk stmts)) k))
+    (if (not (cleanup s))
+      (ret (push_w out (& (. b path)) (. s line) (. s col) (. s len) "flow.unreachable" "" (str.new))))))
+
+(fn cleanup ((s (& mir.st))) bool
+  (or (== (. s kind) 1u8) (or (== (. s kind) 3u8) (== (. s kind) 4u8))))
+
+(fn unused ((out (&mut (vec diag.dg))) (b (& mir.body))) unit
+  (let n (vec.len (& (. b locs))))
+  (let mut read (vec.new <bool>))
+  (for i 0 n (vec.push (&mut read) false))
+  (mark_body b (&mut read))
+  (for i 0 n (warn_loc out b (& read) i)))
+
+(fn warn_loc ((out (&mut (vec diag.dg))) (b (& mir.body)) (read (& (vec bool))) (i i64)) unit
+  (if (@ (vec.get read i)) (ret))
+  (let l (vec.get (& (. b locs)) i))
+  (if (str.starts (& (. l name)) "_") (ret))
+  (push_w out
+    (& (. b path))
+    (. l line)
+    (. l col)
+    (. l len)
+    "name.unused"
+    "name"
+    (str.clone (& (. l name)))))
+
+(fn mark_body ((b (& mir.body)) (read (&mut (vec bool)))) unit
+  (for bi 0 (vec.len (& (. b blocks))) (mark_blk b read bi)))
+
+(fn mark_blk ((b (& mir.body)) (read (&mut (vec bool))) (bi i64)) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (for si 0 (vec.len (& (. blk stmts))) (mark_st (vec.get (& (. blk stmts)) si) read))
+  (mark_term (& (. blk term)) read))
+
+(fn mark_st ((s (& mir.st)) (read (&mut (vec bool)))) unit
+  (if (== (. s kind) 0u8) (mark_rv (& (. s rv)) read))
+  (if (== (. s kind) 1u8) (mark_pl (. s local) (& (. s pk)) read)))
+
+(fn mark_rv ((r (& mir.rv)) (read (&mut (vec bool)))) unit
+  (for i 0 (vec.len (& (. r ops))) (mark_op (vec.get (& (. r ops)) i) read))
+  (if (or (== (. r kind) 1u8) (== (. r kind) 9u8)) (mark_pl (. r local) (& (. r pk)) read)))
+
+(fn mark_term ((t (& mir.term)) (read (&mut (vec bool)))) unit
+  (mark_op (& (. t op)) read)
+  (for i 0 (vec.len (& (. t args))) (mark_op (vec.get (& (. t args)) i) read))
+  (if (== (. t kind) 4u8) (vec.set read 0 true)))
+
+(fn mark_op ((o (& mir.op)) (read (&mut (vec bool)))) unit
+  (if (!= (. o kind) 2u8) (mark_pl (. o local) (& (. o pk)) read)))
+
+(fn mark_pl ((local i64) (pk (& (vec u8))) (read (&mut (vec bool)))) unit (vec.set read local true))
+
+(fn push_w ((out (&mut (vec diag.dg)))
+   (path (& str))
+   (line i64)
+   (col i64)
+   (len i64)
+   (code (& str))
+   (k (& str))
+   (v str)) unit
+  (let mut d (diag.make false (str.clone path) line col len (str.from code)))
+  (if (> (str.len k) 0) (diag.add (&mut d) k v))
+  (vec.push out d))
+
+(pub (fn items ((p (& prog.prog)) (out (&mut (vec diag.dg)))) unit
+  (for mi 0 (vec.len (& (. p mods)))
+    (if (not (. (vec.get (& (. p mods)) mi) is_std)) (mod_items p out mi)))
+  (for i 0 (vec.len (& (. p defs))) (fn_item p out i))
+  (for i 0 (vec.len (& (. p defs))) (gen_item p out i))))
+
+(fn mod_items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (mi i64)) unit
+  (let m (vec.get (& (. p mods)) mi))
+  (for i 0 (vec.len (& (. m uals)))
+    (if (not (use_seen p mi (vec.get (& (. m uals)) i)))
+      (push_w out
+        (& (. m file))
+        (at (& (. m uline)) i)
+        (at (& (. m ucol)) i)
+        (at (& (. m ulen)) i)
+        "use.unused"
+        "name"
+        (str.clone (vec.get (& (. m uals)) i))))))
+
+(fn at ((v (& (vec i64))) (i i64)) i64 (if (< i (vec.len v)) (@ (vec.get v i)) 0))
+
+(fn use_seen ((p (& prog.prog)) (mi i64) (alias (& str))) bool
+  (for i 0 (vec.len (& (. p defs)))
+    (let d (vec.get (& (. p defs)) i))
+    (if (and (== (. d module) mi) (mentions (& (. d body)) alias)) (ret true)))
+  false)
+
+(fn mentions ((xs (& (vec expr))) (alias (& str))) bool
+  (for i 0 (vec.len xs) (if (mentions_e (vec.get xs i) alias) (ret true)))
+  false)
+
+(fn mentions_e ((e (& expr)) (alias (& str))) bool
+  (if (and (or (== (. e kind) 1u8) (== (. e kind) 23u8)) (has_alias (& (. e text)) alias))
+    (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (mentions_e (vec.get (& (. e kids)) i) alias) (ret true)))
+  false)
+
+(fn has_alias ((name (& str)) (alias (& str))) bool
+  (let mut pre (str.clone alias))
+  (str.push_byte (&mut pre) 46u8)
+  (str.starts name (& pre)))
+
+(fn fn_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64)) unit
+  (let d (vec.get (& (. p defs)) i))
+  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret))
+  (if (!= (. d kind) 2u8) (ret))
+  (if (or (. d is_pub) (or (. d extern) (called p i))) (ret))
+  (if (and (str.eq (& (. d name)) "main") (== (. d module) (. p main))) (ret))
+  (let m (vec.get (& (. p mods)) (. d module)))
+  (push_w out
+    (& (. m file))
+    (. d line)
+    (. d col)
+    (. d len)
+    "fn.unused"
+    "name"
+    (str.clone (& (. d name)))))
+
+(fn called ((p (& prog.prog)) (id i64)) bool
+  (for i 0 (vec.len (& (. p defs)))
+    (let d (vec.get (& (. p defs)) i))
+    (if (calls (& (. d body)) (& (. (vec.get (& (. p defs)) id) name))) (ret true)))
+  false)
+
+(fn calls ((xs (& (vec expr))) (name (& str))) bool
+  (for i 0 (vec.len xs) (if (calls_e (vec.get xs i) name) (ret true)))
+  false)
+
+(fn calls_e ((e (& expr)) (name (& str))) bool
+  (if (and (== (. e kind) 23u8) (str.eq (& (. e text)) name)) (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (calls_e (vec.get (& (. e kids)) i) name) (ret true)))
+  false)
+
+(fn gen_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64)) unit
+  (let d (vec.get (& (. p defs)) i))
+  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret))
+  (if (or (!= (. d kind) 2u8) (or (. d extern) (== (vec.len (& (. d gens))) 0))) (ret))
+  (let m (vec.get (& (. p mods)) (. d module)))
+  (walk_lets out (& (. m file)) (& (. d body))))
+
+(fn walk_lets ((out (&mut (vec diag.dg))) (path (& str)) (xs (& (vec expr)))) unit
+  (for i 0 (vec.len xs) (walk_let out path (vec.get xs i))))
+
+(fn walk_let ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr))) unit
+  (if (and (== (. e kind) 2u8) (not (used_name (& (. e text)) e)))
+    (push_w out path (. e line) (. e col) (. e len) "name.unused" "name" (str.clone (& (. e text)))))
+  (for i 0 (vec.len (& (. e kids))) (walk_let out path (vec.get (& (. e kids)) i))))
+
+(fn used_name ((name (& str)) (e (& expr))) bool
+  (for i 0 (vec.len (& (. e kids))) (if (mentions_name (vec.get (& (. e kids)) i) name) (ret true)))
+  false)
+
+(fn mentions_name ((e (& expr)) (name (& str))) bool
+  (if (and (== (. e kind) 1u8) (str.eq (& (. e text)) name)) (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (mentions_name (vec.get (& (. e kids)) i) name) (ret true)))
+  false)

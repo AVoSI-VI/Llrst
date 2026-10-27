@@ -37,11 +37,12 @@ Decisions taken with the user before building:
 
 | path | role | start here |
 |------|------|-----------|
-| `compiler/src/` | `llrc` (Rust) | `main.rs` (CLI), `driver.rs` (pipeline) |
+| `self/` | installed compiler (`llrs`). The `llrc` command is stage-2 `llrs` | `llrs.llr` (CLI), `drive.llr` (build) |
+| `compiler/src/` | stage 0 `llrc` (Rust, Cranelift). Not installed. Kept until two releases agree | `main.rs` (CLI), `driver.rs` (pipeline) |
 | `std/` | standard library, 17 modules, all Llrst | `sys.llr` (externs, panic), `str.llr`, `vec.llr` |
 | `tools/` | agent tools, one `.llr` per binary | `llr-read.llr` (smallest), `llr-fmt.llr` + `fmtlint.llr` |
 | `tests/` | golden tests and runner | `run.sh`, `run/*.llr+.out`, `err/*.llr+.err` |
-| `scripts/` | `install.sh PREFIX`, `check-lines.sh` | |
+| `scripts/` | `install.sh` and `install.ps1` build stage 0, then install `llrs2`; `self.sh`; `check-lines.sh` | |
 | `docs/spec/` | grammar, tokens, types, memory, errors | `errors.md` is the code catalogue |
 | `docs/canon/` | the one right way per topic | `README.md` |
 | `docs/std/` | per-module API tables (generated from signatures) | `README.md` |
@@ -50,52 +51,60 @@ Decisions taken with the user before building:
 
 ## 4. Pipeline
 
+The installed compiler is `self/`. Stage 0 is still the Cranelift pipeline in section 6.
+
 ```mermaid
 flowchart LR
-  src[".llr"] --> sexpr["sexpr.rs lex+read"] --> parse["parse/ AST"] --> resolve["resolve.rs Program"]
-  resolve --> check["check/ THIR per instance"] --> mir["mir/lower* MIR"] --> borrow["borrow/ NLL-lite"]
-  borrow --> cg["codegen/ Cranelift"] --> obj[".o"] --> link["link.rs cc"]
+  src[".llr"] --> load["load.llr std.ast"] --> resolve["collect.llr resolve.llr"]
+  resolve --> check["check.llr thir*"] --> mir["lower* MIR"] --> borrow["borrow.llr lint.llr"]
+  borrow --> cg["cg_* x64_*"] --> obj["elf.llr or coff.llr"] --> link["link.llr cc or cl"]
 ```
 
-| pass | file(s) | key types |
-|------|---------|-----------|
-| read | `sexpr.rs` | `Sexpr::{Atom,Str(Vec<u8>),List}` with `Span` |
-| parse | `parse/mod.rs` items, `parse/expr.rs`, `parse/ty.rs` (generics `<T 'a>`, targs) | `ast::Item`, `ast::Expr`, `ast::TyExpr` |
-| resolve | `resolve.rs` | `Program { defs: Vec<Def>, modules, methods: HashMap<DefId, HashMap<name, DefId>>, prelude }`; `Loader` loads main, all of `std/`, and `proj.*` modules |
-| types | `ty.rs` | `Ty::{Int,F32,F64,Bool,Unit,Never,Ref,Ptr,Adt(DefId,args),Fn,Param,Infer}` |
-| check | `check/mod.rs` (unify, scopes, `check_fn(def, targs)`), `expr.rs`, `call.rs`, `pat.rs`, `zonk.rs` | `thir::{FnBody, Expr, ExprKind, Callee, Pat}` |
-| MIR | `mir/mod.rs` types + `needs_drop`, `lower.rs`, `lower_call.rs`, `lower_match.rs`, `print.rs` | `Body { locals, blocks }`, `Place { local, proj }`, `Operand::{Copy,Move,Const}`, `Rvalue`, `Stmt::{Assign,Drop,Forget,StorageDead}`, `Term` |
-| borrowck | `borrow/mod.rs` (accesses, overlap), `liveness.rs`, `moves.rs`, `loans.rs`, `holders.rs`, `check.rs` | `Loan { place, mutable, two_phase, point, span }`, `Holders` (per-point `(loan, local)` bitsets) |
-| codegen | `codegen/mod.rs` (module, symbols, data, ABI), `layout.rs`, `func.rs`, `ops.rs`, `term.rs`, `drop.rs` | `Instance = (DefId, Vec<Ty>)`, `Val::{Scalar,Agg(addr),Unit}` |
-| driver | `driver.rs` | checks all non-generic user fns, then mono worklist from `main` (or tests) via `cg.discovered` |
+| pass | file(s) | what it owns |
+|------|---------|--------------|
+| load | `load.llr` | main, sorted `std/`, host OS externs, then `proj.*`; std search is `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std` |
+| resolve | `collect.llr`, `resolve.llr`, `prog.llr` | def ids, methods, visibility |
+| types | `ty.llr` | ints, floats, bool, refs, pointers, adts, fns, closures, dyn, params, infer |
+| check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr` | one typed body per instance |
+| MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div` |
+| borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `lint.llr` | loans, holders, init, warnings |
+| codegen | `cg_mod.llr`, `cg_frame.llr`, `cg_op.llr`, `cg_term.llr`, `cg_drop.llr`, `x64_abi.llr`, `x64_buf.llr` | every local a slot; SysV or Win64 |
+| objects | `elf.llr`, `coff.llr` | ELF64 (PC32, PLT32, 64) or COFF (REL32, ADDR64) |
+| link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims |
+| driver | `llrs.llr`, `drive.llr` | `build`, `run`, `check`, `emit-mir`; reachable instances from `main` or `--test` |
 
-Generics are monomorphized by re-checking the body per instantiation (`check_fn` with
-concrete `targs`); there is no polymorphic checking. Only reachable instances are
-compiled; std bodies are checked lazily.
+Generics are monomorphized by re-checking the body per instantiation. Only reachable
+instances are compiled; std bodies are checked lazily.
 
 ## 5. Build, run, verify
 
 ```
-cargo build                                   # debug llrc
-cargo build --release
-cargo metadata --format-version 1 | ...target_directory   # sandbox may redirect via CARGO_TARGET_DIR
-LLRC=<path to llrc> tests/run.sh              # goldens + every std test + line check
+cargo build --release                         # stage 0 llrc; not installed
+scripts/self.sh                               # llrs0, llrs1, llrs2, byte-compare, then the suite
+scripts/self.sh --stage                       # stop after self|stage2=equal
+scripts/install.sh [PREFIX]                  # stage 0, install llrs2 as llrc, std, tools, hello
+scripts/install.ps1 [PREFIX]                 # same on Windows
+LLRC=<prefix>/bin/llrc tests/run.sh          # goldens + every std test + line check
 powershell -File tests/run.ps1                # same suite on Windows
+tests/self.sh [STAGE]                         # diff STAGE (default llr-check) against stage-0 llrc check
+powershell -File tests/self.ps1 [STAGE]       # same on Windows
 <llrc> run tests/run/hello.llr --std std
 <llrc> build std/re.llr --test --std std -o /tmp/t && /tmp/t [FILTER]
 <llrc> check tests/err/X.llr --std std 2> tests/err/X.err   # regenerate a golden after a deliberate change
 <llrc> build tests/panic/X.llr --std std -o /tmp/p && /tmp/p 2> tests/panic/X.err   # same for panic goldens (exit 101)
 <llrc> emit-mir FILE --std std                # MIR dump, for borrow errors
-<llrc> build f.llr --target aarch64-unknown-linux-gnu --emit-obj   # also riscv64gc-, s390x-, aarch64-apple-darwin
-scripts/install.sh /tmp/prefix                # release build, std copy, 7 tools, hello verify
 scripts/check-lines.sh                        # W at 500 lines, fail at 1000
 ```
 
-std discovery order in `driver::find_std`: `--std`, `$LLRST_STD`, `<exe>/../std`,
-`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`.
+`cargo build` still produces stage 0 at `target/release/llrc` (or `llrc.exe`). A sandbox
+may redirect that directory; `cargo metadata --format-version 1` prints `target_directory`.
 
-`llrc` accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
-for `llr-test`.
+std discovery order: `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`,
+`<exe>/../share/llrst/std`, `./std`. The installed `llrc` reads the executable path from
+`llr_exe_path`, not from `argv[0]`.
+
+The installed `llrc` accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"`
+works for `llr-test`.
 
 ## 6. Implementation notes (things you would otherwise rediscover)
 
@@ -129,6 +138,8 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
 - `+ - * neg` wrap by default. `llrc --checked` traps them (`codegen/ovf.rs` calls
   `sys.abort` with `int.overflow`) using Cranelift `sadd_overflow` / `uadd_overflow` and
   the sub/mul pairs. `wadd` `wsub` `wmul` `wneg` always wrap; the map hash uses `wmul`.
+  The same flag panics `cast.overflow` for a float-to-int whose truncation does not fit and
+  for an int-to-float that is not exact (`codegen/ops.rs`). Without it, float-to-int saturates.
 - `(sizeof T)` is `Callee::Sizeof`; `(sys.arch)` is a compile-time `(& str)`; `sys.argc`
   / `sys.argv` read globals set by the generated C `main` (`emit_entry`).
 - `--test`: each `(test ...)` becomes `llr_test_i`; `emit_test_entry` calls
@@ -214,7 +225,7 @@ Tools (`tools/`, `docs/tools/`)
 | traits | `Eq` `Ord` `Hash` `Clone` in `std/cmp.llr`; `(& (dyn Trait))` is data plus vtable | a trait method is not generic; an impl type is a concrete name; a method that returns `Self` is not a trait object | `compiler/src/check/traits.rs`, `std/cmp.llr` |
 | moves | a field of a struct with no `drop` method can be moved; the other fields still drop. Whole locals otherwise; `move.field`/`move.deref` remain for a pointer or a struct that has `drop` | use `(& ...)`, `str.clone`, `mem.replace` for those | `mir/lower.rs as_operand`, `codegen/func.rs` |
 | regions | a field write releases loans of that field; a container of refs declared before its referents reports `borrow.escape` at scope end | a write through `&` or `ptr` releases nothing | `borrow/holders.rs` |
-| integers | wrap by default; `--checked` traps `+ - * neg`, `shl` `shr` outside `0..bitwidth`, and an integer cast that does not fit; `MIN / -1` and `MIN % -1` always panic `int.overflow`; float casts still saturate or stay unchecked | without `--checked`, a shift count is masked with `bitwidth - 1` and an integer cast truncates | `codegen/ops.rs`, `codegen/ovf.rs`, `std/sys.llr` `checked_div` |
+| integers | wrap by default; `--checked` traps `+ - * neg`, `shl` `shr` outside `0..bitwidth`, an integer cast that does not fit, a float-to-int whose truncation does not fit, and an int-to-float that is not exact; `MIN / -1` and `MIN % -1` always panic `int.overflow` | without `--checked`, a shift count is masked with `bitwidth - 1`, an integer cast truncates, float-to-int saturates, and int-to-float rounds | `codegen/ops.rs`, `codegen/ovf.rs`, `std/sys.llr` `checked_div` |
 | lifetimes | `'static` is a region for any type; a `'static` reference comes from a literal, a const, or another `'static` reference | any other named lifetime is only the cross-function flow in `eligible_args` | `borrow/holders.rs`, `borrow/loans.rs` |
 | init | `(let mut x T)` is checked; a use before every path assigns it is `init.uninit`. A field write does not initialize the struct | drop flags stay off until a whole-local assignment | `borrow/moves.rs` |
 | runtime | externs come from the OS file merged into `std.sys` (`sys_posix.llr`, or `sys_windows.llr` on Windows). Directory names come from `llr_readdir_name`. On Darwin, `llrc` imports `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` as `llr_*` from `runtime/llr_stat.c`, which translates Linux open flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE` | `fork` does not copy an address space; Windows clients run on a thread and each std test is re-execed | `resolve.rs`, `std/fs.llr` `list`, `runtime/llr_stat.c`, `compiler/src/codegen/mod.rs`, `runtime/llr_win.c` |
@@ -236,46 +247,49 @@ Tools (`tools/`, `docs/tools/`)
 | codegen | all locals in memory, `opt_level=speed` only on IR; `(inline (fn ...))` substitutes the body, including `ret`, loops, `match`, and owned parameters (`str.at`, `vec.get`) | a recursive call stays a call; a closure in the body is `inline.reject` | `mir/inline.rs` |
 
 ## 8. Suggested next steps, in order
-1. Float-to-int `(as T n)` still saturates under `--checked`. Int-to-float is not checked (`codegen/ops.rs`).
-2. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
-3. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
-4. A field write does not initialize the struct (`borrow/moves.rs`).
-5. `fork` still cannot resume a Cranelift stack. Windows runs a client on a thread via `llr_call_child` and re-execs each std test (`std/test.llr`, `runtime/llr_win.c`).
-6. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
-7. `llr_readdir_name` reads `dirent` on Unix and `WIN32_FIND_DATA` on Windows (`runtime/llr_stat.c`, `runtime/llr_win.c`).
-8. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
-9. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
-10. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
-11. A warning whose code was not denied still exits 0 (`diag.rs`).
-12. Public functions and `std` modules are not warned for unused imports or private functions (`mir/lint.rs`).
-13. A generic is still typechecked only for the instances the driver compiles (`compiler/src/driver.rs`).
-14. A private variant is still usable in the enum's own file (`check/call.rs`).
-15. `mem.replace` of a whole struct still copies private fields (`mir/lower_call.rs`).
-16. `vec.index` takes `eq` on each call and cannot capture a needle (`std/vec.llr`).
-17. `vec.any` is not a method. A predicate cannot capture a needle (`docs/canon/collections.md`).
-18. Heads shrink to a power of two, minimum 16, when `len * 8 <= heads` (`std/map.llr`).
-19. A closure captures whole bindings. A captured reference must outlive the closure, and `(clos ...)` does not coerce to `(fn ...)`. A closure body cannot contain a closure (`check/clos.rs`).
-20. A backreference compares captured bytes. An unset group does not match (`std/re.llr`).
-21. `llr-write` replaces the whole file from stdin and does not create parent directories (`tools/llr-write.llr`).
-22. `llr-ls` lists one directory and does not recurse (`tools/llr-ls.llr`).
-23. `llr-rm` deletes a file and does not remove a directory (`tools/llr-rm.llr`).
-24. `llr-git` reads status, diff, and log and does not change the repo (`tools/llr-git.llr`).
-25. `llr-check` still does not emit `type.not_callable`, `type.no_variant`, `type.not_numeric`, `type.not_bool`, or `type.generic_arity` (`std/check.llr`).
-26. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
-27. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
-28. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
-29. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
-30. `net.connect` is 127.0.0.1 only (`std/net.llr`).
-31. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
-32. The pool size is fixed at start and a worker cannot capture a binding (`std/thread.llr`).
-33. Chunked transfer and trailers are not parsed (`std/http.llr`).
-34. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
-35. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
-36. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
-37. A SOAP body is one operation, and XML has no attributes, namespaces, or comments (`std/soap.llr`, `std/xml.llr`).
-38. There is no Huffman coding, no HPACK dynamic table, no protobuf, and only one stream and one message (`std/grpc.llr`).
-39. The MQTT broker is one connection, QoS 0, exact topics, and a one-byte remaining length (`std/mqtt.llr`).
-40. A function pointer still cannot capture a needle. A trait method is not generic, an impl type is a concrete name, and a method that returns `Self` is not a trait object (`compiler/src/check/traits.rs`).
+1. A field move through `&` or `ptr`, or out of a struct that has `drop`, is still `move.field` or `move.deref` (`mir/lower.rs`).
+2. A write through `&` or `ptr` still releases no loans (`borrow/holders.rs`).
+3. A field write does not initialize the struct (`borrow/moves.rs`).
+4. `fork` still cannot resume a Cranelift stack. Windows runs a client on a thread via `llr_call_child` and re-execs each std test (`std/test.llr`, `runtime/llr_win.c`).
+5. A diff middle larger than 4096 LCS cells is one replace hunk, not a minimal edit script (`std/diff.llr`).
+6. `llr_readdir_name` reads `dirent` on Unix and `WIN32_FIND_DATA` on Windows (`runtime/llr_stat.c`, `runtime/llr_win.c`).
+7. `+` `-` `*` `neg` still wrap without `--checked` (`codegen/ops.rs`).
+8. Inlined calls and drop glue are not panic frames (`codegen/func.rs`).
+9. A failed `getcwd`, including a path that does not fit in 1 MiB, still returns an empty string (`std/os.llr`).
+10. A warning whose code was not denied still exits 0 (`diag.rs`).
+11. Public functions and `std` modules are not warned for unused imports or private functions (`mir/lint.rs`).
+12. A generic is still typechecked only for the instances the driver compiles (`compiler/src/driver.rs`).
+13. A private variant is still usable in the enum's own file (`check/call.rs`).
+14. `mem.replace` of a whole struct still copies private fields (`mir/lower_call.rs`).
+15. `vec.index` takes `eq` on each call and cannot capture a needle (`std/vec.llr`).
+16. `vec.any` is not a method. A predicate cannot capture a needle (`docs/canon/collections.md`).
+17. Heads shrink to a power of two, minimum 16, when `len * 8 <= heads` (`std/map.llr`).
+18. A closure captures whole bindings. A captured reference must outlive the closure, and `(clos ...)` does not coerce to `(fn ...)`. A closure body cannot contain a closure (`check/clos.rs`).
+19. A backreference compares captured bytes. An unset group does not match (`std/re.llr`).
+20. `llr-write` replaces the whole file from stdin and does not create parent directories (`tools/llr-write.llr`).
+21. `llr-ls` lists one directory and does not recurse (`tools/llr-ls.llr`).
+22. `llr-rm` deletes a file and does not remove a directory (`tools/llr-rm.llr`).
+23. `llr-git` reads status, diff, and log and does not change the repo (`tools/llr-git.llr`).
+24. A recursive `(inline ...)` call stays a real call, and a closure in an inline body is still `inline.reject|why=form|got=clos` (`compiler/src/mir/inline.rs`).
+25. Stderr of a `tests/run` program is still ignored unless `NAME.err` exists (`tests/run.sh`).
+26. Consecutive `use` forms and a form after a comment still get no blank line, and a comment inside a form still forces a line break (`tools/llr-fmt.llr`).
+27. A full `llrc build --target` link still needs a clang sysroot, and apple-darwin is not linked (`tests/cross.sh`, `compiler/src/link.rs`).
+28. `net.connect` is 127.0.0.1 only (`std/net.llr`).
+29. The poll table holds 4096 fds and the ready callback cannot capture a binding (`std/net.llr`).
+30. The pool size is fixed at start and a worker cannot capture a binding (`std/thread.llr`).
+31. Chunked transfer and trailers are not parsed (`std/http.llr`).
+32. A route path is exact, chunked bodies are still rejected, and the poll table holds at most 4095 clients (`std/http.llr`).
+33. A WebSocket payload must be a single text frame under 126 bytes (`std/http.llr`).
+34. There is no GraphQL schema, no variables, and no nested selection sets (`std/gql.llr`).
+35. A SOAP body is one operation, and XML has no attributes, namespaces, or comments (`std/soap.llr`, `std/xml.llr`).
+36. There is no Huffman coding, no HPACK dynamic table, no protobuf, and only one stream and one message (`std/grpc.llr`).
+37. The MQTT broker is one connection, QoS 0, exact topics, and a one-byte remaining length (`std/mqtt.llr`).
+38. A function pointer still cannot capture a needle. A trait method is not generic, an impl type is a concrete name, and a method that returns `Self` is not a trait object (`compiler/src/check/traits.rs`).
+39. The installed compiler accepts `--target` only when it is empty or an `x86_64` triple that does not contain `apple` (`self/drive.llr` `target_ok`). aarch64, riscv64, s390x, and apple-darwin objects stay on stage 0 `target/release/llrc` (`tests/cross.sh`).
+40. `--target` does not switch `sys_windows.llr` / `sys_posix.llr`. `self/load.llr` follows the host. The `x86_64-pc-windows-gnu` os_id check in `tests/cross.sh` needs stage 0.
+41. Unix link is host `cc` with `-pie -pthread` (`self/link.llr`), not `clang --target`. A Darwin host never sets the darwin renames, and Apple clang rejects `-pie`.
+42. Windows link is `cl` only (`self/link_win.llr`). The installed compiler does not compile `llr_win.c` / `llr_wsa.c` and does not probe clang or gcc.
+43. `llrc run` quotes arguments with POSIX single quotes (`self/llrs.llr` `quote`), so `cmd` does not receive the vector stage 0 passes.
 
 ## 9. Conventions to keep
 
@@ -296,9 +310,10 @@ reference compiler until stage 2 reproduces itself byte for byte; every step bel
 verified by comparing against `llrc` output, never by inspection.
 
 Starting point: the reader (`std/sexp.llr`), the parser (`std/ast.llr`, `std/ast_expr.llr`)
-and a first-error name/type checker (`std/check.llr`, 500 lines, 8 codes, see
-`docs/tools/llr-check.md`) exist. `tests/run.sh` already compares `llr-check` with
-`llrc check` on `type.*` and `name.*` goldens. Nothing after the checker exists in Llrst.
+and a typed checker (`std/check.llr`, `std/check_ty.llr`, `std/check_expr.llr`, see
+`docs/tools/llr-check.md`) exist. `tests/run.sh` compares `llr-check` with
+`llrc check` on every `tests/err` golden whose code is not `borrow.*`, `move.*`, or `init.*`.
+`llrs emit-mir` prints a full MIR dump, byte-equal to `llrc emit-mir` on every `tests/run/*.llr` and `std/*.llr` (`tests/mir.sh`, `tests/mir.ps1`). `llrs check` stderr is byte-equal to `llrc check` on every `tests/err` and `tests/warn` file, including `--deny` (`tests/check.sh`, `tests/check.ps1`).
 
 Layout: a new flat `self/` directory of `proj.` modules (`proj.X` loads `X.llr` beside the
 main file, flat only), entry `self/llrs.llr`. The name `llrs` is a placeholder. Files under
@@ -308,49 +323,27 @@ codegen path and remains only as the linker driver, as `link.rs` uses it now. Th
 
 Steps, in order. Each names what to build, where, and the check that closes it.
 
-1. Differential harness. `tests/self.sh` (and `tests/self.ps1`) runs a stage binary and
-   `llrc` on the same inputs and prints `ok|self/NAME` or `fail|self/NAME|want=...|got=...`.
-   First mode: `check` over every `tests/err` and `tests/warn` golden. Seed from the
-   `llr-check` loop in `tests/run.sh`. Verify: the harness runs `llr-check` as the stage
-   binary and reports the same set of `ok` lines `tests/run.sh` does today.
-2. Typed tree. Split `std/check.llr` into `check_ty` and `check_expr` modules, then make it
-   build a THIR mirroring `compiler/src/thir.rs` (a type on every expression, the resolved
-   callee, the builtin id) instead of returning a first-error string. Add the five codes
-   from section 8 item 25. Verify: `llr-check` equals `llrc check` on every `tests/err`
-   case whose code is not `borrow.*`, `move.*`, or `init.*`.
-3. Instances. A mono worklist from `main` (or the tests) as in `driver.rs`: check a generic
-   body once per concrete `targs`. Verify: the sorted `^fn ` header lines of
-   `llrs emit-mir F` equal those of `llrc emit-mir F` for every `tests/run/*.llr`.
-4. MIR. `self/mir.llr`, `self/lower*.llr`, `self/mir_print.llr` mirroring `mir/mod.rs`,
-   `mir/lower*.rs`, `mir/inline.rs`, `mir/lower_div.rs`: locals, blocks, Place, Operand,
-   Rvalue, Stmt, Term, drop flags, scopes, the `sys.checked_div` rewrite, inline
-   substitution. Verify: `llrs emit-mir F` is byte-equal to `llrc emit-mir F` for every
-   `tests/run/*.llr` and `std/*.llr`.
-5. Borrowck and lint. `self/moves.llr`, `self/loans.llr`, `self/holders.llr`,
-   `self/liveness.llr`, `self/borrow.llr`, `self/lint.llr` from the rules in section 6.
-   Verify: `llrs check` stderr is byte-equal to `llrc check` on all of `tests/err` and
-   `tests/warn`, including `--deny`.
-6. x86-64 encoder. `self/x64.llr`: the integer, SSE2, and control-flow subset the MIR
+1. x86-64 encoder. `self/x64.llr`: the integer, SSE2, and control-flow subset the MIR
    needs, labels and fixups, SysV and Win64 calling conventions. Verify: `(test ...)`
    forms with expected byte strings per instruction; `llr-test self/x64.llr` passes.
-7. Object writers. `self/elf.llr` (ELF64 relocatable: text, data, rodata, bss, symtab,
+2. Object writers. `self/elf.llr` (ELF64 relocatable: text, data, rodata, bss, symtab,
    strtab, PC32, PLT32, and 64 relocations), later `self/coff.llr` (x86-64 COFF, REL32 and
    ADDR64). Verify: a hand-built object exporting `main` that calls `write` links with the
    same `cc` command `link.rs` runs and prints one record.
-8. Codegen. `self/cg*.llr` reproducing the ABI in section 6: scalars by value, aggregates
+3. Codegen. `self/cg*.llr` reproducing the ABI in section 6: scalars by value, aggregates
    by pointer copied in the prologue, sret, every local a stack slot, drop glue, `llr_trace`
    panic frames, 24-byte static `str` records, `main` storing `llr_argc` and `llr_argv`,
-   the `--test` entry, `--checked` traps, shift masking, saturating float-to-int. The CLI
+   the `--test` entry, `--checked` traps, shift masking, saturating float-to-int unless `--checked`. The CLI
    is identical to `llrc` (`build run check emit-mir`, `-o --std --test --checked --deny`).
    Verify: `LLRC=self/llrs tests/run.sh` reports `done|fails=0` on Linux.
-9. Stage bootstrap. `scripts/self.sh`: stage 0 `llrc` builds `llrs0`; `llrs0` builds
+4. Stage bootstrap. `scripts/self.sh`: stage 0 `llrc` builds `llrs0`; `llrs0` builds
    `llrs1`; `llrs1` builds `llrs2`; `cmp llrs1 llrs2` is byte-equal (deterministic symbol
    order, no timestamps); then `LLRC=llrs2 tests/run.sh`. Add a `self|stage2=equal` record
    to the section 1 status block once it holds.
-10. Windows. The COFF writer, the Win64 ABI, `cl ... /link /STACK:8388608`, and the
+5. Windows. The COFF writer, the Win64 ABI, `cl ... /link /STACK:8388608`, and the
     prebuilt `llr_win.obj` and `llr_wsa.obj` (install compiles them once). Verify:
     `tests/run.ps1` with `$env:LLRC` pointing at `llrs2` ends `done|fails=0`.
-11. Retire. `install.sh` and `install.ps1` build `llrc` only as stage 0 and install `llrs2`;
+6. Retire. `install.sh` and `install.ps1` build `llrc` only as stage 0 and install `llrs2`;
     update sections 3, 4, and 5 and `docs/install.md`; move anything `llrs` cannot do to
     section 8. Keep `llrc` in the tree until two releases agree.
 

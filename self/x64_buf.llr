@@ -1,0 +1,281 @@
+;; Byte buffer, ModRM, and rel32 fixups for the baseline integer and SSE2 subset.
+;; XMM ids are 0..15 and are not GPR ids. rm=rbp/r13 with mod 0 is rip-relative, so a
+;; zero displacement is disp8. A branch fixup is always rel32, four bytes.
+(use std.vec)
+
+(pub (const rax i64 0))
+
+(pub (const rcx i64 1))
+
+(pub (const rdx i64 2))
+
+(pub (const rbx i64 3))
+
+(pub (const rsp i64 4))
+
+(pub (const rbp i64 5))
+
+(pub (const rsi i64 6))
+
+(pub (const rdi i64 7))
+
+(pub (const r8 i64 8))
+
+(pub (const r9 i64 9))
+
+(pub (const r10 i64 10))
+
+(pub (const r11 i64 11))
+
+(pub (const r12 i64 12))
+
+(pub (const r13 i64 13))
+
+(pub (const r14 i64 14))
+
+(pub (const r15 i64 15))
+
+(pub (const o i64 0))
+
+(pub (const no i64 1))
+
+(pub (const b i64 2))
+
+(pub (const ae i64 3))
+
+(pub (const e i64 4))
+
+(pub (const ne i64 5))
+
+(pub (const be i64 6))
+
+(pub (const a i64 7))
+
+(pub (const s i64 8))
+
+(pub (const ns i64 9))
+
+(pub (const p i64 10))
+
+(pub (const np i64 11))
+
+(pub (const l i64 12))
+
+(pub (const ge i64 13))
+
+(pub (const le i64 14))
+
+(pub (const g i64 15))
+
+(pub (const rel32 i64 2))
+
+(pub (const pc32 i64 3))
+
+(pub (const plt32 i64 4))
+
+(pub (const abs64 i64 5))
+
+(pub (struct mem (pub (base i64)) (pub (index i64)) (pub (scale i64)) (pub (disp i64))))
+
+(pub (struct fix (pub (at i64)) (pub (lab i64)) (pub (kind i64))))
+
+(pub (struct rel (pub (at i64)) (pub (kind i64)) (pub (sym i64))))
+
+(pub (struct buf
+  (pub (bytes (vec u8)))
+  (pub (labs (vec i64)))
+  (pub (fixs (vec fix)))
+  (pub (rels (vec rel)))))
+
+(pub (fn new () buf (buf (vec.new <u8>) (vec.new <i64>) (vec.new <fix>) (vec.new <rel>))))
+
+(pub (fn len ((b (& buf))) i64 (vec.len (& (. b bytes)))))
+
+(pub (fn at ((b (& buf)) (i i64)) u8 (@ (vec.get (& (. b bytes)) i))))
+
+(pub (fn push ((b (&mut buf)) (x u8)) unit (vec.push (&mut (. b bytes)) x)))
+
+(fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
+
+(pub (fn push_n ((b (&mut buf)) (n i64) (count i64)) unit (for i 0 count (push b (lo n (* i 8))))))
+
+(fn put_n ((b (&mut buf)) (at i64) (n i64) (count i64)) unit
+  (for i 0 count (vec.set (&mut (. b bytes)) (+ at i) (lo n (* i 8)))))
+
+(pub (fn fits_i8 ((n i64)) bool (and (>= n (neg 128)) (<= n 127))))
+
+(pub (fn fits_i32 ((n i64)) bool (and (>= n (neg 2147483648)) (<= n 2147483647))))
+
+(pub (fn low_byte ((w i64) (r i64)) bool (and (== w 1) (and (>= r 4) (< r 8)))))
+
+(fn rex_bits ((w i64) (r i64) (x i64) (bb i64)) i64
+  (let rw (if (== w 8) 8 0))
+  (let rr (if (>= r 8) 4 0))
+  (let rx (if (>= x 8) 2 0))
+  (let rb (if (>= bb 8) 1 0))
+  (+ rw (+ rr (+ rx rb))))
+
+(pub (fn rex ((b (&mut buf)) (w i64) (r i64) (x i64) (bb i64) (low bool)) unit
+  (let bits (rex_bits w r x bb))
+  (if (and (== bits 0) (not low)) (ret))
+  (push b (as u8 (+ 64 bits)))))
+
+(pub (fn pre ((b (&mut buf)) (w i64)) unit (if (== w 2) (push b 102u8))))
+
+(pub (fn modrm ((md i64) (reg i64) (rm i64)) i64 (+ (shl md 6) (+ (shl (band reg 7) 3) (band rm 7)))))
+
+(fn sized ((op i64) (w i64)) i64 (if (== w 1) (band op 254) op))
+
+(fn ss ((scale i64)) i64
+  (if (== scale 2) (ret 1))
+  (if (== scale 4) (ret 2))
+  (if (== scale 8) (ret 3))
+  0)
+
+(fn sib ((scale i64) (index i64) (base i64)) i64
+  (+ (shl (ss scale) 6) (+ (shl (band index 7) 3) (band base 7))))
+
+(fn force_disp ((base i64)) bool (== (band base 7) 5))
+
+(fn sib_p ((base i64) (index i64)) bool (or (>= index 0) (== (band base 7) 4)))
+
+(fn mod_of ((base i64) (d i64)) i64
+  (if (and (== d 0) (not (force_disp base))) (ret 0))
+  (if (fits_i8 d) 1 2))
+
+(fn disp ((b (&mut buf)) (md i64) (d i64)) unit
+  (if (== md 1) (push b (as u8 d)))
+  (if (== md 2) (push_n b d 4)))
+
+(fn idx_sib ((m (& mem))) i64 (if (< (. m index) 0) 4 (. m index)))
+
+(fn addr_base ((b (&mut buf)) (md i64) (reg i64) (m (& mem))) unit
+  (push b (as u8 (modrm md reg (. m base))))
+  (disp b md (. m disp)))
+
+(fn addr_sib ((b (&mut buf)) (md i64) (reg i64) (m (& mem))) unit
+  (push b (as u8 (modrm md reg 4)))
+  (push b (as u8 (sib (. m scale) (idx_sib m) (. m base))))
+  (disp b md (. m disp)))
+
+(fn addr ((b (&mut buf)) (reg i64) (m (& mem))) unit
+  (let md (mod_of (. m base) (. m disp)))
+  (if (sib_p (. m base) (. m index)) (addr_sib b md reg m) (addr_base b md reg m)))
+
+(pub (fn emit_rr ((b (&mut buf)) (w i64) (op i64) (dst i64) (src i64)) unit
+  (pre b w)
+  (rex b w dst 0 src (or (low_byte w dst) (low_byte w src)))
+  (push b (as u8 (sized op w)))
+  (push b (as u8 (modrm 3 dst src)))))
+
+(pub (fn emit_rr2 ((b (&mut buf)) (w i64) (op i64) (dst i64) (src i64)) unit
+  (pre b w)
+  (rex b w dst 0 src (or (low_byte w dst) (low_byte w src)))
+  (push b 15u8)
+  (push b (as u8 op))
+  (push b (as u8 (modrm 3 dst src)))))
+
+(fn ri_byte ((b (&mut buf)) (ext i64) (dst i64) (imm i64)) unit
+  (push b 128u8)
+  (push b (as u8 (modrm 3 ext dst)))
+  (push b (as u8 imm)))
+
+(fn ri_imm8 ((b (&mut buf)) (ext i64) (dst i64) (imm i64)) unit
+  (push b 131u8)
+  (push b (as u8 (modrm 3 ext dst)))
+  (push b (as u8 imm)))
+
+(fn ri_wide ((b (&mut buf)) (w i64) (ext i64) (dst i64) (imm i64)) unit
+  (push b 129u8)
+  (push b (as u8 (modrm 3 ext dst)))
+  (push_n b imm (if (== w 2) 2 4)))
+
+(fn ri_op ((b (&mut buf)) (w i64) (ext i64) (dst i64) (imm i64)) unit
+  (if (== w 1) (ret (ri_byte b ext dst imm)))
+  (if (fits_i8 imm) (ret (ri_imm8 b ext dst imm)))
+  (ri_wide b w ext dst imm))
+
+(pub (fn emit_ri ((b (&mut buf)) (w i64) (ext i64) (dst i64) (imm i64)) unit
+  (pre b w)
+  (rex b w 0 0 dst (low_byte w dst))
+  (ri_op b w ext dst imm)))
+
+(pub (fn emit_f7 ((b (&mut buf)) (w i64) (ext i64) (dst i64)) unit
+  (pre b w)
+  (rex b w 0 0 dst (low_byte w dst))
+  (push b (as u8 (if (== w 1) 246 247)))
+  (push b (as u8 (modrm 3 ext dst)))))
+
+(fn sh_op ((w i64) (by_cl bool) (imm i64)) i64
+  (let base (if (== w 1) 208 209))
+  (if by_cl (+ base 2) (if (== imm 1) base (- base 16))))
+
+(fn sh_imm ((b (&mut buf)) (by_cl bool) (imm i64)) unit
+  (if (and (not by_cl) (!= imm 1)) (push b (as u8 imm))))
+
+(pub (fn emit_sh ((b (&mut buf)) (w i64) (ext i64) (dst i64) (imm i64) (by_cl bool)) unit
+  (pre b w)
+  (rex b w 0 0 dst (low_byte w dst))
+  (push b (as u8 (sh_op w by_cl imm)))
+  (push b (as u8 (modrm 3 ext dst)))
+  (sh_imm b by_cl imm)))
+
+(pub (fn emit_mem ((b (&mut buf)) (w i64) (op i64) (reg i64) (m (& mem))) unit
+  (pre b w)
+  (rex b w reg (. m index) (. m base) (low_byte w reg))
+  (push b (as u8 op))
+  (addr b reg m)))
+
+(fn sse_pre ((b (&mut buf)) (pre i64)) unit (if (!= pre 0) (push b (as u8 pre))))
+
+(pub (fn emit_sse ((b (&mut buf)) (pre i64) (op i64) (dst i64) (src i64) (w i64)) unit
+  (sse_pre b pre)
+  (rex b w dst 0 src false)
+  (push b 15u8)
+  (push b (as u8 op))
+  (push b (as u8 (modrm 3 dst src)))))
+
+(pub (fn emit_sse_mem ((b (&mut buf)) (pre i64) (op i64) (reg i64) (m (& mem)) (w i64)) unit
+  (sse_pre b pre)
+  (rex b w reg (. m index) (. m base) false)
+  (push b 15u8)
+  (push b (as u8 op))
+  (addr b reg m)))
+
+(pub (fn label ((b (&mut buf))) i64
+  (let id (vec.len (& (. b labs))))
+  (vec.push (&mut (. b labs)) (neg 1))
+  id))
+
+(pub (fn bind ((b (&mut buf)) (id i64)) unit (let n (len b)) (vec.set (&mut (. b labs)) id n)))
+
+(pub (fn fixup ((b (&mut buf)) (lab i64) (kind i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b fixs)) (fix at lab kind))
+  (push_n b 0 4)))
+
+(fn reloc_len ((kind i64)) i64 (if (== kind abs64) 8 4))
+
+(pub (fn reloc ((b (&mut buf)) (kind i64) (sym i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b rels)) (rel at kind sym))
+  (push_n b 0 (reloc_len kind))))
+
+(fn fix_at ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) at))
+
+(fn fix_lab ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) lab))
+
+(fn lab_at ((b (& buf)) (i i64)) i64 (@ (vec.get (& (. b labs)) i)))
+
+(fn patch ((b (&mut buf)) (i i64)) bool
+  (let at (fix_at b i))
+  (let target (lab_at b (fix_lab b i)))
+  (if (< target 0) (ret false))
+  (put_n b at (- target (+ at 4)) 4)
+  true)
+
+(pub (fn finish ((b (&mut buf))) bool
+  (let mut ok true)
+  (let n (vec.len (& (. b fixs))))
+  (for i 0 n (if (not (patch b i)) (set ok false)))
+  ok))

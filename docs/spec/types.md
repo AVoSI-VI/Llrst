@@ -84,14 +84,18 @@ with `bitwidth - 1`, so a negative count uses the low bits of its two's-compleme
 at the expression, and does the same for `shl` and `shr` whose count is outside `0..bitwidth`.
 Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`, with or without `--checked`.
 `wadd` `wsub` `wmul` `wneg` wrap either way. An integer cast under `--checked` panics
-`cast.overflow` when the value does not fit. Float casts are not checked.
+`cast.overflow` when the value does not fit. A float-to-int cast panics the same way when
+the truncated value does not fit, including `NaN` and infinities; otherwise it truncates
+toward zero. An int-to-float cast panics when the integer is not exactly representable.
+Without `--checked`, float-to-int still saturates and int-to-float still rounds.
 
 ## Casts
 
 `(as T e)` between numeric types only; truncating/sign-extending/float-int by Rust rules.
-No implicit numeric conversion anywhere. `llrc build --checked` makes an integer cast
-panic with `P|FILE|LINE|COL|cast.overflow` when the value does not fit in `T`. Bool-to-int,
-int-to-float, and float-to-int stay unchecked; float-to-int still saturates.
+No implicit numeric conversion anywhere. `llrc build --checked` panics with
+`P|FILE|LINE|COL|cast.overflow` when an integer cast, a float-to-int cast, or an
+int-to-float cast does not fit in `T`. Bool-to-int always fits. Without `--checked`,
+float-to-int saturates and int-to-float rounds.
 
 ## Traits
 

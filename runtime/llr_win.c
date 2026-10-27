@@ -1007,3 +1007,18 @@ int32_t llr_spawn_self(const char *arg) {
     CloseHandle(info.hThread);
     return (int32_t)code;
 }
+
+/* Bytes written, not including the NUL, or -1 when the buffer is too small. */
+int64_t llr_exe_path(char *buf, uint64_t n) {
+    DWORD cap;
+    DWORD got;
+    if (buf == 0 || n < 2 || n > 0xffffffffu) {
+        return -1;
+    }
+    cap = (DWORD)n;
+    got = GetModuleFileNameA(NULL, buf, cap);
+    if (got == 0 || got >= cap) {
+        return -1;
+    }
+    return (int64_t)got;
+}

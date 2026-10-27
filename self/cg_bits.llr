@@ -1,0 +1,108 @@
+;; Decimal text to IEEE-754 bits. Used for float immediates and static scalars.
+(use std.str)
+(use proj.ty)
+
+(fn pow10 ((k i64)) i64
+  (let mut n 1)
+  (let mut i 0)
+  (while (and (< i k) (< i 18)) (do (set n (* n 10)) (set i (+ i 1))))
+  n)
+
+(fn twice ((n i64)) i64 (if (> n 4611686018427387904) (neg 1) (shl n 1)))
+
+(fn ratio ((n i64) (d i64) (mant i64) (bias i64)) i64
+  (if (or (<= n 0) (<= d 0)) (ret 0))
+  (let mut num n)
+  (let mut den d)
+  (let mut exp bias)
+  (while (and (> exp 1) (< num den)) (do (set num (shl num 1)) (set exp (- exp 1))))
+  (let mut up (twice den))
+  (while (and (< exp 2046) (and (>= up 0) (>= num up)))
+    (do (set den up) (set exp (+ exp 1)) (set up (twice den))))
+  (if (< num den) (ret 0))
+  (set num (- num den))
+  (let mut frac 0)
+  (for i 0 mant
+    (set num (shl num 1))
+    (set frac (shl frac 1))
+    (if (>= num den) (do (set frac (+ frac 1)) (set num (- num den)))))
+  (if (>= (shl num 1) den) (set frac (+ frac 1)))
+  (if (>= frac (shl 1 mant)) (do (set frac 0) (set exp (+ exp 1))))
+  (+ (shl exp mant) (band frac (- (shl 1 mant) 1))))
+
+(fn pack ((sig i64) (exp i64) (sign i64) (mant i64) (bias i64) (sign_bit i64)) i64
+  (if (== sig 0) (ret (if (== sign 0) 0 (shl 1 sign_bit))))
+  (let mut n sig)
+  (let mut d 1)
+  (if (>= exp 0) (set n (* sig (pow10 exp))) (set d (pow10 (neg exp))))
+  (let bits (ratio n d mant bias))
+  (if (== sign 0) bits (bor bits (shl 1 sign_bit))))
+
+(fn exp_sign ((s (& str)) (j (&mut i64))) i64
+  (if (>= (@ j) (str.len s)) (ret 0))
+  (let c (str.at s (@ j)))
+  (if (== c 45u8) (do (set (@ j) (+ (@ j) 1)) (ret 1)))
+  (if (== c 43u8) (set (@ j) (+ (@ j) 1)))
+  0)
+
+(fn read_exp ((s (& str)) (i i64)) i64
+  (let mut j (+ i 1))
+  (let mut neg 0)
+  (set neg (exp_sign s (&mut j)))
+  (let mut n 0)
+  (while (< j (str.len s))
+    (let c (str.at s j))
+    (if (or (< c 48u8) (> c 57u8))
+      (set j (str.len s))
+      (do (set n (+ (* n 10) (- (as i64 c) 48))) (set j (+ j 1)))))
+  (if (== neg 0) n (neg n)))
+
+(fn scan ((s (& str)) (sign i64) (mant i64) (bias i64)) i64
+  (let mut i 0)
+  (if (and (> (str.len s) 0) (== (str.at s 0) 45u8))
+    (do (let rest (str.slice s 1 (str.len s))) (ret (scan (& rest) 1 mant bias))))
+  (if (and (> (str.len s) 0) (== (str.at s 0) 43u8)) (set i 1))
+  (let mut sig 0)
+  (let mut exp 0)
+  (let mut dot false)
+  (while (< i (str.len s))
+    (let c (str.at s i))
+    (if (== c 46u8) (do (set dot true) (set i (+ i 1)) (cont)))
+    (if (or (== c 101u8) (== c 69u8))
+      (ret (pack sig (+ exp (read_exp s i)) sign mant bias (sign_at mant))))
+    (if (or (< c 48u8) (> c 57u8)) (ret (pack sig exp sign mant bias (sign_at mant))))
+    (set sig (+ (* sig 10) (- (as i64 c) 48)))
+    (if dot (set exp (- exp 1)))
+    (set i (+ i 1)))
+  (pack sig exp sign mant bias (sign_at mant)))
+
+(fn sign_at ((mant i64)) i64 (if (== mant 52) 63 31))
+
+(pub (fn f64_bits ((s (& str))) i64 (scan s 0 52 1023)))
+
+(pub (fn f32_bits ((s (& str))) i64 (scan s 0 23 127)))
+
+(fn put_le ((v (&mut (vec u8))) (n i64) (count i64)) unit
+  (let mut x n)
+  (for i 0 count (vec.push v (as u8 (band x 255))) (set x (shr x 8))))
+
+(pub (fn scalar_bytes ((ck i64) (v i64) (text (& str)) (t (& ty.sty))) (vec u8)
+  (let mut o (vec.new <u8>))
+  (if (== ck 2) (ret (do (vec.push (&mut o) (as u8 v)) o)))
+  (if (== ck 1)
+    (if (== (. t kind) 1u8) (put_le (&mut o) (f32_bits text) 4) (put_le (&mut o) (f64_bits text) 8))
+    (put_le (&mut o) v (if (== (. t kind) 0u8) (int_w (. t id)) 8)))
+  o))
+
+(fn int_w ((id i64)) i64
+  (if (or (== id 0) (== id 4)) (ret 1))
+  (if (or (== id 1) (== id 5)) (ret 2))
+  (if (or (== id 2) (== id 6)) (ret 4))
+  8)
+
+(test bits_one
+  (assert_eq (f64_bits "1") 4607182418800017408)
+  (assert_eq (f64_bits "1.0") 4607182418800017408)
+  (assert_eq (f64_bits "0.5") 4602678819172646912)
+  (assert_eq (f64_bits "2") 4611686018427387904)
+  (assert_eq (f32_bits "1") 1065353216))

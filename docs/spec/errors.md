@@ -53,7 +53,7 @@ inlined body does not get its own frame.
 | `res.err` / `res.ok` | | `res.unwrap` / `res.unwrap_err` |
 | `div.zero` | | integer `/` and `%`, every width; floats stay IEEE and do not panic |
 | `int.overflow` | | `--checked` only for `+` `-` `*` `neg` and for `shl` `shr` with a count outside `0..bitwidth`; signed `MIN / -1` and `MIN % -1` always |
-| `cast.overflow` | | `--checked` only: integer `(as T n)` when `n` does not fit in `T` |
+| `cast.overflow` | | `--checked` only: `(as T n)` when an integer does not fit, a truncated float does not fit (including `NaN` and infinities), or an integer is not exact as a float |
 | `oom` | | `sys.alloc` `sys.grow` |
 | `cli.no_such_opt` / `cli.no_such_flag` | | `cli.get` `cli.has` with an undeclared name |
 | user `(panic "code|k=v")` | as written | any program |

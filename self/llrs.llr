@@ -1,0 +1,150 @@
+;; llrs: check, emit-mir, build, and run.
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.str)
+(use std.sys)
+(use proj.diag)
+(use proj.drive)
+(use proj.load)
+(use proj.lower)
+(use proj.mir_print)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(fn usage () unit
+  (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]")
+  (io.eputs "usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]")
+  (io.eputs "usage|llrc check FILE [--std DIR] [--deny CODE]")
+  (io.eputs "usage|llrc emit-mir FILE [--std DIR] [--deny CODE]")
+  (io.eputs "usage|llrc version"))
+
+(fn unknown ((flag (& str))) unit
+  (let mut s (str.from "E|<cli>|0|0|0|cli.unknown_flag|flag="))
+  (str.push (&mut s) flag)
+  (io.eputs (& s)))
+
+(fn take ((args (& (vec str))) (i (&mut i64))) str
+  (if (>= (@ i) (vec.len args)) (ret (str.new)))
+  (let s (str.clone (vec.get args (@ i))))
+  (set (@ i) (+ (@ i) 1))
+  s)
+
+(fn parse ((args (& (vec str)))) drive.flags
+  (let mut o
+    (drive.flags (str.new)
+      (str.new)
+      (str.new)
+      (str.new)
+      (str.new)
+      false
+      false
+      false
+      (vec.new <str>)
+      (vec.new <str>)))
+  (let mut i 1)
+  (while (< i (vec.len args))
+    (do
+      (let a (str.clone (vec.get args i)))
+      (set i (+ i 1))
+      (if (str.eq (& a) "--") (ret (rest args i o)))
+      (if (str.starts (& a) "-") (set o (flag args (&mut i) o a)) (set o (pos o a)))))
+  o)
+
+(fn rest ((args (& (vec str))) (i i64) (o drive.flags)) drive.flags
+  (let mut out o)
+  (for k i (vec.len args) (vec.push (&mut (. out args)) (str.clone (vec.get args k))))
+  out)
+
+(fn pos ((o drive.flags) (a str)) drive.flags
+  (let mut out o)
+  (if (== (str.len (& (. out cmd))) 0)
+    (set (. out cmd) a)
+    (if (== (str.len (& (. out file))) 0) (set (. out file) a) (vec.push (&mut (. out args)) a)))
+  out)
+
+(fn flag ((args (& (vec str))) (i (&mut i64)) (o drive.flags) (a str)) drive.flags
+  (let mut out o)
+  (if (str.eq (& a) "--test") (set (. out test) true))
+  (if (str.eq (& a) "--emit-obj") (set (. out emit_obj) true))
+  (if (str.eq (& a) "--checked") (set (. out checked) true))
+  (if (str.eq (& a) "-o") (set (. out out) (take args i)))
+  (if (str.eq (& a) "--target") (set (. out target) (take args i)))
+  (if (str.eq (& a) "--std") (set (. out std) (take args i)))
+  (if (str.eq (& a) "--deny") (vec.push (&mut (. out deny)) (take args i)))
+  (if (not (known (& a))) (do (unknown (& a)) (os.exit 1)))
+  out)
+
+(fn known ((a (& str))) bool
+  (or (str.eq a "--test")
+    (or (str.eq a "--emit-obj")
+      (or (str.eq a "--checked")
+        (or (str.eq a "-o") (or (str.eq a "--target") (or (str.eq a "--std") (str.eq a "--deny"))))))))
+
+(fn command ((c (& str))) bool
+  (or (str.eq c "build")
+    (or (str.eq c "run") (or (str.eq c "check") (or (str.eq c "emit-mir") (str.eq c "version"))))))
+
+(fn run_cmd ((o drive.flags)) unit
+  (let mut out (str.clone (& (. o file))))
+  (str.push (&mut out) ".run")
+  (let mut b o)
+  (set (. b cmd) (str.from "build"))
+  (set (. b out) out)
+  (let code (drive.run (& b)))
+  (if (!= code 0) (os.exit code))
+  (let st (os.shell (& (cmd_line (& (. b out)) (& (. b args))))))
+  (if (fs.exists (& (. b out))) (let _ (fs.remove (& (. b out)))))
+  (os.exit st))
+
+(fn cmd_line ((exe (& str)) (args (& (vec str)))) str
+  (let mut s (quote exe))
+  (for i 0 (vec.len args)
+    (do (str.push (&mut s) " ") (str.push (&mut s) (& (quote (vec.get args i))))))
+  s)
+
+(fn quote ((s (& str))) str
+  (let mut o (str.from "'"))
+  (for i 0 (str.len s)
+    (if (== (str.at s i) 39u8) (str.push (&mut o) "'\\''") (str.push_byte (&mut o) (str.at s i))))
+  (str.push_byte (&mut o) 39u8)
+  o)
+
+(fn emit_cmd ((o (& drive.flags))) unit
+  (match (emit o)
+    ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
+    ((res.ok s) (sys.write_str 1 (& s)))))
+
+(fn emit ((o (& drive.flags))) (res str str)
+  (let p (try (load.load_at (& (. o file)) (& (. o std)))))
+  (let mut ds (vec.new <diag.dg>))
+  (let mut s (str.new))
+  (for i 0 (vec.len (& (. p defs))) (if (user_fn (& p) i) (add_fn (&mut s) (& p) i (&mut ds))))
+  (res.ok s))
+
+(fn user_fn ((p (& prog.prog)) (id i64)) bool
+  (let d (vec.get (& (. p defs)) id))
+  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret false))
+  (if (!= (. d kind) 2u8) (ret false))
+  (if (. d extern) (ret false))
+  (if (> (vec.len (& (. d gens))) 0) (ret false))
+  true)
+
+(fn add_fn ((s (&mut str)) (p (& prog.prog)) (id i64) (sink (&mut (vec diag.dg)))) unit
+  (let empty (vec.new <ty.sty>))
+  (match (thir.check_fn p id empty sink)
+    ((res.err _) ())
+    ((res.ok e)
+      (do
+        (let b (lower.lower_fn p e (prog.fn_path p id) sink))
+        (str.push s (& (mir_print.print_body (& b))))))))
+
+(fn main () unit
+  (let args (os.args))
+  (let o (parse (& args)))
+  (if (str.eq (& (. o cmd)) "version") (ret (io.puts "llrc|0.1.0")))
+  (if (or (not (command (& (. o cmd)))) (== (str.len (& (. o file))) 0)) (do (usage) (os.exit 1)))
+  (if (str.eq (& (. o cmd)) "emit-mir") (ret (emit_cmd (& o))))
+  (if (str.eq (& (. o cmd)) "run") (ret (run_cmd o)))
+  (os.exit (drive.run (& o))))
