@@ -13,7 +13,7 @@ machine-readable line.
 
 | path | content |
 |------|---------|
-| `HANDOFF.md` | status, design decisions, implementation notes, known limits, next steps |
+| `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format |
 | `docs/canon/` | the one right way per task |

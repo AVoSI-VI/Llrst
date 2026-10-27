@@ -23,7 +23,7 @@ compile the C files when the object is missing or older.
 `fs.mtime` and `fs.size` link that object. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`. The installed compiler does not
-target Darwin; that gap is in HANDOFF section 8. `tests/run.sh` is the check for stage 0.
+target Darwin; that gap is Phase 6 in `HANDOFF.md`. `tests/run.sh` is the check for stage 0.
 The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_win`
 and `llr_wsa` from those same places.
