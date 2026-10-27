@@ -93,16 +93,18 @@
   (if (> (str.len k) 0) (diag.add (&mut d) k v))
   (vec.push out d))
 
-(pub (fn items ((p (& prog.prog)) (out (&mut (vec diag.dg)))) unit
+(pub (fn items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (test bool)) unit
   (for mi 0 (vec.len (& (. p mods)))
-    (if (not (. (vec.get (& (. p mods)) mi) is_std)) (mod_items p out mi)))
-  (for i 0 (vec.len (& (. p defs))) (fn_item p out i))
-  (for i 0 (vec.len (& (. p defs))) (gen_item p out i))))
+    (if (not (. (vec.get (& (. p mods)) mi) is_std)) (mod_items p out mi test)))
+  (for i 0 (vec.len (& (. p defs))) (fn_item p out i test))))
 
-(fn mod_items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (mi i64)) unit
+(pub (fn generics ((p (& prog.prog)) (out (&mut (vec diag.dg))) (done (& (vec i64)))) unit
+  (for i 0 (vec.len (& (. p defs))) (gen_item p out i done))))
+
+(fn mod_items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (mi i64) (test bool)) unit
   (let m (vec.get (& (. p mods)) mi))
   (for i 0 (vec.len (& (. m uals)))
-    (if (not (use_seen p mi (vec.get (& (. m uals)) i)))
+    (if (not (use_seen p mi (vec.get (& (. m uals)) i) test))
       (push_w out
         (& (. m file))
         (at (& (. m uline)) i)
@@ -114,10 +116,17 @@
 
 (fn at ((v (& (vec i64))) (i i64)) i64 (if (< i (vec.len v)) (@ (vec.get v i)) 0))
 
-(fn use_seen ((p (& prog.prog)) (mi i64) (alias (& str))) bool
+(fn use_seen ((p (& prog.prog)) (mi i64) (alias (& str)) (test bool)) bool
   (for i 0 (vec.len (& (. p defs)))
     (let d (vec.get (& (. p defs)) i))
     (if (and (== (. d module) mi) (mentions (& (. d body)) alias)) (ret true)))
+  (if test (ret (test_mentions p mi alias)))
+  false)
+
+(fn test_mentions ((p (& prog.prog)) (mi i64) (alias (& str))) bool
+  (for i 0 (vec.len (& (. p tests)))
+    (let t (vec.get (& (. p tests)) i))
+    (if (and (== (. t mod) mi) (mentions (& (. t body)) alias)) (ret true)))
   false)
 
 (fn mentions ((xs (& (vec expr))) (alias (& str))) bool
@@ -135,11 +144,11 @@
   (str.push_byte (&mut pre) 46u8)
   (str.starts name (& pre)))
 
-(fn fn_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64)) unit
+(fn fn_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64) (test bool)) unit
   (let d (vec.get (& (. p defs)) i))
   (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret))
   (if (!= (. d kind) 2u8) (ret))
-  (if (or (. d is_pub) (or (. d extern) (called p i))) (ret))
+  (if (or (. d is_pub) (or (. d extern) (called p i test))) (ret))
   (if (and (str.eq (& (. d name)) "main") (== (. d module) (. p main))) (ret))
   (let m (vec.get (& (. p mods)) (. d module)))
   (push_w out
@@ -151,41 +160,128 @@
     "name"
     (str.clone (& (. d name)))))
 
-(fn called ((p (& prog.prog)) (id i64)) bool
+(fn called ((p (& prog.prog)) (id i64) (test bool)) bool
   (for i 0 (vec.len (& (. p defs)))
     (let d (vec.get (& (. p defs)) i))
-    (if (calls (& (. d body)) (& (. (vec.get (& (. p defs)) id) name))) (ret true)))
+    (if (refs p (. d module) (& (. d body)) id) (ret true)))
+  (if test (ret (test_refs p id)))
   false)
 
-(fn calls ((xs (& (vec expr))) (name (& str))) bool
-  (for i 0 (vec.len xs) (if (calls_e (vec.get xs i) name) (ret true)))
+(fn test_refs ((p (& prog.prog)) (id i64)) bool
+  (for i 0 (vec.len (& (. p tests)))
+    (let t (vec.get (& (. p tests)) i))
+    (if (refs p (. t mod) (& (. t body)) id) (ret true)))
   false)
 
-(fn calls_e ((e (& expr)) (name (& str))) bool
-  (if (and (== (. e kind) 23u8) (str.eq (& (. e text)) name)) (ret true))
-  (for i 0 (vec.len (& (. e kids))) (if (calls_e (vec.get (& (. e kids)) i) name) (ret true)))
+(fn refs ((p (& prog.prog)) (mi i64) (xs (& (vec expr))) (id i64)) bool
+  (for i 0 (vec.len xs) (if (refs_e p mi (vec.get xs i) id) (ret true)))
   false)
 
-(fn gen_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64)) unit
+(fn refs_e ((p (& prog.prog)) (mi i64) (e (& expr)) (id i64)) bool
+  (if (and (or (== (. e kind) 1u8) (== (. e kind) 23u8)) (== (prog.lookup_fn p mi (& (. e text))) id))
+    (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (refs_e p mi (vec.get (& (. e kids)) i) id) (ret true)))
+  false)
+
+(struct bind (name str) (line i64) (col i64) (len i64) (used bool))
+
+(fn gen_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64) (done (& (vec i64)))) unit
   (let d (vec.get (& (. p defs)) i))
   (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret))
   (if (or (!= (. d kind) 2u8) (or (. d extern) (== (vec.len (& (. d gens))) 0))) (ret))
+  (if (done_has done i) (ret))
   (let m (vec.get (& (. p mods)) (. d module)))
-  (walk_lets out (& (. m file)) (& (. d body))))
+  (let mut scope (vec.new <bind>))
+  (push_params (&mut scope) d)
+  (walk_seq out (& (. m file)) (& (. d body)) (&mut scope))
+  (warn_scope out (& (. m file)) (&mut scope) 0))
 
-(fn walk_lets ((out (&mut (vec diag.dg))) (path (& str)) (xs (& (vec expr)))) unit
-  (for i 0 (vec.len xs) (walk_let out path (vec.get xs i))))
-
-(fn walk_let ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr))) unit
-  (if (and (== (. e kind) 2u8) (not (used_name (& (. e text)) e)))
-    (push_w out path (. e line) (. e col) (. e len) "name.unused" "name" (str.clone (& (. e text)))))
-  (for i 0 (vec.len (& (. e kids))) (walk_let out path (vec.get (& (. e kids)) i))))
-
-(fn used_name ((name (& str)) (e (& expr))) bool
-  (for i 0 (vec.len (& (. e kids))) (if (mentions_name (vec.get (& (. e kids)) i) name) (ret true)))
+(fn done_has ((done (& (vec i64))) (id i64)) bool
+  (for i 0 (vec.len done) (if (== (@ (vec.get done i)) id) (ret true)))
   false)
 
-(fn mentions_name ((e (& expr)) (name (& str))) bool
-  (if (and (== (. e kind) 1u8) (str.eq (& (. e text)) name)) (ret true))
-  (for i 0 (vec.len (& (. e kids))) (if (mentions_name (vec.get (& (. e kids)) i) name) (ret true)))
-  false)
+(fn push_params ((scope (&mut (vec bind))) (d (& prog.def))) unit
+  (for i 0 (vec.len (& (. d spars)))
+    (let name (& (. (vec.get (& (. d spars)) i) name)))
+    (if (not (str.eq name "_"))
+      (vec.push scope (bind (str.clone name) (. d line) (. d col) (. d len) false)))))
+
+(fn warn_scope ((out (&mut (vec diag.dg))) (path (& str)) (scope (&mut (vec bind))) (keep i64)) unit
+  (while (> (vec.len scope) keep) (warn_pop out path scope)))
+
+(fn warn_pop ((out (&mut (vec diag.dg))) (path (& str)) (scope (&mut (vec bind)))) unit
+  (let b (match (vec.pop scope) ((opt.some v) v) ((opt.none) (bind (str.new) 0 0 0 false))))
+  (if (and (not (. b used)) (not (str.starts (& (. b name)) "_")))
+    (push_w out path (. b line) (. b col) (. b len) "name.unused" "name" (str.clone (& (. b name))))))
+
+(fn mark ((scope (&mut (vec bind))) (name (& str))) unit
+  (let mut i (- (vec.len scope) 1))
+  (while (>= i 0)
+    (if (str.eq (& (. (vec.get scope i) name)) name)
+      (ret (set (. (vec.get_mut scope i) used) true)))
+    (set i (- i 1))))
+
+(fn walk_seq ((out (&mut (vec diag.dg))) (path (& str)) (xs (& (vec expr))) (scope (&mut (vec bind)))) unit
+  (let n (vec.len scope))
+  (for i 0 (vec.len xs) (walk_expr out path (vec.get xs i) scope))
+  (warn_scope out path scope n))
+
+(fn walk_expr ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (let k (. e kind))
+  (if (== k 1u8) (ret (mark scope (& (. e text)))))
+  (if (== k 23u8) (ret (walk_call out path e scope)))
+  (if (== k 2u8) (ret (walk_let out path e scope)))
+  (if (== k 31u8) (ret (walk_clos out path e scope)))
+  (if (or (== k 4u8) (== k 7u8)) (ret (walk_seq out path (& (. e kids)) scope)))
+  (if (== k 6u8) (ret (walk_while out path e scope)))
+  (if (== k 8u8) (ret (walk_for out path e scope)))
+  (if (== k 12u8) (ret (walk_match out path e scope)))
+  (walk_kids out path e 0 scope))
+
+(fn walk_call ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (mark scope (& (. e text)))
+  (walk_kids out path e 0 scope))
+
+(fn walk_let ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
+  (if (not (str.eq (& (. e text)) "_"))
+    (vec.push scope (bind (str.clone (& (. e text))) (. e line) (. e col) (. e len) false))))
+
+(fn walk_clos ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (let n (vec.len scope))
+  (push_words scope (& (. e text)) (. e line) (. e col) (. e len))
+  (walk_seq out path (& (. e kids)) scope)
+  (while (> (vec.len scope) n) (let _ (vec.pop scope))))
+
+(fn walk_while ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
+  (walk_from out path e 1 scope))
+
+(fn walk_for ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
+  (if (> (vec.len (& (. e kids))) 1) (walk_expr out path (vec.get (& (. e kids)) 1) scope))
+  (walk_from out path e 2 scope))
+
+(fn walk_match ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
+  (let mut i 2)
+  (while (< i (vec.len (& (. e kids))))
+    (do (walk_expr out path (vec.get (& (. e kids)) i) scope) (set i (+ i 2)))))
+
+(fn walk_kids ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (from i64) (scope (&mut (vec bind)))) unit
+  (for i from (vec.len (& (. e kids))) (walk_expr out path (vec.get (& (. e kids)) i) scope)))
+
+(fn walk_from ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (from i64) (scope (&mut (vec bind)))) unit
+  (let n (vec.len scope))
+  (for i from (vec.len (& (. e kids))) (walk_expr out path (vec.get (& (. e kids)) i) scope))
+  (warn_scope out path scope n))
+
+(fn push_words ((scope (&mut (vec bind))) (raw (& str)) (line i64) (col i64) (len i64)) unit
+  (let mut i 0)
+  (let mut start 0)
+  (while (<= i (str.len raw))
+    (do
+      (if (or (== i (str.len raw)) (== (str.at raw i) 32u8))
+        (if (> i start) (vec.push scope (bind (str.slice raw start i) line col len false))))
+      (if (and (< i (str.len raw)) (== (str.at raw i) 32u8)) (set start (+ i 1)))
+      (set i (+ i 1)))))

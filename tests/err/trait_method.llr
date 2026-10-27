@@ -1,0 +1,5 @@
+(trait Show (fn show ((& Self)) str))
+
+(impl Show i64)
+
+(fn main () unit ())

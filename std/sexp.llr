@@ -12,7 +12,7 @@
   (str.push (&mut m) (& (str.from_int line)))
   (str.push (&mut m) "|col=")
   (str.push (&mut m) (& (str.from_int col)))
-  (str.push (&mut m) "|what=")
+  (str.push (&mut m) "|len=1|what=")
   (str.push (&mut m) what)
   m)
 

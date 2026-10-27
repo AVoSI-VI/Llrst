@@ -13,6 +13,7 @@
 (use proj.check)
 (use proj.diag)
 (use proj.link)
+(use proj.lint)
 (use proj.load)
 (use proj.lower)
 (use proj.mir)
@@ -33,7 +34,8 @@
   (pub (args (vec str)))))
 
 (pub (fn run ((o (& flags))) i64
-  (if (not (target_ok (& (. o target)))) (ret (bad "target.unsupported" (& (. o target)))))
+  (if (not (target_ok (& (. o target))))
+    (ret (bad (& (. o file)) "target.unsupported" (& (. o target)))))
   (match (load.load_at (& (. o file)) (& (. o std)))
     ((res.err e) (do (io_err (& e)) (ret 1)))
     ((res.ok p) (build o p)))))
@@ -45,41 +47,56 @@
   (if (not (str.has t "x86_64")) (ret false))
   (not (str.has t "apple")))
 
-(fn is_win ((t (& str))) bool
-  (if (> (str.len t) 0) (ret (str.has t "windows")))
-  (== sys.os_id 2))
+(fn is_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
 
-(fn bad ((code (& str)) (got (& str))) i64
-  (let mut s (str.from "E||0|0|0|"))
-  (str.push (&mut s) code)
-  (str.push (&mut s) "|got=")
-  (str.push (&mut s) got)
-  (io.eputs (& s))
+(fn bad ((file (& str)) (code (& str)) (got (& str))) i64
+  (io.eputs (& (at_main file code "got" got "" "")))
   1)
+
+(fn at_main ((file (& str)) (code (& str)) (k (& str)) (v (& str)) (k2 (& str)) (v2 (& str))) str
+  (let mut d (diag.make true (slash file) 1 1 0 (str.from code)))
+  (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
+  (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
+  (diag.render (& d)))
+
+(fn slash ((p (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  o)
 
 (fn build ((o (& flags)) (p prog.prog)) i64
   (let mut ds (vec.new <diag.dg>))
-  (check.run (& p) "" (&mut ds))
-  (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
-  (if (or (str.eq (& (. o cmd)) "check") (str.eq (& (. o cmd)) "emit-mir"))
-    (ret (finish o (&mut ds))))
-  (let mut g (cg_mod.new (. o checked) (str.has (& (. o target)) "apple") (is_win (& (. o target)))))
+  (let mut dump (str.new))
+  (check.run (& p) "" (&mut ds) (&mut dump) false (. o test))
+  (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
+  (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
+  (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
+  (let mut g
+    (cg_mod.new (. o checked) (str.has (& (. o target)) "apple") (is_win (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
-  (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
+  (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (pump (&mut g) (& p) (&mut ds))
+  (lint.generics (& p) (&mut ds) (& (cg_mod.done_ids (& g))))
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
   (cg_entry.emit_main (&mut g) entry)
   (let bytes (cg_mod.finish (& g)))
   (if (. o emit_obj) (ret (write_obj o (& bytes) (&mut ds))))
-  (let err (link.link (& bytes) (& (out_path o)) (is_win (& (. o target)))))
+  (let err (link.link (& bytes) (& (out_path o)) (is_win (& (. o target))) (& (. o file))))
   (if (> (str.len (& err)) 0) (do (io.eputs (& err)) (ret 1)))
   (finish o (&mut ds)))
 
-(fn finish ((o (& flags)) (ds (&mut (vec diag.dg)))) i64
+(fn stopped ((o (& flags))) bool
+  (or (str.eq (& (. o cmd)) "check") (str.eq (& (. o cmd)) "emit-mir")))
+
+(fn with_gens ((o (& flags)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (done (& (vec i64)))) i64
+  (lint.generics p ds done)
+  (finish o ds))
+
+(pub (fn finish ((o (& flags)) (ds (&mut (vec diag.dg)))) i64
   (promote ds (& (. o deny)))
   (let bad (diag.any_err ds ""))
   (diag.flush ds "")
-  (if bad 1 0))
+  (if bad 1 0)))
 
 (fn promote ((ds (&mut (vec diag.dg))) (deny (& (vec str)))) unit
   (for i 0 (vec.len ds) (promote_one (vec.get_mut ds i) deny)))
@@ -94,21 +111,47 @@
 
 (fn write_obj ((o (& flags)) (bytes (& str)) (ds (&mut (vec diag.dg)))) i64
   (match (fs.write (& (link.obj_path (& (out_path o)) (is_win (& (. o target))))) bytes)
-    ((res.err e) (do (io.eputs (& e)) (ret 1)))
+    ((res.err e) (do (io.eputs (& (at_main (& (. o file)) "io.write" "got" (& e) "" ""))) (ret 1)))
     ((res.ok _) (finish o ds))))
+
+(fn main_file ((p (& prog.prog))) str (str.clone (& (. (vec.get (& (. p mods)) (. p main)) file))))
 
 (fn main_sym ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) i64
   (let id (prog.mod_fn p (. p main) "main"))
-  (if (< id 0) (ret (do (push_err ds "name.unknown" "name" "main") (neg 1))))
+  (let file (main_file p))
+  (if (< id 0)
+    (ret (do
+       (push_err ds (& file) 1 1 0 "name.unknown" "name" "main" "fix" "(fn main () unit ...)")
+       (neg 1))))
   (let d (vec.get (& (. p defs)) id))
   (if (or (> (vec.len (& (. d spars))) 0) (not (ty.is_unit (& (. d ret)))))
-    (ret (do (push_err ds "type.mismatch" "want" "(fn main () unit)") (neg 1))))
-  (let sym (cg_mod.func_sym g p id (vec.new <ty.sty>)))
-  sym)
+    (ret (do
+       (push_err ds
+         (& file)
+         (. d line)
+         (. d col)
+         (. d len)
+         "type.mismatch"
+         "want"
+         "(fn main () unit)"
+         "got"
+         "other signature")
+       (neg 1))))
+  (cg_mod.func_sym g p id (vec.new <ty.sty>)))
 
-(fn push_err ((ds (&mut (vec diag.dg))) (code (& str)) (k (& str)) (v (& str))) unit
-  (let mut d (diag.make true (str.new) 0 0 0 (str.from code)))
-  (diag.add (&mut d) k (str.from v))
+(fn push_err ((ds (&mut (vec diag.dg)))
+   (file (& str))
+   (line i64)
+   (col i64)
+   (len i64)
+   (code (& str))
+   (k (& str))
+   (v (& str))
+   (k2 (& str))
+   (v2 (& str))) unit
+  (let mut d (diag.make true (slash file) line col len (str.from code)))
+  (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
+  (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (vec.push ds d))
 
 (fn tests ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) i64
@@ -135,6 +178,9 @@
         (let mut name (str.from "test."))
         (str.push (&mut name) (& (. t name)))
         (let b (lower.lower_fn p e name ds))
+        (borrow.run p ds (& b))
+        (lint.body ds (& b))
+        (if (diag.any_err ds "") (ret))
         (let sym (cg_entry.test_sym g (vec.len names)))
         (cg_term.compile g p (& b) sym true)
         (vec.push names (str.clone (& (. t name))))
@@ -160,6 +206,7 @@
       (do
         (let b (lower.lower_fn p e (prog.fn_path p id) ds))
         (borrow.run p ds (& b))
+        (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))
         (let sym (cg_mod.func_sym g p id (clone_tys (& args))))
         (cg_term.compile g p (& b) sym true)))))

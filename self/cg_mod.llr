@@ -177,6 +177,12 @@
   (let hit (find_fn g id args))
   (and (>= hit 0) (@ (vec.get (& (. g fdone)) hit)))))
 
+(pub (fn done_ids ((g (& cg))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len (& (. g fid)))
+    (if (@ (vec.get (& (. g fdone)) i)) (vec.push (&mut o) (@ (vec.get (& (. g fid)) i)))))
+  o))
+
 (fn find_str ((g (& cg)) (s (& str))) i64
   (for i 0 (vec.len (& (. g skey))) (if (str.eq (vec.get (& (. g skey)) i) s) (ret i)))
   (neg 1))

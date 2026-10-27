@@ -1,6 +1,7 @@
 ;; Expression checking. Each expression becomes a texpr: type, callee, builtin id.
 (use std.ast)
 (use std.check)
+(use std.check_more)
 (use std.check_ty)
 (use std.str)
 
@@ -402,6 +403,7 @@
         (& (vec.new <info>)))))
   (let mut kids (vec.new <texpr>))
   (do (try (walk defs srcs from e locs (&mut kids) 0 (vec.len (& (. e kids))))) ())
+  (match (check_more.bounds srcs d e (& kids)) ((opt.some err) (ret (res.err err))) ((opt.none) ()))
   (let inf
     (check_ty.info_ty defs srcs (& (. d module)) from (check.ret_of srcs d) (& (. d gens)) (& args)))
   (let show (str.clone (& (. inf show))))

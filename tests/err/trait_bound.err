@@ -1,0 +1,1 @@
+E|tests/err/trait_bound.llr|3|46|19|trait.missing|trait=Ord|ty=box

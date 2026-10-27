@@ -6,6 +6,7 @@
 (use std.str)
 (use std.sys)
 (use proj.collect)
+(use proj.diag)
 (use proj.prog)
 (use proj.src)
 
@@ -42,12 +43,20 @@
   (if (has_sys (& c)) (ret c))
   (str.new))
 
-(fn std_found () str
-  (let hit (std_hit (& (exe_dir))))
-  (if (> (str.len (& hit)) 0) hit (str.from "std")))
+(fn std_miss ((file (& str))) str
+  (let mut d (diag.make true (slash file) 1 1 0 (str.from "io.read")))
+  (diag.add (&mut d) "path" (str.from "std"))
+  (diag.add (&mut d) "fix" (str.from "set LLRST_STD"))
+  (diag.render (& d)))
 
-(fn std_dir () str
-  (match (os.env "LLRST_STD") ((opt.some s) (slash (& s))) ((opt.none) (std_found))))
+(fn std_found ((file (& str))) (res str str)
+  (let hit (std_hit (& (exe_dir))))
+  (if (> (str.len (& hit)) 0) (ret (res.ok hit)))
+  (if (has_sys "std") (ret (res.ok (str.from "std"))))
+  (res.err (std_miss file)))
+
+(fn std_dir ((file (& str))) (res str str)
+  (match (os.env "LLRST_STD") ((opt.some s) (res.ok (slash (& s)))) ((opt.none) (std_found file))))
 
 (fn os_name () str
   (match (os.env "OS")
@@ -70,8 +79,12 @@
   (neg 1))
 
 (fn read_items ((file (& str))) (res (vec item) str)
-  (let text (try (fs.read file)))
-  (ast.parse_src (& text)))
+  (match (fs.read file)
+    ((res.err e) (res.err (lift file (& e))))
+    ((res.ok text)
+      (match (ast.parse_src (& text))
+        ((res.err e) (res.err (lift file (& e))))
+        ((res.ok v) (res.ok v))))))
 
 (fn skip_os ((name (& str))) bool
   (or (str.eq name "sys_posix.llr") (str.eq name "sys_windows.llr")))
@@ -120,7 +133,7 @@
   (let extra (try (read_items (& file))))
   (let mut found (neg 1))
   (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) path)) "std.sys") (set found i)))
-  (if (< found 0) (ret (res.err (str.from "io.read"))))
+  (if (< found 0) (ret (res.err (lift (& file) "io.read|path=std/sys.llr"))))
   (let s (vec.get_mut srcs found))
   (let mut more extra)
   (while (> (vec.len (& more)) 0) (vec.push (&mut (. s items)) (vec.remove (&mut more) 0)))
@@ -158,8 +171,38 @@
 
 (pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "")))
 
+(fn set_num ((n (&mut i64)) (v (& str))) unit
+  (match (str.to_int v) ((opt.some x) (set (@ n) x)) ((opt.none) ())))
+
+(fn take_kv ((d (&mut diag.dg)) (line (&mut i64)) (col (&mut i64)) (len (&mut i64)) (part (& str))) unit
+  (match (str.find_byte part 61u8)
+    ((opt.none) ())
+    ((opt.some at)
+      (do
+        (let k (str.slice part 0 at))
+        (let v (str.slice part (+ at 1) (str.len part)))
+        (if (str.eq (& k) "line") (ret (set_num line (& v))))
+        (if (str.eq (& k) "col") (ret (set_num col (& v))))
+        (if (str.eq (& k) "len") (ret (set_num len (& v))))
+        (diag.add d (& k) v)))))
+
+(fn lift ((file (& str)) (msg (& str))) str
+  (if (str.starts msg "E|") (ret (str.clone msg)))
+  (let parts (str.split msg 124u8))
+  (if (== (vec.len (& parts)) 0) (ret (str.clone msg)))
+  (let mut line 1)
+  (let mut col 1)
+  (let mut len 0)
+  (let mut d (diag.make true (slash file) 1 1 0 (str.clone (vec.get (& parts) 0))))
+  (for i 1 (vec.len (& parts))
+    (take_kv (&mut d) (&mut line) (&mut col) (&mut len) (vec.get (& parts) i)))
+  (set (. d line) line)
+  (set (. d col) col)
+  (set (. d len) len)
+  (diag.render (& d)))
+
 (pub (fn load_at ((file (& str)) (dir (& str))) (res prog.prog str)
-  (let root (if (> (str.len dir) 0) (slash dir) (std_dir)))
+  (let root (if (> (str.len dir) 0) (slash dir) (try (std_dir file))))
   (let mut srcs (vec.new <src.loaded>))
   (let mut paths (vec.new <str>))
   (let mainp (slash file))
@@ -167,4 +210,6 @@
   (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
   (try (append_os (&mut srcs) (& root)))
   (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
-  (collect.collect srcs)))
+  (match (collect.collect srcs)
+    ((res.err e) (res.err (lift (& mainp) (& e))))
+    ((res.ok p) (res.ok p)))))

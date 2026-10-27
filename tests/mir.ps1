@@ -41,9 +41,15 @@ foreach ($f in $files) {
   $got = ""
   if (Test-Path "$tmp\want") { $want = ([IO.File]::ReadAllText("$tmp\want") -replace "`r", "") }
   if (Test-Path "$tmp\got") { $got = ([IO.File]::ReadAllText("$tmp\got") -replace "`r", "") }
+  $wantErr = ""
+  $gotErr = ""
+  if (Test-Path "$tmp\want.err") { $wantErr = ([IO.File]::ReadAllText("$tmp\want.err") -replace "`r", "") }
+  if (Test-Path "$tmp\got.err") { $gotErr = ([IO.File]::ReadAllText("$tmp\got.err") -replace "`r", "") }
   if ($null -eq $want) { $want = "" }
   if ($null -eq $got) { $got = "" }
-  if ($want -eq $got) {
+  if ($null -eq $wantErr) { $wantErr = "" }
+  if ($null -eq $gotErr) { $gotErr = "" }
+  if ($want -eq $got -and $wantErr -eq $gotErr) {
     Write-Output "ok|mir/$rel"
   } else {
     $w = ($want -replace "`n", " ")

@@ -2,6 +2,7 @@
 ;; texpr.builtin is the thir Builtin ordinal, or -1. drop is 9.
 (use std.ast)
 (use std.check_expr)
+(use std.check_more)
 (use std.check_ty)
 (use std.fs)
 (use std.os)
@@ -450,6 +451,7 @@
   (let mut defs (vec.new <def>))
   (register (& srcs) (&mut defs))
   (match (impl_dup (& srcs)) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
+  (match (check_more.impl_shape (& srcs) main) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
   (res.ok (prog srcs defs main))))
 
 (pub (fn check ((path (& str))) (res (vec texpr) str)

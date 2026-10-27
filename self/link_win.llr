@@ -2,6 +2,7 @@
 (use std.os)
 (use std.path)
 (use std.str)
+(use proj.diag)
 
 (fn dq ((s (& str))) str
   (let mut o (str.from "\""))
@@ -14,14 +15,15 @@
   (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
   o)
 
-(fn exe_of ((out (& str))) str
+(pub (fn exe_of ((out (& str))) str
   (if (str.ends out ".exe") (ret (str.clone out)))
-  (str.cat out ".exe"))
+  (str.cat out ".exe")))
 
-(fn fail ((got (& str))) str
-  (let mut s (str.from "E||0|0|0|link.failed|cmd=cl|got="))
-  (str.push (&mut s) got)
-  s)
+(fn fail ((main (& str)) (cmd (& str)) (got (& str))) str
+  (let mut d (diag.make true (str.clone main) 1 1 0 (str.from "link.failed")))
+  (diag.add (&mut d) "cmd" (str.clone cmd))
+  (diag.add (&mut d) "got" (str.clone got))
+  (diag.render (& d)))
 
 (fn has_cl () bool (== (. (os.capture "cl /nologo /? >nul 2>&1") code) 0))
 
@@ -50,9 +52,15 @@
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (dq p))))
 
-(pub (fn link ((obj (& str)) (out (& str)) (wsa (& str)) (win (& str)) (sock (& str)) (proc (& str))) str
+(pub (fn link ((obj (& str))
+   (out (& str))
+   (wsa (& str))
+   (win (& str))
+   (sock (& str))
+   (proc (& str))
+   (main (& str))) str
   (let pre (prefix))
-  (if (str.eq (& pre) "missing") (ret (fail "cl missing")))
+  (if (str.eq (& pre) "missing") (ret (fail main "cl" "cl missing")))
   (let mut cmd (str.clone (& pre)))
   (str.push (&mut cmd) "cl /nologo /Fe:")
   (str.push (&mut cmd) (& (dq (& (exe_of out)))))
@@ -63,4 +71,4 @@
   (push_q (&mut cmd) proc)
   (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
-  (if (== code 0) (str.new) (fail (& (str.from_int code))))))
+  (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))

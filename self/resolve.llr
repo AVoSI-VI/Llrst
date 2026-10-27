@@ -81,7 +81,7 @@
   (if (and (>= gi 0) (== nargs 0)) (ret (res.ok (ty.param gi (str.clone n)))))
   (if (and (str.eq n "Self") (== nargs 0)) (ret (res.ok (ty.self_ty))))
   (let id (prog.lookup_type p m n))
-  (if (< id 0) (ret (res.err (str.from "name.not_type"))))
+  (if (< id 0) (ret (res.err (coded "name.not_type" "name" n))))
   (if (not (prog.visible p m id)) (ret (res.err (priv_err p m t id))))
   (if (!= (adt_arity p id) nargs) (ret (res.err (arity_err p m t n (adt_arity p id) nargs))))
   (res.ok (ty.adt id (vec.new <ty.sty>))))
@@ -105,6 +105,14 @@
     (ret (res.ok (ty.ptr_ty (try (resolve p m gens (vec.get (& (. t args)) 0)))))))
   (if (or (== (. t kind) 4u8) (== (. t kind) 5u8)) (ret (resolve_fun p m gens t)))
   (res.err (str.from "type.bad"))))
+
+(fn coded ((code (& str)) (k (& str)) (v (& str))) str
+  (let mut s (str.from code))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) k)
+  (str.push_byte (&mut s) 61u8)
+  (str.push (&mut s) v)
+  s)
 
 (fn resolve_app ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
   (if (is_dyn t) (ret (res.err (why_err p m t (str.from "ref")))))
@@ -134,6 +142,26 @@
   (let mut hi (str.len s))
   (for i 0 (str.len s) (if (== (str.at s i) 58u8) (do (set hi i) (brk))))
   (str.slice s 0 hi))
+
+(pub (fn gen_bounds ((raw (& (vec str)))) (vec (vec str))
+  (let mut o (vec.new < (vec str) >))
+  (for i 0 (vec.len raw)
+    (let g (vec.get raw i))
+    (if (not (str.starts g "'")) (vec.push (&mut o) (bound_names g))))
+  o))
+
+(fn bound_names ((s (& str))) (vec str)
+  (let mut o (vec.new <str>))
+  (let mut start 0)
+  (let mut seen false)
+  (for i 0 (str.len s)
+    (if (== (str.at s i) 58u8)
+      (do
+        (if (and seen (> i start)) (vec.push (&mut o) (str.slice s start i)))
+        (set seen true)
+        (set start (+ i 1)))))
+  (if (and seen (< start (str.len s))) (vec.push (&mut o) (str.slice s start (str.len s))))
+  o)
 
 (pub (fn self_by_value ((t (& ty.sty))) bool
   (if (== (. t kind) 12u8) (ret true))

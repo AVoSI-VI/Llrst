@@ -1,10 +1,17 @@
 (struct hold (f (clos () i64)))
 
-(fn make ((n i64)) (clos () i64)
-  (clos () i64 n))
+(fn make ((n i64)) (clos () i64) (clos () i64 n))
 
-(fn eat ((s str)) (clos () i64)
-  (clos () i64 (str.len (& s))))
+(fn eat ((s str)) (clos () i64) (clos () i64 (str.len (& s))))
+
+(fn add2 ((a f64) (b f64)) (clos () f64) (clos () f64 (+ a b)))
+
+(fn many ((n i64)) (clos (i64 i64 i64 i64 i64 i64 i64) i64)
+  (clos ((a i64) (b i64) (c i64) (d i64) (e i64) (f i64) (g i64))
+    i64
+    (+ n (+ a (+ b (+ c (+ d (+ e (+ f g)))))))))
+
+(fn scale ((k f64)) (clos (f64) f64) (clos ((x f64)) f64 (* k x)))
 
 (fn main () unit
   (let c (make 7))
@@ -12,4 +19,10 @@
   (let h (hold c))
   (assert_eq (call (. h f)) 7)
   (let e (eat (str.from "hi")))
-  (assert_eq (call e) 2))
+  (assert_eq (call e) 2)
+  (let s (add2 1.5 2.5))
+  (assert_eq (as i64 (call s)) 4)
+  (let m (many 1))
+  (assert_eq (call m 2 3 4 5 6 7 8) 36)
+  (let sc (scale 3.0))
+  (assert_eq (as i64 (call sc 2.0)) 6))

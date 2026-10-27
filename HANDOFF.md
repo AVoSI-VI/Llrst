@@ -46,6 +46,7 @@ install them, document them, write agent workflows.
 | perf | `vec.sort` allocates a scratch buffer (stable merge). `map` heads shrink to a power of two, minimum 16, when `len * 8 <= heads` (`std/map.llr`). |
 | visibility | `pub` is strict, per module. Only `pub` std types enter the prelude; std module fns need `(use std.X)`. A struct field and an enum variant are private unless `(pub (name type*))`. |
 | directories | `fs.list` names come from `llr_readdir_name`, which reads `dirent` on Unix and `WIN32_FIND_DATA` on Windows (`runtime/llr_stat.c`, `runtime/llr_win.c`). |
+| generics | A generic is typechecked only for the instances the driver compiles. One that is never instantiated is linted from its AST and is not MIR-checked. |
 | git tool | `llr-git` reads status, diff, and log and does not change the repo. |
 | C runtime | `runtime/*.c` shims stay C and are prebuilt by install; the system C compiler is the linker driver only. |
 
@@ -228,10 +229,11 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | `compiler/src/codegen/func.rs` | 494 | Stage 0; item 8 (panic frames) touches it |
 | `self/thir_expr.llr` | 493 | Split before Phase 1 span work |
 | `self/lower.llr` | 492 | Split before Phase 2 move work |
-| `std/check_expr.llr` | 488 | Backs `llr-check` only (Phase 4) |
+| `std/check_expr.llr` | 490 | Backs `llr-check` only (Phase 4) |
 | `compiler/src/resolve.rs` | 487 | Stage 0 |
-| `self/thir_call.llr` | 480 | Trait and dyn calls; Phase 1 bound checks |
-| `std/check.llr` | 478 | Backs `llr-check` only (Phase 4) |
+| `self/collect.llr` | 461 | Trait impl shape and generic bounds |
+| `self/thir_call.llr` | 424 | Trait calls live in `thir_trait.llr` (82 lines) |
+| `std/check.llr` | 480 | Backs `llr-check` only (Phase 4). `check_more.llr` holds impl shape and bounds |
 | `std/http.llr` | 468 | Phase 7 chunked bodies need a split first |
 
 ## Phases
@@ -253,22 +255,22 @@ Files: `README.md`, `docs/tools/README.md`, `.gitignore`, `scripts/check-lines.s
 7. `[x]` `runtime/llr_win.c` is LF in the index and CRLF in a Windows checkout; add `.gitattributes` or state the rule.
 8. `[x]` Commit: `docs: handoff phases, line check covers self and runtime`.
 
-### Phase 1: self/ parity with stage 0 `[ ]`
+### Phase 1: self/ parity with stage 0 `[x]`
 
 Files: `self/drive.llr`, `self/check.llr`, `self/llrs.llr`, `self/lint.llr`, `self/inline.llr`, `self/collect.llr`, `self/resolve.llr`, `self/thir_clos.llr`, `self/cg_clos.llr`, `self/link.llr`, `self/link_win.llr`, `std/ast_expr.llr`, `std/os.llr`.
 
-1. `[ ]` `(test ...)` bodies skip `borrow.run` and `lint.body` (`drive.llr` `add_test`); stage 0 `driver.rs` runs both. Generic instances (`drive.llr` `inst`) are never MIR-linted; stage 0 lints every instance and walks only never-instantiated generics.
-2. `[ ]` `llrs emit-mir` (`llrs.llr` `emit`) drops its diagnostic sink, never reads `p.notes`, and exits 0 on error; stage 0 prints the dump, flushes diagnostics, and exits 1. `tests/mir.sh` compares stdout only, so add a stderr case.
-3. `[ ]` `llrs run` builds `<file>.run` beside the source and, on Windows, leaves `<file>.run.exe` behind (`link_win.llr` `exe_of`); stage 0 uses a temp dir and removes it.
-4. `[ ]` *verify* `os.shell` returns `(band (shr st 8) 255)` (`std/os.llr`); MSVC `system()` returns the code unshifted, so a failing `cl` or program may read as 0 on Windows.
-5. `[ ]` Span-less errors print `E||0|0|0|code|...` (`drive.llr`, `link.llr`, `link_win.llr`); stage 0 prints the main file and `1|1|0`. Collect and resolve errors (`collect.llr` `name.not_module`, `name.unknown`, `name.not_type`; `resolve.llr` `type.bad`; `load.llr` `io.read`) and parse errors (`std/ast_expr.llr` `parse.expect`, `std/sexp.llr` `parse.unbalanced`) are bare strings with no `E|path|line|col|len|` record. `parse.arity` and `parse.bad_head` are never produced by `std/ast*.llr`. `link.failed` writes `cmd=cc|got=` where stage 0 writes the full command.
-6. `[ ]` A failed inline re-check discards its diagnostic (`inline.llr`); stage 0 pushes it.
-7. `[ ]` `lint.llr`: a `let` in a non-std generic body is reported `name.unused` whenever it is used outside its own initializer (`walk_let`); a private method called as `(T.m ...)` is `fn.unused` (`calls_e` matches bare names); a fn referenced as a value is not counted; `fn.unused` and `use.unused` fire for test-only helpers because `lint.items` never scans `p.tests`, including under `--test`.
-8. `[ ]` No trait impl shape check: `collect.llr` `add_timpl` accepts a missing or extra method, a wrong signature, and a first param that is not `(& Self)`; stage 0 reports `trait.method` and `type.mismatch`. Generic bounds are stripped by `resolve.llr` `strip_bound`, so `trait.missing` surfaces inside `std/vec.llr` instead of at the call site. Add `tests/err` goldens for both.
-9. `[ ]` Closure capture (`thir_clos.llr` `walk_one`) binds only `let` names, so a `for` var, a match binding, or an inner param that shadows an outer local is captured and may be moved. The trampoline (`cg_clos.llr` `pass_cap`, `pass_user`) passes every argument through a GPR: nothing is pushed past 6 (SysV) or 4 (Win64) args and floats never reach XMM. Add a float and a many-arg closure to `tests/run/clos.llr`.
-10. `[ ]` A generic is typechecked only for the instances the driver compiles (`drive.llr`, `compiler/src/driver.rs`).
-11. `[ ]` `self/load.llr` returns `"std"` unchecked when no std dir is found; stage 0 reports `io.read|path=std|fix=set LLRST_STD`.
-12. `[ ]` Commit: `self: test bodies are borrow-checked, emit-mir reports, lint and trait parity`.
+1. `[x]` `(test ...)` bodies run `borrow.run` and `lint.body`. Generic instances and std functions are MIR-linted when compiled; `lint.generics` walks only never-instantiated generics.
+2. `[x]` `llrs emit-mir` keeps diagnostics, prints the dump, and exits 1 on error. `tests/mir.sh` and `tests/mir.ps1` compare stderr too.
+3. `[x]` `llrs run` builds `llr_run_N` under `TMPDIR`, `TEMP`, `TMP`, or `/tmp`, and removes `link.host_exe` of that path.
+4. `[x]` `os.shell` returns the `system()` code unshifted when `sys.os_id` is 2.
+5. `[x]` Span-less errors use the main file and `1|1|0`. Collect errors and `io.read` are full records. Parse errors carry `len=`; arity sites emit `parse.arity` and a non-atom head emits `parse.bad_head`. `link.failed` puts the full command in `cmd=`.
+6. `[x]` A failed inline re-check is appended to the lowerer's diagnostics.
+7. `[x]` Generic `let`s use a scope. `fn.unused` resolves `(T.m ...)` and value uses through `lookup_fn`. Under `--test`, `lint.items` scans `p.tests`.
+8. `[x]` Trait impls report `trait.method` and `type.mismatch`. Bounds stay on `prog.def` and `trait.missing` is reported at the call. Goldens: `tests/err/trait_method`, `tests/err/trait_bound`. `std/check_more.llr` teaches `llr-check` those two.
+9. `[x]` Closure capture binds `for` vars, match bindings, and inner params. The trampoline classifies GPR, XMM, and stack args. `tests/run/clos.llr` covers a float capture and a seven-int call.
+10. `[x]` Recorded under Decisions. Both compilers typecheck a generic only for compiled instances.
+11. `[x]` No std directory is `io.read|path=std|fix=set LLRST_STD` on the main file at `1|1|0`.
+12. `[x]` Commit: `self: test bodies are borrow-checked, emit-mir reports, lint and trait parity`.
 
 ### Phase 2: language and borrow checker `[ ]`
 
@@ -381,3 +383,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-26: self-hosting roadmap done, `llrs2` installed as `llrc` (`54ed8fe`, merged `ebaed76`); see `history/self-hosting.md`.
 - 2026-10-27: this file reshaped into rules, decisions, architecture, line budget, and phases 0-7. Every former limit row and next-step item was placed once. Gaps found by reading `self/`, `std/`, `tools/`, `tests/`, `scripts/`, and `docs/` were added as `[ ]` items; items marked *verify* were not executed. No code changed. The suite was not re-run.
 - 2026-10-27: Phase 0. README names Llrst 0.1.0 and stage-2 `llrs`. The line check covers `self/` and `runtime/*.c`. `llr_win.c` is split into `llr_win.c`, `llr_win_sock.c`, and `llr_win_proc.c`. Tracked `.obj` files are gone. `mono.llr` and `subst.llr` are retired; `std/check*.llr` stays for `llr-check`. `.gitattributes` stores `*.c` and `*.h` as LF. `tests/run.ps1` fails=3, all Cranelift emit panics on float casts (`run/cast_float`, `panic/cast_f_high`, `panic/cast_f_neg`). Shim tests, including `std/fs`, `std/net`, and `std/thread`, passed.
+- 2026-10-27: Phase 1. Test bodies and compiled instances are borrow-checked and MIR-linted. `emit-mir` keeps diagnostics and exits 1. `run` uses a temp executable. `os.shell` is unshifted on Windows. Diagnostics are full records. Inline re-check keeps its error. Lint scopes generic lets and counts method and value uses. Trait impls are shape-checked and bounds fail at the call. Closures bind loop and match names and pass floats and stack arguments. A missing std directory is `io.read`. `tests/run.ps1` fails=3, the same Cranelift float-cast panics. `tests/check.ps1` and `tests/mir.ps1` match stage 0.

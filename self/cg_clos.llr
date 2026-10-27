@@ -58,47 +58,90 @@
   (x64_abi.classify (if win x64_abi.win64 x64_abi.sysv) cls (&mut args))
   (for i 0 (vec.len (& args)) (stash_one b (vec.get (& args) i) i)))
 
-(fn put_gpr ((b (&mut x64_buf.buf)) (win bool) (oi i64)) unit
-  (let r (x64_abi.gpr (if win x64_abi.win64 x64_abi.sysv) oi))
-  (if (>= r 0) (x64_int.mov_rr b 8 r x64_buf.rax)))
-
 (fn emit_call ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (c (& mir.clbody)) (inner i64)) unit
   (let env_i (if (cg_lay.is_agg (& (. c ret))) 1 0))
   (load_slot b x64_buf.r11 env_i)
   (cg_frame.bstore b 8 x64_buf.rbp (neg 400) x64_buf.r11)
-  (let mut oi 0)
-  (if (cg_lay.is_agg (& (. c ret)))
-    (do (load_slot b x64_buf.rax 0) (put_gpr b (. g win) 0) (set oi 1)))
+  (let cls (out_cls c))
+  (let mut args (vec.new <x64_abi.arg>))
+  (x64_abi.classify (if (. g win) x64_abi.win64 x64_abi.sysv) (& cls) (&mut args))
+  (let mut ai 0)
+  (if (cg_lay.is_agg (& (. c ret))) (do (pass_slot b (vec.get (& args) 0) 0) (set ai 1)))
   (let mut ls (cg_lay.new))
   (let s (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
   (for i 0 (vec.len (& (. c caps)))
-    (set oi (pass_cap g p b (vec.get (& (. c caps)) i) (@ (vec.get (& (. s offs)) i)) oi)))
-  (for j 0 (vec.len (& (. c user))) (set oi (pass_user b (+ (+ env_i 1) j) oi (. g win))))
+    (if (not (ty.is_unit (vec.get (& (. c caps)) i)))
+      (do
+        (pass_cap b (vec.get (& args) ai) (vec.get (& (. c caps)) i) (@ (vec.get (& (. s offs)) i)))
+        (set ai (+ ai 1)))))
+  (for j 0 (vec.len (& (. c user)))
+    (if (not (ty.is_unit (vec.get (& (. c user)) j)))
+      (do
+        (pass_user b (vec.get (& args) ai) (+ (+ env_i 1) j) (vec.get (& (. c user)) j))
+        (set ai (+ ai 1)))))
   (x64_int.call_sym b inner)
   (let _ g))
 
-(fn pass_cap ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (t (& ty.sty)) (off i64) (oi i64)) i64
+(fn out_cls ((c (& mir.clbody))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (if (cg_lay.is_agg (& (. c ret))) (vec.push (&mut o) x64_abi.cls_int))
+  (for i 0 (vec.len (& (. c caps))) (push_cls (&mut o) (vec.get (& (. c caps)) i)))
+  (for i 0 (vec.len (& (. c user))) (push_cls (&mut o) (vec.get (& (. c user)) i)))
+  o)
+
+(fn push_cls ((o (&mut (vec i64))) (t (& ty.sty))) unit
+  (if (not (ty.is_unit t)) (vec.push o (cls t))))
+
+(fn pass_slot ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (slot i64)) unit
+  (load_slot b x64_buf.rax slot)
+  (place b a))
+
+(fn pass_cap ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (t (& ty.sty)) (off i64)) unit
   (cg_frame.bload b 8 x64_buf.r11 x64_buf.rbp (neg 400))
+  (if (cg_lay.is_float t) (ret (pass_float b a x64_buf.r11 off (cg_lay.width t))))
   (if (cg_lay.is_agg t)
     (cg_frame.blea b x64_buf.rax x64_buf.r11 off)
-    (cg_frame.bload b (cg_lay.width t) x64_buf.rax x64_buf.r11 off))
-  (put_gpr b (. g win) oi)
-  (let _ g)
-  (let _ p)
-  (+ oi 1))
+    (do (cg_frame.bload b (cg_lay.width t) x64_buf.rax x64_buf.r11 off) (widen b t)))
+  (place b a))
 
-(fn pass_user ((b (&mut x64_buf.buf)) (slot i64) (oi i64) (win bool)) i64
+(fn pass_user ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (slot i64) (t (& ty.sty))) unit
+  (if (cg_lay.is_float t)
+    (ret (pass_float b a x64_buf.rbp (neg (* (+ slot 1) 8)) (cg_lay.width t))))
   (load_slot b x64_buf.rax slot)
-  (put_gpr b win oi)
-  (+ oi 1))
+  (if (not (cg_lay.is_agg t)) (widen b t))
+  (place b a))
+
+(fn pass_float ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (base i64) (disp i64) (w i64)) unit
+  (if (>= (. a reg) 0) (ret (load_xmm b (. a reg) base disp w)))
+  (load_xmm b 0 base disp w)
+  (store_xmm b x64_buf.rbp (home a) w))
+
+(fn load_xmm ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64) (w i64)) unit
+  (if (== w 4) (cg_frame.bssld b dst base disp) (cg_frame.bsdld b dst base disp)))
+
+(fn store_xmm ((b (&mut x64_buf.buf)) (base i64) (disp i64) (w i64)) unit
+  (if (== w 4) (cg_frame.bssst b base disp 0) (cg_frame.bsdst b base disp 0)))
+
+(fn widen ((b (&mut x64_buf.buf)) (t (& ty.sty))) unit
+  (let w (cg_lay.width t))
+  (if (>= w 8) (ret))
+  (if (cg_lay.signed t)
+    (x64_int.movsx b 8 w x64_buf.rax x64_buf.rax)
+    (x64_int.movzx b 8 w x64_buf.rax x64_buf.rax)))
+
+(fn place ((b (&mut x64_buf.buf)) (a (& x64_abi.arg))) unit
+  (if (>= (. a reg) 0) (ret (x64_int.mov_rr b 8 (. a reg) x64_buf.rax)))
+  (cg_frame.bstore b 8 x64_buf.rbp (home a) x64_buf.rax))
+
+(fn home ((a (& x64_abi.arg))) i64 (- (- (. a off) 8) 512))
 
 (fn stash_one ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (i i64)) unit
   (let disp (neg (* (+ i 1) 8)))
   (if (>= (. a reg) 0)
     (ret (do
-      (if (. a xmm)
-        (cg_frame.bsdst b x64_buf.rbp disp (. a reg))
-        (cg_frame.bstore b 8 x64_buf.rbp disp (. a reg))))))
+       (if (. a xmm)
+         (cg_frame.bsdst b x64_buf.rbp disp (. a reg))
+         (cg_frame.bstore b 8 x64_buf.rbp disp (. a reg))))))
   (cg_frame.bload b 8 x64_buf.rax x64_buf.rbp (+ (. a off) 8))
   (cg_frame.bstore b 8 x64_buf.rbp disp x64_buf.rax))
 

@@ -48,9 +48,7 @@
   (let mut start 0)
   (while (<= i (str.len raw))
     (if (or (== i (str.len raw)) (== (str.at raw i) 32u8))
-      (do
-        (if (> i start) (vec.push (&mut o) (str.slice raw start i)))
-        (set start (+ i 1))))
+      (do (if (> i start) (vec.push (&mut o) (str.slice raw start i))) (set start (+ i 1))))
     (set i (+ i 1)))
   o)
 
@@ -67,19 +65,25 @@
     (let id (try (thir.declare c name (ty.clone (& t)) false (. e line) (. e col) (. e len))))
     (vec.push ids id)
     (vec.push tys t)
-    (let mut cap (thir.ex_new 1u8 (ty.clone (vec.get tys (- (vec.len tys) 1))) (. e line) (. e col) (. c file)))
+    (let mut cap
+      (thir.ex_new 1u8 (ty.clone (vec.get tys (- (vec.len tys) 1))) (. e line) (. e col) (. c file)))
     (set (. cap len) (. e len))
     (set (. cap id) outer)
     (vec.push exs cap))
   (res.ok ()))
 
-(fn bind_params ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ids (&mut (vec i64))) (tys (&mut (vec ty.sty)))) (res unit str)
+(fn bind_params ((p (& prog.prog))
+   (c (&mut thir.ck))
+   (e (& expr))
+   (ids (&mut (vec i64)))
+   (tys (&mut (vec ty.sty)))) (res unit str)
   (let names (param_names e))
   (let n (- (vec.len (& (. e tys))) 1))
   (for i 0 n
     (let s (try (resolve.resolve p (. c module) (& (. c gens)) (vec.get (& (. e tys)) i))))
     (let t (ty.subst (& s) (& (. c targs))))
-    (let id (try (thir.declare c (vec.get (& names) i) (ty.clone (& t)) false (. e line) (. e col) (. e len))))
+    (let id
+      (try (thir.declare c (vec.get (& names) i) (ty.clone (& t)) false (. e line) (. e col) (. e len))))
     (vec.push ids id)
     (vec.push tys t))
   (res.ok ()))
@@ -96,7 +100,12 @@
   (let mut o (vec.new <thir.loc>))
   (for i start (vec.len (& (. c locals)))
     (let l (vec.get (& (. c locals)) i))
-    (let mut n (thir.loc_new (str.clone (& (. l name))) (ty.clone (& (. l ty))) (. l mut) (. l line) (. l col)))
+    (let mut n
+      (thir.loc_new (str.clone (& (. l name)))
+        (ty.clone (& (. l ty)))
+        (. l mut)
+        (. l line)
+        (. l col)))
     (set (. n len) (. l len))
     (vec.push (&mut o) n))
   o)
@@ -119,7 +128,8 @@
   (while (> (vec.len (& xs)) 0) (vec.push o (vec.remove (&mut xs) 0))))
 
 (fn remap ((e (&mut thir.ex)) (start i64)) unit
-  (if (or (== (. e kind) 1u8) (or (== (. e kind) 3u8) (== (. e kind) 9u8))) (set (. e id) (- (. e id) start)))
+  (if (or (== (. e kind) 1u8) (or (== (. e kind) 3u8) (== (. e kind) 9u8)))
+    (set (. e id) (- (. e id) start)))
   (for i 0 (vec.len (& (. e pats))) (remap_pat (vec.get_mut (&mut (. e pats)) i) start))
   (for i 0 (vec.len (& (. e kids))) (remap (vec.get_mut (&mut (. e kids)) i) start)))
 
@@ -137,21 +147,98 @@
   (for i 0 (vec.len b) (if (str.eq (vec.get b i) n) (ret true)))
   false)
 
-(fn note ((c (& thir.ck)) (bound (& (vec str))) (seen (&mut (vec str))) (out (&mut (vec str))) (name (& str))) unit
+(fn note ((c (& thir.ck))
+   (bound (& (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))
+   (name (& str))) unit
   (if (bound_has bound name) (ret))
   (if (bound_has seen name) (ret))
   (vec.push seen (str.clone name))
   (if (>= (thir.lookup c name) 0) (vec.push out (str.clone name))))
 
-(fn walk ((c (& thir.ck)) (xs (& (vec expr))) (bound (&mut (vec str))) (seen (&mut (vec str))) (out (&mut (vec str)))) unit
+(fn walk ((c (& thir.ck))
+   (xs (& (vec expr)))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
   (for i 0 (vec.len xs) (walk_one c (vec.get xs i) bound seen out)))
 
-(fn walk_one ((c (& thir.ck)) (e (& expr)) (bound (&mut (vec str))) (seen (&mut (vec str))) (out (&mut (vec str)))) unit
-  (if (== (. e kind) 1u8) (note c bound seen out (& (. e text))))
-  (if (== (. e kind) 23u8) (note c bound seen out (& (. e text))))
+(fn walk_one ((c (& thir.ck))
+   (e (& expr))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (if (== (. e kind) 1u8) (ret (note c bound seen out (& (. e text)))))
+  (if (== (. e kind) 23u8) (ret (walk_call c e bound seen out)))
   (if (== (. e kind) 2u8)
     (do (walk c (& (. e kids)) bound seen out) (note_let bound (& (. e text))) (ret)))
+  (if (== (. e kind) 8u8) (ret (walk_for c e bound seen out)))
+  (if (== (. e kind) 12u8) (ret (walk_match c e bound seen out)))
+  (if (== (. e kind) 31u8) (ret (walk_inner c e bound seen out)))
   (walk c (& (. e kids)) bound seen out))
+
+(fn walk_call ((c (& thir.ck))
+   (e (& expr))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (note c bound seen out (& (. e text)))
+  (walk c (& (. e kids)) bound seen out))
+
+(fn walk_for ((c (& thir.ck))
+   (e (& expr))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (walk_n c e 0 2 bound seen out)
+  (let mut inner (copy_names bound))
+  (note_let (&mut inner) (& (. e text)))
+  (walk_n c e 2 (vec.len (& (. e kids))) (&mut inner) seen out))
+
+(fn walk_match ((c (& thir.ck))
+   (e (& expr))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (walk_n c e 0 1 bound seen out)
+  (let mut i 1)
+  (while (< i (vec.len (& (. e kids))))
+    (do
+      (let mut inner (copy_names bound))
+      (bind_pat (vec.get (& (. e kids)) i) (&mut inner))
+      (walk_n c e (+ i 1) (+ i 2) (&mut inner) seen out)
+      (set i (+ i 2)))))
+
+(fn walk_inner ((c (& thir.ck))
+   (e (& expr))
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (let mut inner (copy_names bound))
+  (let names (param_names e))
+  (for i 0 (vec.len (& names)) (note_let (&mut inner) (vec.get (& names) i)))
+  (walk c (& (. e kids)) (&mut inner) seen out))
+
+(fn walk_n ((c (& thir.ck))
+   (e (& expr))
+   (lo i64)
+   (hi i64)
+   (bound (&mut (vec str)))
+   (seen (&mut (vec str)))
+   (out (&mut (vec str)))) unit
+  (let end (if (< hi (vec.len (& (. e kids)))) hi (vec.len (& (. e kids)))))
+  (for i lo end (walk_one c (vec.get (& (. e kids)) i) bound seen out)))
+
+(fn copy_names ((b (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len b) (vec.push (&mut o) (str.clone (vec.get b i))))
+  o)
+
+(fn bind_pat ((e (& expr)) (bound (&mut (vec str)))) unit
+  (if (== (. e kind) 1u8) (ret (note_let bound (& (. e text)))))
+  (if (== (. e kind) 23u8)
+    (for i 0 (vec.len (& (. e kids))) (bind_pat (vec.get (& (. e kids)) i) bound))))
 
 (fn note_let ((bound (&mut (vec str))) (name (& str))) unit (vec.push bound (str.clone name)))
 

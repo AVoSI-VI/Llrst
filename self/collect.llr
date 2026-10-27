@@ -18,9 +18,21 @@
     (set i (- i 1)))
   (str.clone s))
 
+(fn rec ((file (& str)) (line i64) (col i64) (len i64) (code (& str)) (k (& str)) (v str)) str
+  (let mut d (diag.make true (str.clone file) line col len (str.from code)))
+  (if (> (str.len k) 0) (diag.add (&mut d) k v))
+  (diag.render (& d)))
+
 (fn add_use ((p (& prog.prog)) (srcs (& (vec src.loaded))) (it (& item)) (m (&mut prog.modu))) (res unit str)
   (let mi (mod_of srcs (& (. it name))))
-  (if (< mi 0) (ret (res.err (str.from "name.not_module"))))
+  (if (< mi 0)
+    (ret (res.err (rec (& (. m file))
+        (. it line)
+        (. it col)
+        (. it len)
+        "name.not_module"
+        "name"
+        (str.clone (& (. it name)))))))
   (vec.push (&mut (. m uals)) (last_seg (& (. it name))))
   (vec.push (&mut (. m umod)) mi)
   (vec.push (&mut (. m uline)) (. it line))
@@ -123,12 +135,14 @@
    (mi i64)
    (it (& item))
    (gens (vec str))
+   (bounds (vec (vec i64)))
    (owner i64)
    (self_on bool)
    (self_ty (& ty.sty))) (res prog.def str)
   (let mut d (prog.blank_def (str.clone (& (. it name))) mi 2u8))
   (set (. d is_pub) (. it is_pub))
   (set (. d gens) gens)
+  (set (. d bounds) bounds)
   (set (. d extern) (== (. it kind) 3u8))
   (set (. d inline) (keep_inline it))
   (set (. d owner) owner)
@@ -167,6 +181,8 @@
   (for i 0 (vec.len (& (. it fns)))
     (let f (vec.get (& (. it fns)) i))
     (let sig (try (trait_sig p mi f)))
+    (if (not (head_ref (& sig)))
+      (note_in p mi f "trait.method" "name" (str.clone (& (. f name))) "" (str.new)))
     (if (not (sig_safe (& sig))) (set safe false))
     (vec.push (&mut sigs) sig))
   (let d (vec.get_mut (&mut (. p defs)) id))
@@ -182,6 +198,10 @@
     (vec.push (&mut ps) (try (resolve.resolve p mi (& gens) (& (. prm ty))))))
   (let ret (try (resolve.resolve p mi (& gens) (& (. it ret)))))
   (res.ok (prog.ssig (str.clone (& (. it name))) ps ret)))
+
+(fn head_ref ((s (& prog.ssig))) bool
+  (if (== (vec.len (& (. s params))) 0) (ret false))
+  (resolve.ref_self (vec.get (& (. s params)) 0)))
 
 (fn sig_safe ((s (& prog.ssig))) bool
   (if (resolve.self_by_value (& (. s ret))) (ret false))
@@ -214,24 +234,49 @@
 (fn add_timpl ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64) (k i64)) (res unit str)
   (let it (vec.get (& (. (vec.get srcs mi) items)) k))
   (let tr (prog.lookup_trait p mi (& (. it name))))
-  (if (< tr 0) (ret (res.err (str.from "name.unknown"))))
+  (if (< tr 0)
+    (ret (res.err (rec (& (. (vec.get (& (. p mods)) mi) file))
+        (. it line)
+        (. it col)
+        (. it len)
+        "name.unknown"
+        "name"
+        (str.clone (& (. it name)))))))
   (let tyn (str.clone (& (. (. it ret) text))))
   (let self_ty (try (resolve.resolve p mi (& (vec.new <str>)) (& (. it ret)))))
   (if (>= (prog.impl_of p tr (& self_ty)) 0)
     (note_in p mi it "trait.dup" "trait" (str.clone (& (. it name))) "ty" (str.clone (& tyn))))
+  (let nsig (vec.len (& (. (vec.get (& (. p defs)) tr) sigs))))
+  (if (!= nsig (vec.len (& (. it fns))))
+    (ret (res.err (rec (& (. (vec.get (& (. p mods)) mi) file))
+        (. it line)
+        (. it col)
+        (. it len)
+        "trait.method"
+        "name"
+        (str.clone (& (. it name)))))))
   (let mut fns (take_fns srcs mi k))
   (let mut ids (vec.new <i64>))
+  (let mut slot 0)
   (while (> (vec.len (& fns)) 0)
-    (vec.push (&mut ids) (try (add_timpl_fn p mi tr (& self_ty) (& tyn) (vec.remove (&mut fns) 0)))))
+    (do
+      (vec.push (&mut ids)
+        (try (add_timpl_fn p mi tr (& self_ty) (& tyn) slot (vec.remove (&mut fns) 0))))
+      (set slot (+ slot 1))))
   (prog.add_impl p tr self_ty ids)
   (res.ok ()))
 
 (fn take_fns ((srcs (&mut (vec src.loaded))) (mi i64) (k i64)) (vec item)
   (vec.take (&mut (. (vec.get_mut (&mut (. (vec.get_mut srcs mi) items)) k) fns))))
 
-(fn add_timpl_fn ((p (&mut prog.prog)) (mi i64) (tr i64) (self_ty (& ty.sty)) (tyn (& str)) (it item)) (res i64 str)
+(fn add_timpl_fn ((p (&mut prog.prog)) (mi i64) (tr i64) (self_ty (& ty.sty)) (tyn (& str)) (slot i64) (it item)) (res i64 str)
+  (let want (str.clone (& (. (vec.get (& (. (vec.get (& (. p defs)) tr) sigs)) slot) name))))
+  (if (not (str.eq (& (. it name)) (& want)))
+    (ret (res.err (impl_bad p mi (& it) "trait.method" (& (. it name)) ""))))
   (let mut f it)
-  (let mut d (try (build_fn p mi (& f) (vec.new <str>) tr true self_ty)))
+  (let mut d (try (build_fn p mi (& f) (vec.new <str>) (vec.new < (vec i64) >) tr true self_ty)))
+  (if (not (sig_ok (& d) (vec.get (& (. (vec.get (& (. p defs)) tr) sigs)) slot) self_ty))
+    (ret (res.err (impl_bad p mi (& f) "type.mismatch" (& (. (vec.get (& (. p defs)) tr) name)) (& (. f name))))))
   (set (. d name) (impl_name tyn (& (. f name))))
   (set (. d is_pub) true)
   (set (. d body) (take_body (&mut f)))
@@ -298,8 +343,9 @@
 
 (fn add_free ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64) (k i64)) (res unit str)
   (let it (vec.get_mut (&mut (. (vec.get_mut srcs mi) items)) k))
-  (let mut d
-    (try (build_fn p mi it (resolve.type_gens (& (. it gens))) (neg 1) false (& (ty.unit)))))
+  (let gens (resolve.type_gens (& (. it gens))))
+  (let bounds (try (rows_of p mi it (& (. it gens)))))
+  (let mut d (try (build_fn p mi it gens bounds (neg 1) false (& (ty.unit)))))
   (set (. d body) (take_body it))
   (let nm (str.clone (& (. d name))))
   (add_named p mi nm d)
@@ -321,18 +367,95 @@
 (fn add_methods ((p (&mut prog.prog)) (srcs (&mut (vec src.loaded))) (mi i64) (k i64)) (res unit str)
   (let it (vec.get (& (. (vec.get srcs mi) items)) k))
   (let owner (prog.lookup_type p mi (& (. it name))))
-  (if (< owner 0) (ret (res.err (str.from "name.not_type"))))
-  (let gens (resolve.type_gens (& (. it gens))))
+  (if (< owner 0)
+    (ret (res.err (rec (& (. (vec.get (& (. p mods)) mi) file))
+        (. it line)
+        (. it col)
+        (. it len)
+        "name.not_type"
+        "name"
+        (str.clone (& (. it name)))))))
+  (let raw (str_list (& (. it gens))))
   (let mut fns (take_fns srcs mi k))
-  (while (> (vec.len (& fns)) 0) (try (add_method p mi owner (& gens) (vec.remove (&mut fns) 0))))
+  (while (> (vec.len (& fns)) 0) (try (add_method p mi owner (& raw) (vec.remove (&mut fns) 0))))
   (res.ok ()))
 
 (fn add_method ((p (&mut prog.prog)) (mi i64) (owner i64) (gens (& (vec str))) (it item)) (res unit str)
   (let mut f it)
   (let g (cat_gens gens (& (. f gens))))
-  (let mut d (try (build_fn p mi (& f) g owner false (& (ty.unit)))))
+  (let b (try (cat_bounds p mi (& f) gens (& (. f gens)))))
+  (let mut d (try (build_fn p mi (& f) g b owner false (& (ty.unit)))))
   (set (. d body) (take_body (&mut f)))
   (let name (str.clone (& (. d name))))
   (let id (prog.push_def p d))
   (prog.add_meth p owner name id)
   (res.ok ()))
+
+(fn impl_bad ((p (& prog.prog)) (mi i64) (it (& item)) (code (& str)) (a (& str)) (b (& str))) str
+  (let mut d
+    (diag.make true
+      (str.clone (& (. (vec.get (& (. p mods)) mi) file)))
+      (. it line)
+      (. it col)
+      (. it len)
+      (str.from code)))
+  (if (== (str.len b) 0) (diag.add (&mut d) "name" (str.clone a)))
+  (if (> (str.len b) 0)
+    (do (diag.add (&mut d) "want" (str.clone a)) (diag.add (&mut d) "got" (str.clone b))))
+  (diag.render (& d)))
+
+(fn sig_ok ((d (& prog.def)) (sig (& prog.ssig)) (self_ty (& ty.sty))) bool
+  (if (!= (vec.len (& (. d spars))) (vec.len (& (. sig params)))) (ret false))
+  (for i 0 (vec.len (& (. d spars))) (if (not (param_ok d sig self_ty i)) (ret false)))
+  (let want (ty.subst_self (& (. sig ret)) self_ty))
+  (ty.eq (& (. d ret)) (& want)))
+
+(fn param_ok ((d (& prog.def)) (sig (& prog.ssig)) (self_ty (& ty.sty)) (i i64)) bool
+  (let want (ty.subst_self (vec.get (& (. sig params)) i) self_ty))
+  (ty.eq (& (. (vec.get (& (. d spars)) i) ty)) (& want)))
+
+(fn str_list ((v (& (vec str)))) (vec str)
+  (let mut o (vec.new <str>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (str.clone (vec.get v i))))
+  o)
+
+(fn rows_of ((p (& prog.prog)) (mi i64) (it (& item)) (raw (& (vec str)))) (res (vec (vec i64)) str)
+  (let names (resolve.gen_bounds raw))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 (vec.len (& names)) (vec.push (&mut o) (try (trait_ids p mi it (vec.get (& names) i)))))
+  (res.ok o))
+
+(fn trait_ids ((p (& prog.prog)) (mi i64) (it (& item)) (names (& (vec str)))) (res (vec i64) str)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len names)
+    (let id (prog.lookup_trait p mi (vec.get names i)))
+    (if (< id 0) (ret (res.err (impl_bad p mi it "name.unknown" (vec.get names i) ""))))
+    (vec.push (&mut o) id))
+  (res.ok o))
+
+(fn cat_bounds ((p (& prog.prog)) (mi i64) (it (& item)) (outer (& (vec str))) (inner (& (vec str)))) (res (vec (vec i64)) str)
+  (let mut names (resolve.type_gens outer))
+  (let mut bounds (try (rows_of p mi it outer)))
+  (let extra (resolve.type_gens inner))
+  (let extra_b (try (rows_of p mi it inner)))
+  (for i 0 (vec.len (& extra)) (merge_bound (&mut names) (&mut bounds) (& extra) (& extra_b) i))
+  (res.ok bounds))
+
+(fn merge_bound ((names (&mut (vec str)))
+   (bounds (&mut (vec (vec i64))))
+   (extra (& (vec str)))
+   (extra_b (& (vec (vec i64))))
+   (i i64)) unit
+  (let g (vec.get extra i))
+  (let at (str_at names g))
+  (let row (id_list (vec.get extra_b i)))
+  (if (>= at 0) (vec.set bounds at row) (do (vec.push names (str.clone g)) (vec.push bounds row))))
+
+(fn str_at ((xs (& (vec str))) (n (& str))) i64
+  (for i 0 (vec.len xs) (if (str.eq (vec.get xs i) n) (ret i)))
+  (neg 1))
+
+(fn id_list ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)

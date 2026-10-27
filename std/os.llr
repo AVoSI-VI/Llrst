@@ -36,6 +36,7 @@
 (pub (fn shell ((cmd (& str))) i64
   (let c (str.cstr cmd))
   (let st (sys.system (. c p)))
+  (if (== sys.os_id 2) (ret (as i64 st)))
   (as i64 (band (shr st 8i32) 255i32))))
 
 ;; Captured stdout and the exit code. A failed popen is code -1 and an empty string.
@@ -54,9 +55,7 @@
 
 (pub (fn is_tty ((fd i64)) bool (!= (sys.isatty (as i32 fd)) 0i32)))
 
-(test os_cwd
-  (let c (cwd))
-  (assert (> (str.len (& c)) 0)))
+(test os_cwd (let c (cwd)) (assert (> (str.len (& c)) 0)))
 
 (test os_args
   (let a (args))

@@ -2,16 +2,16 @@
 (use std.fs)
 (use std.io)
 (use std.os)
+(use std.path)
 (use std.str)
 (use std.sys)
+(use proj.check)
 (use proj.diag)
 (use proj.drive)
+(use proj.link)
+(use proj.lint)
 (use proj.load)
-(use proj.lower)
-(use proj.mir_print)
 (use proj.prog)
-(use proj.thir)
-(use proj.ty)
 
 (fn usage () unit
   (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]")
@@ -86,16 +86,43 @@
   (or (str.eq c "build")
     (or (str.eq c "run") (or (str.eq c "check") (or (str.eq c "emit-mir") (str.eq c "version"))))))
 
+(fn env_dir ((k (& str))) str
+  (match (os.env k) ((opt.some s) (slash (& s))) ((opt.none) (str.new))))
+
+(fn slash ((p (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  o)
+
+(fn tmp_root () str
+  (let a (env_dir "TMPDIR"))
+  (if (> (str.len (& a)) 0) (ret a))
+  (let b (env_dir "TEMP"))
+  (if (> (str.len (& b)) 0) (ret b))
+  (let c (env_dir "TMP"))
+  (if (> (str.len (& c)) 0) (ret c))
+  (str.from "/tmp"))
+
+(fn run_file () str
+  (let root (tmp_root))
+  (let mut n 0)
+  (loop
+    (let p (path.join (& root) (& (str.cat "llr_run_" (& (str.from_int n))))))
+    (if (not (or (fs.exists (& p)) (fs.exists (& (str.cat (& p) ".exe"))))) (ret p))
+    (set n (+ n 1))
+    (if (> n 10000) (ret p))))
+
+(fn host_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
+
 (fn run_cmd ((o drive.flags)) unit
-  (let mut out (str.clone (& (. o file))))
-  (str.push (&mut out) ".run")
   (let mut b o)
   (set (. b cmd) (str.from "build"))
-  (set (. b out) out)
+  (set (. b out) (run_file))
   (let code (drive.run (& b)))
   (if (!= code 0) (os.exit code))
-  (let st (os.shell (& (cmd_line (& (. b out)) (& (. b args))))))
-  (if (fs.exists (& (. b out))) (let _ (fs.remove (& (. b out)))))
+  (let exe (link.host_exe (& (. b out)) (host_win (& (. b target)))))
+  (let st (os.shell (& (cmd_line (& exe) (& (. b args))))))
+  (if (fs.exists (& exe)) (let _ (fs.remove (& exe))))
   (os.exit st))
 
 (fn cmd_line ((exe (& str)) (args (& (vec str)))) str
@@ -112,33 +139,17 @@
   o)
 
 (fn emit_cmd ((o (& drive.flags))) unit
-  (match (emit o)
+  (match (load.load_at (& (. o file)) (& (. o std)))
     ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
-    ((res.ok s) (sys.write_str 1 (& s)))))
+    ((res.ok p) (emit_ok o p))))
 
-(fn emit ((o (& drive.flags))) (res str str)
-  (let p (try (load.load_at (& (. o file)) (& (. o std)))))
+(fn emit_ok ((o (& drive.flags)) (p prog.prog)) unit
   (let mut ds (vec.new <diag.dg>))
   (let mut s (str.new))
-  (for i 0 (vec.len (& (. p defs))) (if (user_fn (& p) i) (add_fn (&mut s) (& p) i (&mut ds))))
-  (res.ok s))
-
-(fn user_fn ((p (& prog.prog)) (id i64)) bool
-  (let d (vec.get (& (. p defs)) id))
-  (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret false))
-  (if (!= (. d kind) 2u8) (ret false))
-  (if (. d extern) (ret false))
-  (if (> (vec.len (& (. d gens))) 0) (ret false))
-  true)
-
-(fn add_fn ((s (&mut str)) (p (& prog.prog)) (id i64) (sink (&mut (vec diag.dg)))) unit
-  (let empty (vec.new <ty.sty>))
-  (match (thir.check_fn p id empty sink)
-    ((res.err _) ())
-    ((res.ok e)
-      (do
-        (let b (lower.lower_fn p e (prog.fn_path p id) sink))
-        (str.push s (& (mir_print.print_body (& b))))))))
+  (check.run (& p) "" (&mut ds) (&mut s) true (. o test))
+  (if (not (diag.any_err (& (. p notes)) "")) (lint.generics (& p) (&mut ds) (& (vec.new <i64>))))
+  (sys.write_str 1 (& s))
+  (os.exit (drive.finish o (&mut ds))))
 
 (fn main () unit
   (let args (os.args))

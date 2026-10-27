@@ -1,0 +1,156 @@
+;; Impl shape and generic bounds for llr-check. The compiler in self/ is the reference.
+(use std.ast)
+(use std.check)
+(use std.check_ty)
+(use std.fs)
+(use std.str)
+
+(fn trait_at ((srcs (& (vec source))) (name (& str))) i64
+  (for si 0 (vec.len srcs)
+    (let s (vec.get srcs si))
+    (for ii 0 (vec.len (& (. s items)))
+      (let it (vec.get (& (. s items)) ii))
+      (if (and (== (. it kind) 9u8) (str.eq (& (. it name)) name)) (ret si))))
+  (neg 1))
+
+(fn trait_of ((srcs (& (vec source))) (name (& str))) (& item)
+  (for si 0 (vec.len srcs)
+    (let s (vec.get srcs si))
+    (for ii 0 (vec.len (& (. s items)))
+      (let it (vec.get (& (. s items)) ii))
+      (if (and (== (. it kind) 9u8) (str.eq (& (. it name)) name)) (ret it))))
+  (vec.get (& (. (vec.get srcs 0) items)) 0))
+
+(fn shape_one ((srcs (& (vec source))) (it (& item))) (opt str)
+  (if (< (trait_at srcs (& (. it name))) 0) (ret (opt.none)))
+  (let tr (trait_of srcs (& (. it name))))
+  (if (== (vec.len (& (. it fns))) (vec.len (& (. tr fns)))) (ret (opt.none)))
+  (opt.some (check.span (. it line)
+     (. it col)
+     (. it len)
+     "trait.method"
+     (& (check.kv "name" (& (. it name)))))))
+
+(pub (fn impl_shape ((srcs (& (vec source))) (main i64)) (opt str)
+  (let s (vec.get srcs main))
+  (for ii 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) ii))
+    (if (== (. it kind) 10u8)
+      (match (shape_one srcs it) ((opt.some err) (ret (opt.some err))) ((opt.none) ()))))
+  (opt.none)))
+
+(fn has_impl ((srcs (& (vec source))) (tr (& str)) (tyn (& str))) bool
+  (for si 0 (vec.len srcs)
+    (let s (vec.get srcs si))
+    (for ii 0 (vec.len (& (. s items)))
+      (let it (vec.get (& (. s items)) ii))
+      (if (and (== (. it kind) 10u8)
+         (and (str.eq (& (. it name)) tr) (str.eq (& (. (. it ret) text)) tyn)))
+        (ret true))))
+  false)
+
+(fn fn_item ((srcs (& (vec source))) (d (& def))) (& item)
+  (let it (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
+  (if (< (. d fi) 0) (ret it))
+  (vec.get (& (. it fns)) (. d fi)))
+
+(fn gen_name ((s (& str))) str
+  (let mut hi (str.len s))
+  (for i 0 (str.len s) (if (== (str.at s i) 58u8) (do (set hi i) (brk))))
+  (str.slice s 0 hi))
+
+(fn bound_at ((s (& str)) (i (&mut i64))) str
+  (let start (@ i))
+  (while (and (< (@ i) (str.len s)) (!= (str.at s (@ i)) 58u8)) (set (@ i) (+ (@ i) 1)))
+  (let name (str.slice s start (@ i)))
+  (if (< (@ i) (str.len s)) (set (@ i) (+ (@ i) 1)))
+  name)
+
+(fn peel_both ((p (& str)) (a (& str))) (opt str)
+  (if (and (str.starts p "(&mut ") (str.starts a "(&mut "))
+    (ret (opt.some (str.slice a 6 (- (str.len a) 1)))))
+  (if (and (str.starts p "(& ") (str.starts a "(& "))
+    (ret (opt.some (str.slice a 3 (- (str.len a) 1)))))
+  (opt.none))
+
+(fn subst_name ((param (& str)) (arg (& str)) (gen (& str))) str
+  (if (str.eq param gen) (ret (str.clone arg)))
+  (match (peel_both param arg)
+    ((opt.some a) (subst_name (& (peel_param param)) (& a) gen))
+    ((opt.none) (app_arg param arg gen))))
+
+(fn peel_param ((p (& str))) str
+  (if (str.starts p "(&mut ") (ret (str.slice p 6 (- (str.len p) 1))))
+  (if (str.starts p "(& ") (ret (str.slice p 3 (- (str.len p) 1))))
+  (str.clone p))
+
+(fn same_head ((p (& str)) (a (& str)) (n i64)) bool
+  (if (or (< (str.len p) n) (< (str.len a) n)) (ret false))
+  (str.eq (& (str.slice p 0 n)) (& (str.slice a 0 n))))
+
+(fn app_arg ((param (& str)) (arg (& str)) (gen (& str))) str
+  (if (not (and (str.starts param "(") (str.starts arg "("))) (ret (str.new)))
+  (let mut i 0)
+  (while (and (< i (str.len param)) (< i (str.len arg)) (!= (str.at param i) 32u8)) (set i (+ i 1)))
+  (if (not (same_head param arg i)) (ret (str.new)))
+  (subst_name (& (str.slice param (+ i 1) (- (str.len param) 1)))
+    (& (str.slice arg (+ i 1) (- (str.len arg) 1)))
+    gen))
+
+(fn miss ((e (& expr)) (tr (& str)) (tyn (& str))) str
+  (check.span (. e line)
+    (. e col)
+    (. e len)
+    "trait.missing"
+    (& (check.join_kv "trait" tr "ty" tyn))))
+
+(fn one_bound ((srcs (& (vec source))) (e (& expr)) (param (& str)) (arg (& str)) (gen (& str)) (tr (& str))) (opt str)
+  (let tyn (subst_name param arg gen))
+  (if (or (== (str.len (& tyn)) 0) (has_impl srcs tr (& tyn))) (ret (opt.none)))
+  (opt.some (miss e tr (& tyn))))
+
+(fn bounds_of ((srcs (& (vec source))) (e (& expr)) (param (& str)) (arg (& str)) (raw (& str))) (opt str)
+  (let gen (gen_name raw))
+  (let mut i (str.len (& gen)))
+  (if (< i (str.len raw)) (set i (+ i 1)))
+  (while (< i (str.len raw))
+    (let tr (bound_at raw (&mut i)))
+    (match (one_bound srcs e param arg (& gen) (& tr))
+      ((opt.some err) (ret (opt.some err)))
+      ((opt.none) ())))
+  (opt.none))
+
+(pub (fn bounds ((srcs (& (vec source))) (d (& def)) (e (& expr)) (kids (& (vec texpr)))) (opt str)
+  (if (== (vec.len kids) 0) (ret (opt.none)))
+  (let f (fn_item srcs d))
+  (if (== (vec.len (& (. f params))) 0) (ret (opt.none)))
+  (let param
+    (check_ty.show_ty (& (. (vec.get (& (. f params)) 0) ty))
+      (& (vec.new <str>))
+      (& (vec.new <info>))))
+  (let arg (& (. (vec.get kids 0) ty)))
+  (for i 0 (vec.len (& (. f gens)))
+    (match (bounds_of srcs e (& param) arg (vec.get (& (. f gens)) i))
+      ((opt.some err) (ret (opt.some err)))
+      ((opt.none) ())))
+  (opt.none)))
+
+(fn write_src ((path (& str)) (src (& str))) bool
+  (match (fs.write path src) ((res.ok _) true) ((res.err _) false)))
+
+(test more_impl_shape
+  (let p (str.from "/tmp/llrst-shape.llr"))
+  (let src (str.from "(trait Show (fn show ((& Self)) str)) (impl Show i64) (fn main () unit ())"))
+  (assert (write_src (& p) (& src)))
+  (match (check.check (& p))
+    ((res.err d) (assert (str.has (& d) "trait.method|name=Show")))
+    ((res.ok _) (assert false))))
+
+(test more_bound
+  (let p (str.from "/tmp/llrst-bound.llr"))
+  (let src
+    (str.from "(struct box (n i64)) (fn main () unit (let mut v (vec.new <box>)) (vec.sort (&mut v)))"))
+  (assert (write_src (& p) (& src)))
+  (match (check.check (& p))
+    ((res.err d) (assert (str.has (& d) "trait.missing|trait=Ord|ty=box")))
+    ((res.ok _) (assert false))))

@@ -244,7 +244,8 @@
 
 (fn parse_const ((t (& tree)) (n i64) (is_pub bool)) (res item str)
   (let ids (ast_expr.forms t n))
-  (if (!= (vec.len (& ids)) 4) (ret (res.err (ast_expr.err_at t n "const" "arity"))))
+  (if (!= (vec.len (& ids)) 4)
+    (ret (res.err (ast_expr.arity_at t n "const" "3" (- (vec.len (& ids)) 1)))))
   (let mut it
     (blank_item 7u8
       (str.clone (sexp.text t (@ (vec.get (& ids) 1))))
@@ -269,7 +270,8 @@
 
 (fn parse_tmeth ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
-  (if (< (vec.len (& ids)) 4) (ret (res.err (ast_expr.err_at t n "fn" "arity"))))
+  (if (< (vec.len (& ids)) 4)
+    (ret (res.err (ast_expr.arity_at t n "fn" "3+" (- (vec.len (& ids)) 1)))))
   (let ps (ast_expr.forms t (@ (vec.get (& ids) 2))))
   (let mut params (vec.new <param>))
   (for i 0 (vec.len (& ps))
@@ -312,10 +314,13 @@
   (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
   (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))
   (if (and (str.eq h "test") (not is_pub)) (ret (parse_test t n)))
-  (res.err (ast_expr.err_at t n "fn extern struct enum const" h)))
+  (res.err (ast_expr.bad_head t n h)))
 
 (fn parse_item ((t (& tree)) (n i64) (is_pub bool)) (res item str)
   (if (!= (sexp.kind t n) 2u8) (ret (res.err (ast_expr.err_at t n "(form)" (sexp.text t n)))))
+  (let ids (ast_expr.forms t n))
+  (if (or (== (vec.len (& ids)) 0) (!= (sexp.kind t (@ (vec.get (& ids) 0))) 0u8))
+    (ret (res.err (ast_expr.bad_head t n (& (sexp.flat t n))))))
   (let h (sexp.head t n))
   (if (str.eq h "pub")
     (do
@@ -387,5 +392,5 @@
 
 (test ast_bad
   (match (parse_src "(bogus)")
-    ((res.err e) (assert (str.starts (& e) "parse.expect")))
+    ((res.err e) (assert (str.starts (& e) "parse.bad_head")))
     ((res.ok _) (assert false))))

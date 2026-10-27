@@ -16,7 +16,11 @@
   (let mut sink (vec.new <diag.dg>))
   (let body (thir.check_fn p (. e id2) (ty.clone_tys (& (. e tys))) (&mut sink)))
   (match body
-    ((res.err _) (do (let _ (vec.pop (&mut (. w stack)))) (ret false)))
+    ((res.err _)
+      (do
+        (diag.append (&mut (. w diags)) (& sink))
+        (let _ (vec.pop (&mut (. w stack))))
+        (ret false)))
     ((res.ok b) (subst p w b args dest (. e id2) (ty.clone_tys (& (. e tys))))))
   (let _ (vec.pop (&mut (. w stack))))
   true))

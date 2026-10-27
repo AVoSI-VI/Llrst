@@ -42,10 +42,12 @@ for dir in run std; do
     set -u
     tr -d '\r' <"$tmp/want" >"$tmp/want.n"
     tr -d '\r' <"$tmp/got" >"$tmp/got.n"
-    if cmp -s "$tmp/want.n" "$tmp/got.n"; then
+    tr -d '\r' <"$tmp/want.err" >"$tmp/want.err.n"
+    tr -d '\r' <"$tmp/got.err" >"$tmp/got.err.n"
+    if cmp -s "$tmp/want.n" "$tmp/got.n" && cmp -s "$tmp/want.err.n" "$tmp/got.err.n"; then
       echo "ok|mir/$rel"
     else
-      echo "fail|mir/$rel|want=$(head -c 180 "$tmp/want.n" | tr '\n' ' ')|got=$(head -c 180 "$tmp/got.n" | tr '\n' ' ')"
+      echo "fail|mir/$rel|want=$(head -c 180 "$tmp/want.n" | tr '\n' ' ')|got=$(head -c 180 "$tmp/got.n" | tr '\n' ' ')|err=$(head -c 180 "$tmp/got.err.n" | tr '\n' ' ')"
       fails=$((fails+1))
     fi
   done

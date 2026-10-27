@@ -20,6 +20,7 @@
   (pub (kind u8))
   (pub (is_pub bool))
   (pub (gens (vec str)))
+  (pub (bounds (vec (vec i64))))
   (pub (spars (vec spar)))
   (pub (sfields (vec sfield)))
   (pub (svars (vec svar)))
@@ -78,6 +79,7 @@
     kind
     false
     (vec.new <str>)
+    (vec.new < (vec i64) >)
     (vec.new <spar>)
     (vec.new <sfield>)
     (vec.new <svar>)
@@ -127,6 +129,7 @@
     (. d kind)
     (. d is_pub)
     (copy_strs (& (. d gens)))
+    (copy_ii (& (. d bounds)))
     (copy_spars (& (. d spars)))
     (copy_fields (& (. d sfields)))
     (copy_vars (& (. d svars)))
@@ -141,6 +144,15 @@
     (. d len)
     (no_expr)
     (. d safe))))
+
+(fn copy_ii ((v (& (vec (vec i64))))) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 (vec.len v)
+    (let mut row (vec.new <i64>))
+    (let src (vec.get v i))
+    (for j 0 (vec.len src) (vec.push (&mut row) (@ (vec.get src j))))
+    (vec.push (&mut o) row))
+  o)
 
 (fn copy_strs ((v (& (vec str)))) (vec str)
   (let mut o (vec.new <str>))

@@ -3,6 +3,7 @@
 (use std.os)
 (use std.path)
 (use std.str)
+(use proj.diag)
 (use proj.link_win)
 (use proj.load)
 
@@ -47,7 +48,7 @@
   (let ext (if win ".obj" ".o"))
   (path.join (& (path.dir (& o))) (& (str.cat (& (path.stem (& o))) ext)))))
 
-(pub (fn cc ((obj (& str)) (out (& str))) i64
+(fn cc_cmd ((obj (& str)) (out (& str))) str
   (let mut cmd (str.from "cc "))
   (str.push (&mut cmd) (& (sh obj)))
   (str.push (&mut cmd) " -o ")
@@ -56,19 +57,21 @@
   (if (> (str.len (& shim)) 0)
     (do (str.push (&mut cmd) " ") (str.push (&mut cmd) (& (sh (& shim))))))
   (str.push (&mut cmd) " -pie -pthread")
-  (os.shell (& cmd))))
+  cmd)
+
+(pub (fn host_exe ((out (& str)) (win bool)) str (if win (link_win.exe_of out) (str.clone out))))
 
 (fn rm ((obj (& str))) unit (if (fs.exists obj) (let _ (fs.remove obj))))
 
-(fn miss ((name (& str))) str
-  (let mut s (str.from "E||0|0|0|link.failed|cmd=cl|got="))
-  (str.push (&mut s) name)
-  (str.push (&mut s) " missing")
-  s)
+(fn fail ((main (& str)) (cmd (& str)) (got (& str))) str
+  (let mut d (diag.make true (slash main) 1 1 0 (str.from "link.failed")))
+  (diag.add (&mut d) "cmd" (str.clone cmd))
+  (diag.add (&mut d) "got" (str.clone got))
+  (diag.render (& d)))
 
-(fn via_cl ((bytes (& str)) (out (& str))) str
+(fn via_cl ((bytes (& str)) (out (& str)) (main (& str))) str
   (let obj (obj_path out true))
-  (match (fs.write (& obj) bytes) ((res.err e) (ret e)) ((res.ok _) ()))
+  (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
   (let wsa (runtime "llr_wsa.obj"))
   (let shim (runtime "llr_win.obj"))
   (let sock (runtime "llr_win_sock.obj"))
@@ -77,21 +80,16 @@
      (== (str.len (& shim)) 0)
      (== (str.len (& sock)) 0)
      (== (str.len (& proc)) 0))
-    (do (rm (& obj)) (ret (miss "llr_win.obj"))))
-  (let err (link_win.link (& obj) out (& wsa) (& shim) (& sock) (& proc)))
+    (do (rm (& obj)) (ret (fail main "cl" "llr_win.obj missing"))))
+  (let err (link_win.link (& obj) out (& wsa) (& shim) (& sock) (& proc) main))
   (rm (& obj))
   err)
 
-(pub (fn link ((bytes (& str)) (out (& str)) (win bool)) str
-  (if win (ret (via_cl bytes out)))
+(pub (fn link ((bytes (& str)) (out (& str)) (win bool) (main (& str))) str
+  (if win (ret (via_cl bytes out main)))
   (let obj (obj_path out false))
-  (match (fs.write (& obj) bytes) ((res.err e) (ret e)) ((res.ok _) ()))
-  (let code (cc (& obj) out))
+  (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
+  (let cmd (cc_cmd (& obj) out))
+  (let code (os.shell (& cmd)))
   (rm (& obj))
-  (if (== code 0) (str.new) (fail (& obj) code))))
-
-(fn fail ((obj (& str)) (code i64)) str
-  (let mut s (str.from "E||0|0|0|link.failed|cmd=cc|got="))
-  (str.push (&mut s) (& (str.from_int code)))
-  (let _ obj)
-  s)
+  (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))
