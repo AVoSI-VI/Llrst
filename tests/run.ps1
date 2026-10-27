@@ -269,10 +269,10 @@ try {
     }
 
     $lineFail = $false
-    foreach ($dir in @('compiler\src', 'std', 'tools', 'docs', 'scripts', 'tests')) {
+    foreach ($dir in @('compiler\src', 'std', 'tools', 'docs', 'scripts', 'tests', 'self', 'runtime')) {
         $full = Join-Path $root $dir
         if (-not (Test-Path -LiteralPath $full)) { continue }
-        Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -in '.rs', '.llr', '.md', '.sh' } | ForEach-Object {
+        Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -in '.rs', '.llr', '.md', '.sh', '.c' } | ForEach-Object {
             $body = [System.IO.File]::ReadAllText($_.FullName)
             $n = ([regex]::Matches($body, "`n")).Count
             $rel = $_.FullName.Substring($root.Length).TrimStart('\').Replace('\', '/')

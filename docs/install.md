@@ -15,7 +15,8 @@ The script builds release `llrc` as stage 0 and does not install that binary. St
 `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llrs1` and `llrs2` must match
 byte for byte. The script then installs `llrs2` as `llrc`, copies `std/` to
 `PREFIX/share/llrst/std`, compiles the host runtime (`runtime/llr_stat.c` on Unix,
-`runtime/llr_win.c` and `runtime/llr_wsa.c` on Windows), compiles every `tools/llr-*.llr`,
+`runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`, and `runtime/llr_win_proc.c`
+on Windows), compiles every `tools/llr-*.llr`,
 and verifies with a hello world. Output is pipe records; the last line is
 `done|prefix=...|tools=N`. The installed compiler links those prebuilt objects. It does not
 compile the C files when the object is missing or older.
@@ -25,8 +26,8 @@ layout is whatever the host headers define. On a Mac, the same object translates
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`. The installed compiler does not
 target Darwin; that gap is Phase 6 in `HANDOFF.md`. `tests/run.sh` is the check for stage 0.
 The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
-`<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_win`
-and `llr_wsa` from those same places.
+`<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
+`llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places.
 
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
 `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. The executable path comes from

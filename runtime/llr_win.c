@@ -2,92 +2,11 @@
  * File descriptors below 256 are the C runtime. Higher numbers are handles or
  * sockets in this file. /tmp maps at GetTempPath so the existing tests keep
  * their paths. Open flags are the Linux values baked into std/fs.llr. */
-#define _CRT_DECLARE_NONSTDC_NAMES 0
-#define _CRT_SECURE_NO_WARNINGS
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <io.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#ifdef fileno
-#undef fileno
-#endif
-#ifdef popen
-#undef popen
-#endif
-#ifdef pclose
-#undef pclose
-#endif
-#ifdef isatty
-#undef isatty
-#endif
-#ifdef mkdir
-#undef mkdir
-#endif
-#ifdef getcwd
-#undef getcwd
-#endif
+#include "llr_win.h"
 
-#define FD_BASE 256
-/* Client threads share this table with the server. http_many holds 3072 of each. */
-#define FD_MAX 8192
-#define KIND_FILE 1
-#define KIND_SOCK 2
-#define L_CREAT 64
-#define L_TRUNC 512
-#define L_APPEND 1024
-#define L_NONBLOCK 2048
-#define F_GETFL 3
-#define F_SETFL 4
-#define CHILD_MAX 64
-#define PATH_CAP 4096
-
-#define SOCK_BAD (~(uint64_t)0)
-
-int llr_wsa_startup(void);
-int llr_wsa_last_error(void);
-int llr_wsa_close(uint64_t sock);
-int llr_wsa_nonblock(uint64_t sock, int on);
-uint64_t llr_wsa_socket(int domain, int ty, int proto);
-int llr_wsa_bind(uint64_t sock, const void *addr, int len);
-int llr_wsa_listen(uint64_t sock, int backlog);
-int llr_wsa_connect(uint64_t sock, const void *addr, int len);
-int llr_wsa_getsockname(uint64_t sock, void *addr, int *len);
-uint64_t llr_wsa_accept(uint64_t sock, void *addr, int *len);
-int llr_wsa_send(uint64_t sock, const void *buf, int n, int flags);
-int llr_wsa_recv(uint64_t sock, void *buf, int n, int flags);
-int llr_wsa_poll(void *fds, uint32_t n, int timeout);
-short llr_wsa_to_events(short events);
-short llr_wsa_from_events(short events);
-
-typedef struct slot {
-    int kind;
-    HANDLE handle;
-    uint64_t sock;
-    int nonblock;
-    int listening;
-} Slot;
-
-typedef struct job {
-    int32_t (*fn)(int64_t);
-    int64_t arg;
-    volatile int32_t code;
-} Job;
-
-typedef struct kid {
-    int live;
-    HANDLE thread;
-    Job *job;
-} Kid;
-
-static Slot slots[FD_MAX];
-static Kid kids[CHILD_MAX];
-static CRITICAL_SECTION fd_lock;
+Slot slots[FD_MAX];
+CRITICAL_SECTION fd_lock;
 static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
 
 static BOOL CALLBACK init_cb(PINIT_ONCE o, PVOID p, PVOID *ctx) {
@@ -102,11 +21,11 @@ static BOOL CALLBACK init_cb(PINIT_ONCE o, PVOID p, PVOID *ctx) {
     return TRUE;
 }
 
-static void ensure_init(void) {
+void ensure_init(void) {
     InitOnceExecuteOnce(&once, init_cb, NULL, NULL);
 }
 
-static void set_errno(int err) {
+void set_errno(int err) {
     errno = err;
 }
 
@@ -115,7 +34,7 @@ int *__errno_location(void) {
     return _errno();
 }
 
-static void map_wsa(void) {
+void map_wsa(void) {
     int err = llr_wsa_last_error();
     if (err == 10035) {
         set_errno(11);
@@ -146,7 +65,7 @@ static int map_path(const char *in, char *out, size_t cap) {
     return snprintf(out, cap, "%s", in) < (int)cap ? 0 : -1;
 }
 
-static int take_new(int kind, HANDLE handle, uint64_t sock) {
+int take_new(int kind, HANDLE handle, uint64_t sock) {
     int id = -1;
     EnterCriticalSection(&fd_lock);
     for (int i = 0; i < FD_MAX; i++) {
@@ -164,7 +83,7 @@ static int take_new(int kind, HANDLE handle, uint64_t sock) {
     return id;
 }
 
-static int copy_slot(int fd, Slot *out) {
+int copy_slot(int fd, Slot *out) {
     if (fd < FD_BASE || fd >= FD_BASE + FD_MAX) {
         return 0;
     }
@@ -178,7 +97,7 @@ static int copy_slot(int fd, Slot *out) {
     return ok;
 }
 
-static int take_slot(int fd, Slot *out) {
+int take_slot(int fd, Slot *out) {
     if (fd < FD_BASE || fd >= FD_BASE + FD_MAX) {
         return 0;
     }
@@ -193,7 +112,7 @@ static int take_slot(int fd, Slot *out) {
     return ok;
 }
 
-static HANDLE std_handle(int fd) {
+HANDLE std_handle(int fd) {
     if (fd == 0) {
         return GetStdHandle(STD_INPUT_HANDLE);
     }
@@ -508,517 +427,4 @@ void llr_panic_frames(void) {
         frame = frame->prev;
         n++;
     }
-}
-
-static int sock_fd(uint64_t sock) {
-    int fd = take_new(KIND_SOCK, NULL, sock);
-    if (fd < 0) {
-        llr_wsa_close(sock);
-        set_errno(24);
-    }
-    return fd;
-}
-
-static uint64_t socket_of(int fd) {
-    Slot slot;
-    if (!copy_slot(fd, &slot) || slot.kind != KIND_SOCK) {
-        set_errno(9);
-        return SOCK_BAD;
-    }
-    return slot.sock;
-}
-
-int socket(int domain, int ty, int proto) {
-    ensure_init();
-    uint64_t sock = llr_wsa_socket(domain, ty, proto);
-    if (sock == SOCK_BAD) {
-        map_wsa();
-        return -1;
-    }
-    return sock_fd(sock);
-}
-
-int bind(int fd, void *addr, uint32_t len) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    if (llr_wsa_bind(sock, addr, (int)len) != 0) {
-        map_wsa();
-        return -1;
-    }
-    return 0;
-}
-
-int listen(int fd, int backlog) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    if (llr_wsa_listen(sock, backlog) != 0) {
-        int again = 0;
-        EnterCriticalSection(&fd_lock);
-        if (fd >= FD_BASE && fd < FD_BASE + FD_MAX && slots[fd - FD_BASE].listening) {
-            again = 1;
-        }
-        LeaveCriticalSection(&fd_lock);
-        if (again) {
-            return 0;
-        }
-        map_wsa();
-        return -1;
-    }
-    EnterCriticalSection(&fd_lock);
-    if (fd >= FD_BASE && fd < FD_BASE + FD_MAX) {
-        slots[fd - FD_BASE].listening = 1;
-    }
-    LeaveCriticalSection(&fd_lock);
-    return 0;
-}
-
-int accept(int fd, void *addr, uint32_t *len) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    int got = len == NULL ? 0 : (int)*len;
-    uint64_t client = llr_wsa_accept(sock, addr, len == NULL ? NULL : &got);
-    if (client == SOCK_BAD) {
-        map_wsa();
-        return -1;
-    }
-    if (len != NULL) {
-        *len = (uint32_t)got;
-    }
-    return sock_fd(client);
-}
-
-int connect(int fd, void *addr, uint32_t len) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    if (llr_wsa_connect(sock, addr, (int)len) != 0) {
-        map_wsa();
-        return -1;
-    }
-    return 0;
-}
-
-int getsockname(int fd, void *addr, uint32_t *len) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    int got = len == NULL ? 0 : (int)*len;
-    if (llr_wsa_getsockname(sock, addr, &got) != 0) {
-        map_wsa();
-        return -1;
-    }
-    if (len != NULL) {
-        *len = (uint32_t)got;
-    }
-    return 0;
-}
-
-int64_t send(int fd, const void *buf, uint64_t n, int flags) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    if (n > 0x7fffffff) {
-        n = 0x7fffffff;
-    }
-    int sent = llr_wsa_send(sock, buf, (int)n, flags);
-    if (sent < 0) {
-        map_wsa();
-        return -1;
-    }
-    return sent;
-}
-
-int64_t recv(int fd, void *buf, uint64_t n, int flags) {
-    ensure_init();
-    uint64_t sock = socket_of(fd);
-    if (sock == SOCK_BAD) {
-        return -1;
-    }
-    if (n > 0x7fffffff) {
-        n = 0x7fffffff;
-    }
-    int got = llr_wsa_recv(sock, buf, (int)n, flags);
-    if (got < 0) {
-        map_wsa();
-        return -1;
-    }
-    return got;
-}
-
-struct lpoll {
-    int32_t fd;
-    int16_t events;
-    int16_t revents;
-};
-
-struct wsa_poll {
-    uint64_t sock;
-    int16_t events;
-    int16_t revents;
-    int16_t pad1;
-    int16_t pad2;
-};
-
-int poll(void *base, uint64_t n, int timeout) {
-    ensure_init();
-    if (n > 4096) {
-        n = 4096;
-    }
-    struct lpoll *in = (struct lpoll *)base;
-    struct wsa_poll *wsa = (struct wsa_poll *)calloc((size_t)n, sizeof(struct wsa_poll));
-    if (n > 0 && wsa == NULL) {
-        set_errno(12);
-        return -1;
-    }
-    for (uint64_t i = 0; i < n; i++) {
-        Slot slot;
-        wsa[i].sock = copy_slot(in[i].fd, &slot) && slot.kind == KIND_SOCK ? slot.sock : SOCK_BAD;
-        wsa[i].events = llr_wsa_to_events(in[i].events);
-        wsa[i].revents = 0;
-    }
-    int ready = llr_wsa_poll(wsa, (uint32_t)n, timeout);
-    if (ready < 0) {
-        map_wsa();
-        free(wsa);
-        return -1;
-    }
-    for (uint64_t i = 0; i < n; i++) {
-        in[i].revents = llr_wsa_from_events(wsa[i].revents);
-    }
-    free(wsa);
-    return ready;
-}
-
-int fcntl(int fd, int cmd, int arg) {
-    ensure_init();
-    if (fd < FD_BASE || fd >= FD_BASE + FD_MAX) {
-        set_errno(9);
-        return -1;
-    }
-    EnterCriticalSection(&fd_lock);
-    Slot *slot = &slots[fd - FD_BASE];
-    if (slot->kind != KIND_SOCK) {
-        LeaveCriticalSection(&fd_lock);
-        set_errno(9);
-        return -1;
-    }
-    if (cmd == F_GETFL) {
-        int flags = slot->nonblock ? L_NONBLOCK : 0;
-        LeaveCriticalSection(&fd_lock);
-        return flags;
-    }
-    if (cmd != F_SETFL) {
-        LeaveCriticalSection(&fd_lock);
-        set_errno(22);
-        return -1;
-    }
-    uint64_t sock = slot->sock;
-    LeaveCriticalSection(&fd_lock);
-    if (llr_wsa_nonblock(sock, (arg & L_NONBLOCK) ? 1 : 0) != 0) {
-        map_wsa();
-        return -1;
-    }
-    EnterCriticalSection(&fd_lock);
-    slots[fd - FD_BASE].nonblock = (arg & L_NONBLOCK) ? 1 : 0;
-    LeaveCriticalSection(&fd_lock);
-    return 0;
-}
-
-
-int fork(void) {
-    set_errno(1);
-    return -1;
-}
-
-static DWORD WINAPI child_main(LPVOID param) {
-    Job *job = (Job *)param;
-    job->code = job->fn(job->arg);
-    return 0;
-}
-
-int32_t llr_call_child(int32_t (*fn)(int64_t), int64_t arg) {
-    ensure_init();
-    int id = -1;
-    for (int i = 1; i < CHILD_MAX; i++) {
-        if (!kids[i].live) {
-            id = i;
-            break;
-        }
-    }
-    if (id < 0) {
-        return -1;
-    }
-    Job *job = (Job *)calloc(1, sizeof(Job));
-    if (job == NULL) {
-        return -1;
-    }
-    job->fn = fn;
-    job->arg = arg;
-    job->code = 1;
-    HANDLE thread = CreateThread(NULL, 4u * 1024u * 1024u, child_main, job, 0, NULL);
-    if (thread == NULL) {
-        free(job);
-        return -1;
-    }
-    kids[id].live = 1;
-    kids[id].thread = thread;
-    kids[id].job = job;
-    return id;
-}
-
-int waitpid(int pid, int *status, int opts) {
-    (void)opts;
-    if (pid < 1 || pid >= CHILD_MAX || !kids[pid].live) {
-        set_errno(10);
-        return -1;
-    }
-    WaitForSingleObject(kids[pid].thread, INFINITE);
-    CloseHandle(kids[pid].thread);
-    int code = kids[pid].job->code;
-    free(kids[pid].job);
-    kids[pid].live = 0;
-    if (status != NULL) {
-        *status = (code & 255) << 8;
-    }
-    return pid;
-}
-
-typedef void *(*llr_start_fn)(void *);
-
-struct start_pack {
-    llr_start_fn fn;
-    void *arg;
-};
-
-static DWORD WINAPI start_main(LPVOID param) {
-    struct start_pack *pack = (struct start_pack *)param;
-    llr_start_fn fn = pack->fn;
-    void *arg = pack->arg;
-    free(pack);
-    fn(arg);
-    return 0;
-}
-
-int pthread_create(void *thread, void *attr, llr_start_fn start, void *arg) {
-    (void)attr;
-    struct start_pack *pack = (struct start_pack *)malloc(sizeof(*pack));
-    if (pack == NULL) {
-        return 11;
-    }
-    pack->fn = start;
-    pack->arg = arg;
-    HANDLE handle = CreateThread(NULL, 4u * 1024u * 1024u, start_main, pack, 0, NULL);
-    if (handle == NULL) {
-        free(pack);
-        return 1;
-    }
-    uint64_t id = (uint64_t)(uintptr_t)handle;
-    memcpy(thread, &id, sizeof id);
-    return 0;
-}
-
-int pthread_join(uint64_t thread, void *ret) {
-    (void)ret;
-    HANDLE handle = (HANDLE)(uintptr_t)thread;
-    WaitForSingleObject(handle, INFINITE);
-    CloseHandle(handle);
-    return 0;
-}
-
-int pthread_mutex_init(void *mutex, void *attr) {
-    (void)attr;
-    InitializeCriticalSection((CRITICAL_SECTION *)mutex);
-    return 0;
-}
-
-int pthread_mutex_lock(void *mutex) {
-    EnterCriticalSection((CRITICAL_SECTION *)mutex);
-    return 0;
-}
-
-int pthread_mutex_unlock(void *mutex) {
-    LeaveCriticalSection((CRITICAL_SECTION *)mutex);
-    return 0;
-}
-
-int pthread_mutex_destroy(void *mutex) {
-    DeleteCriticalSection((CRITICAL_SECTION *)mutex);
-    return 0;
-}
-
-int pthread_cond_init(void *cond, void *attr) {
-    (void)attr;
-    InitializeConditionVariable((CONDITION_VARIABLE *)cond);
-    return 0;
-}
-
-int pthread_cond_wait(void *cond, void *mutex) {
-    SleepConditionVariableCS((CONDITION_VARIABLE *)cond, (CRITICAL_SECTION *)mutex, INFINITE);
-    return 0;
-}
-
-int pthread_cond_broadcast(void *cond) {
-    WakeAllConditionVariable((CONDITION_VARIABLE *)cond);
-    return 0;
-}
-
-int pthread_cond_destroy(void *cond) {
-    (void)cond;
-    return 0;
-}
-
-int setrlimit(int resource, void *lim) {
-    (void)resource;
-    (void)lim;
-    return 0;
-}
-
-static int shift_status(int code) {
-    if (code < 0) {
-        return code;
-    }
-    return (code & 255) << 8;
-}
-
-int system(const char *cmd) {
-    ensure_init();
-    size_t cap = strlen(cmd) + 16;
-    char *line = (char *)malloc(cap);
-    if (line == NULL) {
-        return -1;
-    }
-    snprintf(line, cap, "cmd.exe /c %s", cmd);
-    STARTUPINFOA start;
-    PROCESS_INFORMATION info;
-    memset(&start, 0, sizeof start);
-    start.cb = sizeof start;
-    memset(&info, 0, sizeof info);
-    BOOL ok = CreateProcessA(NULL, line, NULL, NULL, TRUE, 0, NULL, NULL, &start, &info);
-    free(line);
-    if (!ok) {
-        return -1;
-    }
-    WaitForSingleObject(info.hProcess, INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(info.hProcess, &code);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
-    return shift_status((int)code);
-}
-
-FILE *popen(const char *cmd, const char *mode) {
-    ensure_init();
-    FILE *file = _popen(cmd, mode);
-    if (file != NULL) {
-        _setmode(_fileno(file), _O_BINARY);
-    }
-    return file;
-}
-
-int fileno(FILE *file) {
-    return _fileno(file);
-}
-
-int pclose(FILE *file) {
-    return shift_status(_pclose(file));
-}
-
-int isatty(int fd) {
-    ensure_init();
-    if (fd >= 0 && fd <= 2) {
-        DWORD mode = 0;
-        return GetConsoleMode(std_handle(fd), &mode) ? 1 : 0;
-    }
-    if (fd >= FD_BASE) {
-        return 0;
-    }
-    return _isatty(fd);
-}
-
-static char *child_env(const char *arg) {
-    char *old = GetEnvironmentStringsA();
-    if (old == NULL) {
-        return NULL;
-    }
-    size_t n = 0;
-    while (!(old[n] == 0 && old[n + 1] == 0)) {
-        n++;
-    }
-    n++;
-    const char *key = "LLR_TEST_CHILD=";
-    size_t add = strlen(key) + strlen(arg) + 1;
-    char *neu = (char *)malloc(n + add + 1);
-    if (neu == NULL) {
-        FreeEnvironmentStringsA(old);
-        return NULL;
-    }
-    memcpy(neu, old, n);
-    memcpy(neu + n, key, strlen(key));
-    memcpy(neu + n + strlen(key), arg, strlen(arg) + 1);
-    neu[n + add] = 0;
-    FreeEnvironmentStringsA(old);
-    return neu;
-}
-
-int32_t llr_spawn_self(const char *arg) {
-    char exe[1024];
-    if (GetModuleFileNameA(NULL, exe, sizeof exe) == 0) {
-        return -1;
-    }
-    size_t cap = strlen(exe) + strlen(arg) + 8;
-    char *line = (char *)malloc(cap);
-    char *env = child_env(arg);
-    if (line == NULL || env == NULL) {
-        free(line);
-        free(env);
-        return -1;
-    }
-    snprintf(line, cap, "\"%s\" \"%s\"", exe, arg);
-    STARTUPINFOA start;
-    PROCESS_INFORMATION info;
-    memset(&start, 0, sizeof start);
-    start.cb = sizeof start;
-    memset(&info, 0, sizeof info);
-    BOOL ok = CreateProcessA(exe, line, NULL, NULL, TRUE, 0, env, NULL, &start, &info);
-    free(line);
-    free(env);
-    if (!ok) {
-        return -1;
-    }
-    WaitForSingleObject(info.hProcess, INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(info.hProcess, &code);
-    CloseHandle(info.hProcess);
-    CloseHandle(info.hThread);
-    return (int32_t)code;
-}
-
-/* Bytes written, not including the NUL, or -1 when the buffer is too small. */
-int64_t llr_exe_path(char *buf, uint64_t n) {
-    DWORD cap;
-    DWORD got;
-    if (buf == 0 || n < 2 || n > 0xffffffffu) {
-        return -1;
-    }
-    cap = (DWORD)n;
-    got = GetModuleFileNameA(NULL, buf, cap);
-    if (got == 0 || got >= cap) {
-        return -1;
-    }
-    return (int64_t)got;
 }

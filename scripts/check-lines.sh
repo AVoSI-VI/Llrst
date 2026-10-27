@@ -10,7 +10,7 @@ while IFS= read -r f; do
   elif [ "$n" -ge 500 ]; then
     echo "W|lines|file=${f#$root/}|lines=$n|fix=split under 500"
   fi
-done < <(find "$root/compiler/src" "$root/std" "$root/tools" "$root/docs" "$root/scripts" "$root/tests" \
-          -type f \( -name '*.rs' -o -name '*.llr' -o -name '*.md' -o -name '*.sh' \) 2>/dev/null)
+done < <(find "$root/compiler/src" "$root/std" "$root/tools" "$root/docs" "$root/scripts" "$root/tests" "$root/self" "$root/runtime" \
+          -type f \( -name '*.rs' -o -name '*.llr' -o -name '*.md' -o -name '*.sh' -o -name '*.c' \) 2>/dev/null)
 [ "$status" -eq 0 ] && echo "ok|lines"
 exit $status

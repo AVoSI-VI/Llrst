@@ -72,11 +72,12 @@ New-Item -ItemType Directory -Force -Path $bin, $share | Out-Null
 $stdDest = Join-Path $share 'std'
 if (Test-Path -LiteralPath $stdDest) { Remove-Item -LiteralPath $stdDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'std') -Destination $stdDest -Recurse
-Copy-Item -LiteralPath (Join-Path $root 'runtime\llr_win.c') -Destination (Join-Path $share 'llr_win.c') -Force
-Copy-Item -LiteralPath (Join-Path $root 'runtime\llr_wsa.c') -Destination (Join-Path $share 'llr_wsa.c') -Force
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
+    Copy-Item -LiteralPath (Join-Path $root "runtime\$name") -Destination (Join-Path $share $name) -Force
+}
 Write-Output 'step|runtime'
 $runtime = Join-Path $root 'runtime'
-foreach ($name in @('llr_wsa.c', 'llr_win.c')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Compile-Shim $share $name
     Compile-Shim $runtime $name
 }

@@ -1,4 +1,4 @@
-/* Winsock calls live here so llr_win.c can define the POSIX names socket,
+/* Winsock calls live here so llr_win_sock.c can define the POSIX names socket,
  * bind, and the rest. The DLL is loaded by name: linking ws2_32.lib would
  * also define those names and the link would fail. */
 #define WIN32_LEAN_AND_MEAN

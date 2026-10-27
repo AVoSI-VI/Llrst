@@ -67,7 +67,7 @@ flowchart LR
 | `compiler/src/` | stage 0 `llrc` (Rust, Cranelift); not installed; reference for `tests/check.sh`, `tests/mir.sh` | `main.rs`, `driver.rs` |
 | `std/` | standard library, 35 modules, all Llrst | `sys.llr` (externs, panic), `str.llr`, `vec.llr` |
 | `tools/` | agent tools, one `.llr` per binary; `fmtlint.llr` is a `proj.` module of `llr-fmt` | `llr-read.llr` (smallest) |
-| `runtime/` | C shims: `llr_stat.c` (Unix), `llr_win.c` + `llr_wsa.c` (Windows), prebuilt `.obj` | |
+| `runtime/` | C shims: `llr_stat.c` (Unix); `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` (Windows), compiled to `.obj` by install | |
 | `tests/` | goldens `run/*.llr+.out`, `err/*.llr+.err`, `warn/`, `panic/`; `run.sh`/`run.ps1` suite; `check`, `mir`, `self` differentials (`.sh` + `.ps1`); `cross.sh` | `run.sh` |
 | `scripts/` | `install.sh`, `install.ps1` (stage 0, then `llrs0..2`, install `llrs2`); `self.sh` (bootstrap only, no `.ps1`); `check-lines.sh` | |
 | `docs/spec/` | grammar, tokens, types, memory, errors | `errors.md` is the code catalogue |
@@ -88,7 +88,6 @@ flowchart LR
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr` | ELF64 (PC32, PLT32, 64) or COFF (REL32, ADDR64) |
 | link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims |
 | driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
-| orphan | `mono.llr`, `subst.llr` | an older instance worklist on `std.check`; nothing imports them (Phase 0) |
 
 Generics are monomorphized by re-checking the body per instantiation. Only reachable
 instances are compiled; std bodies are checked lazily.
@@ -97,9 +96,9 @@ instances are compiled; std bodies are checked lazily.
 
 ```
 commit|ebaed76|Merge pull request #1 from AVoSI-VI/self-hosting-esty
-suite|tests/run.sh|not re-run for this rewrite|last claim done|fails=0 at 54ed8fe
+suite|tests/run.ps1|fails=3|2026-10-27|run/cast_float panic/cast_f_high panic/cast_f_neg|cranelift emit unreachable
 self|stage2=equal|scripts/self.sh record at 40dcadd|not re-run for this rewrite
-lines|compiler=9263 rs|self=11972 llr|std=6049 llr|tools=859 llr|max_file=runtime/llr_win.c 1024|budget=500 soft, 1000 hard
+lines|compiler=9263 rs|self=11660 llr|std=6049 llr|tools=859 llr|max_file=self/cg_op.llr 497|budget=500 soft, 1000 hard
 ```
 
 ## Implementation notes (things you would otherwise rediscover)
@@ -125,10 +124,11 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
 - `fs.mtime` and `fs.size` call `llr_stat_mtime` / `llr_stat_size` in `runtime/llr_stat.c`.
   `fs.list` calls `llr_readdir_name` there for `d_name`.
   On Darwin, `extern_id` renames `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to `llr_*` in that object. The wrappers translate Linux open flags, a 16-byte `sockaddr_in`, `EAGAIN` to 11, and `setrlimit` resource 7 to `RLIMIT_NOFILE`. `__errno_location` calls `__error`.
-  `link.rs` appends `llr_stat.o` on Unix, or compiles and links `llr_win.c` and `llr_wsa.c` on Windows,
+  `link.rs` appends `llr_stat.o` on Unix, or compiles and links `llr_wsa.c`, `llr_win.c`,
+  `llr_win_sock.c`, and `llr_win_proc.c` on Windows,
   from `$LLRST_RUNTIME`, `$LLRST_STD/..`, `<exe>/../share/llrst/`, `<exe>/../../runtime/`, or `./runtime/`.
   `install.sh` and `tests/run.sh` compile the Unix object. `tests/run.ps1` does not;
-  `llrc` compiles the Windows object.
+  `llrc` compiles the Windows objects. `poll` is in `llr_win_sock.c`. `llr_call_child` is in `llr_win_proc.c`.
 - `mir/lint.rs` runs after borrowck. `flow.unreachable` is an unreachable block that
   contains something other than `Drop`/`StorageDead`/`Nop` (the empty block opened after
   `(ret)` is skipped). `name.unused` is a local or parameter that is never an operand,
@@ -218,12 +218,11 @@ Tools (`tools/`, `docs/tools/`)
 ## Line budget
 
 Raw `wc -l` on 2026-10-27. Split before adding if a file is near 500. `scripts/check-lines.sh`
-and the copy inside `tests/run.ps1` scan only `compiler/src std tools docs scripts tests`
-for `.rs .llr .md .sh`; `self/` and `runtime/` are not checked (Phase 0).
+and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`, `scripts`,
+`tests`, and `self/` for `.rs .llr .md .sh`, plus `runtime/*.c`. `.gitattributes` stores `*.c` and `*.h` as LF.
 
 | File | Lines | Note |
 | --- | --- | --- |
-| `runtime/llr_win.c` | 1024 | Over the hard limit; split in Phase 0 |
 | `compiler/src/mir/lower.rs` | 497 | Stage 0; split before a Phase 2 move change |
 | `self/cg_op.llr` | 497 | Split before any Phase 1 cast or trampoline change |
 | `compiler/src/codegen/func.rs` | 494 | Stage 0; item 8 (panic frames) touches it |
@@ -241,18 +240,18 @@ Every row of the former "Known limits" table and every item of the former "Sugge
 steps" list is either a decision above or one item below. Items marked *verify* come from
 code reading and were not run.
 
-### Phase 0: handoff and repo hygiene (no behaviour change) `[ ]`
+### Phase 0: handoff and repo hygiene (no behaviour change) `[x]`
 
 Files: `README.md`, `docs/tools/README.md`, `.gitignore`, `scripts/check-lines.sh`, `tests/run.ps1`, `runtime/llr_win.c`, `self/mono.llr`, `self/subst.llr`.
 
-1. `[ ]` `README.md`: the compiler is stage-2 `llrs` from `self/`, not "Rust on Cranelift"; add `self/`, `runtime/`, `scripts/` rows; the tools row lacks `llr-doc` and `llr-check`; say that `cargo build --release` produces stage 0 only.
-2. `[ ]` `docs/tools/README.md`: the `llr-http` row has three cells in a four-column table.
-3. `[ ]` `poll_probe.obj` is tracked at the repo root with no reference in the tree. `runtime/llr_win.obj` and `runtime/llr_wsa.obj` are tracked while `scripts/install.ps1` lines 76-82 rewrite them on every install; `.gitignore` has `*.o` but no `*.obj`. Removing tracked files needs the owner's confirmation.
-4. `[ ]` `scripts/check-lines.sh` and the inline copy in `tests/run.ps1` (lines 271-287): add `self/` and `runtime/*.c`; keep the two in sync or make `run.ps1` call one script.
-5. `[ ]` Split `runtime/llr_win.c` (1024 lines) under 500 per file; `install.ps1` compiles each piece.
-6. `[ ]` `self/mono.llr` and `self/subst.llr` are imported by nothing and build on `std.check`; retire them or wire them, then decide whether `std/check*.llr` stays only to back `llr-check`.
-7. `[ ]` `runtime/llr_win.c` is LF in the index and CRLF in a Windows checkout; add `.gitattributes` or state the rule.
-8. `[ ]` Commit: `docs: handoff phases, line check covers self and runtime`.
+1. `[x]` `README.md`: the compiler is stage-2 `llrs` from `self/`, not "Rust on Cranelift"; add `self/`, `runtime/`, `scripts/` rows; the tools row lacks `llr-doc` and `llr-check`; say that `cargo build --release` produces stage 0 only.
+2. `[x]` `docs/tools/README.md`: the `llr-http` row has three cells in a four-column table.
+3. `[x]` `poll_probe.obj` is tracked at the repo root with no reference in the tree. `runtime/llr_win.obj` and `runtime/llr_wsa.obj` are tracked while `scripts/install.ps1` lines 76-82 rewrite them on every install; `.gitignore` has `*.o` but no `*.obj`. Removing tracked files needs the owner's confirmation.
+4. `[x]` `scripts/check-lines.sh` and the inline copy in `tests/run.ps1` (lines 271-287): add `self/` and `runtime/*.c`; keep the two in sync or make `run.ps1` call one script.
+5. `[x]` Split `runtime/llr_win.c` (1024 lines) under 500 per file; `install.ps1` compiles each piece.
+6. `[x]` `self/mono.llr` and `self/subst.llr` are imported by nothing and build on `std.check`; retire them or wire them, then decide whether `std/check*.llr` stays only to back `llr-check`. Retired both files. `std/check*.llr` stays only to back `llr-check`.
+7. `[x]` `runtime/llr_win.c` is LF in the index and CRLF in a Windows checkout; add `.gitattributes` or state the rule.
+8. `[x]` Commit: `docs: handoff phases, line check covers self and runtime`.
 
 ### Phase 1: self/ parity with stage 0 `[ ]`
 
@@ -328,23 +327,23 @@ Files: `tools/llr-write.llr`, `tools/llr-ls.llr`, `tools/llr-rm.llr`, `tools/llr
 
 ### Phase 6: platform, link, targets, scripts `[ ]`
 
-Files: `self/drive.llr`, `self/load.llr`, `self/link.llr`, `self/link_win.llr`, `self/llrs.llr`, `self/cg_mod.llr`, `std/test.llr`, `runtime/llr_win.c`, `runtime/llr_stat.c`, `scripts/install.sh`, `scripts/install.ps1`, `scripts/self.sh`, `tests/run.sh`, `tests/run.ps1`, `tests/cross.sh`, `docs/install.md`.
+Files: `self/drive.llr`, `self/load.llr`, `self/link.llr`, `self/link_win.llr`, `self/llrs.llr`, `self/cg_mod.llr`, `std/test.llr`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`, `runtime/llr_win_proc.c`, `runtime/llr_stat.c`, `scripts/install.sh`, `scripts/install.ps1`, `scripts/self.sh`, `tests/run.sh`, `tests/run.ps1`, `tests/cross.sh`, `docs/install.md`.
 
-1. `[ ]` Runtime: externs come from the OS file merged into `std.sys` (`sys_posix.llr` or `sys_windows.llr`). `fork` does not copy a Cranelift or `self/` stack, so Windows runs a client on a thread via `llr_call_child` and re-execs each std test (`std/test.llr`, `runtime/llr_win.c`). On Darwin `open fcntl bind connect socket setrlimit` are imported as `llr_*` from `runtime/llr_stat.c`.
+1. `[ ]` Runtime: externs come from the OS file merged into `std.sys` (`sys_posix.llr` or `sys_windows.llr`). `fork` does not copy a Cranelift or `self/` stack, so Windows runs a client on a thread via `llr_call_child` and re-execs each std test (`std/test.llr`, `runtime/llr_win_proc.c`). On Darwin `open fcntl bind connect socket setrlimit` are imported as `llr_*` from `runtime/llr_stat.c`.
 2. `[ ]` The installed compiler accepts `--target` only when empty or an `x86_64` triple without `apple` (`drive.llr` `target_ok`); aarch64, riscv64, s390x, and apple-darwin objects stay on stage 0 (`tests/cross.sh` links the three ELF targets freestanding with lld; apple-darwin is an object check; a full `--target` link needs a clang sysroot). `self/` has no endianness switch (`cg_mod.llr` `put_u64`).
 3. `[ ]` `--target` does not switch `sys_windows.llr` / `sys_posix.llr`; `load.llr` follows the host. The `x86_64-pc-windows-gnu` os_id check in `tests/cross.sh` needs stage 0.
 4. `[ ]` Unix link is host `cc` with `-pie -pthread` (`link.llr`), not `clang --target`; a Darwin host never sets the darwin renames and Apple clang rejects `-pie`.
-5. `[ ]` Windows link is `cl` only (`link_win.llr`); the installed compiler does not compile `llr_win.c` / `llr_wsa.c` and does not probe clang or gcc. On Unix it never rebuilds `llr_stat.o` either (`docs/install.md`).
+5. `[ ]` Windows link is `cl` only (`link_win.llr`); the installed compiler does not compile `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, or `llr_win_proc.c` and does not probe clang or gcc. On Unix it never rebuilds `llr_stat.o` either (`docs/install.md`).
 6. `[ ]` `llrc run` quotes arguments with POSIX single quotes (`llrs.llr` `quote`), so `cmd` does not receive the vector stage 0 passes.
 7. `[ ]` Scripts: no `scripts/self.ps1`, so the Windows bootstrap runs only inside `install.ps1`; `install.ps1` has no `SOURCE_DATE_EPOCH` (relies on `/Brepro`); the `os_id` expected-output hook exists only in `tests/run.ps1` lines 96-99; neither runner invokes `tests/mir`, `tests/check`, `tests/cross`, or `tests/self`; no installer installs `examples/hello.llr` (both compile a temp hello). `docs/install.md` says "`tests/run.sh` is the check for stage 0" while the suite is also the check for the installed compiler.
 8. `[ ]` Commit: `platform: one bootstrap script per host, runners call the differentials`.
 
 ### Phase 7: net, thread, and protocol subsets `[ ]`
 
-Files: `std/net.llr`, `std/thread.llr`, `std/http.llr`, `std/gql.llr`, `std/xml.llr`, `std/soap.llr`, `std/grpc.llr`, `std/mqtt.llr`, `tools/llr-http.llr`, `runtime/llr_win.c`.
+Files: `std/net.llr`, `std/thread.llr`, `std/http.llr`, `std/gql.llr`, `std/xml.llr`, `std/soap.llr`, `std/grpc.llr`, `std/mqtt.llr`, `tools/llr-http.llr`, `runtime/llr_win_sock.c`, `runtime/llr_win_proc.c`.
 
-1. `[ ]` `net.connect` is 127.0.0.1 only; `poll_serve` holds up to 4096 fds on one thread and the ready callback is a function pointer plus a context pointer that cannot capture a binding; the Windows shim translates the 8-byte pollfd and errno 11 and 4.
-2. `[ ]` `thread`: a pool of `n` pthreads created at `start`; the count does not grow; a job is `(fn ((ptr u8)) unit)` plus a context pointer and cannot capture a binding; the Windows shim maps the pthread names onto Win32.
+1. `[ ]` `net.connect` is 127.0.0.1 only; `poll_serve` holds up to 4096 fds on one thread and the ready callback is a function pointer plus a context pointer that cannot capture a binding; `runtime/llr_win_sock.c` `poll` translates the 8-byte pollfd, and `map_wsa` in `runtime/llr_win.c` maps errno 11 and 4.
+2. `[ ]` `thread`: a pool of `n` pthreads created at `start`; the count does not grow; a job is `(fn ((ptr u8)) unit)` plus a context pointer and cannot capture a binding; `runtime/llr_win_proc.c` maps the pthread names onto Win32.
 3. `[ ]` `http`: chunked transfer and trailers are not parsed and chunked bodies are rejected; a route path is exact; the poll table holds at most 4095 clients; a WebSocket payload must be one text frame under 126 bytes. `std/http.llr` is 468 lines; split first.
 4. `[ ]` `gql`: `POST /graphql` answers `hello`, `ping`, `add`; no schema, no variables, no nested selection sets.
 5. `[ ]` `xml` and `soap`: one element document of elements and text; no attributes, namespaces, comments, or declarations; entities `&lt; &gt; &amp;` only; a SOAP body is one operation.
@@ -381,3 +380,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-15: bootstrap plan and its eleven follow-ups done; see `history/bootstrap.md`.
 - 2026-10-26: self-hosting roadmap done, `llrs2` installed as `llrc` (`54ed8fe`, merged `ebaed76`); see `history/self-hosting.md`.
 - 2026-10-27: this file reshaped into rules, decisions, architecture, line budget, and phases 0-7. Every former limit row and next-step item was placed once. Gaps found by reading `self/`, `std/`, `tools/`, `tests/`, `scripts/`, and `docs/` were added as `[ ]` items; items marked *verify* were not executed. No code changed. The suite was not re-run.
+- 2026-10-27: Phase 0. README names Llrst 0.1.0 and stage-2 `llrs`. The line check covers `self/` and `runtime/*.c`. `llr_win.c` is split into `llr_win.c`, `llr_win_sock.c`, and `llr_win_proc.c`. Tracked `.obj` files are gone. `mono.llr` and `subst.llr` are retired; `std/check*.llr` stays for `llr-check`. `.gitattributes` stores `*.c` and `*.h` as LF. `tests/run.ps1` fails=3, all Cranelift emit panics on float casts (`run/cast_float`, `panic/cast_f_high`, `panic/cast_f_neg`). Shim tests, including `std/fs`, `std/net`, and `std/thread`, passed.

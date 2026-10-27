@@ -222,7 +222,7 @@ fn tool_ok(name: &str, msvc: bool) -> bool {
 
 fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
     let ext = if tool.msvc { "obj" } else { "o" };
-    let names = ["llr_wsa.c", "llr_win.c"];
+    let names = ["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c"];
     if let Some(src) = find_named("llr_win.c") {
         let dir = src.parent().unwrap_or_else(|| Path::new("."));
         let mut objs = Vec::new();

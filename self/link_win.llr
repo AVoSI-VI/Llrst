@@ -50,7 +50,7 @@
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (dq p))))
 
-(pub (fn link ((obj (& str)) (out (& str)) (wsa (& str)) (win (& str))) str
+(pub (fn link ((obj (& str)) (out (& str)) (wsa (& str)) (win (& str)) (sock (& str)) (proc (& str))) str
   (let pre (prefix))
   (if (str.eq (& pre) "missing") (ret (fail "cl missing")))
   (let mut cmd (str.clone (& pre)))
@@ -59,6 +59,8 @@
   (push_q (&mut cmd) obj)
   (push_q (&mut cmd) wsa)
   (push_q (&mut cmd) win)
+  (push_q (&mut cmd) sock)
+  (push_q (&mut cmd) proc)
   (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
   (if (== code 0) (str.new) (fail (& (str.from_int code))))))
