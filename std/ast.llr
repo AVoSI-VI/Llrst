@@ -268,10 +268,22 @@
   (try (ast_expr.parse_exprs t (& ids) 2 (&mut (. it body))))
   (res.ok it))
 
+(fn types_at ((t (& tree)) (n i64)) str
+  (let mut m (str.from "parse.expect|line="))
+  (str.push (&mut m) (& (str.from_int (sexp.line t n))))
+  (str.push (&mut m) "|col=")
+  (str.push (&mut m) (& (str.from_int (sexp.col t n))))
+  (str.push (&mut m) "|len=")
+  (str.push (&mut m) (& (str.from_int (- (sexp.end t n) (sexp.byte t n)))))
+  (str.push (&mut m) "|want=(types)")
+  m)
+
 (fn parse_tmeth ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
   (if (< (vec.len (& ids)) 4)
     (ret (res.err (ast_expr.arity_at t n "fn" "3+" (- (vec.len (& ids)) 1)))))
+  (if (!= (sexp.kind t (@ (vec.get (& ids) 2))) 2u8)
+    (ret (res.err (types_at t (@ (vec.get (& ids) 2))))))
   (let ps (ast_expr.forms t (@ (vec.get (& ids) 2))))
   (let mut params (vec.new <param>))
   (for i 0 (vec.len (& ps))

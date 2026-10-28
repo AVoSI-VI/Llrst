@@ -9,6 +9,8 @@
   (uninit (vec bool))
   (fl (vec i64))
   (ff (vec i64))
+  (fsl (vec i64))
+  (fsc (vec i64))
   (wl (vec i64))
   (wc (vec i64))
   (wn (vec i64)))
@@ -16,13 +18,23 @@
 (fn negn ((n i64)) (vec i64) (let mut v (vec.new <i64>)) (for i 0 n (vec.push (&mut v) (neg 1))) v)
 
 (fn mv_new ((n i64)) mv
-  (mv (borrow.bools n) (borrow.bools n) (vec.new <i64>) (vec.new <i64>) (negn n) (negn n) (negn n)))
+  (mv (borrow.bools n)
+    (borrow.bools n)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (negn n)
+    (negn n)
+    (negn n)))
 
 (fn mv_clone ((m (& mv)) (n i64)) mv
   (mv (borrow.clone_b (& (. m whole)))
     (borrow.clone_b (& (. m uninit)))
     (copy_i (& (. m fl)))
     (copy_i (& (. m ff)))
+    (copy_i (& (. m fsl)))
+    (copy_i (& (. m fsc)))
     (copy_i (& (. m wl)))
     (copy_i (& (. m wc)))
     (copy_i (& (. m wn)))))
@@ -37,19 +49,36 @@
     (if (and (== (@ (vec.get (& (. m fl)) i)) l) (== (@ (vec.get (& (. m ff)) i)) f)) (ret true)))
   false)
 
-(fn add_field ((m (&mut mv)) (l i64) (f i64)) unit
-  (if (not (has_field m l f)) (do (vec.push (&mut (. m fl)) l) (vec.push (&mut (. m ff)) f))))
+(fn add_field ((m (&mut mv)) (l i64) (f i64) (line i64) (col i64)) unit
+  (if (has_field m l f) (ret))
+  (vec.push (&mut (. m fl)) l)
+  (vec.push (&mut (. m ff)) f)
+  (vec.push (&mut (. m fsl)) line)
+  (vec.push (&mut (. m fsc)) col))
 
 (fn drop_local ((m (&mut mv)) (l i64)) unit
   (let mut fl (vec.new <i64>))
   (let mut ff (vec.new <i64>))
+  (let mut fsl (vec.new <i64>))
+  (let mut fsc (vec.new <i64>))
   (for i 0 (vec.len (& (. m fl)))
     (if (!= (@ (vec.get (& (. m fl)) i)) l)
-      (do
-        (vec.push (&mut fl) (@ (vec.get (& (. m fl)) i)))
-        (vec.push (&mut ff) (@ (vec.get (& (. m ff)) i))))))
+      (keep_field m i (&mut fl) (&mut ff) (&mut fsl) (&mut fsc))))
   (set (. m fl) fl)
-  (set (. m ff) ff))
+  (set (. m ff) ff)
+  (set (. m fsl) fsl)
+  (set (. m fsc) fsc))
+
+(fn keep_field ((m (& mv))
+   (i i64)
+   (fl (&mut (vec i64)))
+   (ff (&mut (vec i64)))
+   (fsl (&mut (vec i64)))
+   (fsc (&mut (vec i64)))) unit
+  (vec.push fl (@ (vec.get (& (. m fl)) i)))
+  (vec.push ff (@ (vec.get (& (. m ff)) i)))
+  (vec.push fsl (@ (vec.get (& (. m fsl)) i)))
+  (vec.push fsc (@ (vec.get (& (. m fsc)) i))))
 
 (fn or_bit ((a (&mut (vec bool))) (b (& (vec bool))) (i i64)) bool
   (if (and (@ (vec.get b i)) (not (@ (vec.get a i)))) (do (vec.set a i true) (ret true)))
@@ -67,8 +96,15 @@
   (let mut ch false)
   (for i 0 (vec.len (& (. b fl)))
     (if (not (has_field a (@ (vec.get (& (. b fl)) i)) (@ (vec.get (& (. b ff)) i))))
-      (do (add_field a (@ (vec.get (& (. b fl)) i)) (@ (vec.get (& (. b ff)) i))) (set ch true))))
+      (do (take_field a b i) (set ch true))))
   ch)
+
+(fn take_field ((a (&mut mv)) (b (& mv)) (i i64)) unit
+  (add_field a
+    (@ (vec.get (& (. b fl)) i))
+    (@ (vec.get (& (. b ff)) i))
+    (@ (vec.get (& (. b fsl)) i))
+    (@ (vec.get (& (. b fsc)) i))))
 
 (fn copy_spans ((a (&mut mv)) (b (& mv))) unit
   (for i 0 (vec.len (& (. a wl)))
@@ -126,7 +162,7 @@
     (do
       (let f (mir.lone_field (& (. a pl))))
       (if (>= f 0)
-        (add_field st l f)
+        (add_field st l f (. a line) (. a col))
         (do
           (let _ (borrow.setb (&mut (. st whole)) l true))
           (if (< (@ (vec.get (& (. st wl)) l)) 0)
@@ -157,8 +193,51 @@
 (fn emit_use ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc))) unit
   (let l (. (. a pl) local))
   (if (and (uses (. a kind)) (borrow.bit (& (. st uninit)) l)) (emit_init out b a))
-  (if (or (uses (. a kind)) (and (== (. a kind) 1u8) (not (mir.is_local (& (. a pl))))))
-    (if (borrow.bit (& (. st whole)) l) (emit_move out b st a l))))
+  (if (and (or (uses (. a kind)) (and (== (. a kind) 1u8) (not (mir.is_local (& (. a pl))))))
+     (moved st a))
+    (emit_move out b a l (move_line st a) (move_col st a))))
+
+(fn moved ((st (& mv)) (a (& borrow.acc))) bool
+  (let l (. (. a pl) local))
+  (if (borrow.bit (& (. st whole)) l) (ret true))
+  (let f (mir.lone_field (& (. a pl))))
+  (if (>= f 0) (ret (has_field st l f)))
+  (and (mir.is_local (& (. a pl))) (any_field st l)))
+
+(fn any_field ((st (& mv)) (l i64)) bool
+  (for i 0 (vec.len (& (. st fl))) (if (== (@ (vec.get (& (. st fl)) i)) l) (ret true)))
+  false)
+
+(fn move_line ((st (& mv)) (a (& borrow.acc))) i64
+  (let l (. (. a pl) local))
+  (if (borrow.bit (& (. st whole)) l) (ret (@ (vec.get (& (. st wl)) l))))
+  (field_line st l (span_field st a)))
+
+(fn move_col ((st (& mv)) (a (& borrow.acc))) i64
+  (let l (. (. a pl) local))
+  (if (borrow.bit (& (. st whole)) l) (ret (@ (vec.get (& (. st wc)) l))))
+  (field_col st l (span_field st a)))
+
+(fn span_field ((st (& mv)) (a (& borrow.acc))) i64
+  (let l (. (. a pl) local))
+  (let f (mir.lone_field (& (. a pl))))
+  (if (>= f 0) (ret f))
+  (for i 0 (vec.len (& (. st fl)))
+    (if (== (@ (vec.get (& (. st fl)) i)) l) (ret (@ (vec.get (& (. st ff)) i)))))
+  (neg 1))
+
+(fn field_line ((st (& mv)) (l i64) (f i64)) i64
+  (let i (field_i st l f))
+  (if (< i 0) (neg 1) (@ (vec.get (& (. st fsl)) i))))
+
+(fn field_col ((st (& mv)) (l i64) (f i64)) i64
+  (let i (field_i st l f))
+  (if (< i 0) 0 (@ (vec.get (& (. st fsc)) i))))
+
+(fn field_i ((st (& mv)) (l i64) (f i64)) i64
+  (for i 0 (vec.len (& (. st fl)))
+    (if (and (== (@ (vec.get (& (. st fl)) i)) l) (== (@ (vec.get (& (. st ff)) i)) f)) (ret i)))
+  (neg 1))
 
 (fn emit_init ((out (&mut (vec diag.dg))) (b (& mir.body)) (a (& borrow.acc))) unit
   (let name (str.clone (& (. (vec.get (& (. b locs)) (. (. a pl) local)) name))))
@@ -172,7 +251,7 @@
   (diag.add (&mut d) "name" name)
   (vec.push out d))
 
-(fn emit_move ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc)) (l i64)) unit
+(fn emit_move ((out (&mut (vec diag.dg))) (b (& mir.body)) (a (& borrow.acc)) (l i64) (line i64) (col i64)) unit
   (let name (str.clone (& (. (vec.get (& (. b locs)) l) name))))
   (let mut d
     (diag.make true
@@ -182,10 +261,7 @@
       (. a len)
       (str.from "move.used")))
   (diag.add (&mut d) "name" name)
-  (if (>= (@ (vec.get (& (. st wl)) l)) 0)
-    (diag.add (&mut d)
-      "moved_at"
-      (mv_at (@ (vec.get (& (. st wl)) l)) (@ (vec.get (& (. st wc)) l)))))
+  (if (>= line 0) (diag.add (&mut d) "moved_at" (mv_at line col)))
   (vec.push out d))
 
 (fn mv_at ((line i64) (col i64)) str

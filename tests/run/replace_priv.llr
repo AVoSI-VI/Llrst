@@ -1,0 +1,8 @@
+(use proj.field_lib)
+(use std.io)
+
+(fn main () unit
+  (let mut b (field_lib.make 1 2))
+  (let old (do (let prev (mem.replace (&mut b) (field_lib.make 3 4))) (. prev tag)))
+  (io.puts (& (str.from_int (. b tag))))
+  (io.puts (& (str.from_int old))))

@@ -1,0 +1,7 @@
+(use std.io)
+
+(fn main () unit
+  (let mut hold (vec.new < (& str) >))
+  (let mut a (str.from "a"))
+  (vec.push (&mut hold) (& a))
+  (io.puts "x"))

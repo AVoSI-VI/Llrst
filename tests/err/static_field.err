@@ -1,0 +1,2 @@
+E|tests/err/static_field.llr|3|64|5|borrow.escape|name=a|ref=_0|borrowed_at=3:64
+E|tests/err/static_field.llr|3|72|7|borrow.escape|lt=static

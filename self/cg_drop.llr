@@ -18,12 +18,32 @@
    (pi (& (vec i64)))) unit
   (let row (vec.get (& (. fx ff)) local))
   (if (and (== (vec.len pk) 0) (> (vec.len row) 0)) (ret (fields g p fx locs local)))
+  (if (one_field g p fx locs local pk pi) (ret))
   (let ty (cg_frame.place g p fx locs local pk pi))
   (if (not (prog.needs_drop p (& ty))) (ret))
   (let sym (cg_mod.drop_sym g (& ty)))
   (if (and (== (vec.len pk) 0) (@ (vec.get (& (. fx fon)) local))) (ret (guarded g fx local sym)))
   (x64_int.mov_rr (&mut (. fx buf)) 8 (cg_mod.a0 g) x64_buf.r11)
   (x64_int.call_sym (&mut (. fx buf)) sym)))
+
+(fn one_field ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (local i64)
+   (pk (& (vec u8)))
+   (pi (& (vec i64)))) bool
+  (if (not (and (== (vec.len pk) 1) (== (@ (vec.get pk 0)) 0u8))) (ret false))
+  (let i (@ (vec.get pi 0)))
+  (let row (vec.get (& (. fx ff)) local))
+  (if (or (>= i (vec.len row)) (< (@ (vec.get row i)) 0)) (ret false))
+  (let ty (ty.clone (& (. (vec.get locs local) ty))))
+  (if (!= (. ty kind) 8u8) (ret false))
+  (let d (vec.get (& (. p defs)) (. ty id)))
+  (if (!= (. d kind) 0u8) (ret false))
+  (let l (cg_lay.of (&mut (. g lays)) p (& ty)))
+  (field_one g p fx local (& ty) d (& l) i)
+  true)
 
 (fn guarded ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (local i64) (sym i64)) unit
   (let skip (x64_buf.label (&mut (. fx buf))))

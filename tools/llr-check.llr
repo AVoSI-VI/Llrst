@@ -4,6 +4,33 @@
 (use std.fmt)
 (use std.io)
 (use std.os)
+(use std.str)
+
+(fn kv_int ((p (& str)) (n i64)) i64
+  (match (str.to_int (& (str.slice p n (str.len p)))) ((opt.some v) v) ((opt.none) 0)))
+
+(fn add_kv ((rest (&mut str)) (p (& str))) unit
+  (if (> (str.len rest) 0) (str.push_byte rest 124u8))
+  (str.push rest p))
+
+(fn lift ((msg (& str))) str
+  (if (not (str.has msg "|line=")) (ret (str.clone msg)))
+  (let parts (str.split msg 124u8))
+  (let mut line 1)
+  (let mut col 1)
+  (let mut len 0)
+  (let mut rest (str.new))
+  (for i 1 (vec.len (& parts))
+    (do
+      (let p (vec.get (& parts) i))
+      (if (str.starts p "line=") (set line (kv_int p 5)))
+      (if (str.starts p "col=") (set col (kv_int p 4)))
+      (if (str.starts p "len=") (set len (kv_int p 4)))
+      (if (not (span_key p)) (add_kv (&mut rest) p))))
+  (check.span line col len (vec.get (& parts) 0) (& rest)))
+
+(fn span_key ((p (& str))) bool
+  (or (str.starts p "line=") (or (str.starts p "col=") (str.starts p "len="))))
 
 (fn main () unit
   (let mut c (cli.new "llr-check" "type and name check; borrow errors stay in llrc"))
@@ -12,5 +39,8 @@
   (let path (cli.at (& c) 0))
   (match (check.check path)
     ((res.err d)
-      (do (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& d)))) (os.exit 1)))
+      (do
+        (let body (lift (& d)))
+        (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& body))))
+        (os.exit 1)))
     ((res.ok _) ())))

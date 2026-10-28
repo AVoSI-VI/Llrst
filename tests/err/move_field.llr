@@ -1,0 +1,5 @@
+(struct box (s str))
+
+(impl box (fn drop ((self (&mut box))) unit ()))
+
+(fn main () unit (let b (box (str.from "a"))) (let x (. b s)) (drop x))

@@ -14,6 +14,11 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             self.drop_fields(p.local);
             return;
         }
+        if let Some(i) = p.lone_field() {
+            if self.drop_one_field(p.local, i) {
+                return;
+            }
+        }
         let ty = place_ty(self.cg.prog, self.body, p);
         if !needs_drop(self.cg.prog, &ty) {
             return;
@@ -37,6 +42,36 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         }
         let (addr, _) = self.place_addr(p);
         self.b.ins().call(fr, &[addr]);
+    }
+
+    /// A single field drop is skipped while that field's flag is off.
+    fn drop_one_field(&mut self, local: LocalIdx, field: u32) -> bool {
+        let Some(slot) = self.field_flags.get(local as usize).and_then(|r| r.get(field as usize).copied().flatten()) else {
+            return false;
+        };
+        let ty = self.body.local_ty(local).clone();
+        let lay = self.cg.layouts.of(&ty);
+        let Ty::Adt(d, args) = &ty else { return false };
+        let crate::resolve::DefKind::Struct(s) = &self.cg.prog.def(*d).kind else { return false };
+        let ft = s.fields[field as usize].1.subst(args);
+        if !needs_drop(self.cg.prog, &ft) {
+            return true;
+        }
+        let off = lay.fields[field as usize];
+        let flag = self.b.ins().stack_load(self.cg.ptr_ty, types::I8, slot, 0);
+        let do_drop = self.b.create_block();
+        let cont = self.b.create_block();
+        self.b.ins().brif(flag, do_drop, &[], cont, &[]);
+        self.b.switch_to_block(do_drop);
+        let glue = self.cg.drop_glue(&ft);
+        let fr = self.cg.module.declare_func_in_func(glue, self.b.func);
+        let base = self.local_addr(local);
+        let fa = self.b.ins().iadd_imm_s(base, off as i64);
+        self.b.ins().call(fr, &[fa]);
+        self.set_field_flag(local, field, false);
+        self.b.ins().jump(cont, &[]);
+        self.b.switch_to_block(cont);
+        true
     }
 
     fn drop_fields(&mut self, local: LocalIdx) {

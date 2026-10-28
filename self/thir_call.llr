@@ -149,6 +149,8 @@
   (if (not (prog.visible p (. c module) id)) (ret (res.err (thir_pat.priv_code p id))))
   (let d (vec.get (& (. p defs)) id))
   (let inst (try (instantiate c (& (. d gens)) explicit)))
+  (let msg (thir_pat.ctor_priv p c id (& inst)))
+  (if (> (str.len (& msg)) 0) (ret (res.err msg)))
   (let mut t (ty.adt id (ty.clone_tys (& inst))))
   (if won (thir.unify c (& t) want))
   (let params (field_tys d (& inst)))

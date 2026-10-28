@@ -1,0 +1,3 @@
+W|tests/err/move_field.llr|3|11|37|name.unused|name=self
+W|tests/err/move_field.llr|3|11|37|fn.unused|name=drop
+E|tests/err/move_field.llr|5|54|7|move.field|fix=(& ...) or mem.replace

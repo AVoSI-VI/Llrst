@@ -376,8 +376,6 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         }
         if dest.is_local() {
             self.set_flag(dest.local, true);
-        } else if let Some(i) = dest.lone_field() {
-            self.set_field_flag(dest.local, i, true);
         }
     }
 

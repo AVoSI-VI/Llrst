@@ -271,12 +271,9 @@
       ((opt.none) ())))
   (let mut kids (vec.new <texpr>))
   (do (try (walk defs srcs from e locs (&mut kids) 0 (vec.len (& (. e kids))))) ())
-  (let show
-    (if (> n 0)
-      (check_ty.show_ty (vec.get (& (. e tys)) (- n 1)) (& (vec.new <str>)) (& (vec.new <info>)))
-      (str.from "unit")))
-  (let shown (str.clone (& show)))
-  (res.ok (typed (info show (str.new) (str.new)) (node 31u8 shown (none_s) (neg 1) kids e))))
+  (let shown (check_more.clos_show e))
+  (res.ok (typed (info (str.clone (& shown)) (str.new) (str.new))
+     (node 31u8 shown (none_s) (neg 1) kids e))))
 
 (fn peel_ref ((s (& str))) str
   (if (str.starts s "(&mut ") (ret (str.slice s 6 (- (str.len s) 1))))
@@ -435,6 +432,8 @@
       (let tit (vec.get (& (. (vec.get srcs (. td si)) items)) (. td ii)))
       (if (== (. tit kind) 4u8)
         (do
+          (let hid (check_more.ctor_hide srcs from td tit e))
+          (if (> (str.len (& hid)) 0) (ret (res.err hid)))
           (let mut kids (vec.new <texpr>))
           (do (try (walk defs srcs from e locs (&mut kids) 0 (vec.len (& (. e kids))))) ())
           (ret (res.ok (ctor_out td kids e)))))))

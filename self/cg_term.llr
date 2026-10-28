@@ -58,9 +58,7 @@
 
 (fn wrote ((fx (&mut cg_frame.fncx)) (s (& mir.st))) unit
   (for i 0 (vec.len (& (. s pk))) (if (== (@ (vec.get (& (. s pk)) i)) 1u8) (ret)))
-  (if (== (vec.len (& (. s pk))) 0) (ret (cg_frame.set_flag fx (. s local) true)))
-  (if (and (== (vec.len (& (. s pk))) 1) (== (@ (vec.get (& (. s pk)) 0)) 0u8))
-    (cg_frame.set_field fx (. s local) (@ (vec.get (& (. s pi)) 0)) true)))
+  (if (== (vec.len (& (. s pk))) 0) (cg_frame.set_flag fx (. s local) true)))
 
 (fn store_rec ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -344,14 +342,12 @@
   (let ty (cg_op.eval_op g p fx (& (. b locs)) (vec.get (& (. t args)) ai)))
   (let d (cg_frame.tmp fx 8 8))
   (if (and peel (== (. ty kind) 11u8))
-    (do
-      (cg_frame.ld fx 8 x64_buf.rax x64_buf.r11 0)
-      (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax))
+    (do (cg_frame.ld fx 8 x64_buf.rax x64_buf.r11 0) (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax))
     (if (cg_lay.is_agg (& ty))
-    (cg_frame.st fx 8 x64_buf.rbp d x64_buf.r11)
-    (if (cg_lay.is_float (& ty))
-      (cg_frame.bsdst (&mut (. fx buf)) x64_buf.rbp d 0)
-      (do (cg_op_ext fx (& ty)) (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax)))))
+      (cg_frame.st fx 8 x64_buf.rbp d x64_buf.r11)
+      (if (cg_lay.is_float (& ty))
+        (cg_frame.bsdst (&mut (. fx buf)) x64_buf.rbp d 0)
+        (do (cg_op_ext fx (& ty)) (cg_frame.st fx 8 x64_buf.rbp d x64_buf.rax)))))
   (vec.push ds d)
   (vec.push cls (if (cg_lay.is_float ft) x64_abi.cls_float x64_abi.cls_int))
   (+ ai 1))

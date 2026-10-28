@@ -1,0 +1,11 @@
+(use std.io)
+
+(struct view <'a> (s (& 'a str)))
+
+(fn main () unit
+  (let mut a (str.from "a"))
+  (let b (str.from "b"))
+  (let mut v (view (& a)))
+  (if true (set (. v s) (& b)) (set (. v s) (& b)))
+  (str.push (&mut a) "x")
+  (io.puts (. v s)))

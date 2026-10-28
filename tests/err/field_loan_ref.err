@@ -1,0 +1,2 @@
+W|tests/err/field_loan_ref.llr|9|3|16|name.unused|name=r
+E|tests/err/field_loan_ref.llr|11|13|8|borrow.mut_shared|name=a|ref=v|borrowed_at=8:20

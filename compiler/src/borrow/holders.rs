@@ -321,13 +321,15 @@ pub fn static_locals(diags: &Diags, body: &Body) -> Vec<bool> {
             src[i].push(None);
         }
     }
+    let mut fields: HashMap<(LocalIdx, u32), FSrc> = HashMap::new();
     for blk in &body.blocks {
         for (s, sp) in &blk.stmts {
             let Stmt::Assign(dest, rv) = s else { continue };
+            note_fields(&mut fields, dest, rv);
             if !dest.is_local() {
                 continue;
             }
-            note_write(body, &mut bad, &mut seen, &mut src, &mut wrote, dest.local, rv, *sp);
+            note_write(body, &mut bad, &mut seen, &mut src, &mut wrote, &fields, dest.local, rv, *sp);
         }
         if let Term::Call { dest, .. } = &blk.term {
             if dest.is_local() {
@@ -371,7 +373,17 @@ pub fn static_locals(diags: &Diags, body: &Body) -> Vec<bool> {
     stat
 }
 
-fn note_write(body: &Body, bad: &mut [bool], seen: &mut [bool], src: &mut [Vec<Option<LocalIdx>>], wrote: &mut [Option<Span>], local: LocalIdx, rv: &Rvalue, sp: Span) {
+fn note_write(
+    body: &Body,
+    bad: &mut [bool],
+    seen: &mut [bool],
+    src: &mut [Vec<Option<LocalIdx>>],
+    wrote: &mut [Option<Span>],
+    fields: &HashMap<(LocalIdx, u32), FSrc>,
+    local: LocalIdx,
+    rv: &Rvalue,
+    sp: Span,
+) {
     let i = local as usize;
     seen[i] = true;
     if wrote[i].is_none() {
@@ -381,9 +393,74 @@ fn note_write(body: &Body, bad: &mut [bool], seen: &mut [bool], src: &mut [Vec<O
     match rv {
         Rvalue::Use(Operand::Const(Const::Str(_), _)) | Rvalue::Static(_) => src[i].push(None),
         Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.is_local() => src[i].push(Some(p.local)),
+        Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.lone_field().is_some() => match field_src(fields, p) {
+            FSrc::Static => src[i].push(None),
+            FSrc::Local(l) => src[i].push(Some(l)),
+            FSrc::Bad => bad[i] = true,
+        },
         Rvalue::Use(Operand::Copy(_) | Operand::Move(_)) if static_dest => src[i].push(None),
         _ => bad[i] = true,
     }
+}
+
+#[derive(Clone)]
+enum FSrc {
+    Static,
+    Local(LocalIdx),
+    Bad,
+}
+
+fn note_fields(fields: &mut HashMap<(LocalIdx, u32), FSrc>, dest: &Place, rv: &Rvalue) {
+    if dest.has_deref() {
+        return;
+    }
+    if let Some(i) = dest.lone_field() {
+        fields.insert((dest.local, i), rv_src(fields, rv));
+        return;
+    }
+    if !dest.is_local() {
+        return;
+    }
+    match rv {
+        Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) => {
+            let srcs: Vec<FSrc> = ops.iter().map(|o| op_src(fields, o)).collect();
+            fields.retain(|(l, _), _| *l != dest.local);
+            for (i, s) in srcs.into_iter().enumerate() {
+                fields.insert((dest.local, i as u32), s);
+            }
+        }
+        Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) if p.is_local() => copy_fields(fields, dest.local, p.local),
+        _ => {}
+    }
+}
+
+fn copy_fields(fields: &mut HashMap<(LocalIdx, u32), FSrc>, dest: LocalIdx, src: LocalIdx) {
+    let owned: Vec<(u32, FSrc)> = fields.iter().filter(|((l, _), _)| *l == src).map(|((_, f), s)| (*f, s.clone())).collect();
+    fields.retain(|(l, _), _| *l != dest);
+    for (f, s) in owned {
+        fields.insert((dest, f), s);
+    }
+}
+
+fn rv_src(fields: &HashMap<(LocalIdx, u32), FSrc>, rv: &Rvalue) -> FSrc {
+    match rv {
+        Rvalue::Static(_) => FSrc::Static,
+        Rvalue::Use(op) => op_src(fields, op),
+        _ => FSrc::Bad,
+    }
+}
+
+fn op_src(fields: &HashMap<(LocalIdx, u32), FSrc>, op: &Operand) -> FSrc {
+    match op {
+        Operand::Const(Const::Str(_), _) => FSrc::Static,
+        Operand::Copy(p) | Operand::Move(p) if p.is_local() => FSrc::Local(p.local),
+        Operand::Copy(p) | Operand::Move(p) => field_src(fields, p),
+        _ => FSrc::Bad,
+    }
+}
+
+fn field_src(fields: &HashMap<(LocalIdx, u32), FSrc>, p: &Place) -> FSrc {
+    p.lone_field().and_then(|i| fields.get(&(p.local, i)).cloned()).unwrap_or(FSrc::Bad)
 }
 
 fn is_static_ref(t: &Ty) -> bool {

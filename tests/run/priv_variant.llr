@@ -1,0 +1,7 @@
+(use std.io)
+
+(enum shape (circle i64))
+
+(fn main () unit
+  (let s (shape.circle 3))
+  (match s ((shape.circle n) (io.puts (& (str.from_int n)))) (_ (io.puts "x"))))

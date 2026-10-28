@@ -235,6 +235,14 @@
   (let b (thir.kv (& a) "module" modp))
   (thir.kv (& b) "fix" fix))
 
+(pub (fn ctor_priv ((p (& prog.prog)) (c (& thir.ck)) (id i64) (args (& (vec ty.sty)))) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (== (. d module) (. c module)) (ret (str.new)))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let f (vec.get (& (. d sfields)) i))
+    (if (not (. f is_pub)) (ret (priv_field_msg p id f args))))
+  (str.new)))
+
 (pub (fn var_err ((p (& prog.prog)) (c (& thir.ck)) (id i64) (idx i64) (var str)) str
   (let d (vec.get (& (. p defs)) id))
   (if (< idx 0) (ret (thir.kv2 "type.no_variant" "ty" (str.clone (& (. d name))) "variant" var)))

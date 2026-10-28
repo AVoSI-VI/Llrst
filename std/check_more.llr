@@ -121,6 +121,8 @@
   (opt.none))
 
 (pub (fn bounds ((srcs (& (vec source))) (d (& def)) (e (& expr)) (kids (& (vec texpr)))) (opt str)
+  (let hid (clos_args srcs d kids))
+  (if (> (str.len (& hid)) 0) (ret (opt.some hid)))
   (if (== (vec.len kids) 0) (ret (opt.none)))
   (let f (fn_item srcs d))
   (if (== (vec.len (& (. f params))) 0) (ret (opt.none)))
@@ -134,6 +136,63 @@
       ((opt.some err) (ret (opt.some err)))
       ((opt.none) ())))
   (opt.none)))
+
+(pub (fn clos_show ((e (& expr))) str
+  (let mut s (str.from "(clos ("))
+  (let n (vec.len (& (. e tys))))
+  (let mut i 0)
+  (while (< (+ i 1) n)
+    (do
+      (if (> i 0) (str.push_byte (&mut s) 32u8))
+      (str.push (&mut s) (& (ty_show (vec.get (& (. e tys)) i))))
+      (set i (+ i 1))))
+  (str.push (&mut s) ") ")
+  (if (> n 0) (str.push (&mut s) (& (ty_show (vec.get (& (. e tys)) (- n 1))))))
+  (str.push_byte (&mut s) 41u8)
+  s))
+
+(fn ty_show ((t (& ty))) str (check_ty.show_ty t (& (vec.new <str>)) (& (vec.new <info>))))
+
+(pub (fn clos_args ((srcs (& (vec source))) (d (& def)) (kids (& (vec texpr)))) str
+  (let it (vec.get (& (. (vec.get srcs (. d si)) items)) (. d ii)))
+  (for i 0 (vec.len kids)
+    (do (let bad (clos_one it kids i)) (if (> (str.len (& bad)) 0) (ret bad))))
+  (str.new)))
+
+(fn clos_one ((it (& item)) (kids (& (vec texpr))) (i i64)) str
+  (if (>= i (vec.len (& (. it params)))) (ret (str.new)))
+  (let got (& (. (vec.get kids i) ty)))
+  (let want (ty_show (& (. (vec.get (& (. it params)) i) ty))))
+  (if (not (clos_fn got (& want))) (ret (str.new)))
+  (let k (vec.get kids i))
+  (check.span (. k line)
+    (. k col)
+    (. k len)
+    "type.mismatch"
+    (& (check.join_kv "want" (& want) "got" got))))
+
+(fn clos_fn ((got (& str)) (want (& str))) bool
+  (or (and (str.starts got "(clos ") (str.starts want "(fn "))
+    (and (str.starts got "(fn ") (str.starts want "(clos "))))
+
+(pub (fn ctor_hide ((srcs (& (vec source))) (from i64) (d (& def)) (it (& item)) (e (& expr))) str
+  (let from_mod (& (. (vec.get srcs from) module)))
+  (if (str.eq (& (. d module)) from_mod) (ret (str.new)))
+  (for i 0 (vec.len (& (. it fields)))
+    (do (let f (vec.get (& (. it fields)) i)) (if (not (. f is_pub)) (ret (hide_msg e d f)))))
+  (str.new)))
+
+(fn hide_msg ((e (& expr)) (d (& def)) (f (& field))) str
+  (let ft (ty_show (& (. f ty))))
+  (let mut rest (check.join_kv "field" (& (. f name)) "ty" (& (. d name))))
+  (str.push (&mut rest) "|module=")
+  (str.push (&mut rest) (& (. d module)))
+  (str.push (&mut rest) "|fix=(pub (")
+  (str.push (&mut rest) (& (. f name)))
+  (str.push_byte (&mut rest) 32u8)
+  (str.push (&mut rest) (& ft))
+  (str.push (&mut rest) "))")
+  (check.span (. e line) (. e col) (. e len) "name.private_field" (& rest)))
 
 (fn write_src ((path (& str)) (src (& str))) bool
   (match (fs.write path src) ((res.ok _) true) ((res.err _) false)))

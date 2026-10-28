@@ -1,0 +1,1 @@
+E|tests/err/clos_fn.llr|3|59|1|type.mismatch|want=(fn () i64)|got=(clos () i64)

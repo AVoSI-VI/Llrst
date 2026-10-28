@@ -1,0 +1,5 @@
+(struct view <'a> (s (& 'a str)))
+
+(fn bad () (& 'static str) (let a (str.from "a")) (let v (view (& a))) (. v s))
+
+(fn main () unit (drop (bad)))

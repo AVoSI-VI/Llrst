@@ -5,12 +5,15 @@
 
 (struct slot (seen bool) (bad bool) (got bool) (line i64) (col i64) (len i64) (src (vec i64)))
 
+(struct fsrc (local i64) (field i64) (src i64))
+
 (pub (fn run ((out (&mut (vec diag.dg))) (b (& mir.body))) (vec bool)
   (let n (vec.len (& (. b locs))))
   (let mut ss (vec.new <slot>))
   (for i 0 n (vec.push (&mut ss) (fresh)))
+  (let mut fs (vec.new <fsrc>))
   (seed b (&mut ss))
-  (walk b (&mut ss))
+  (walk b (&mut ss) (&mut fs))
   (let stat (settle (& ss)))
   (report out b (& ss) (& stat))
   stat))
@@ -26,20 +29,22 @@
   (set (. s seen) true)
   (vec.push (&mut (. s src)) (neg 1)))
 
-(fn walk ((b (& mir.body)) (ss (&mut (vec slot)))) unit
-  (for bi 0 (vec.len (& (. b blocks))) (walk_bb b ss bi)))
+(fn walk ((b (& mir.body)) (ss (&mut (vec slot))) (fs (&mut (vec fsrc)))) unit
+  (for bi 0 (vec.len (& (. b blocks))) (walk_bb b ss fs bi)))
 
-(fn walk_bb ((b (& mir.body)) (ss (&mut (vec slot))) (bi i64)) unit
+(fn walk_bb ((b (& mir.body)) (ss (&mut (vec slot))) (fs (&mut (vec fsrc))) (bi i64)) unit
   (let blk (vec.get (& (. b blocks)) bi))
-  (for si 0 (vec.len (& (. blk stmts))) (note_st b ss (vec.get (& (. blk stmts)) si)))
+  (for si 0 (vec.len (& (. blk stmts))) (note_st b ss fs (vec.get (& (. blk stmts)) si)))
   (note_term b ss (& (. blk term))))
 
-(fn note_st ((b (& mir.body)) (ss (&mut (vec slot))) (s (& mir.st))) unit
-  (if (or (!= (. s kind) 0u8) (> (vec.len (& (. s pk))) 0)) (ret))
+(fn note_st ((b (& mir.body)) (ss (&mut (vec slot))) (fs (&mut (vec fsrc))) (s (& mir.st))) unit
+  (if (!= (. s kind) 0u8) (ret))
+  (note_fields fs s)
+  (if (> (vec.len (& (. s pk))) 0) (ret))
   (let l (. s local))
   (let slot (vec.get_mut ss l))
   (stamp slot (. s line) (. s col) (. s len))
-  (note_rv slot (& (. s rv)) (ty.static_ref (& (. (vec.get (& (. b locs)) l) ty)))))
+  (note_rv slot fs (& (. s rv)) (ty.static_ref (& (. (vec.get (& (. b locs)) l) ty)))))
 
 (fn note_term ((b (& mir.body)) (ss (&mut (vec slot))) (t (& mir.term))) unit
   (if (or (!= (. t kind) 3u8) (> (vec.len (& (. t dpk))) 0)) (ret))
@@ -58,12 +63,90 @@
   (set (. s col) col)
   (set (. s len) len))
 
-(fn note_rv ((s (&mut slot)) (r (& mir.rv)) (stat bool)) unit
+(fn note_rv ((s (&mut slot)) (fs (& (vec fsrc))) (r (& mir.rv)) (stat bool)) unit
   (if (or (== (. r kind) 17u8) (str_use r)) (ret (push_src s (neg 1))))
   (if (not (place_use r)) (ret (set (. s bad) true)))
   (let op (vec.get (& (. r ops)) 0))
   (if (== (vec.len (& (. op pk))) 0) (ret (push_src s (. op local))))
+  (let f (lone_pk (& (. op pk)) (& (. op pi))))
+  (if (>= f 0) (ret (push_field s fs (. op local) f)))
   (if stat (push_src s (neg 1)) (set (. s bad) true)))
+
+(fn push_field ((s (&mut slot)) (fs (& (vec fsrc))) (local i64) (field i64)) unit
+  (let src (field_src fs local field))
+  (if (< src (neg 1)) (ret (set (. s bad) true)))
+  (push_src s src))
+
+(fn note_fields ((fs (&mut (vec fsrc))) (s (& mir.st))) unit
+  (if (deref_pk (& (. s pk))) (ret))
+  (let f (lone_pk (& (. s pk)) (& (. s pi))))
+  (if (>= f 0) (ret (set_src fs (. s local) f (rv_src fs (& (. s rv))))))
+  (if (> (vec.len (& (. s pk))) 0) (ret))
+  (if (or (== (. (. s rv) kind) 7u8) (== (. (. s rv) kind) 8u8))
+    (ret (note_rec fs (. s local) (& (. s rv)))))
+  (if (whole_use (& (. s rv))) (copy_src fs (. s local) (. (vec.get (& (. (. s rv) ops)) 0) local))))
+
+(fn note_rec ((fs (&mut (vec fsrc))) (local i64) (r (& mir.rv))) unit
+  (let mut srcs (vec.new <i64>))
+  (for i 0 (vec.len (& (. r ops))) (vec.push (&mut srcs) (op_src fs (vec.get (& (. r ops)) i))))
+  (clear_src fs local)
+  (for i 0 (vec.len (& srcs)) (set_src fs local i (@ (vec.get (& srcs) i)))))
+
+(fn rv_src ((fs (& (vec fsrc))) (r (& mir.rv))) i64
+  (if (== (. r kind) 17u8) (ret (neg 1)))
+  (if (and (== (. r kind) 0u8) (> (vec.len (& (. r ops))) 0))
+    (ret (op_src fs (vec.get (& (. r ops)) 0))))
+  (neg 2))
+
+(fn op_src ((fs (& (vec fsrc))) (o (& mir.op))) i64
+  (if (and (== (. o kind) 2u8) (== (. o ck) 3u8)) (ret (neg 1)))
+  (if (or (== (. o kind) 2u8) (deref_pk (& (. o pk)))) (ret (neg 2)))
+  (if (== (vec.len (& (. o pk))) 0) (ret (. o local)))
+  (let f (lone_pk (& (. o pk)) (& (. o pi))))
+  (if (< f 0) (neg 2) (field_src fs (. o local) f)))
+
+(fn whole_use ((r (& mir.rv))) bool
+  (and (place_use r) (== (vec.len (& (. (vec.get (& (. r ops)) 0) pk))) 0)))
+
+(fn deref_pk ((pk (& (vec u8)))) bool
+  (for i 0 (vec.len pk) (if (== (@ (vec.get pk i)) 1u8) (ret true)))
+  false)
+
+(fn lone_pk ((pk (& (vec u8))) (pi (& (vec i64)))) i64
+  (if (or (!= (vec.len pk) 1) (!= (@ (vec.get pk 0)) 0u8)) (ret (neg 1)))
+  (@ (vec.get pi 0)))
+
+(fn field_src ((fs (& (vec fsrc))) (local i64) (field i64)) i64
+  (for i 0 (vec.len fs)
+    (let e (vec.get fs i))
+    (if (and (== (. e local) local) (== (. e field) field)) (ret (. e src))))
+  (neg 2))
+
+(fn set_src ((fs (&mut (vec fsrc))) (local i64) (field i64) (src i64)) unit
+  (let i (find_src fs local field))
+  (if (< i 0) (vec.push fs (fsrc local field src)) (set (. (vec.get_mut fs i) src) src)))
+
+(fn find_src ((fs (& (vec fsrc))) (local i64) (field i64)) i64
+  (for i 0 (vec.len fs)
+    (if (and (== (. (vec.get fs i) local) local) (== (. (vec.get fs i) field) field)) (ret i)))
+  (neg 1))
+
+(fn clear_src ((fs (&mut (vec fsrc))) (local i64)) unit
+  (let mut i 0)
+  (while (< i (vec.len fs))
+    (if (== (. (vec.get fs i) local) local) (let _ (vec.remove fs i)) (set i (+ i 1)))))
+
+(fn copy_src ((fs (&mut (vec fsrc))) (dest i64) (src i64)) unit
+  (let mut got (vec.new <fsrc>))
+  (for i 0 (vec.len fs) (keep_src fs i src dest (&mut got)))
+  (clear_src fs dest)
+  (for i 0 (vec.len (& got)) (vec.push fs (vec_f (vec.get (& got) i)))))
+
+(fn keep_src ((fs (& (vec fsrc))) (i i64) (src i64) (dest i64) (got (&mut (vec fsrc)))) unit
+  (let e (vec.get fs i))
+  (if (== (. e local) src) (vec.push got (fsrc dest (. e field) (. e src)))))
+
+(fn vec_f ((e (& fsrc))) fsrc (fsrc (. e local) (. e field) (. e src)))
 
 (fn push_src ((s (&mut slot)) (n i64)) unit (vec.push (&mut (. s src)) n))
 
@@ -93,7 +176,7 @@
   (let s (vec.get ss i))
   (and (. s seen) (and (not (. s bad)) (and (not (@ (vec.get stat i))) (src_ok s stat)))))
 
-(fn src_ok ((s (& slot)) (stat (& (vec bool))) ) bool
+(fn src_ok ((s (& slot)) (stat (& (vec bool)))) bool
   (let mut ok true)
   (for i 0 (vec.len (& (. s src)))
     (let n (@ (vec.get (& (. s src)) i)))

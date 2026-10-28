@@ -1,0 +1,9 @@
+(use std.io)
+
+(struct duo (a str) (b str))
+
+(fn main () unit
+  (let mut d (duo (str.from "a") (str.from "b")))
+  (set (. d a) (str.from "c"))
+  (io.puts (& (. d a)))
+  (io.puts (& (. d b))))

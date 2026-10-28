@@ -1,0 +1,1 @@
+(fn main () unit (let mut s str) (set (. s len) 1) (let k (. s len)) (drop k))

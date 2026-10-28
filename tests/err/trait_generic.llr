@@ -1,0 +1,3 @@
+(trait id (fn id <T> ((& Self)) Self))
+
+(fn main () unit ())

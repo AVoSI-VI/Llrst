@@ -1,0 +1,7 @@
+(use std.io)
+
+(struct view <'a> (s (& 'a str)))
+
+(fn word () (& 'static str) (let v (view "hi")) (. v s))
+
+(fn main () unit (io.puts (word)))
