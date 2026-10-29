@@ -172,6 +172,13 @@
   (while (> (vec.len (& xs)) 0) (vec.push (&mut pi) (vec.remove (&mut xs) 0)))
   (st 5u8 l (vec.new <u8>) pi (rvoid) 0 0 0)))
 
+(pub (fn strace ((slot i64) (name str)) st
+  (let mut r (rvoid))
+  (set (. r text) name)
+  (st 6u8 slot (vec.new <u8>) (vec.new <i64>) r 0 0 0)))
+
+(pub (fn stpop ((slot i64)) st (st 7u8 slot (vec.new <u8>) (vec.new <i64>) (rvoid) 0 0 0)))
+
 (pub (fn is_local ((p (& place))) bool (== (vec.len (& (. p pk))) 0)))
 
 (pub (fn has_deref ((p (& place))) bool

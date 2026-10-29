@@ -7,13 +7,16 @@
 
 (struct rd (src str) (i i64) (line i64) (col i64))
 
-(fn rerr ((what (& str)) (line i64) (col i64)) str
-  (let mut m (str.from "parse.unbalanced|line="))
+(fn perr ((code (& str)) (line i64) (col i64) (len i64) (k (& str)) (v (& str))) str
+  (let mut m (str.from code))
+  (str.push (&mut m) "|line=")
   (str.push (&mut m) (& (str.from_int line)))
   (str.push (&mut m) "|col=")
   (str.push (&mut m) (& (str.from_int col)))
-  (str.push (&mut m) "|len=1|what=")
-  (str.push (&mut m) what)
+  (str.push (&mut m) "|len=")
+  (str.push (&mut m) (& (str.from_int len)))
+  (if (> (str.len k) 0)
+    (do (str.push (&mut m) "|") (str.push (&mut m) k) (str.push (&mut m) "=") (str.push (&mut m) v)))
   m)
 
 (fn peek ((r (& rd))) u8
@@ -39,6 +42,46 @@
     (== c 13u8)
     (== c 0u8)))
 
+(fn is_hex ((c u8)) bool
+  (or (and (>= c 48u8) (<= c 57u8))
+    (or (and (>= c 97u8) (<= c 102u8)) (and (>= c 65u8) (<= c 70u8)))))
+
+(fn good_esc ((e u8)) bool
+  (or (== e 110u8)
+    (or (== e 114u8) (or (== e 116u8) (or (== e 48u8) (or (== e 34u8) (== e 92u8)))))))
+
+(fn take_hex ((r (&mut rd))) bool
+  (if (not (is_hex (peek r))) (ret false))
+  (adv r)
+  (if (not (is_hex (peek r))) (ret false))
+  (adv r)
+  true)
+
+(fn do_escape ((r (&mut rd))) (res unit str)
+  (let line (+ (. r line) 1))
+  (let col (+ (. r col) 1))
+  (let start (. r i))
+  (adv r)
+  (let e (peek r))
+  (if (== e 0u8)
+    (ret (res.err (perr "lex.unterminated_string" line col (- (str.len (& (. r src))) start) "" ""))))
+  (adv r)
+  (if (good_esc e) (ret (res.ok ())))
+  (if (and (== e 120u8) (take_hex r)) (ret (res.ok ())))
+  (res.err (perr "lex.bad_escape" line col 2 "" "")))
+
+(fn read_str ((r (&mut rd)) (t (&mut tree)) (line i64) (col i64) (byte i64)) (res i64 str)
+  (let start (. r i))
+  (adv r)
+  (loop
+    (let d (peek r))
+    (if (== d 0u8)
+      (ret (res.err (perr "lex.unterminated_string" line col (- (str.len (& (. r src))) start) "" ""))))
+    (if (== d 92u8) (do (try (do_escape r)) (cont)))
+    (adv r)
+    (if (== d 34u8) (brk)))
+  (res.ok (push_node t (node 1u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))
+
 (fn push_node ((t (&mut tree)) (n node)) i64
   (vec.push (&mut (. t nodes)) n)
   (- (vec.len (& (. t nodes))) 1))
@@ -54,17 +97,7 @@
       (let start (. r i))
       (while (and (!= (peek r) 10u8) (!= (peek r) 0u8)) (adv r))
       (ret (res.ok (push_node t (node 3u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))))
-  (if (== c 34u8)
-    (do
-      (let start (. r i))
-      (adv r)
-      (loop
-        (let d (peek r))
-        (if (== d 0u8) (ret (res.err (rerr "unterminated string" line col))))
-        (if (== d 92u8) (do (adv r) (adv r) (cont)))
-        (adv r)
-        (if (== d 34u8) (brk)))
-      (ret (res.ok (push_node t (node 1u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))))
+  (if (== c 34u8) (ret (read_str r t line col byte)))
   (if (== c 40u8)
     (do
       (adv r)
@@ -72,14 +105,14 @@
       (loop
         (skip_ws r)
         (let d (peek r))
-        (if (== d 0u8) (ret (res.err (rerr "missing )" line col))))
+        (if (== d 0u8) (ret (res.err (perr "parse.unbalanced" line col 1 "want" ")"))))
         (if (== d 41u8) (do (adv r) (brk)))
         (vec.push (&mut items) (try (form r t))))
       (let lo (vec.len (& (. t kids))))
       (for k 0 (vec.len (& items)) (vec.push (&mut (. t kids)) (@ (vec.get (& items) k))))
       (let hi (vec.len (& (. t kids))))
       (ret (res.ok (push_node t (node 2u8 (str.new) lo hi line col byte (. r i)))))))
-  (if (== c 41u8) (ret (res.err (rerr "unexpected )" line col))))
+  (if (== c 41u8) (ret (res.err (perr "parse.unbalanced" line col 1 "got" ")"))))
   (let start (. r i))
   (while (not (is_delim (peek r))) (adv r))
   (res.ok (push_node t (node 0u8 (str.slice (& (. r src)) start (. r i)) 0 0 line col byte (. r i)))))

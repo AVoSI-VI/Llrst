@@ -33,7 +33,9 @@
   (if (== (. s kind) 0u8) (ret (assign g p fx b s)))
   (if (== (. s kind) 1u8)
     (ret (cg_drop.place g p fx (& (. b locs)) (. s local) (& (. s pk)) (& (. s pi)))))
-  (if (== (. s kind) 2u8) (cg_frame.set_flag fx (. s local) false)))
+  (if (== (. s kind) 2u8) (ret (cg_frame.set_flag fx (. s local) false)))
+  (if (== (. s kind) 6u8) (ret (cg_frame.push_inline g fx (. s local) (& (. (. s rv) text)))))
+  (if (== (. s kind) 7u8) (cg_frame.pop_inline g fx (. s local))))
 
 (fn assign ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (s (& mir.st))) unit
   (if (== (. (. s rv) kind) 7u8) (ret (store_rec g p fx b s false)))

@@ -81,6 +81,8 @@ fn stmt(s: &Stmt) -> String {
         Stmt::StorageDead(l) => format!("dead _{}", l),
         Stmt::Nop => "nop".into(),
         Stmt::InlineLoans { dest, .. } => format!("loans _{}", dest),
+        Stmt::TracePush { name, .. } => format!("trace.push {}", name),
+        Stmt::TracePop { .. } => "trace.pop".into(),
     }
 }
 

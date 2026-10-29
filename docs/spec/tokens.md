@@ -6,7 +6,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 
 `(` `)` `"`
 
-## Keywords (all lowercase, 2-6 chars)
+## Keywords (all lowercase)
 
 | kw | role |
 |----|------|
@@ -37,6 +37,18 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `neg` | numeric negate |
 | `wadd` `wsub` `wmul` `wneg` | wrapping arithmetic; never traps |
 | `band` `bor` `bxor` `shl` `shr` | bitwise |
+| `trait` | trait declaration |
+| `clos` | closure type and `(clos ...)` value |
+| `call` | call a closure |
+| `inline` | substitute the function body at the call |
+| `try` | early return of `res.err` or `opt.none` |
+| `panic` | abort with a `P\|` record |
+| `assert` | check a condition |
+| `assert_eq` | check two values |
+| `sizeof` | compile-time size of a type |
+| `dyn` | trait object |
+| `ptr` | raw pointer type |
+| `never` | type with no value |
 
 ## Sigils
 
@@ -46,7 +58,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `&mut` | mutable borrow and type |
 | `@` | deref `(@ r)` |
 | `.` | field access `(. p x)` and namespace `io.puts` |
-| `'a` | lifetime |
+| `'a` | lifetime; `'static` is the lifetime of literals, consts, and other `'static` references |
 | `_` | wildcard pattern |
 | `<T>` | type parameter list (atoms starting with `<`, ending with `>`) |
 | `;` | comment to end of line |

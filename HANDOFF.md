@@ -49,6 +49,7 @@ install them, document them, write agent workflows.
 | generics | A generic is typechecked only for the instances the driver compiles. One that is never instantiated is linted from its AST and is not MIR-checked. |
 | git tool | `llr-git` reads status, diff, and log and does not change the repo. |
 | C runtime | `runtime/*.c` shims stay C and are prebuilt by install; the system C compiler is the linker driver only. |
+| warnings | A warning exits 0. `--deny CODE` may be repeated; each named warning is printed as `E` and the process exits 1. `use.unused` and `fn.unused` are not emitted for `std`. `fn.unused` is not emitted for `pub`, `extern`, or `main`. |
 
 Out of scope: a garbage collector, a second syntax or precedence grammar, Unicode-aware
 regex, growing the thread pool, and any change that exists only to make `self/` smaller.
@@ -133,8 +134,11 @@ ABI and data (`codegen/mod.rs`, `codegen/func.rs`)
 - `mir/lint.rs` runs after borrowck. `flow.unreachable` is an unreachable block that
   contains something other than `Drop`/`StorageDead`/`Nop` (the empty block opened after
   `(ret)` is skipped). `name.unused` is a local or parameter that is never an operand,
-  borrow, or discriminant; names starting with `_` are skipped. Warnings do not change
-  the exit code. Goldens: `tests/warn/`.
+  borrow, or discriminant; names starting with `_` are skipped. A warning exits 0 unless
+  `--deny CODE` names it; `--deny` may be repeated and then that warning is an `E`.
+  `use.unused` and `fn.unused` are not emitted for an `std` module. `fn.unused` is not
+  emitted for `pub`, `extern`, or `main`. Goldens: `tests/warn/`.
+  An inlined call pushes a panic frame named with `fn_path`. Drop glue pushes `drop.<type>`.
 - `+ - * neg` wrap by default. `llrc --checked` traps them (`codegen/ovf.rs` calls
   `sys.abort` with `int.overflow`) using Cranelift `sadd_overflow` / `uadd_overflow` and
   the sub/mul pairs. `wadd` `wsub` `wmul` `wneg` always wrap; the map hash uses `wmul`.
@@ -226,9 +230,9 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | --- | --- | --- |
 | `compiler/src/mir/lower.rs` | 497 | Stage 0; split before a Phase 2 move change |
 | `self/cg_op.llr` | 497 | Split before any Phase 1 cast or trampoline change |
-| `compiler/src/codegen/func.rs` | 494 | Stage 0; item 8 (panic frames) touches it |
+| `compiler/src/codegen/func.rs` | 486 | Trace push/pop lives in `codegen/trace.rs` |
 | `self/thir_expr.llr` | 493 | Split before Phase 1 span work |
-| `self/lower.llr` | 492 | Split before Phase 2 move work |
+| `self/lower.llr` | 493 | Statement spans are set before a `let` or `set` is lowered |
 | `std/check_expr.llr` | 490 | Backs `llr-check` only (Phase 4) |
 | `compiler/src/resolve.rs` | 487 | Stage 0 |
 | `self/collect.llr` | 461 | Trait impl shape and generic bounds |
@@ -285,20 +289,20 @@ Files: `self/lower.llr`, `self/lower_call.llr`, `self/holders.llr`, `self/moves.
 7. `[x]` Traits: `Eq Ord Hash Clone` live in `std/cmp.llr`; `(& (dyn Trait))` is data plus vtable. A trait method is not generic, an impl type is a concrete name, a method that returns `Self` is not a trait object, and a function pointer cannot capture a needle (`collect.llr`, `thir_call.llr`, `check/traits.rs`).
 8. `[x]` Commit: `lang: field moves through refs, writes through refs release loans, field init`.
 
-### Phase 3: diagnostics, catalogue, goldens `[ ]`
+### Phase 3: diagnostics, catalogue, goldens `[x]`
 
 Files: `docs/spec/errors.md`, `docs/spec/memory.md`, `docs/spec/types.md`, `docs/spec/tokens.md`, `docs/workflows/debug.md`, `tests/err/`, `tests/panic/`, `tests/run.sh`, `tests/run.ps1`, `self/diag.llr`, `self/lint.llr`, `self/inline.llr`, `self/cg_frame.llr`.
 
-1. `[ ]` `--deny CODE` prints that warning as `E` and exits 1 and may be repeated; a warning whose code was not denied still exits 0 (`diag.llr`, `compiler/src/diag.rs`). Decide whether warnings should ever fail a build.
-2. `[ ]` Public functions and `std` modules are not warned for unused imports or private functions (`lint.llr`, `mir/lint.rs`).
-3. `[ ]` Inlined calls and drop glue are not panic frames (`cg_frame.llr`, `codegen/func.rs`).
-4. `[ ]` `(inline (fn ...))` substitutes the body, including `ret`, loops, `match`, and owned parameters; a recursive call stays a call and a closure in the body is `inline.reject|why=form|got=clos` (`inline.llr`). All locals are in memory; `opt_level=speed` applies to stage 0 IR only.
-5. `[ ]` `tests/run` compares stderr only when `NAME.err` exists and exit status is 0 unless `NAME.code` is present; stderr is otherwise ignored (`tests/run.sh`, `tests/run.ps1`).
-6. `[ ]` `docs/spec/errors.md` lacks emitted codes `match.missing`, `match.bad_lit`, `match.not_enum`, `lex.bad_suffix`, `lit.overflow`, `type.generic_fn_value`, `type.unit_bind`, `type.not_ref`, `type.not_place`, `type.bad_cast`, `type.try`, `type.assert_eq`, `type.bad`, `target.unsupported`, `io.write`, `cli.unknown_flag`; `move.field` and `move.deref` appear in no code table (also `memory.md`); variants `trait.object|why=ref`, `mut.required|through=&`, `io.read|fix=` are undocumented; `link.failed` is documented with `status=` but emitted with `got=`. Dead rows: `lex.bad_char`, `name.not_fn`, `flow.missing_ret`. The sentence "MIN / -1 is still a hardware trap" contradicts the `int.overflow` row.
-7. `[ ]` No `tests/err` golden for `lex.unterminated_string`, `lex.bad_escape`, `parse.unbalanced`, `parse.expect`, `parse.arity`, `parse.bad_head`, `name.dup`, `name.not_module`, `name.not_type`, `move.borrowed`, `move.field`, `borrow.mut_mut`, `borrow.assign`, `flow.brk_outside`, `trait.method`, `link.failed`, `io.read`; no `tests/panic` golden for `res.ok`, `oom`, `cli.no_such_opt`, `cli.no_such_flag`.
-8. `[ ]` `docs/workflows/debug.md` lacks rows for `name.dup`, `name.not_module`, `name.not_type`, `name.private_variant`, `type.not_callable`, `type.no_field`, `type.no_variant`, `type.not_numeric`, `type.not_bool`, `type.generic_arity`, `init.uninit`, `move.borrowed`, `inline.reject`, `clos.nested`, `trait.*`, `io.read`, `lex.*`, `target.unsupported`, `use.unused`, `fn.unused`.
-9. `[ ]` `docs/spec/tokens.md` keyword table omits `trait clos call inline try panic assert assert_eq sizeof dyn ptr never 'static`; `types.md` lacks `never`, lists the fn-pointer `map` API, and omits `mem.replace`, `mem.forget`, `sys.argc/argv/arch`, `(sizeof T)`; `memory.md` rule 3 copy list disagrees with `types.md` on shared trait objects. No doc describes the `llrc` CLI (`--emit-obj`, `version`, `run FILE -- ARGS`, `usage|`).
-10. `[ ]` Commit: `diag: catalogue matches emitters, goldens for every code`.
+1. `[x]` `--deny CODE` prints that warning as `E` and exits 1 and may be repeated; a warning whose code was not denied still exits 0 (`diag.llr`, `compiler/src/diag.rs`). Warnings do not fail a build except through `--deny`. Goldens: `tests/warn/deny_unused.code`, `tests/warn/deny_two`.
+2. `[x]` Public functions and `std` modules are not warned for unused imports or private functions (`lint.llr`, `mir/lint.rs`). That exemption stays. Goldens: `tests/warn/pub_kept`, `tests/warn/std_silent`.
+3. `[x]` Inlined calls push a panic frame named with `fn_path`. Drop glue pushes `drop.<type>` (`cg_frame.llr`, `codegen/trace.rs`, `cg_drop.llr`). `tests/panic/str_oob`, `vec_oob`, and `drop_frame` lock it.
+4. `[x]` `(inline (fn ...))` substitutes the body, including `ret`, loops, `match`, and owned parameters; a recursive call stays a call and a closure in the body is `inline.reject|why=form|got=clos` (`inline.llr`). All locals are in memory; `opt_level=speed` applies to stage 0 IR only. Documented in `docs/spec/grammar.md` and `docs/install.md`.
+5. `[x]` A run test with no `NAME.err` fails when stderr is non-empty. Exit status is 0 unless `NAME.code` is present (`tests/run.sh`, `tests/run.ps1`). `tests/run/status.code` is 3.
+6. `[x]` `docs/spec/errors.md` lists the emitted codes, including `move.field` and `move.deref` in `memory.md`. `link.failed` is `cmd=` `got=`. Dead rows `lex.bad_char`, `name.not_fn`, and `flow.missing_ret` are gone. Signed `MIN / -1` always panics `int.overflow`.
+7. `[x]` `tests/err` covers the missing check codes except `link.failed`, whose `cmd=` text differs between the two linkers. `tests/panic` covers `res.ok`, `oom`, `cli.no_such_opt`, and `cli.no_such_flag`. `llr-check` is not required to match `name.dup`, `name.not_module`, `name.not_type`, `flow.brk_outside`, or `io.read` until Phase 4.
+8. `[x]` `docs/workflows/debug.md` has a row for each code that was missing, and describes inline and drop frames.
+9. `[x]` `docs/spec/tokens.md` lists the missing keywords and `'static`. `types.md` documents `never`, trait-bound `map` keys, `mem.replace`, `mem.forget`, `sys.argc` / `argv` / `arch`, and `(sizeof T)`. `memory.md` rule 3 matches the copy list. `docs/install.md` documents the `llrc` commands.
+10. `[x]` Commit: `diag: catalogue matches emitters, goldens for every code`.
 
 ### Phase 4: std `[ ]`
 
@@ -385,3 +389,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-27: Phase 0. README names Llrst 0.1.0 and stage-2 `llrs`. The line check covers `self/` and `runtime/*.c`. `llr_win.c` is split into `llr_win.c`, `llr_win_sock.c`, and `llr_win_proc.c`. Tracked `.obj` files are gone. `mono.llr` and `subst.llr` are retired; `std/check*.llr` stays for `llr-check`. `.gitattributes` stores `*.c` and `*.h` as LF. `tests/run.ps1` fails=3, all Cranelift emit panics on float casts (`run/cast_float`, `panic/cast_f_high`, `panic/cast_f_neg`). Shim tests, including `std/fs`, `std/net`, and `std/thread`, passed.
 - 2026-10-27: Phase 1. Test bodies and compiled instances are borrow-checked and MIR-linted. `emit-mir` keeps diagnostics and exits 1. `run` uses a temp executable. `os.shell` is unshifted on Windows. Diagnostics are full records. Inline re-check keeps its error. Lint scopes generic lets and counts method and value uses. Trait impls are shape-checked and bounds fail at the call. Closures bind loop and match names and pass floats and stack arguments. A missing std directory is `io.read`. `tests/run.ps1` fails=3, the same Cranelift float-cast panics. `tests/check.ps1` and `tests/mir.ps1` match stage 0.
 - 2026-10-27: Phase 2. A moved field is `move.used` in `self/` as well as stage 0. Field-loan notes join across blocks. A field write does not set a drop flag; a single-field drop is flag-guarded. A struct field is `'static` only when its stored reference is. Private-field constructors are rejected outside the defining file. `(clos ...)` does not coerce to `(fn ...)`, and a generic trait method is `parse.expect|want=(types)`. `tests/check.ps1` and `tests/mir.ps1` match stage 0. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
+- 2026-10-28: Phase 3. `--deny` may be repeated and is the only way a warning fails the build. `pub` functions and `std` modules stay exempt from `use.unused` and `fn.unused`. Inlined calls and drop glue push panic frames (`str.at`, `vec.check`, `drop.box`). The frame list is thread-local (`llr_trace_push`). The catalogue matches the emitters. `link.failed` has no shared golden because the two linkers print different `cmd=` text. `oom` panics on this Windows host. `tests/check.ps1` and `tests/mir.ps1` match stage 0. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.

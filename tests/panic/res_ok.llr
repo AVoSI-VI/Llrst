@@ -1,0 +1,1 @@
+(fn main () unit (let n (res.unwrap_err (res.ok <str i64> (str.from "ok")))))

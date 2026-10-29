@@ -9,6 +9,7 @@
 | `f32 f64` | 4 8 | IEEE |
 | `bool` | 1 | `true` `false` |
 | `unit` | 0 | the only value is `()`; functions with nothing to return use it |
+| `never` | 0 | no value; `os.exit` and `sys.panic` return it, so the caller does not continue |
 | `str` | 24 | owned heap string `{ptr len cap}`; literal `"x"` is `(& str)` |
 
 ## References
@@ -59,7 +60,7 @@ explicitly: `(vec.new <str>)`.
 | `(vec T)` | growable array `{ptr len cap}` |
 | `(opt T)` | `(opt.some x)` or `(opt.none)` |
 | `(res T E)` | `(res.ok x)` or `(res.err e)` |
-| `(map K V)` | hash map; each call passes `(fn ((& K)) i64)` and `(fn ((& K) (& K)) bool)`. Helpers cover `str` and `i64` |
+| `(map K V)` | hash map. Key operations take `<K:Hash:Eq>` from `std/cmp.llr` |
 
 ## Function types
 
@@ -105,4 +106,10 @@ float-to-int saturates and int-to-float rounds.
 
 `(& (dyn Eq))` and `(&mut (dyn Eq))` are a 16-byte value: data pointer, then vtable. Passing `(& n)` where that type is expected builds it when `n`'s type implements the trait. A method that returns `Self` or takes `Self` by value is `trait.object|why=self`, so `Clone` is static only.
 
-`drop` and `copy` stay compiler-known. `copy` is primitives, shared refs, raw pointers, `(fn ...)`, and a shared trait object.
+`drop` and `copy` stay compiler-known. `copy` is primitives (including `bool` and `unit`), shared refs, raw pointers, `(fn ...)`, and a shared trait object.
+
+## Memory and the host
+
+`(sizeof T)` is the size in bytes of `T`, computed when the call is compiled. `mem.replace` swaps a place with a new value and returns the old one, including private fields of a whole struct. `mem.forget` drops the compiler's duty to run `drop` on a value. `sys.argc` and `sys.argv` read the process arguments. `sys.arch` is a compile-time `(& str)`.
+
+Every local is a stack slot. Stage 0 sets Cranelift `opt_level=speed`. The installed `llrs` compiler does not.

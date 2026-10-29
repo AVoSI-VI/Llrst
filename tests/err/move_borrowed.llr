@@ -1,0 +1,1 @@
+(fn main () unit (let s (str.from "a")) (let r (& s)) (let t s) (drop t) (drop r))

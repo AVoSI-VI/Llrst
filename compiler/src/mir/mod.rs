@@ -135,6 +135,10 @@ pub enum Stmt {
     Nop,
     /// Drop loans of locals created for an inlined body, then copy the loans of `sources` onto `dest`.
     InlineLoans { kill_from: LocalIdx, sources: Vec<LocalIdx>, dest: LocalIdx },
+    /// Push a panic frame for an inlined call. `slot` pairs with `TracePop`.
+    TracePush { name: String, slot: u32 },
+    /// Pop the frame pushed by `TracePush` with the same `slot`.
+    TracePop { slot: u32 },
 }
 
 #[derive(Clone, Debug)]

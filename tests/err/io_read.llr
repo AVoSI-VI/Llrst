@@ -1,0 +1,3 @@
+(use proj.missing)
+
+(fn main () unit ())

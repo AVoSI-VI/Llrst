@@ -100,7 +100,7 @@ pub fn stmt_accesses(s: &Stmt, span: Span) -> Vec<Access> {
         Stmt::Drop(p) => out.push(Access { place: p.clone(), kind: AccessKind::Drop, span }),
         Stmt::Forget(l) => out.push(Access { place: Place::local(*l), kind: AccessKind::Move, span }),
         Stmt::StorageDead(l) => out.push(Access { place: Place::local(*l), kind: AccessKind::StorageDead, span }),
-        Stmt::Nop | Stmt::InlineLoans { .. } => {}
+        Stmt::Nop | Stmt::InlineLoans { .. } | Stmt::TracePush { .. } | Stmt::TracePop { .. } => {}
     }
     out
 }

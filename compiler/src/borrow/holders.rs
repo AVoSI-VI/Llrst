@@ -193,7 +193,7 @@ impl<'a> Cx<'a> {
                 self.kill_local(&mut st.bits, *l);
                 self.clear_fields(st, *l);
             }
-            Stmt::Drop(_) | Stmt::Forget(_) | Stmt::Nop => {}
+            Stmt::Drop(_) | Stmt::Forget(_) | Stmt::Nop | Stmt::TracePush { .. } | Stmt::TracePop { .. } => {}
             Stmt::InlineLoans { kill_from, sources, dest } => {
                 for li in 0..self.loans.len() {
                     if self.loans[li].place.local >= *kill_from {

@@ -23,6 +23,7 @@
   (pub (has_sret bool))
   (pub (trace i64))
   (pub (do_trace bool))
+  (pub (toff (vec i64)))
   (pub (frame i64))
   (pub (scratch i64))
   (pub (used i64))
@@ -101,6 +102,7 @@
     false
     0
     false
+    (vec.new <i64>)
     0
     0
     0
@@ -176,6 +178,7 @@
   (for i 0 (vec.len (& (. b locs)))
     (local_slot g p (&mut fx) (&mut cur) (& (. (vec.get (& (. b locs)) i) ty))))
   (if trace (do (set (. fx do_trace) true) (set (. fx trace) (alloc (&mut cur) 16 8))))
+  (alloc_traces (&mut fx) (&mut cur) b)
   (set (. fx scratch) (neg cur))
   (set cur (+ cur 4096))
   (set (. fx frame) (cg_lay.align_up (+ cur out_bytes) 16))
@@ -196,7 +199,8 @@
   (if (not (. g win)) (ret))
   (if (< (. fx frame) 4096) (ret))
   (if (< (. g chkstk) 0)
-    (set (. g chkstk) (elf.add_sym (&mut (. g obj)) "__chkstk" elf.global elf.st_none elf.sec_undef 0 0)))
+    (set (. g chkstk)
+      (elf.add_sym (&mut (. g obj)) "__chkstk" elf.global elf.st_none elf.sec_undef 0 0)))
   (x64_int.mov_ri (&mut (. fx buf)) 8 x64_buf.rax (. fx frame))
   (x64_int.call_sym (&mut (. fx buf)) (. g chkstk)))
 
@@ -334,21 +338,54 @@
   (if (< d 0) (ret))
   (set_byte fx d on)))
 
+(fn trace_n ((b (& mir.body))) i64
+  (let mut n 0)
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for k 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) k))
+      (if (and (== (. s kind) 6u8) (>= (. s local) n)) (set n (+ (. s local) 1)))))
+  n)
+
+(fn alloc_traces ((fx (&mut fncx)) (cur (&mut i64)) (b (& mir.body))) unit
+  (let mut i 0)
+  (let n (trace_n b))
+  (while (< i n) (do (vec.push (&mut (. fx toff)) (alloc cur 16 8)) (set i (+ i 1)))))
+
 (fn emit_trace ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (name (& str))) unit
+  (emit_at g fx (. fx trace) name))
+
+(fn emit_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64) (name (& str))) unit
   (let ns (cg_mod.cstr_sym g name))
   (x64_int.lea_rip (&mut (. fx buf)) x64_buf.r10 ns)
-  (st fx 8 x64_buf.rbp (+ (. fx trace) 8) x64_buf.r10)
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rax (. g trace))
-  (ld fx 8 x64_buf.rcx x64_buf.rax 0)
-  (st fx 8 x64_buf.rbp (. fx trace) x64_buf.rcx)
-  (lea fx x64_buf.r11 x64_buf.rbp (. fx trace))
-  (st fx 8 x64_buf.rax 0 x64_buf.r11))
+  (st fx 8 x64_buf.rbp (+ disp 8) x64_buf.r10)
+  (lea fx (cg_mod.a0 g) x64_buf.rbp disp)
+  (x64_int.call_sym (&mut (. fx buf)) (cg_mod.trace_push g)))
 
-(pub (fn pop_trace ((g (& cg_mod.cg)) (fx (&mut fncx))) unit
+(pub (fn push_inline ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (slot i64) (name (& str))) unit
+  (emit_at g fx (@ (vec.get (& (. fx toff)) slot)) name)))
+
+(pub (fn pop_trace ((g (&mut cg_mod.cg)) (fx (&mut fncx))) unit
   (if (not (. fx do_trace)) (ret))
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rax (. g trace))
-  (ld fx 8 x64_buf.rcx x64_buf.rbp (. fx trace))
-  (st fx 8 x64_buf.rax 0 x64_buf.rcx)))
+  (pop_at g fx (. fx trace))))
+
+(pub (fn pop_inline ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (slot i64)) unit
+  (pop_at g fx (@ (vec.get (& (. fx toff)) slot)))))
+
+(fn pop_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64)) unit
+  (lea fx (cg_mod.a0 g) x64_buf.rbp disp)
+  (x64_int.call_sym (&mut (. fx buf)) (cg_mod.trace_pop g)))
+
+(pub (fn bpush ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64) (name (& str))) unit
+  (let ns (cg_mod.cstr_sym g name))
+  (x64_int.lea_rip b x64_buf.r10 ns)
+  (bstore b 8 x64_buf.rbp (+ disp 8) x64_buf.r10)
+  (blea b (cg_mod.a0 g) x64_buf.rbp disp)
+  (x64_int.call_sym b (cg_mod.trace_push g))))
+
+(pub (fn bpop ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64)) unit
+  (blea b (cg_mod.a0 g) x64_buf.rbp disp)
+  (x64_int.call_sym b (cg_mod.trace_pop g))))
 
 (pub (fn epilogue ((fx (&mut fncx))) unit
   (x64_int.mov_rr (&mut (. fx buf)) 8 x64_buf.rsp x64_buf.rbp)

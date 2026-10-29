@@ -27,15 +27,16 @@ E|src/main.llr|7|3|1|move.used|name=v|moved_at=6:9
 ```
 
 Compilation stops after the first pass that produced any `E`. Output goes to stderr.
-Exit code 1 on any `E`, 0 otherwise. `--deny CODE` prints that warning as `E` and exits 1.
-A warning whose code was not denied stays a `W` and does not fail the build.
+Exit code 1 on any `E`, 0 otherwise. `--deny CODE` may be repeated. Each named warning is
+printed as `E` and the process exits 1. A warning whose code was not denied stays a `W`
+and does not fail the build.
 
 | warning | meaning |
 |---------|---------|
 | `flow.unreachable` | a MIR block nothing jumps to, and it holds real statements (not only drops) |
 | `name.unused` | a local or parameter is never read; `name=`. A user generic body is linted even when nothing instantiates it |
-| `use.unused` | a `(use ...)` alias is never looked up; `name=` |
-| `fn.unused` | a private function is never called; `name=` |
+| `use.unused` | a `(use ...)` alias is never looked up; `name=`. Not emitted for an `std` module |
+| `fn.unused` | a private function is never called; `name=`. Not emitted for `pub`, `extern`, `main`, or an `std` module |
 
 ## Runtime panics
 
@@ -44,7 +45,8 @@ P|FILE|LINE|COL|CODE|k=v...
 ```
 Exit code 101. `FILE|LINE|COL` is the expression that detected the fault. Later `P|name`
 lines are live callers, innermost first. `sys.abort` and `sys.panic` are omitted. An
-inlined body does not get its own frame.
+inlined call pushes a frame named with `fn_path` (`vec.get`, `str.at`) for the substituted
+body. Drop glue pushes `drop.<type>` (`drop.box`, `drop.(vec i64)`).
 
 | code | fields | source |
 |------|--------|--------|
@@ -59,23 +61,27 @@ inlined body does not get its own frame.
 | user `(panic "code|k=v")` | as written | any program |
 
 `(assert ...)` failing outside a test prints `F|FILE|LINE|COL|assert` (or `assert_eq|want=|got=`)
-and also exits 101. Without `--checked`, dividing the minimum signed value by `-1` is still a hardware trap.
+and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`.
 
 ## Code catalogue
 
 | prefix | emitted by |
 |--------|-----------|
-| `lex.*` | `lex.unterminated_string` `lex.bad_escape` `lex.bad_char` |
-| `parse.*` | `parse.unbalanced` `parse.expect` (`want=`) `parse.arity` (`form= want= got=`) `parse.bad_head` |
-| `name.*` | `name.unknown` (`name=`) `name.dup` `name.not_module` `name.not_type` `name.not_fn` `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) `name.private_variant` (`variant= ty= module= fix=(pub (name type*))`) |
-| `type.*` | `type.mismatch` `type.arity` `type.not_callable` `type.no_field` `type.no_variant` `type.infer` `type.not_numeric` `type.not_bool` `type.generic_arity` |
-| `move.*` `borrow.*` `mut.*` `init.*` | see memory.md |
-| `flow.*` | `flow.brk_outside` `flow.missing_ret` `flow.unreachable` (W) |
+| `lex.*` | `lex.unterminated_string` `lex.bad_escape` `lex.bad_suffix` (`got=` on stage 0) |
+| `parse.*` | `parse.unbalanced` (`got=` or `want=`) `parse.expect` (`want=` `got=`) `parse.arity` (`form= want= got=`) `parse.bad_head` (`got=` when a known head is rejected; omitted when the head is not an atom) |
+| `name.*` | `name.unknown` (`name=`) `name.dup` `name.not_module` (`name=`) `name.not_type` (`name=`) `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) `name.private_variant` (`variant= ty= module= fix=(pub (name type*))`) |
+| `type.*` | `type.mismatch` (`want=` `got=`) `type.arity` (`want=` `got=`) `type.not_callable` (`got=`) `type.no_field` (`ty=` `field=`) `type.no_variant` (`ty=` `variant=`) `type.infer` (`name=` `got=` or `fix=`) `type.not_numeric` (`got=` or `op=` `got=`) `type.not_bool` (`got=`) `type.generic_arity` (`name=` `want=` `got=`) `type.generic_fn_value` (`name=`) `type.unit_bind` (`name=`) `type.not_ref` (`got=`) `type.not_place` `type.bad_cast` (`from=` `to=` on stage 0) `type.try` (`got=` `ret=` on stage 0) `type.assert_eq` (`got=` on stage 0) `type.bad` |
+| `lit.*` | `lit.overflow` (`ty=` `got=` on stage 0) |
+| `match.*` | `match.missing` (`missing=` or `fix=`) `match.bad_lit` `match.not_enum` (`got=` on stage 0) |
+| `move.*` `borrow.*` `mut.*` `init.*` | see memory.md. `mut.required` may be `name=` `fix=` or, on stage 0 only, `through=&` |
+| `flow.*` | `flow.brk_outside` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |
 | `clos.nested` | a closure body contains a closure |
-| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self`) `trait.method` (`name=`) |
-| `link.*` | `link.failed` (`cmd= status=`) |
-| `io.*` | `io.read` (`path=`) |
+| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self` or `why=ref`) `trait.method` (`name=`) |
+| `link.*` | `link.failed` (`cmd=` `got=`). The two compilers do not print the same `cmd=` text, so there is no shared `tests/err` golden |
+| `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `use=` when a `proj.` file is missing) `io.write` (`path=` `got=`) |
+| `cli.*` | `cli.unknown_flag` (`flag=`) |
+| `target.*` | `target.unsupported` (`got=`) |
 
 Adding a code requires adding a row here and a golden test in `tests/err/`.
 

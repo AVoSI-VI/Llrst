@@ -258,6 +258,7 @@
   (pop_scope p w))
 
 (pub (fn expr_stmt ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex))) unit
+  (span_of w e)
   (if (== (. e kind) 3u8) (ret (stmt_let p w e)))
   (if (== (. e kind) 4u8) (ret (stmt_set p w e)))
   (if (or (== (. e kind) 0u8) (== (. e kind) 1u8)) (ret))

@@ -1,4 +1,4 @@
-;; Drop flags and per-type glue. Glue takes one pointer and does not push a panic frame.
+;; Drop flags and per-type glue. Glue pushes a panic frame named drop.<type>.
 (use proj.cg_frame)
 (use proj.cg_lay)
 (use proj.cg_mod)
@@ -8,6 +8,7 @@
 (use proj.ty)
 (use proj.x64_buf)
 (use proj.x64_int)
+(use std.str)
 
 (pub (fn place ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -93,16 +94,53 @@
 
 (pub (fn glue ((g (&mut cg_mod.cg)) (p (& prog.prog)) (t (& ty.sty)) (sym i64)) unit
   (let mut b (x64_buf.new))
-  (x64_int.push_r (&mut b) x64_buf.rbp)
-  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
-  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp (if (. g win) 48 16))
-  (cg_frame.bstore (&mut b) 8 x64_buf.rbp (neg 8) (cg_mod.a0 g))
+  (let disp (frame_open g (&mut b)))
+  (cg_frame.bpush g (&mut b) disp (& (frame_name p t)))
+  (cg_frame.bload (&mut b) 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
   (if (== (. t kind) 10u8) (glue_clos (&mut b) (cg_mod.a0 g)) (glue_adt g p (&mut b) t))
+  (cg_frame.bpop g (&mut b) disp)
   (x64_int.mov_rr (&mut b) 8 x64_buf.rsp x64_buf.rbp)
   (x64_int.pop_r (&mut b) x64_buf.rbp)
   (x64_int.ret (&mut b))
   (let _ (x64_buf.finish (&mut b)))
   (cg_mod.append_fn g sym (& b))))
+
+(fn frame_open ((g (& cg_mod.cg)) (b (&mut x64_buf.buf))) i64
+  (x64_int.push_r b x64_buf.rbp)
+  (x64_int.mov_rr b 8 x64_buf.rbp x64_buf.rsp)
+  (let disp (if (. g win) (neg 48) (neg 32)))
+  (x64_int.sub_ri b 8 x64_buf.rsp (if (. g win) 80 32))
+  (cg_frame.bstore b 8 x64_buf.rbp (neg 8) (cg_mod.a0 g))
+  disp)
+
+(fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
+  (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
+  (if (!= (. t kind) 8u8) (ret (cat "drop." (& (ty.show t)))))
+  (framed p (& (prog.type_name p (. t id))) (& (. t args))))
+
+(fn framed ((p (& prog.prog)) (name (& str)) (args (& (vec ty.sty)))) str
+  (if (== (vec.len args) 0) (ret (cat "drop." name)))
+  (let mut s (str.from "drop.("))
+  (str.push (&mut s) name)
+  (for i 0 (vec.len args)
+    (str.push_byte (&mut s) 32u8)
+    (str.push (&mut s) (& (shown p (vec.get args i)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn shown ((p (& prog.prog)) (t (& ty.sty))) str
+  (if (== (. t kind) 10u8) (ret (str.from "clos")))
+  (if (!= (. t kind) 8u8) (ret (ty.show t)))
+  (if (== (vec.len (& (. t args))) 0) (ret (prog.type_name p (. t id))))
+  (let mut s (str.from "("))
+  (str.push (&mut s) (& (prog.type_name p (. t id))))
+  (for i 0 (vec.len (& (. t args)))
+    (str.push_byte (&mut s) 32u8)
+    (str.push (&mut s) (& (shown p (vec.get (& (. t args)) i)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn cat ((a (& str)) (b (& str))) str (let mut s (str.from a)) (str.push (&mut s) b) s)
 
 (fn glue_clos ((b (&mut x64_buf.buf)) (arg i64)) unit
   (cg_frame.bload b 8 x64_buf.r10 arg 8)

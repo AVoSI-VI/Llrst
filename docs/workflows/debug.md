@@ -25,7 +25,30 @@ Goal: turn a machine diagnostic into a fix.
 | `borrow.escape` | returning a reference to a local; return the owned value |
 | `mut.required` | `fix=(let mut NAME ...)` |
 | `flow.brk_outside` | `brk`/`cont` outside a loop |
-| `link.failed` | C toolchain missing; see `docs/install.md` |
+| `link.failed` | C toolchain missing or the link command failed; `cmd=` `got=`; see `docs/install.md` |
+| `name.dup` | the same name is declared twice in one module; rename one |
+| `name.not_module` | `(use ...)` does not name a loaded module; `name=` |
+| `name.not_type` | a type name is not defined; `name=` |
+| `name.private_variant` | variant is private; `fix=(pub (name types))` in `module=` |
+| `type.not_callable` | the callee is not a function; `got=` |
+| `type.no_field` | `ty=` has no `field=` |
+| `type.no_variant` | `ty=` has no `variant=` |
+| `type.not_numeric` | the operator needs a number; `got=` |
+| `type.not_bool` | `if` / `while` / `and` / `or` need `bool`; `got=` |
+| `type.generic_arity` | wrong number of type arguments; `want=` `got=` |
+| `init.uninit` | `name=` is read on a path that never assigns it |
+| `move.borrowed` | the place is still borrowed at `borrowed_at=`; end the borrow first |
+| `inline.reject` | `why=extern` cannot be inlined; `why=form\|got=clos` means the body contains a closure |
+| `clos.nested` | move the inner closure out; a closure body cannot contain a closure |
+| `trait.missing` | add `(impl TRAIT TYPE ...)`; `trait=` `ty=` |
+| `trait.dup` | two impls of the same trait for `ty=` |
+| `trait.object` | `why=self` means the method returns or takes `Self`; `why=ref` means a trait object was written as a bare name |
+| `trait.method` | the impl is missing `name=` or its signature does not match |
+| `io.read` | `path=` could not be read; `fix=set LLRST_STD` or add the `proj.` file named by `use=` |
+| `lex.*` | close the string or fix the escape; `lex.bad_suffix` means the literal suffix is not a type |
+| `target.unsupported` | `--target` is not an `x86_64` triple this compiler emits; `got=` |
+| `use.unused` | delete the `(use ...)`; `name=` is the alias. `std` modules are not linted |
+| `fn.unused` | delete the private function or call it. `pub`, `extern`, `main`, and `std` are not linted |
 
 3. `llrc emit-mir FILE` prints the MIR when a borrow error is unclear: find the `&` that
    creates the loan and the last use of its holder.
@@ -36,8 +59,8 @@ A `W|` line is not a failure. `name.unused` means delete the binding or use it.
 ## Runtime panics
 
 `P|FILE|LINE|COL|CODE|k=v` on stderr, exit 101, then one `P|name` line per live caller,
-innermost first. `sys.abort` and `sys.panic` are omitted, and an inlined body stays in its
-caller. FILE is often the std file that detected the fault (`std/vec.llr` for an out-of-line
+innermost first. `sys.abort` and `sys.panic` are omitted. An inlined body has its own
+frame (`vec.check`, `str.at`). Drop glue adds `drop.<type>`. FILE is often the std file that detected the fault (`std/vec.llr` for an out-of-line
 `vec.insert`), so the following `P|name` lines name the callers. `opt.none` / `res.err` come
 from `unwrap`: match instead.
 `div.zero` is a `P|` line at the `/` or `%` expression. Signed `MIN / -1` and `MIN % -1`

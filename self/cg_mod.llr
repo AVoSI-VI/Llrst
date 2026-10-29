@@ -34,7 +34,9 @@
   (pub (vsym (vec i64)))
   (pub (pend (vec i64)))
   (pub (pargs (vec (vec ty.sty))))
-  (pub (dpend (vec i64)))))
+  (pub (dpend (vec i64)))
+  (pub (tpush i64))
+  (pub (tpop i64))))
 
 (fn push_zeros ((v (&mut (vec u8))) (n i64)) unit (for i 0 n (vec.push v 0u8)))
 
@@ -74,7 +76,9 @@
       (vec.new <i64>)
       (vec.new <i64>)
       (vec.new < (vec ty.sty) >)
-      (vec.new <i64>)))
+      (vec.new <i64>)
+      (neg 1)
+      (neg 1)))
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
@@ -303,6 +307,19 @@
   (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b))))
 
 (pub (fn call_cc ((g (& cg))) i64 (if (. g win) x64_abi.win64 x64_abi.sysv)))
+
+(fn undef ((g (&mut cg)) (name (& str))) i64
+  (elf.add_sym (&mut (. g obj)) name elf.global elf.st_none elf.sec_undef 0 0))
+
+(pub (fn trace_push ((g (&mut cg))) i64
+  (if (>= (. g tpush) 0) (ret (. g tpush)))
+  (set (. g tpush) (undef g "llr_trace_push"))
+  (. g tpush)))
+
+(pub (fn trace_pop ((g (&mut cg))) i64
+  (if (>= (. g tpop) 0) (ret (. g tpop)))
+  (set (. g tpop) (undef g "llr_trace_pop"))
+  (. g tpop)))
 
 (pub (fn a0 ((g (& cg))) i64 (if (. g win) x64_buf.rcx x64_buf.rdi)))
 

@@ -6,6 +6,7 @@ mod ovf;
 pub mod layout;
 mod ops;
 mod term;
+mod trace;
 mod vtbl;
 
 use crate::diag::{Diag, PResult, SourceMap, Span};
@@ -41,6 +42,8 @@ pub struct Codegen<'a> {
     pub argv: DataId,
     /// Head of the panic frame list. Each frame is `{prev, name}`.
     pub trace: DataId,
+    pub trace_push: FuncId,
+    pub trace_pop: FuncId,
     pub name_syms: usize,
     pub call_conv: CallConv,
     pub ptr_ty: types::Type,
@@ -53,6 +56,12 @@ pub struct Codegen<'a> {
     pub locs: Vec<(String, Vec<u32>)>,
     /// Instances discovered while compiling bodies, for the mono driver.
     pub discovered: Vec<Instance>,
+}
+
+fn import_trace(module: &mut ObjectModule, call_conv: CallConv, ptr: types::Type, name: &str) -> FuncId {
+    let mut sig = Signature::new(call_conv);
+    sig.params.push(AbiParam::new(ptr));
+    module.declare_function(name, Linkage::Import, &sig).unwrap()
 }
 
 pub fn make_isa(target: Option<&str>) -> PResult<OwnedTargetIsa> {
@@ -99,6 +108,8 @@ impl<'a> Codegen<'a> {
         let argc = module.declare_data("llr_argc", Linkage::Local, true, false).unwrap();
         let argv = module.declare_data("llr_argv", Linkage::Local, true, false).unwrap();
         let trace = module.declare_data("llr_trace", Linkage::Export, true, false).unwrap();
+        let trace_push = import_trace(&mut module, call_conv, ptr_ty, "llr_trace_push");
+        let trace_pop = import_trace(&mut module, call_conv, ptr_ty, "llr_trace_pop");
         for d in [argc, argv, trace] {
             let mut desc = DataDescription::new();
             desc.define_zeroinit(8);
@@ -120,6 +131,8 @@ impl<'a> Codegen<'a> {
             argc,
             argv,
             trace,
+            trace_push,
+            trace_pop,
             name_syms: 0,
             call_conv,
             ptr_ty,

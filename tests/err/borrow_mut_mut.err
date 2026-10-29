@@ -1,0 +1,2 @@
+W|tests/err/borrow_mut_mut.llr|1|62|16|name.unused|name=b
+E|tests/err/borrow_mut_mut.llr|1|69|8|borrow.mut_mut|name=s|ref=a|borrowed_at=1:52

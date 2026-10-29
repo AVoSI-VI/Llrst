@@ -1,0 +1,3 @@
+(use std.sys)
+
+(fn main () unit (let p (sys.alloc 9223372036854775807)))

@@ -6,7 +6,8 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 
 1. Every value has exactly one owner (a local, a field, or a vec element).
 2. Passing or assigning a non-`copy` value moves it. The source is unusable afterwards.
-3. `copy` types: primitives, `bool`, `unit`, `(& T)`, `(ptr T)`, `(fn ...)`. Structs and
+3. `copy` types: primitives (including `bool` and `unit`), shared references `(& T)`, raw
+   pointers `(ptr T)`, `(fn ...)`, and a shared trait object `(& (dyn Trait))`. Structs and
    `(clos ...)` are never copy.
 4. When an owner goes out of scope and still holds the value, `drop` runs. `str`, `vec`,
    and `map` free their heap memory. A closure drops each capture and frees its environment.
@@ -58,6 +59,8 @@ Programs outside `std` should not use them; `llr-fmt --lint` flags them.
 | code | meaning |
 |------|---------|
 | `move.used` | use of moved value |
+| `move.field` | move a field through `&` or `ptr`, or out of a struct that has `drop` |
+| `move.deref` | move through a dereference |
 | `move.borrowed` | move out of borrowed place |
 | `borrow.mut_shared` | `&mut` while `&` live, or vice versa |
 | `borrow.mut_mut` | two live `&mut` |

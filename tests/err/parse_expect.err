@@ -1,0 +1,1 @@
+E|tests/err/parse_expect.llr|1|6|1|parse.expect|want=fn extern struct enum const inline trait|got=|fix=(pub (fn ...)) per method

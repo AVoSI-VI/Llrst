@@ -1,0 +1,1 @@
+E|tests/err/borrow_assign.llr|4|3|9|borrow.assign|name=x|ref=r|borrowed_at=3:10

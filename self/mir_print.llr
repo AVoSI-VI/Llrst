@@ -11,9 +11,7 @@
   (for i 0 (vec.len (& (. b blocks))) (block_line (&mut s) (vec.get (& (. b blocks)) i) i))
   s))
 
-(fn line ((s (&mut str)) (t (& str))) unit
-  (str.push s t)
-  (str.push_byte s 10u8))
+(fn line ((s (&mut str)) (t (& str))) unit (str.push s t) (str.push_byte s 10u8))
 
 (fn head ((b (& mir.body))) str
   (let mut s (str.from "fn "))
@@ -46,10 +44,16 @@
   (let mut o (str.from "   "))
   (if (== (. s kind) 0u8) (str.push (&mut o) (& (assign_txt s))))
   (if (== (. s kind) 1u8) (do (str.push (&mut o) "drop ") (str.push (&mut o) (& (place_txt s)))))
-  (if (== (. s kind) 2u8) (do (str.push (&mut o) "forget _") (str.push (&mut o) (& (str.from_int (. s local))))))
-  (if (== (. s kind) 3u8) (do (str.push (&mut o) "dead _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 2u8)
+    (do (str.push (&mut o) "forget _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 3u8)
+    (do (str.push (&mut o) "dead _") (str.push (&mut o) (& (str.from_int (. s local))))))
   (if (== (. s kind) 4u8) (str.push (&mut o) "nop"))
-  (if (== (. s kind) 5u8) (do (str.push (&mut o) "loans _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 5u8)
+    (do (str.push (&mut o) "loans _") (str.push (&mut o) (& (str.from_int (. s local))))))
+  (if (== (. s kind) 6u8)
+    (do (str.push (&mut o) "trace.push ") (str.push (&mut o) (& (. (. s rv) text)))))
+  (if (== (. s kind) 7u8) (str.push (&mut o) "trace.pop"))
   o)
 
 (fn assign_txt ((s (& mir.st))) str
@@ -207,14 +211,12 @@
   (str.push (&mut s) (& (ty.int_name tyid)))
   s)
 
-(fn pre ((a (& str)) (b str)) str
-  (let mut s (str.from a))
-  (str.push (&mut s) (& b))
-  s)
+(fn pre ((a (& str)) (b str)) str (let mut s (str.from a)) (str.push (&mut s) (& b)) s)
 
 (fn term_line ((t (& mir.term))) str
   (let mut s (str.from "   "))
-  (if (== (. t kind) 0u8) (do (str.push (&mut s) "goto bb") (str.push (&mut s) (& (str.from_int (. t bb))))))
+  (if (== (. t kind) 0u8)
+    (do (str.push (&mut s) "goto bb") (str.push (&mut s) (& (str.from_int (. t bb))))))
   (if (== (. t kind) 1u8) (str.push (&mut s) (& (if_txt t))))
   (if (== (. t kind) 2u8) (str.push (&mut s) (& (sw_txt t))))
   (if (== (. t kind) 3u8) (str.push (&mut s) (& (call_txt t))))

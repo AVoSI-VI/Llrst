@@ -1,0 +1,1 @@
+(fn main () unit (let mut s (str.from "a")) (let a (&mut s)) (let b (&mut s)) (str.push a "x"))

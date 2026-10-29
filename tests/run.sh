@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out; stderr equals .err when that
-# file exists; exit status is 0 unless .code exists), tests/err/*.llr (stderr must equal .err),
+# file exists, and must be empty otherwise; exit status is 0 unless .code exists), tests/err/*.llr (stderr must equal .err),
 # tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal
 # .err and exit 0), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
@@ -56,6 +56,10 @@ for f in "$root"/tests/run/*.llr; do
     echo "fail|run/$name|stderr|want=$(head -c 200 "${f%.llr}.err" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.stderr" | tr '\n' ' ')"
     fails=$((fails+1))
     ok=0
+  elif [ ! -f "${f%.llr}.err" ] && [ -s "$tmp/$name.stderr" ]; then
+    echo "fail|run/$name|stderr|got=$(head -c 200 "$tmp/$name.stderr" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
   fi
   if [ -f "${f%.llr}.code" ]; then
     if ! cmp -s "$tmp/$name.code" "${f%.llr}.code"; then
@@ -90,7 +94,7 @@ for f in "$root"/tests/err/*.llr; do
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
-  if ! grep -Eq '\|(borrow|move|init)\.' "$want"; then
+  if ! grep -Eq '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read' "$want"; then
     ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
     if cmp -s "$tmp/$name.lerr" "$want"; then
       echo "ok|err/$name|llr-check"

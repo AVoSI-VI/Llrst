@@ -404,14 +404,43 @@ struct llr_frame {
     const char *name;
 };
 
-extern struct llr_frame *llr_trace;
+static DWORD trace_tls = TLS_OUT_OF_INDEXES;
+static INIT_ONCE trace_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK trace_init(PINIT_ONCE o, PVOID p, PVOID *ctx) {
+    (void)o;
+    (void)p;
+    (void)ctx;
+    trace_tls = TlsAlloc();
+    return TRUE;
+}
+
+static void trace_ready(void) {
+    InitOnceExecuteOnce(&trace_once, trace_init, NULL, NULL);
+}
+
+void llr_trace_push(struct llr_frame *slot) {
+    trace_ready();
+    slot->prev = (struct llr_frame *)TlsGetValue(trace_tls);
+    TlsSetValue(trace_tls, slot);
+}
+
+void llr_trace_pop(struct llr_frame *slot) {
+    trace_ready();
+    TlsSetValue(trace_tls, slot->prev);
+}
+
+static struct llr_frame *trace_head(void) {
+    trace_ready();
+    return (struct llr_frame *)TlsGetValue(trace_tls);
+}
 
 static int skip_frame(const char *name) {
     return strcmp(name, "sys.abort") == 0 || strcmp(name, "sys.panic") == 0;
 }
 
 void llr_panic_frames(void) {
-    struct llr_frame *frame = llr_trace;
+    struct llr_frame *frame = trace_head();
     int n = 0;
     while (frame != NULL && n < 32) {
         const char *name = frame->name;

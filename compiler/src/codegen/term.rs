@@ -153,11 +153,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
 
     fn pop_trace(&mut self) {
         let Some(slot) = self.trace else { return };
-        let ptr = self.cg.ptr_ty;
-        let prev = self.b.ins().stack_load(ptr, ptr, slot, 0);
-        let gv = self.cg.module.declare_data_in_func(self.cg.trace, self.b.func);
-        let head = self.b.ins().symbol_value(ptr, gv);
-        self.b.ins().store(mf(), prev, head, 0);
+        super::trace::unlink(self.cg, &mut self.b, slot);
     }
 
     pub fn call(&mut self, func: &Func, args: &[Operand], dest: &Place, next: BlockId, span: Span) -> PResult<()> {

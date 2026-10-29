@@ -1,0 +1,3 @@
+(use std.cli)
+
+(fn main () unit (let c (cli.new "t" "a")) (let s (cli.has (& c) "no")))

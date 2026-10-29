@@ -33,7 +33,8 @@
       (ret (push_w out (& (. b path)) (. s line) (. s col) (. s len) "flow.unreachable" "" (str.new))))))
 
 (fn cleanup ((s (& mir.st))) bool
-  (or (== (. s kind) 1u8) (or (== (. s kind) 3u8) (== (. s kind) 4u8))))
+  (or (== (. s kind) 1u8)
+    (or (== (. s kind) 3u8) (or (== (. s kind) 4u8) (or (== (. s kind) 6u8) (== (. s kind) 7u8))))))
 
 (fn unused ((out (&mut (vec diag.dg))) (b (& mir.body))) unit
   (let n (vec.len (& (. b locs))))

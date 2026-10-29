@@ -1,6 +1,7 @@
 /* Host stat(2), dirent, and (on Apple) libc calls whose numbers differ from Linux.
  * Field offsets come from the platform headers. */
 #include <dirent.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -61,7 +62,27 @@ struct llr_frame {
     const char *name;
 };
 
-extern struct llr_frame *llr_trace;
+static pthread_key_t trace_key;
+static pthread_once_t trace_once = PTHREAD_ONCE_INIT;
+
+static void trace_make(void) {
+    pthread_key_create(&trace_key, NULL);
+}
+
+void llr_trace_push(struct llr_frame *slot) {
+    pthread_once(&trace_once, trace_make);
+    slot->prev = pthread_getspecific(trace_key);
+    pthread_setspecific(trace_key, slot);
+}
+
+void llr_trace_pop(struct llr_frame *slot) {
+    pthread_setspecific(trace_key, slot->prev);
+}
+
+static struct llr_frame *trace_head(void) {
+    pthread_once(&trace_once, trace_make);
+    return pthread_getspecific(trace_key);
+}
 
 static int skip_frame(const char *name) {
     return strcmp(name, "sys.abort") == 0 || strcmp(name, "sys.panic") == 0;
@@ -81,7 +102,7 @@ int32_t llr_spawn_self(const char *arg) {
 }
 
 void llr_panic_frames(void) {
-    struct llr_frame *f = llr_trace;
+    struct llr_frame *f = trace_head();
     int n = 0;
     while (f != 0 && n < 32) {
         const char *name = f->name;

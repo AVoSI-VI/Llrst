@@ -328,17 +328,33 @@
   (if (and (str.eq h "test") (not is_pub)) (ret (parse_test t n)))
   (res.err (ast_expr.bad_head t n h)))
 
+(fn pub_ok ((h (& str))) bool
+  (or (str.eq h "fn")
+    (or (str.eq h "extern")
+      (or (str.eq h "struct")
+        (or (str.eq h "enum") (or (str.eq h "const") (or (str.eq h "inline") (str.eq h "trait"))))))))
+
+(fn pub_bad ((t (& tree)) (n i64) (got (& str))) str
+  (let mut m (ast_expr.err_at t n "fn extern struct enum const inline trait" got))
+  (str.push (&mut m) "|fix=(pub (fn ...)) per method")
+  m)
+
+(fn parse_pub ((t (& tree)) (n i64)) (res item str)
+  (let ids (ast_expr.forms t n))
+  (if (!= (vec.len (& ids)) 2)
+    (ret (res.err (ast_expr.arity_at t n "pub" "1" (- (vec.len (& ids)) 1)))))
+  (let inner (@ (vec.get (& ids) 1)))
+  (let got (if (== (sexp.kind t inner) 2u8) (str.clone (sexp.head t inner)) (str.new)))
+  (if (not (pub_ok (& got))) (ret (res.err (pub_bad t inner (& got)))))
+  (parse_item t inner true))
+
 (fn parse_item ((t (& tree)) (n i64) (is_pub bool)) (res item str)
   (if (!= (sexp.kind t n) 2u8) (ret (res.err (ast_expr.err_at t n "(form)" (sexp.text t n)))))
   (let ids (ast_expr.forms t n))
   (if (or (== (vec.len (& ids)) 0) (!= (sexp.kind t (@ (vec.get (& ids) 0))) 0u8))
-    (ret (res.err (ast_expr.bad_head t n (& (sexp.flat t n))))))
+    (ret (res.err (ast_expr.bad_form t n))))
   (let h (sexp.head t n))
-  (if (str.eq h "pub")
-    (do
-      (let ids (ast_expr.forms t n))
-      (if (!= (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "1" "pub"))))
-      (ret (parse_item t (@ (vec.get (& ids) 1)) true))))
+  (if (str.eq h "pub") (ret (parse_pub t n)))
   (if (str.eq h "inline")
     (do
       (let ids (ast_expr.forms t n))

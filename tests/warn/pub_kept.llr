@@ -1,0 +1,5 @@
+(pub (fn shown () unit ()))
+
+(fn hidden () unit ())
+
+(fn main () unit ())

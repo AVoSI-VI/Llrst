@@ -25,6 +25,20 @@
   (let _ (vec.pop (&mut (. w stack))))
   true))
 
+(fn next_slot ((w (& lower.low))) i64
+  (let mut n 0)
+  (for bi 0 (vec.len (& (. w blocks)))
+    (let blk (vec.get (& (. w blocks)) bi))
+    (for k 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) k))
+      (if (and (== (. s kind) 6u8) (>= (. s local) n)) (set n (+ (. s local) 1)))))
+  n)
+
+(fn open_trace ((p (& prog.prog)) (w (&mut lower.low)) (fid i64)) i64
+  (let slot (next_slot w))
+  (lower.push w (mir.strace slot (prog.fn_path p fid)))
+  slot)
+
 (fn on_stack ((w (& lower.low)) (id i64)) bool
   (for i 0 (vec.len (& (. w stack))) (if (== (@ (vec.get (& (. w stack)) i)) id) (ret true)))
   false)
@@ -52,6 +66,7 @@
   (set (. w idepth) depth)
   (set (. w ihave) true)
   (set (. w idest) (mir.pclone (& dest)))
+  (let slot (open_trace p w fid))
   (lower.expr_into p w (& body) (mir.pclone (& dest)))
   (lower.pop_scope p w)
   (let mut g (mir.tnone))
@@ -59,6 +74,7 @@
   (set (. g bb) exit)
   (lower.terminate w g)
   (set (. w cur) exit)
+  (lower.push w (mir.stpop slot))
   (set (. w iexit) sexit)
   (set (. w idepth) sdepth)
   (set (. w ihave) shave)

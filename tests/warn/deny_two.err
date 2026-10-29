@@ -1,0 +1,2 @@
+E|tests/warn/deny_two.llr|1|1|22|fn.unused|name=hidden
+E|tests/warn/deny_two.llr|3|18|9|name.unused|name=x

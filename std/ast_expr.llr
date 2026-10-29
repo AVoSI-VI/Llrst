@@ -36,6 +36,8 @@
   (str.push (&mut m) got)
   m))
 
+(pub (fn bad_form ((t (& tree)) (n i64)) str (span_kv t n "parse.bad_head")))
+
 (pub (fn forms ((t (& tree)) (n i64)) (vec i64)
   (let mut v (vec.new <i64>))
   (if (!= (sexp.kind t n) 2u8) (ret v))

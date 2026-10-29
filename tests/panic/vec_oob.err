@@ -1,2 +1,4 @@
 P|std/vec.llr|28|43|idx.oob|len=2|idx=3
+P|vec.check
+P|vec.get
 P|main.main

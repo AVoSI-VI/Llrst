@@ -221,8 +221,9 @@ impl<'a> Loader<'a> {
         if let Some(&i) = self.by_path.get(mod_path) {
             return Ok(i);
         }
-        let text = std::fs::read_to_string(file)
-            .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", file.display().to_string()))?;
+        let text = std::fs::read_to_string(file).map_err(|_| {
+            Diag::error(Span::default(), "io.read").kv("path", file.display().to_string().replace('\\', "/"))
+        })?;
         let shown = file.display().to_string().replace('\\', "/");
         let fid = self.sm.add(shown, text);
         let forms = read_file(fid, self.sm.text(fid))?;

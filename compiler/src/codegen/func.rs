@@ -28,6 +28,8 @@ pub struct FnCx<'a, 'b, 'c> {
     pub blocks: Vec<ir::Block>,
     pub sret: Option<Value>,
     pub trace: Option<StackSlot>,
+    /// Slots for `Stmt::TracePush`, indexed by the statement's slot id.
+    pub inline_trace: Vec<StackSlot>,
 }
 
 pub fn mf() -> MemFlagsData {
@@ -55,7 +57,7 @@ pub fn compile(cg: &mut Codegen, body: &Body, id: FuncId) -> PResult<()> {
     let mut fbc = FunctionBuilderContext::new();
     {
         let b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
-        let mut cx = FnCx { cg, b, body, slots: Vec::new(), flags: Vec::new(), field_flags: Vec::new(), blocks: Vec::new(), sret: None, trace: None };
+        let mut cx = FnCx { cg, b, body, slots: Vec::new(), flags: Vec::new(), field_flags: Vec::new(), blocks: Vec::new(), sret: None, trace: None, inline_trace: Vec::new() };
         cx.run()?;
         let cfg = cx.cg.frontend;
         let FnCx { b, .. } = cx;
@@ -147,6 +149,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             self.set_flag(i as u32, true);
         }
         self.push_trace();
+        super::trace::alloc_inline(self);
         let _ = ptr;
         self.b.ins().jump(self.blocks[0], &[]);
         for bi in 0..self.body.blocks.len() {
@@ -158,21 +161,11 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     fn push_trace(&mut self) {
-        let ptr = self.cg.ptr_ty;
-        let wide = (ptr.bytes() as u32) * 2;
-        let slot = self.b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, wide, 3));
+        let bytes = self.cg.ptr_ty.bytes() as u32;
+        let slot = super::trace::alloc_slot(&mut self.b, bytes);
         self.trace = Some(slot);
         let name = self.body.name.clone();
-        let id = self.cg.cstr_data(name.as_bytes());
-        let gv = self.cg.module.declare_data_in_func(self.cg.trace, self.b.func);
-        let head = self.b.ins().symbol_value(ptr, gv);
-        let prev = self.b.ins().load(ptr, mf(), head, 0);
-        self.b.ins().stack_store(ptr, prev, slot, 0);
-        let ngv = self.cg.module.declare_data_in_func(id, self.b.func);
-        let np = self.b.ins().symbol_value(ptr, ngv);
-        self.b.ins().stack_store(ptr, np, slot, ptr.bytes() as i32);
-        let addr = self.b.ins().stack_addr(ptr, slot, 0);
-        self.b.ins().store(mf(), addr, head, 0);
+        super::trace::link(self.cg, &mut self.b, slot, &name);
     }
 
     // ----- addresses, loads, stores -----
@@ -340,6 +333,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             Stmt::Drop(p) => self.drop_place(p),
             Stmt::Forget(l) => self.set_flag(*l, false),
             Stmt::StorageDead(_) | Stmt::Nop | Stmt::InlineLoans { .. } => {}
+            Stmt::TracePush { .. } | Stmt::TracePop { .. } => super::trace::emit_stmt(self, s),
         }
         Ok(())
     }

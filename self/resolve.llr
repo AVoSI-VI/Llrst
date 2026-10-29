@@ -81,7 +81,7 @@
   (if (and (>= gi 0) (== nargs 0)) (ret (res.ok (ty.param gi (str.clone n)))))
   (if (and (str.eq n "Self") (== nargs 0)) (ret (res.ok (ty.self_ty))))
   (let id (prog.lookup_type p m n))
-  (if (< id 0) (ret (res.err (coded "name.not_type" "name" n))))
+  (if (< id 0) (ret (res.err (span_kv p m t "name.not_type" "name" n))))
   (if (not (prog.visible p m id)) (ret (res.err (priv_err p m t id))))
   (if (!= (adt_arity p id) nargs) (ret (res.err (arity_err p m t n (adt_arity p id) nargs))))
   (res.ok (ty.adt id (vec.new <ty.sty>))))
@@ -105,6 +105,11 @@
     (ret (res.ok (ty.ptr_ty (try (resolve p m gens (vec.get (& (. t args)) 0)))))))
   (if (or (== (. t kind) 4u8) (== (. t kind) 5u8)) (ret (resolve_fun p m gens t)))
   (res.err (str.from "type.bad"))))
+
+(fn span_kv ((p (& prog.prog)) (m i64) (t (& ty)) (code (& str)) (k (& str)) (v (& str))) str
+  (let mut g (span_dg p m t (str.from code)))
+  (diag.add (&mut g) k (str.clone v))
+  (diag.render (& g)))
 
 (fn coded ((code (& str)) (k (& str)) (v (& str))) str
   (let mut s (str.from code))

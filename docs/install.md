@@ -38,3 +38,21 @@ installs `llrc.exe`. `.cargo/config.toml` raises the Windows main-thread stack s
 stage-0 compiles fit. The installed compiler links with `cl` and `/STACK:8388608`.
 `powershell -File tests\run.ps1` runs the golden suite. Output paths gain an `.exe` suffix.
 `/tmp` in programs maps to the Windows temp directory.
+
+## Commands
+
+Flags may come before or after the subcommand. `version` prints `llrc|0.1.0`.
+
+```
+usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
+usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]
+usage|llrc check FILE [--std DIR] [--deny CODE]
+usage|llrc emit-mir FILE [--std DIR] [--deny CODE]
+usage|llrc version
+```
+
+`--emit-obj` writes the object and does not link. `--checked` traps wrapping arithmetic,
+out-of-range shifts, and casts that do not fit. `--deny CODE` may be repeated; each named
+warning is printed as `E` and the process exits 1. `run FILE -- ARGS` passes `ARGS` to the
+program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps every local in a stack slot
+and does not run that optimizer.

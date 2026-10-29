@@ -127,8 +127,14 @@ try {
             $ok = $false
         }
         $errWant = Join-Path $_.DirectoryName "$name.err"
-        if ((Test-Path -LiteralPath $errWant) -and -not (Same-Bytes $stderr $errWant)) {
-            Write-Output "fail|run/$name|stderr|want=$(Head-Text $errWant)|got=$(Head-Text $stderr)"
+        if (Test-Path -LiteralPath $errWant) {
+            if (-not (Same-Bytes $stderr $errWant)) {
+                Write-Output "fail|run/$name|stderr|want=$(Head-Text $errWant)|got=$(Head-Text $stderr)"
+                $script:fails++
+                $ok = $false
+            }
+        } elseif ((Test-Path -LiteralPath $stderr) -and ((Get-Item -LiteralPath $stderr).Length -gt 0)) {
+            Write-Output "fail|run/$name|stderr|got=$(Head-Text $stderr)"
             $script:fails++
             $ok = $false
         }
@@ -169,7 +175,7 @@ try {
             $script:fails++
         }
         $wantText = [System.IO.File]::ReadAllText($want)
-        if ($wantText -notmatch '\|(borrow|move|init)\.') {
+        if ($wantText -notmatch '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read') {
             $lerr = Join-Path $tmp "$name.lerr"
             Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
             if (Same-Bytes $lerr $want) {

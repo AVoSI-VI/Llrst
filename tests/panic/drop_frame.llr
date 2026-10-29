@@ -1,0 +1,5 @@
+(struct box (n i64))
+
+(impl box (fn drop ((self (&mut box))) unit (let x (/ 1 0))))
+
+(fn main () unit (let b (box 1)))

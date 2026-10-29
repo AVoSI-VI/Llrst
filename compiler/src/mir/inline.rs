@@ -39,14 +39,30 @@ impl<'a> Lower<'a> {
         self.inline_exit = Some((exit, depth));
         self.inline_dest = Some(dest.clone());
         let sources = self.loan_sources(func, body, dest);
+        let slot = self.next_trace();
+        let Func::Def(d, _) = func else { unreachable!() };
+        self.push(Stmt::TracePush { name: self.prog.fn_path(*d), slot }, sp);
         self.expr_into(&body.body, dest.clone(), sp);
         self.pop_scope(sp);
         self.terminate(Term::Goto(exit), sp);
         self.cur = exit;
+        self.push(Stmt::TracePop { slot }, sp);
         self.inline_exit = saved_exit;
         self.inline_dest = saved_dest;
         self.local_map = saved_map;
         self.push(Stmt::InlineLoans { kill_from, sources, dest: dest.local }, sp);
+    }
+
+    fn next_trace(&self) -> u32 {
+        let mut n = 0;
+        for blk in &self.body.blocks {
+            for (s, _) in &blk.stmts {
+                if let Stmt::TracePush { slot, .. } = s {
+                    n = n.max(slot + 1);
+                }
+            }
+        }
+        n
     }
 
     fn keep_params(&mut self, body: &FnBody) {

@@ -150,15 +150,27 @@
       (let name (str.clone (& (. (vec.get (& (. (vec.get srcs i) items)) k) name))))
       (let kind (. (vec.get (& (. (vec.get srcs i) items)) k) kind))
       (if (and (== kind 0u8) (str.starts (& name) "proj."))
-        (try (load_proj srcs paths (& dir) (& name)))))
+        (try (load_proj srcs paths (& dir) (& name) main))))
     (set i (+ i 1)))
   (res.ok ()))
 
-(fn load_proj ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (dir (& str)) (modp (& str))) (res unit str)
+(fn load_proj ((srcs (&mut (vec src.loaded)))
+   (paths (&mut (vec str)))
+   (dir (& str))
+   (modp (& str))
+   (main (& str))) (res unit str)
   (if (>= (path_i paths modp) 0) (ret (res.ok ())))
   (let file (path.join dir (& (str_cat (& (last_seg modp)) ".llr"))))
-  (try (load_one srcs paths (str.clone modp) file false))
-  (res.ok ()))
+  (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
+    ((res.ok _) (res.ok ()))
+    ((res.err e)
+      (if (str.has (& e) "|io.read|") (res.err (proj_miss main (& file) modp)) (res.err e)))))
+
+(fn proj_miss ((main (& str)) (file (& str)) (modp (& str))) str
+  (let mut d (diag.make true (slash main) 1 1 0 (str.from "io.read")))
+  (diag.add (&mut d) "path" (slash file))
+  (diag.add (&mut d) "use" (str.clone modp))
+  (diag.render (& d)))
 
 (fn last_seg ((s (& str))) str
   (let mut i (- (str.len s) 1))
