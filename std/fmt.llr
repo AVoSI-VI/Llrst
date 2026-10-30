@@ -48,6 +48,11 @@
   out))
 
 (test fmt_pipe
+  (assert_eq (& (pipe2 "a" "b")) "a|b")
   (assert_eq (& (pipe3 "a" "b" "c")) "a|b|c")
+  (assert_eq (& (pipe4 "a" "b" "c" "d")) "a|b|c|d")
+  (assert_eq (& (pipe5 "a" "b" "c" "d" "e")) "a|b|c|d|e")
+  (assert_eq (& (field "a\nb")) "a\\nb")
   (assert_eq (& (kv "k" "x|y")) "k=x\\x7cy")
+  (assert_eq (& (int 3)) "3")
   (assert_eq (& (pad_left "7" 3 48u8)) "007"))

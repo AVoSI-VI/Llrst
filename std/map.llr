@@ -98,6 +98,18 @@
     (vec.sort (&mut out))
     out)))
 
+(test map_slots
+  (let mut m (map.new <str i64>))
+  (let k (str.from "a"))
+  (map.put (&mut m) (str.clone (& k)) 1)
+  (assert (>= (map.bucket (& m) (& k)) 0))
+  (assert (>= (map.find (& m) (& k)) 0))
+  (match (map.get_mut (&mut m) (& k)) ((opt.some v) (set (@ v) 2)) ((opt.none) (assert false)))
+  (map.relink (&mut m))
+  (map.rehash (&mut m))
+  (map.shrink (&mut m))
+  (assert_eq (map.len (& m)) 1))
+
 (test map_basic
   (let mut m (map.new <str i64>))
   (map.put (&mut m) (str.from "a") 1)

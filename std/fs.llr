@@ -94,6 +94,17 @@
     (ret (res.err (err "io.stat" path))))
   (res.ok n)))
 
+(test fs_edit
+  (assert_eq (& (err "io.read" "p")) "io.read|path=p")
+  (let p (str.from "/tmp/llr_fs_app.txt"))
+  (let q (str.from "/tmp/llr_fs_ren.txt"))
+  (res.unwrap (write (& p) "a"))
+  (res.unwrap (append (& p) "b"))
+  (assert_eq (& (res.unwrap (read (& p)))) "ab")
+  (res.unwrap (rename (& p) (& q)))
+  (assert (exists (& q)))
+  (res.unwrap (remove (& q))))
+
 (test fs_roundtrip
   (let p (str.from "/tmp/llr_fs_test.txt"))
   (res.unwrap (write (& p) "a\nb\n"))

@@ -5,21 +5,34 @@
 | stdout line | `(io.puts (& s))` appends `\n` |
 | stdout raw | `(io.put (& s))` |
 | stderr line | `(io.eputs (& s))` |
+| stderr raw | `(io.eput (& s))` |
 | read all stdin | `(io.stdin)` returns `str` |
 | read file | `(fs.read (& path))` returns `(res str str)` |
 | write file | `(fs.write (& path) (& data))` returns `(res unit str)` |
+| append file | `(fs.append (& path) (& data))` returns `(res unit str)` |
 | exists | `(fs.exists (& path))` |
 | is dir | `(fs.is_dir (& path))` |
+| remove file | `(fs.remove (& path))` returns `(res unit str)` |
+| make dir | `(fs.mkdir (& path))` returns `(res unit str)` |
+| rename | `(fs.rename (& from) (& to))` returns `(res unit str)` |
 | list dir | `(fs.list (& path))` returns `(res (vec str) str)`, names only, sorted |
 | mtime | `(fs.mtime (& path))` returns `(res i64 str)` seconds |
+| size | `(fs.size (& path))` returns `(res i64 str)` bytes |
 | join path | `(path.join (& a) (& b))` |
 | base name | `(path.base (& p))` |
+| stem | `(path.stem (& p))` drops the extension |
 | dir name | `(path.dir (& p))` |
 | extension | `(path.ext (& p))` without dot |
+| absolute | `(path.is_abs (& p))` |
+| clean | `(path.clean (& p))` drops `.` and duplicate slashes, keeps `..` |
 | args | `(os.args)` returns `(vec str)` including argv0 |
 | env | `(os.env (& name))` returns `(opt str)` |
+| shell | `(os.shell (& cmd))` returns the exit code |
+| capture | `(os.capture (& cmd))` returns `cmd` with stdout and the exit code |
+| arch | `(os.arch)` returns `(& str)` |
+| tty | `(os.is_tty fd)` |
 | exit | `(os.exit code)` |
-| cwd | `(os.cwd)` |
+| cwd | `(os.cwd)` returns `(res str str)`. Failure, including a path past 1 MiB, is `io.cwd` |
 | listen | `(net.listen port)` returns `(res i64 str)`, the listening fd. Port 0 is any port. Backlog 1 |
 | local port | `(net.local_port fd)` returns `(res i64 str)` |
 | accept | `(net.accept fd)` blocks and returns `(res i64 str)` |

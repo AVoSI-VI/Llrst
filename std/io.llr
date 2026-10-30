@@ -22,3 +22,11 @@
   s))
 
 (pub (fn stdin () str (read_fd 0)))
+
+(test io_streams
+  (put "x")
+  (puts "y")
+  (eput "z")
+  (eputs "w")
+  (if false (drop (read_fd 0)))
+  (if false (drop (stdin))))

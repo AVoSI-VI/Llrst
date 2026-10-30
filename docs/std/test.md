@@ -14,3 +14,7 @@ Source: `std/test.llr`. Import with `(use std.test)` for module functions; types
 | `test.eq_bool` | `((loc (& str)) (got bool) (want bool))` | `unit` |
 | `test.run` | `((name (& str)) (f (fn () unit)))` | `i64` |
 | `test.done` | `((fails i64))` | `unit` |
+
+## Tests
+
+`harness_eq`

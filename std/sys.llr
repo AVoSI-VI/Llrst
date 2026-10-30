@@ -48,6 +48,16 @@
 
 (pub (fn panic ((loc (& str)) (msg (& str))) never (abort loc msg)))
 
+(test sys_mem
+  (let p (alloc 8))
+  (let q (grow p 16))
+  (assert (not (ptr.eq q (ptr.null <u8>))))
+  (free q)
+  (write_all 1 (. "x" p) 0)
+  (write_str 1 "")
+  (if false (abort "a|1|1" "m"))
+  (if false (panic "m")))
+
 (test checked_div
   (assert_eq (checked_div "x|1|1" 7 3 false) 2)
   (assert_eq (checked_div "x|1|1" 7 3 true) 1))

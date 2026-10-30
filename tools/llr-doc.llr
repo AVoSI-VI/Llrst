@@ -33,6 +33,9 @@
   (str.push fns prefix)
   (str.push fns ".")
   (str.push fns (sexp.text t (sexp.child t n 1)))
+  (let mut g 2)
+  (while (< g at)
+    (do (str.push_byte fns 32u8) (str.push fns (sexp.text t (sexp.child t n g))) (set g (+ g 1))))
   (str.push fns "` | `")
   (str.push fns (& (sig t (sexp.child t n at))))
   (str.push fns "` | `")
@@ -64,20 +67,39 @@
   (let ty (str.clone (sexp.text t (sexp.child t n 1))))
   (for i 2 (sexp.count t n) (take_method t (sexp.child t n i) (& ty) fns)))
 
-(fn take_pub ((t (& tree)) (n i64) (mod (& str)) (types (&mut str)) (fns (&mut str))) unit
+(fn add_const ((t (& tree)) (n i64) (mod (& str)) (consts (&mut str))) unit
+  (str.push consts "| `")
+  (str.push consts mod)
+  (str.push consts ".")
+  (str.push consts (sexp.text t (sexp.child t n 1)))
+  (str.push consts "` | `")
+  (str.push consts (& (sig t (sexp.child t n 2))))
+  (str.push consts "` | `")
+  (str.push consts (& (sig t (sexp.child t n 3))))
+  (str.push consts "` |\n"))
+
+(fn add_trait ((t (& tree)) (n i64) (traits (&mut str))) unit
+  (let name (str.clone (sexp.text t (sexp.child t n 1))))
+  (for i 2 (sexp.count t n)
+    (let c (sexp.child t n i))
+    (if (and (== (sexp.kind t c) 2u8) (str.eq (sexp.head t c) "fn")) (add_fn t c (& name) traits))))
+
+(fn take_pub ((t (& tree)) (n i64) (mod (& str)) (types (&mut str)) (traits (&mut str)) (consts (&mut str)) (fns (&mut str))) unit
   (let inner (unwrap_inline t (sexp.child t n 1)))
   (let ih (sexp.head t inner))
   (if (or (str.eq ih "struct") (str.eq ih "enum")) (add_type t inner types))
+  (if (str.eq ih "trait") (add_trait t inner traits))
+  (if (str.eq ih "const") (add_const t inner mod consts))
   (if (or (str.eq ih "fn") (str.eq ih "extern")) (add_fn t inner mod fns)))
 
-(fn walk ((t (& tree)) (mod (& str)) (types (&mut str)) (fns (&mut str)) (tests (&mut str))) unit
+(fn walk ((t (& tree)) (mod (& str)) (types (&mut str)) (traits (&mut str)) (consts (&mut str)) (fns (&mut str)) (tests (&mut str))) unit
   (for i 0 (vec.len (& (. t top)))
     (let n (@ (vec.get (& (. t top)) i)))
     (if (== (sexp.kind t n) 3u8) (cont))
     (let h (sexp.head t n))
     (if (str.eq h "test") (add_test t n tests))
     (if (str.eq h "impl") (walk_impl t n fns))
-    (if (str.eq h "pub") (take_pub t n mod types fns))))
+    (if (str.eq h "pub") (take_pub t n mod types traits consts fns))))
 
 (fn trim_comment ((s (& str))) str
   (let mut i 0)
@@ -113,10 +135,20 @@
         (if (not (str.ends (& s) "\n")) (str.push_byte (&mut s) 10u8))
         s))))
 
-(fn sections ((types (& str)) (fns (& str)) (tests (& str))) str
+(fn sections ((types (& str)) (traits (& str)) (consts (& str)) (fns (& str)) (tests (& str))) str
   (let mut s (str.new))
   (if (> (str.len types) 0)
     (do (str.push (&mut s) "## Types\n\n") (str.push (&mut s) types) (str.push (&mut s) "\n")))
+  (if (> (str.len traits) 0)
+    (do
+      (str.push (&mut s) "## Traits\n\n| name | params | returns |\n|------|--------|---------|\n")
+      (str.push (&mut s) traits)
+      (str.push (&mut s) "\n")))
+  (if (> (str.len consts) 0)
+    (do
+      (str.push (&mut s) "## Constants\n\n| name | type | value |\n|------|------|-------|\n")
+      (str.push (&mut s) consts)
+      (str.push (&mut s) "\n")))
   (str.push (&mut s) "## Functions\n\n| name | params | returns |\n|------|--------|---------|\n")
   (str.push (&mut s) fns)
   (if (> (str.len tests) 0)
@@ -130,11 +162,13 @@
   (let t (match (sexp.read text) ((res.ok tree) tree) ((res.err e) (die (& e)))))
   (let mod (path.stem (& (path.base src))))
   (let mut types (str.new))
+  (let mut traits (str.new))
+  (let mut consts (str.new))
   (let mut fns (str.new))
   (let mut tests (str.new))
-  (walk (& t) (& mod) (&mut types) (&mut fns) (&mut tests))
+  (walk (& t) (& mod) (&mut types) (&mut traits) (&mut consts) (&mut fns) (&mut tests))
   (let mut out (head src (& mod) (& (first_comment (& t))) old))
-  (str.push (&mut out) (& (sections (& types) (& fns) (& tests))))
+  (str.push (&mut out) (& (sections (& types) (& traits) (& consts) (& fns) (& tests))))
   out)
 
 (fn dest ((dir (& str)) (src (& str))) str

@@ -27,4 +27,5 @@ Order: reuse, refactor, then new code.
 ## Grow std instead of duplicating
 
 If a helper is generic (strings, vectors, paths, records), add it to the matching `std/`
-module with a `test` form and a row in `docs/std/<mod>.md`, then call it from the tool.
+module with a `test` form, then `llr-doc --out docs/std std/NAME.llr` regenerates the
+signature table. Call the new function from the tool.

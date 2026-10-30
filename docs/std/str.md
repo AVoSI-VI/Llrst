@@ -49,4 +49,4 @@ Source: `std/str.llr`. Import with `(use std.str)` for module functions; types a
 
 ## Tests
 
-`str_basic`, `str_find_replace`, `str_int`, `str_lines_trim`
+`str_basic`, `str_find_replace`, `str_int`, `str_more`, `str_lines_trim`

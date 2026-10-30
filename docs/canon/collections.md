@@ -21,6 +21,8 @@
 | iterate | `(for i 0 (vec.len (& v)) (let x (vec.get (& v) i)) ...)` |
 | contains | `(vec.has (& v) x)` when `T: Eq` |
 | index of | `(vec.index (& v) x)` returns `(opt i64)` when `T: Eq` |
+| any match | `(vec.any (& v) pred)` where `pred` is `(clos ((& T)) bool)` and may capture a needle |
+| first match | `(vec.find (& v) pred)` returns `(opt i64)`. Same closure as `any` |
 | sort | `(vec.sort (&mut v))` when `T: Ord`, stable. A custom order is `(impl Ord item ...)` |
 | clone | `(vec.clone_str (& v))` |
 | reverse | `(vec.reverse (&mut v))` |
@@ -29,7 +31,7 @@
 | clear | `(vec.clear (&mut v))` |
 | take all | `(vec.take (&mut v))` returns the vec, leaves empty |
 
-No map or filter in v1. Write the loop. `vec.any` is not a method. A `(fn ((& T)) bool)` cannot capture a needle, so the loop stays at the call site. A `(clos ...)` can capture a binding, and it is not a `(fn ...)`.
+No map or filter in v1. Write the loop. A predicate that captures a binding is `(clos ...)`, passed to `vec.any` or `vec.find`. It is not a `(fn ...)`.
 
 ## map
 

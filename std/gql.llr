@@ -133,6 +133,24 @@
   (assert_eq (& (exec "{ add(a: 2, b: 3) }")) "{\"data\":{\"add\":5}}")
   (assert_eq (& (exec "{ no }")) "{\"errors\":[{\"message\":\"gql.field|name=no\"}]}"))
 
+(test gql_scan
+  (assert (is_space 32u8))
+  (assert (is_name 97u8))
+  (let q (str.from " add(a: 2, b: 3)"))
+  (let mut i 0)
+  (skip (& q) (&mut i))
+  (assert_eq (& (read_name (& q) (&mut i))) "add")
+  (set i (+ i 1))
+  (let mut a 0)
+  (let mut b 0)
+  (assert (read_args (& q) (&mut i) (&mut a) (&mut b)))
+  (assert_eq a 2)
+  (let mut j 0)
+  (match (read_int " 12" (&mut j)) ((opt.some n) (assert_eq n 12)) ((opt.none) (assert false)))
+  (assert (str.has (& (field_err "no")) "no"))
+  (let mut k 0)
+  (match (eval_field " hello " (&mut k) "hello") ((res.ok s) (assert (str.has (& s) "world"))) ((res.err _) (assert false))))
+
 (test gql_http
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))

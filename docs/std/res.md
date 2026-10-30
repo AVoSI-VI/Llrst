@@ -6,7 +6,7 @@ Source: `std/res.llr`. Import with `(use std.res)` for module functions; types a
 
 ## Types
 
-- `(enum res <T E> (ok T) (err E))`
+- `(enum res <T E> (pub (ok T)) (pub (err E)))`
 
 ## Functions
 

@@ -20,4 +20,4 @@ Source: `std/gql.llr`. Import with `(use std.gql)` for module functions; types a
 
 ## Tests
 
-`gql_fields`, `gql_http`
+`gql_fields`, `gql_scan`, `gql_http`

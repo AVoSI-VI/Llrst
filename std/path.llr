@@ -58,4 +58,7 @@
   (assert_eq (& (dir "z")) ".")
   (assert_eq (& (ext "x/y/z.llr")) "llr")
   (assert_eq (& (stem "x/y/z.llr")) "z")
-  (assert_eq (& (clean "./a//b/./c")) "a/b/c"))
+  (assert_eq (& (clean "./a//b/./c")) "a/b/c")
+  (match (last_slash "a/b") ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
+  (assert (is_abs "/a"))
+  (assert (not (is_abs "a"))))

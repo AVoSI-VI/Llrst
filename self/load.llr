@@ -98,21 +98,23 @@
   (if (str.starts p "/") (ret true))
   (and (> (str.len p) 2) (and (== (str.at p 1) 58u8) (== (str.at p 2) 47u8))))
 
-(fn abs_path ((p (& str))) str
+(fn abs_path ((p (& str))) (res str str)
   (let s (slash p))
-  (if (rooted (& s)) s (path.join (& (slash (& (os.cwd)))) (& s))))
+  (if (rooted (& s)) (ret (res.ok s)))
+  (let c (try (os.cwd)))
+  (res.ok (path.join (& (slash (& c))) (& s))))
 
-(fn same_std ((main (& str)) (std (& str)) (name (& str))) bool
-  (let joined (abs_path (& (path.join std name))))
-  (let m (abs_path main))
-  (str.eq (& m) (& joined)))
+(fn same_std ((main (& str)) (std (& str)) (name (& str))) (res bool str)
+  (let joined (try (abs_path (& (path.join std name)))))
+  (let m (try (abs_path main)))
+  (res.ok (str.eq (& m) (& joined))))
 
 (fn load_stds ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str)) (dir (& str))) (res unit str)
   (let names (try (fs.list dir)))
   (for i 0 (vec.len (& names))
     (let name (vec.get (& names) i))
     (if (and (str.ends name ".llr") (not (skip_os name)))
-      (if (same_std main dir name)
+      (if (try (same_std main dir name))
         (alias_main srcs paths name)
         (do (try (load_one srcs paths (mod_std name) (path.join dir name) true)) ()))))
   (res.ok ()))

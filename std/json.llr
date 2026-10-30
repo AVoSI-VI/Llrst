@@ -42,4 +42,5 @@
   (let mut vs (vec.new <str>))
   (vec.push (&mut ks) (str.from "n"))
   (vec.push (&mut vs) (str.from "1"))
-  (assert_eq (& (obj (& ks) (& vs))) "{\"n\":1}"))
+  (assert_eq (& (obj (& ks) (& vs))) "{\"n\":1}")
+  (assert_eq (& (arr (& vs))) "[1]"))

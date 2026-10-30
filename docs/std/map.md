@@ -1,6 +1,6 @@
 # std.map
 
-Hash map `(map K V)`. Each call passes a hash `(fn ((& K)) i64)` and an equality `(fn ((& K) (& K)) bool)`. Helpers cover `str` and `i64`.
+Hash map `(map K V)`. Keys need `K: Hash` and `K: Eq`. `map.keys` needs `K: Clone` and `K: Ord`.
 
 Source: `std/map.llr`. Import with `(use std.map)` for module functions; types and methods need no import.
 
@@ -12,20 +12,15 @@ Source: `std/map.llr`. Import with `(use std.map)` for module functions; types a
 
 | name | params | returns |
 |------|--------|---------|
-| `map.hash_str` | `((s (& str)))` | `i64` |
-| `map.eq_str` | `((a (& str)) (b (& str)))` | `bool` |
-| `map.hash_int` | `((k (& i64)))` | `i64` |
-| `map.eq_int` | `((a (& i64)) (b (& i64)))` | `bool` |
-| `map.clone_int` | `((k (& i64)))` | `i64` |
 | `map.new` | `()` | `(map K V)` |
 | `map.len` | `((self (& (map K V))))` | `i64` |
-| `map.has` | `((self (& (map K V))) (k (& K)) (hash (fn ((& K)) i64)) (eq (fn ((& K) (& K)) bool)))` | `bool` |
-| `map.get` | `((self (& (map K V))) (k (& K)) (hash (fn ((& K)) i64)) (eq (fn ((& K) (& K)) bool)))` | `(opt (& V))` |
-| `map.get_mut` | `((self (&mut (map K V))) (k (& K)) (hash (fn ((& K)) i64)) (eq (fn ((& K) (& K)) bool)))` | `(opt (&mut V))` |
-| `map.put` | `((self (&mut (map K V))) (k K) (v V) (hash (fn ((& K)) i64)) (eq (fn ((& K) (& K)) bool)))` | `unit` |
-| `map.del` | `((self (&mut (map K V))) (k (& K)) (hash (fn ((& K)) i64)) (eq (fn ((& K) (& K)) bool)))` | `bool` |
-| `map.keys` | `((self (& (map K V))) (clone (fn ((& K)) K)) (cmp (fn ((& K) (& K)) i64)))` | `(vec K)` |
+| `map.has <K:Hash:Eq>` | `((self (& (map K V))) (k (& K)))` | `bool` |
+| `map.get <K:Hash:Eq>` | `((self (& (map K V))) (k (& K)))` | `(opt (& V))` |
+| `map.get_mut <K:Hash:Eq>` | `((self (&mut (map K V))) (k (& K)))` | `(opt (&mut V))` |
+| `map.put <K:Hash:Eq>` | `((self (&mut (map K V))) (k K) (v V))` | `unit` |
+| `map.del <K:Hash:Eq>` | `((self (&mut (map K V))) (k (& K)))` | `bool` |
+| `map.keys <K:Clone:Ord>` | `((self (& (map K V))))` | `(vec K)` |
 
 ## Tests
 
-`map_basic`, `map_int`, `map_compact`
+`map_slots`, `map_basic`, `map_int`, `map_compact`, `map_shrink`

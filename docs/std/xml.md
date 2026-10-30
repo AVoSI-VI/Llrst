@@ -31,8 +31,6 @@ Source: `std/xml.llr`. Import with `(use std.xml)` for module functions; types a
 | `xml.tag` | `((name (& str)) (inner (& str)))` | `str` |
 | `xml.empty` | `((name (& str)))` | `str` |
 
-`xml.tag` and `xml.empty` do not escape `name`. `inner` is raw XML.
-
 ## Tests
 
-`xml_tree`, `xml_escape`, `xml_parse`
+`xml_tree`, `xml_escape`, `xml_parse`, `xml_scan`

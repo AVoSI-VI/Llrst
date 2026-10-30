@@ -96,11 +96,23 @@
           (ret (opt.none))))))
   (opt.some (check.span (. t line) (. t col) (. t len) "name.unknown" (& (check.kv "name" name)))))
 
-(pub (fn check_ty ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (t (& ty))) (opt str)
+(fn plain_ty ((s (& str))) bool
+  (or (check.is_num s)
+    (or (str.eq s "bool") (or (str.eq s "unit") (or (str.eq s "str") (or (str.eq s "never") (str.eq s "Self")))))))
+
+(pub (fn check_ty ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (t (& ty)) (gens (& (vec str)))) (opt str)
   (if (and (== (. t kind) 1u8) (str.eq (& (. t text)) "dyn")) (ret (check_dyn srcs from t)))
   (if (or (== (. t kind) 0u8) (== (. t kind) 1u8))
     (do
       (let di (check.find_type defs srcs from (& (. t text))))
+      (if (and (< di 0) (== (. t kind) 0u8))
+        (do
+          (if (and (not (plain_ty (& (. t text)))) (< (gen_at gens (& (. t text))) 0))
+            (ret (opt.some (check.span (. t line)
+                (. t col)
+                (. t len)
+                "name.not_type"
+                (& (check.kv "name" (& (. t text))))))))))
       (if (>= di 0)
         (do
           (let d (vec.get defs di))
@@ -111,7 +123,7 @@
           (if (!= want got)
             (ret (opt.some (gen_err (. t line) (. t col) (. t len) (& (. d name)) want got true))))))))
   (for i 0 (vec.len (& (. t args)))
-    (match (check_ty defs srcs from (vec.get (& (. t args)) i))
+    (match (check_ty defs srcs from (vec.get (& (. t args)) i) gens)
       ((opt.some e) (ret (opt.some e)))
       ((opt.none) ())))
   (opt.none)))

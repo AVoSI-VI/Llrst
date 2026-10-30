@@ -201,15 +201,18 @@
   (let p (str.from "/tmp/llrst-shape.llr"))
   (let src (str.from "(trait Show (fn show ((& Self)) str)) (impl Show i64) (fn main () unit ())"))
   (assert (write_src (& p) (& src)))
-  (match (check.check (& p))
-    ((res.err d) (assert (str.has (& d) "trait.method|name=Show")))
-    ((res.ok _) (assert false))))
+  (match (check.check (& p) "")
+    ((res.err d) (assert (str.has (vec.get (& d) 0) "trait.method|name=Show")))
+    ((res.ok _) (assert false)))
+  (match (check.load_prog (& p) "")
+    ((res.ok prog) (match (impl_shape (& (. prog srcs)) (. prog main)) ((opt.some _) ()) ((opt.none) ())))
+    ((res.err _) ())))
 
 (test more_bound
   (let p (str.from "/tmp/llrst-bound.llr"))
   (let src
     (str.from "(struct box (n i64)) (fn main () unit (let mut v (vec.new <box>)) (vec.sort (&mut v)))"))
   (assert (write_src (& p) (& src)))
-  (match (check.check (& p))
-    ((res.err d) (assert (str.has (& d) "trait.missing|trait=Ord|ty=box")))
+  (match (check.check (& p) "")
+    ((res.err d) (assert (str.has (vec.get (& d) 0) "trait.missing|trait=Ord|ty=box")))
     ((res.ok _) (assert false))))

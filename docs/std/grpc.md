@@ -22,8 +22,6 @@ Source: `std/grpc.llr`. Import with `(use std.grpc)` for module functions; types
 | `grpc.exec` | `((path (& str)) (msg (& str)))` | `(res str str)` |
 | `grpc.serve` | `((fd i64))` | `(res i64 str)` |
 
-`grpc.serve` accepts one connection, accumulates bytes until the call is complete, sends the reply, and returns `1`.
-
 ## Tests
 
 `grpc_fields`, `grpc_http`

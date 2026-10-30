@@ -4,18 +4,24 @@ One HTTP/1.1 request or response in a complete buffer, and `http.serve` on one p
 
 Source: `std/http.llr`. Import with `(use std.http)` for module functions; types and methods need no import.
 
+## Types
+
+- `(struct req (pub (method str)) (pub (path str)) (pub (headers (vec str))) (pub (body str)))`
+- `(struct resp (pub (code i64)) (pub (reason str)) (pub (headers (vec str))) (pub (body str)))`
+- `(struct route (pub (method str)) (pub (path str)) (pub (work (fn ((& req) (ptr u8)) resp))))`
+
 ## Functions
 
 | name | params | returns |
 |------|--------|---------|
+| `http.header` | `((hs (& (vec str))) (name (& str)))` | `(opt str)` |
 | `http.parse_req` | `((text (& str)))` | `(res req str)` |
 | `http.parse_resp` | `((text (& str)))` | `(res resp str)` |
 | `http.show_req` | `((r (& req)))` | `str` |
 | `http.show_resp` | `((r (& resp)))` | `str` |
 | `http.respond` | `((code i64) (reason (& str)) (ty (& str)) (body (& str)))` | `resp` |
-| `http.header` | `((hs (& (vec str))) (name (& str)))` | `(opt str)` |
 | `http.serve` | `((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64))` | `(res i64 str)` |
 
 ## Tests
 
-`http_req`, `http_resp`, `http_file`, `http_many`, `http_ws`
+`http_req`, `http_resp`, `http_bits`, `http_file`, `http_many`, `http_ws`, `http_bits`

@@ -6,7 +6,7 @@ Source: `std/opt.llr`. Import with `(use std.opt)` for module functions; types a
 
 ## Types
 
-- `(enum opt <T> (some T) (none))`
+- `(enum opt <T> (pub (some T)) (pub (none)))`
 
 ## Functions
 

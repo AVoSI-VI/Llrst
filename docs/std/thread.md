@@ -4,6 +4,10 @@ A fixed pthread pool. The thread count is chosen at `start` and does not grow. A
 
 Source: `std/thread.llr`. Import with `(use std.thread)` for module functions; types and methods need no import.
 
+## Types
+
+- `(struct pool (inner (ptr shared)))`
+
 ## Functions
 
 | name | params | returns |
@@ -14,4 +18,4 @@ Source: `std/thread.llr`. Import with `(use std.thread)` for module functions; t
 
 ## Tests
 
-`thread_pool`
+`thread_pool`, `thread_names`

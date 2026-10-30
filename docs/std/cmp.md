@@ -8,9 +8,18 @@ Source: `std/cmp.llr`. Traits are prelude. Import with `(use std.cmp)` is not re
 
 ## Traits
 
-| name | method | params | returns |
-|------|--------|--------|---------|
-| `Eq` | `eq` | `((& Self) (& Self))` | `bool` |
-| `Ord` | `cmp` | `((& Self) (& Self))` | `i64` |
-| `Hash` | `hash` | `((& Self))` | `i64` |
-| `Clone` | `clone` | `((& Self))` | `Self` |
+| name | params | returns |
+|------|--------|---------|
+| `Eq.eq` | `((& Self) (& Self))` | `bool` |
+| `Ord.cmp` | `((& Self) (& Self))` | `i64` |
+| `Hash.hash` | `((& Self))` | `i64` |
+| `Clone.clone` | `((& Self))` | `Self` |
+
+## Functions
+
+| name | params | returns |
+|------|--------|---------|
+
+## Tests
+
+`cmp_traits`

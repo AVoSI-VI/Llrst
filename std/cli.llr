@@ -117,4 +117,7 @@
   (assert (cli.has (& c) "all"))
   (assert_eq (cli.get_int (& c) "from") 7)
   (assert_eq (cli.at (& c) 0) "f.llr")
-  (assert_eq (cli.count (& c)) 2))
+  (assert_eq (cli.count (& c)) 2)
+  (assert_eq (cli.get (& c) "from") "7")
+  (assert (str.starts (& (cli.usage (& c))) "usage|"))
+  (if false (cli.die (& c) "cli.missing_arg" "path")))

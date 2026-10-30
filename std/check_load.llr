@@ -1,0 +1,99 @@
+;; Where llr-check finds std, and use-path errors that have no source body.
+(use std.ast)
+(use std.check)
+(use std.fs)
+(use std.os)
+(use std.path)
+(use std.str)
+(use std.sys)
+
+(pub (fn slash ((p (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
+  o))
+
+(fn exe_buf () str
+  (let mut buf (str.new))
+  (let mut n 256)
+  (while (<= n 65536)
+    (do
+      (str.reserve (&mut buf) (- n (. buf len)))
+      (let got (sys.llr_exe_path (. buf p) (as u64 n)))
+      (if (> got 0) (do (set (. buf len) got) (ret buf)))
+      (set n (* n 2))))
+  (str.new))
+
+(fn exe_dir () str
+  (let p (exe_buf))
+  (if (== (str.len (& p)) 0) (ret (str.new)))
+  (path.dir (& (slash (& p)))))
+
+(fn has_sys ((dir (& str))) bool (fs.exists (& (path.join dir "sys.llr"))))
+
+(fn std_hit ((dir (& str))) str
+  (if (== (str.len dir) 0) (ret (str.new)))
+  (let a (path.join dir "../std"))
+  (if (has_sys (& a)) (ret a))
+  (let b (path.join dir "../../std"))
+  (if (has_sys (& b)) (ret b))
+  (let c (path.join (& (path.join dir "../share/llrst")) "std"))
+  (if (has_sys (& c)) (ret c))
+  (str.new))
+
+;; `--std`, then LLRST_STD, then the executable's neighbors, then ./std.
+(pub (fn root ((over (& str)) (file (& str))) (res str str)
+  (let _f file)
+  (if (> (str.len over) 0) (ret (res.ok (slash over))))
+  (match (os.env "LLRST_STD") ((opt.some s) (ret (res.ok (slash (& s))))) ((opt.none) ()))
+  (let hit (std_hit (& (exe_dir))))
+  (if (> (str.len (& hit)) 0) (ret (res.ok hit)))
+  (if (has_sys "std") (ret (res.ok (str.from "std"))))
+  (res.err (str.from "io.read|path=std|fix=set LLRST_STD"))))
+
+(pub (fn bad_use ((srcs (& (vec source))) (from i64)) (opt str)
+  (let s (vec.get srcs from))
+  (for i 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) i))
+    (if (and (== (. it kind) 0u8) (not (known (& (. it name)))))
+      (ret (opt.some (check.span (. it line)
+          (. it col)
+          (. it len)
+          "name.not_module"
+          (& (check.kv "name" (& (. it name))))))))
+    ())
+  (opt.none)))
+
+(fn known ((name (& str))) bool (or (str.starts name "std.") (str.starts name "proj.")))
+
+(fn proj_mods ((srcs (& (vec source))) (from i64)) (vec str)
+  (let mut out (vec.new <str>))
+  (let s (vec.get srcs from))
+  (for i 0 (vec.len (& (. s items)))
+    (let it (vec.get (& (. s items)) i))
+    (if (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj."))
+      (vec.push (&mut out) (str.clone (& (. it name))))))
+  out)
+
+(pub (fn load_proj ((srcs (&mut (vec source))) (from i64) (dir (& str))) (res unit str)
+  (let mods (proj_mods srcs from))
+  (for i 0 (vec.len (& mods))
+    (let name (vec.get (& mods) i))
+    (let mut file (str.clone dir))
+    (if (not (str.ends (& file) "/")) (str.push_byte (&mut file) 47u8))
+    (str.push (&mut file) (& (check.last_seg name)))
+    (str.push (&mut file) ".llr")
+    (match (fs.read (& file))
+      ((res.err _)
+        (ret (res.err (check.span 1 1 0 "io.read" (& (check.join_kv "path" (& (slash (& file))) "use" name))))))
+      ((res.ok text)
+        (match (ast.parse_src (& text))
+          ((res.err e) (ret (res.err e)))
+          ((res.ok items) (do (vec.push srcs (source (str.clone name) items)) ()))))))
+  (res.ok ())))
+
+(test load_root
+  (let r (res.unwrap (root "" "x.llr")))
+  (assert (> (str.len (& (slash (& r)))) 0))
+  (let mut srcs (vec.new <source>))
+  (vec.push (&mut srcs) (source (str.from "main") (vec.new <item>)))
+  (match (bad_use (& srcs) 0) ((opt.none) ()) ((opt.some _) (assert false))))

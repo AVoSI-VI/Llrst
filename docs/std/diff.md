@@ -1,8 +1,12 @@
 # std.diff
 
-Line diff. Shared ends are exact. The middle is an LCS when it is at most 4096 cells, otherwise one replace hunk.
+Line diff. Shared ends are exact. The middle is a minimal LCS.
 
 Source: `std/diff.llr`. Import with `(use std.diff)` for module functions; types and methods need no import.
+
+## Types
+
+- `(struct op (pub (kind u8)) (pub (a i64)) (pub (b i64)))`
 
 ## Functions
 
@@ -14,4 +18,4 @@ Source: `std/diff.llr`. Import with `(use std.diff)` for module functions; types
 
 ## Tests
 
-`diff_lines`, `diff_middle`, `diff_bound`
+`diff_helpers`, `diff_lines`, `diff_middle`, `diff_bound`

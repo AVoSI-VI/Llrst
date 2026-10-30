@@ -77,3 +77,15 @@
   (str.push (&mut line) (& (str.from_int fails)))
   (io.puts (& line))
   (sys.exit (if (> fails 0) 2i32 0i32))))
+
+(fn nop () unit ())
+
+(test harness_eq
+  (eq_int "t|1|1" 1 1)
+  (eq_bool "t|1|1" true true)
+  (eq_str "t|1|1" "a" "a")
+  (if false (fail "t|1|1" "x"))
+  (if false (fail_eq "t|1|1" "a" "b"))
+  (if false (run "nope" nop))
+  (if false (run_win "nope" nop))
+  (if false (done 0)))

@@ -29,15 +29,13 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 | `vec.take` | `((self (&mut (vec T))))` | `(vec T)` |
 | `vec.append` | `((self (&mut (vec T))) (other (vec T)))` | `unit` |
 | `vec.reverse` | `((self (&mut (vec T))))` | `unit` |
-| `vec.has` | `((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool)))` | `bool` |
-| `vec.sort` | `((self (&mut (vec T))) (cmp (fn ((& T) (& T)) i64)))` | `unit` |
-| `vec.index` | `((self (& (vec T))) (x (& T)) (eq (fn ((& T) (& T)) bool)))` | `(opt i64)` |
-| `vec.cmp_str` | `((a (& str)) (b (& str)))` | `i64` |
-| `vec.cmp_int` | `((a (& i64)) (b (& i64)))` | `i64` |
-| `vec.eq_str` | `((a (& str)) (b (& str)))` | `bool` |
-| `vec.eq_int` | `((a (& i64)) (b (& i64)))` | `bool` |
+| `vec.has <T:Eq>` | `((self (& (vec T))) (x (& T)))` | `bool` |
+| `vec.index <T:Eq>` | `((self (& (vec T))) (x (& T)))` | `(opt i64)` |
+| `vec.any <T>` | `((self (& (vec T))) (pred (clos ((& T)) bool)))` | `bool` |
+| `vec.find <T>` | `((self (& (vec T))) (pred (clos ((& T)) bool)))` | `(opt i64)` |
+| `vec.sort <T:Ord>` | `((self (&mut (vec T))))` | `unit` |
 | `vec.clone_str` | `((v (& (vec str))))` | `(vec str)` |
 
 ## Tests
 
-`vec_push_get`, `vec_str_owned`, `vec_sort_stable`, `vec_index`
+`vec_push_get`, `vec_str_owned`, `vec_sort_stable`, `vec_edit`, `vec_index`, `vec_find`

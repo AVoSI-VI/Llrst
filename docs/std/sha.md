@@ -13,4 +13,4 @@ Source: `std/sha.llr`. Import with `(use std.sha)` for module functions; types a
 
 ## Tests
 
-`sha_empty`, `sha_accept`
+`sha_empty`, `sha_accept`, `sha_parts`

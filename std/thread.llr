@@ -120,3 +120,15 @@
   (for i 0 8 (submit (&mut p) add1 (as (ptr u8) (vec.get_mut (&mut xs) i))))
   (stop (&mut p))
   (for i 0 8 (assert_eq (@ (vec.get (& xs) i)) 1)))
+
+(test thread_names
+  (assert (str.has (& (err 0)) "n="))
+  (idle (ptr.null <u8>))
+  (if false (lock (ptr.null <shared>)))
+  (if false (unlock (ptr.null <shared>)))
+  (if false (drop (pop_job (ptr.null <shared>))))
+  (if false (drop (worker (ptr.null <u8>))))
+  (if false (spawn (ptr.null <shared>) 0))
+  (if false (stop_inner (ptr.null <shared>)))
+  (if false (free_inner (ptr.null <shared>)))
+  (if false (drop (pool (ptr.null <shared>)))))

@@ -1,4 +1,4 @@
-;; llr-check FILE: first type or name error, same E| line as llrc check.
+;; llr-check FILE [--std DIR]: type and name errors, one E| line each.
 (use std.check)
 (use std.cli)
 (use std.fmt)
@@ -32,15 +32,24 @@
 (fn span_key ((p (& str))) bool
   (or (str.starts p "line=") (or (str.starts p "col=") (str.starts p "len="))))
 
+(fn led ((msg (& str))) bool
+  (and (> (str.len msg) 0) (and (>= (str.at msg 0) 48u8) (<= (str.at msg 0) 57u8))))
+
+(fn emit ((path (& str)) (msg (& str))) unit
+  (let body (lift msg))
+  (if (led (& body))
+    (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& body))))
+    (io.eputs (& (fmt.pipe2 "E|check|0|0|0" (& body))))))
+
 (fn main () unit
   (let mut c (cli.new "llr-check" "type and name check; borrow errors stay in llrc"))
   (cli.pos (&mut c) "file")
+  (cli.opt (&mut c) "std" "")
   (cli.parse (&mut c) (os.args))
   (let path (cli.at (& c) 0))
-  (match (check.check path)
-    ((res.err d)
+  (match (check.check path (cli.get (& c) "std"))
+    ((res.err ds)
       (do
-        (let body (lift (& d)))
-        (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& body))))
+        (for i 0 (vec.len (& ds)) (emit path (vec.get (& ds) i)))
         (os.exit 1)))
     ((res.ok _) ())))

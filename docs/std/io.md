@@ -14,3 +14,7 @@ Source: `std/io.llr`. Import with `(use std.io)` for module functions; types and
 | `io.eputs` | `((s (& str)))` | `unit` |
 | `io.read_fd` | `((fd i32))` | `str` |
 | `io.stdin` | `()` | `str` |
+
+## Tests
+
+`io_streams`

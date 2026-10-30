@@ -15,6 +15,22 @@
   (if (> (str.len kv) 0) (do (str.push_byte (&mut s) 124u8) (str.push (&mut s) kv)))
   (io.puts (& s)))
 
+(fn int_lit ((t (& sexp.tree)) (n i64)) bool
+  (and (== (sexp.kind t n) 0u8) (opt.is_some (& (str.to_int (sexp.text t n))))))
+
+(fn lint_let ((path (& str)) (t (& sexp.tree)) (n i64) (count (&mut i64))) unit
+  (if (< (sexp.count t n) 4) (ret))
+  (let ty (sexp.child t n 2))
+  (let val (sexp.child t n 3))
+  (if (and (and (== (sexp.kind t ty) 0u8) (str.eq (sexp.text t ty) "i64")) (int_lit t val))
+    (do
+      (warn path (sexp.line t n) (sexp.col t n) "canon.bind.redundant_type" "fix=drop i64")
+      (set (@ count) (+ (@ count) 1))))
+  (if (and (== (sexp.kind t ty) 2u8) (== (sexp.kind t val) 2u8))
+    (do
+      (warn path (sexp.line t n) (sexp.col t n) "canon.bind.type_on_let" "fix=put the type on the call")
+      (set (@ count) (+ (@ count) 1)))))
+
 ;; Recursively flags raw memory use and deep nesting inside a form.
 (fn walk ((path (& str)) (t (& sexp.tree)) (n i64) (if_depth i64) (count (&mut i64))) unit
   (let k (sexp.kind t n))
@@ -47,6 +63,7 @@
     (do
       (warn path (sexp.line t n) (sexp.col t n) "canon.bind.unit" "fix=drop the let")
       (set (@ count) (+ (@ count) 1))))
+  (if (str.eq h "let") (lint_let path t n count))
   (for i 0 (sexp.count t n) (walk path t (sexp.child t n i) d count)))
 
 ;; Lines spanned by top-level form i (distance to the next form).
@@ -97,6 +114,10 @@
     (let inner (if (and (str.eq h "pub") (> (sexp.count t f) 1)) (sexp.child t f 1) f))
     (let ih (sexp.head t inner))
     (if (str.eq h "use") (check_use path t f (&mut s)) (set (. s seen_non_use) true))
+    (if (and (str.eq h "use") (> (sexp.count t f) 2))
+      (do
+        (warn path (sexp.line t f) 1 "canon.program.use_one" "fix=one module per use")
+        (set (. s count) (+ (. s count) 1))))
     (if (and (not is_std) (str.eq ih "extern"))
       (do
         (warn path (sexp.line t f) 1 "canon.memory.raw" "atom=extern")
@@ -109,3 +130,8 @@
         (set (. s main_at) (neg 1))))
     (if (not is_std) (walk path t f 0 (&mut (. s count)))))
   (. s count)))
+
+(test canon_new
+  (let src "(let n i64 3)\n(let n u8 3)\n(let xs (vec str) (vec.new))\n(use std.io std.str)\n")
+  (let t (res.unwrap (sexp.read src)))
+  (assert (>= (lint "a.llr" src (& t)) 3)))

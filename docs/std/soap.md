@@ -14,4 +14,4 @@ Source: `std/soap.llr`. Import with `(use std.soap)` for module functions; types
 
 ## Tests
 
-`soap_fields`, `soap_http`
+`soap_fields`, `soap_ops`, `soap_http`

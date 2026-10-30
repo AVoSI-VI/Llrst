@@ -35,3 +35,16 @@
 (impl Clone i64 (fn clone ((a (& i64))) i64 (@ a)))
 
 (impl Clone str (fn clone ((a (& str))) str (str.clone a)))
+
+(test cmp_traits
+  (let a 1)
+  (let b 2)
+  (assert (Eq.eq (& a) (& a)))
+  (assert (not (Eq.eq (& a) (& b))))
+  (assert (< (Ord.cmp (& a) (& b)) 0))
+  (assert (!= (Hash.hash (& a)) 0))
+  (assert_eq (Clone.clone (& a)) 1)
+  (assert (Eq.eq "ab" "ab"))
+  (assert (< (Ord.cmp "a" "b") 0))
+  (assert (!= (Hash.hash "ab") 0))
+  (assert_eq (& (Clone.clone "ab")) "ab"))

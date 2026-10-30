@@ -27,4 +27,4 @@ Source: `std/sexp.llr`. Import with `(use std.sexp)` for module functions; types
 
 ## Tests
 
-`sexp_read`
+`sexp_read`, `sexp_scan`

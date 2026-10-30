@@ -38,8 +38,8 @@ Source: `std/check.llr`. Import with `(use std.check)` for module functions; typ
 | `check.which_bi` | `((q (& str)) (text (& str)))` | `i64` |
 | `check.clone_info` | `((a (& info)))` | `info` |
 | `check.mod_si` | `((srcs (& (vec source))) (module (& str)))` | `i64` |
-| `check.load_prog` | `((path (& str)))` | `(res prog str)` |
-| `check.check` | `((path (& str)))` | `(res (vec texpr) str)` |
+| `check.load_prog` | `((path (& str)) (over (& str)))` | `(res prog str)` |
+| `check.check` | `((path (& str)) (over (& str)))` | `(res (vec texpr) (vec str))` |
 
 ## Tests
 

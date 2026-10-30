@@ -19,4 +19,4 @@ Source: `std/net.llr`. Import with `(use std.net)` for module functions; types a
 
 ## Tests
 
-`net_one`, `net_poll`
+`net_one`, `net_poll`, `net_helpers`

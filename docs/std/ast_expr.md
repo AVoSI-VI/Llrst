@@ -9,6 +9,9 @@ Source: `std/ast_expr.llr`. Import with `(use std.ast_expr)` for module function
 | name | params | returns |
 |------|--------|---------|
 | `ast_expr.err_at` | `((t (& tree)) (n i64) (want (& str)) (got (& str)))` | `str` |
+| `ast_expr.arity_at` | `((t (& tree)) (n i64) (form (& str)) (want (& str)) (got i64))` | `str` |
+| `ast_expr.bad_head` | `((t (& tree)) (n i64) (got (& str)))` | `str` |
+| `ast_expr.bad_form` | `((t (& tree)) (n i64))` | `str` |
 | `ast_expr.forms` | `((t (& tree)) (n i64))` | `(vec i64)` |
 | `ast_expr.parse_ty` | `((t (& tree)) (n i64))` | `(res ty str)` |
 | `ast_expr.parse_exprs` | `((t (& tree)) (ids (& (vec i64))) (from i64) (out (&mut (vec expr))))` | `(res unit str)` |

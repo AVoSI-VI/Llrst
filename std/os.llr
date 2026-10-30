@@ -21,15 +21,15 @@
 
 (pub (fn exit ((code i64)) never (sys.exit (as i32 code))))
 
-(pub (fn cwd () str
+(pub (fn cwd () (res str str)
   (let mut buf (str.new))
   (let mut n 1)
   (loop
     (str.reserve (&mut buf) (- n (. buf len)))
     (let p (sys.getcwd (. buf p) (as u64 n)))
     (if (not (ptr.eq p (ptr.null <u8>)))
-      (do (set (. buf len) (as i64 (sys.strlen (. buf p)))) (ret buf)))
-    (if (>= n 1048576) (ret (str.new)))
+      (do (set (. buf len) (as i64 (sys.strlen (. buf p)))) (ret (res.ok buf))))
+    (if (>= n 1048576) (ret (res.err (str.from "io.cwd"))))
     (set n (* n 2)))))
 
 ;; Runs a shell command, returns its exit code.
@@ -55,12 +55,18 @@
 
 (pub (fn is_tty ((fd i64)) bool (!= (sys.isatty (as i32 fd)) 0i32)))
 
-(test os_cwd (let c (cwd)) (assert (> (str.len (& c)) 0)))
+(test os_cwd (let c (res.unwrap (cwd))) (assert (> (str.len (& c)) 0)))
 
 (test os_args
   (let a (args))
   (assert (>= (vec.len (& a)) 1))
   (match (arg 99) ((opt.some _) (assert false)) ((opt.none) (assert true))))
+
+(test os_env
+  (match (env "LLRST_NOT_A_REAL_VAR") ((opt.some _) ()) ((opt.none) ()))
+  (assert (>= (shell "cd") 0))
+  (assert (> (str.len (arch)) 0))
+  (if (is_tty 1) () ()))
 
 (test os_capture
   (let cmd (if (== sys.os_id 2) "<nul set /p=hi&exit /b 0" "printf hi"))

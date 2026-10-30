@@ -83,6 +83,14 @@
   (assert_eq (& (exec "<Envelope><Body><no></no></Body></Envelope>"))
     "<Envelope><Body><Fault>soap.op|name=no</Fault></Body></Envelope>"))
 
+(test soap_ops
+  (let d (res.unwrap (xml.read "<Envelope><Body><add><a>2</a><b>3</b></add></Body></Envelope>")))
+  (let op (res.unwrap (operation (& d))))
+  (assert_eq (res.unwrap (sum_args (& d) op)) 5)
+  (match (arg_int (& d) (xml.child (& d) op 0)) ((opt.some n) (assert_eq n 2)) ((opt.none) (assert false)))
+  (assert (str.has (& (add_answer (& d) op)) "5"))
+  (assert (str.has (& (answer "ping" "pong")) "pong")))
+
 (test soap_http
   (let l (res.unwrap (net.listen 0)))
   (let port (res.unwrap (net.local_port l)))
