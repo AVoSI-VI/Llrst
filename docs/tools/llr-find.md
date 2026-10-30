@@ -12,7 +12,7 @@ A pattern without `/` matches the base name anywhere under DIR.
 Output grammar:
 
 ```
-PATH|MTIME         ; MTIME is unix seconds
+path|PATH|MTIME   ; MTIME is unix seconds. `|` and newline in PATH are escaped
 more|N             ; N further files not shown
 ```
 

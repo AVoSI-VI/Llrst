@@ -14,7 +14,7 @@ read back, and the decision it drives. Read `docs/canon/README.md` first.
 
 Record parsing rules shared by every workflow:
 
-1. Split on `|`; the first field is the tag (`E W P F ok fail diff more done stat`).
+1. Split on `|`; the first field is the tag (`E W P F ok fail diff more done stat usage file status log line hit dir path`).
 2. `E|FILE|LINE|COL|LEN|CODE|k=v...`: open FILE at LINE:COL; CODE names the rule; `fix=`
    is a drop-in suggestion.
 3. `more|...` means the list was truncated: narrow the query or raise `--max`.

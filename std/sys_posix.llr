@@ -53,6 +53,8 @@
 
 (pub (extern mkdir ((path (ptr u8)) (mode i32)) i32))
 
+(pub (extern rmdir ((path (ptr u8))) i32))
+
 (pub (extern rename ((a (ptr u8)) (b (ptr u8))) i32))
 
 (pub (extern system ((cmd (ptr u8))) i32))

@@ -1,4 +1,4 @@
-;; llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--word] [--max N]: path|line|col|text.
+;; llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--word] [--max N]: hit|path|line|col|text.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
@@ -35,12 +35,12 @@
   (let text (match (fs.read path) ((res.ok s) s) ((res.err _) (ret))))
   (let lines (str.lines (& text)))
   (for i 0 (vec.len (& lines))
-    (if (>= (@ count) max) (ret))
     (let col (hit o (vec.get (& lines) i)))
     (if (> col 0)
       (do
         (set (@ count) (+ (@ count) 1))
-        (io.puts (& (fmt.pipe4 path (& (fmt.int (+ i 1))) (& (fmt.int col)) (vec.get (& lines) i))))))))
+        (if (<= (@ count) max)
+          (io.puts (& (fmt.pipe5 "hit" path (& (fmt.int (+ i 1))) (& (fmt.int col)) (vec.get (& lines) i)))))))))
 
 (fn make_opts ((c (& cli))) opts
   (let ic (cli.has c "ic"))
@@ -60,7 +60,7 @@
   (opts fixed ic word pat rx))
 
 (fn main () unit
-  (let mut c (cli.new "llr-grep" "search files, output path|line|col|text"))
+  (let mut c (cli.new "llr-grep" "search files, output hit|path|line|col|text"))
   (cli.pos (&mut c) "pattern")
   (cli.opt (&mut c) "glob" "")
   (cli.opt (&mut c) "max" "200")
@@ -84,5 +84,5 @@
           (let f (vec.get (& files) j))
           (if (or (== (str.len g) 0) (glob.matches_path g f)) (grep_file (& o) f max (&mut count)))))
       (grep_file (& o) root max (&mut count))))
-  (if (>= count max) (io.puts (& (fmt.pipe2 "more" "limit reached"))))
+  (if (> count max) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- count max)))))))
   (if (== count 0) (os.exit 2)))

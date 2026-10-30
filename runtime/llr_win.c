@@ -277,6 +277,19 @@ int mkdir(const char *path, int mode) {
     return -1;
 }
 
+int rmdir(const char *path) {
+    char mapped[PATH_CAP];
+    if (map_path(path, mapped, sizeof mapped) != 0) {
+        set_errno(2);
+        return -1;
+    }
+    if (RemoveDirectoryA(mapped)) {
+        return 0;
+    }
+    set_errno(2);
+    return -1;
+}
+
 int rename(const char *from, const char *to) {
     char a[PATH_CAP];
     char b[PATH_CAP];

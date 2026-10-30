@@ -30,6 +30,7 @@
 (fn main () unit
   (let mut c (cli.new "llr-test" "run (test ...) forms in a file or directory"))
   (cli.opt (&mut c) "filter" "")
+  (cli.opt (&mut c) "max" "0")
   (cli.parse (&mut c) (os.args))
   (let root (if (> (cli.count (& c)) 0) (str.clone (cli.at (& c) 0)) (str.from ".")))
   (let filter (cli.get (& c) "filter"))
@@ -41,7 +42,11 @@
         (if (has_tests (vec.get (& all) i)) (vec.push (&mut files) (str.clone (vec.get (& all) i))))))
     (vec.push (&mut files) (str.clone (& root))))
   (let mut fails 0)
-  (for i 0 (vec.len (& files)) (set fails (+ fails (run_file (vec.get (& files) i) filter))))
+  (let n (vec.len (& files)))
+  (let max (cli.get_int (& c) "max"))
+  (let shown (if (or (<= max 0) (> max n)) n max))
+  (for i 0 shown (set fails (+ fails (run_file (vec.get (& files) i) filter))))
+  (if (< shown n) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n shown)))))))
   (io.puts (& (fmt.pipe3 "done"
       (& (fmt.kv "files" (& (fmt.int (vec.len (& files))))))
       (& (fmt.kv "failed_files" (& (fmt.int fails)))))))

@@ -13,7 +13,7 @@ llr-grep PATTERN [PATH...] [--glob G] [--fixed] [--ic] [--word] [--max N]
 | `--fixed` | off | PATTERN is a literal, not a regex |
 | `--ic` | off | case-insensitive (ASCII) |
 | `--word` | off | match only at word boundaries (`\b`, ASCII `[A-Za-z0-9_]`) |
-| `--max` | 200 | stop after N matches |
+| `--max` | 200 | print at most N matches; `more|N` counts the rest |
 
 Regex syntax: `std.re`: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |`. Parentheses in
 Llrst source must be escaped: `"\\(fn main"`. `--word` compiles `\b(PATTERN)\b`, so `|` stays
@@ -22,8 +22,8 @@ inside the group. `--fixed --word` keeps the literal and checks `re.boundary` at
 Output grammar:
 
 ```
-PATH|LINE|COL|text     ; COL is 1-based byte column of the match start
-more|limit reached     ; when --max hit
+hit|PATH|LINE|COL|text     ; COL is 1-based byte column of the match start
+more|N                     ; N further matches not shown
 ```
 
 Exit: 0 matches, 2 no matches, 1 bad regex (`E|<grep>|0|0|0|re.parse|at=N|what=...`).

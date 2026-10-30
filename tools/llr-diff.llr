@@ -1,4 +1,4 @@
-;; llr-diff A B [--context N]: line diff as =|i|j|text, -|i|text, +|j|text. Exit 2 when different.
+;; llr-diff A B [--context N] [--max N]: line diff as =|i|j|text, -|i|text, +|j|text. Exit 2 when different.
 (use std.cli)
 (use std.diff)
 (use std.fmt)
@@ -16,6 +16,7 @@
   (cli.pos (&mut c) "a")
   (cli.pos (&mut c) "b")
   (cli.opt (&mut c) "context" "2")
+  (cli.opt (&mut c) "max" "0")
   (cli.parse (&mut c) (os.args))
   (let a (load (cli.at (& c) 0)))
   (let b (load (cli.at (& c) 1)))
@@ -29,5 +30,9 @@
       (& (fmt.kv "added" (& (fmt.int add)))))))
   (if (== (+ rem add) 0) (ret))
   (let out (diff.lines (& la) (& lb) (cli.get_int (& c) "context")))
-  (for i 0 (vec.len (& out)) (io.puts (vec.get (& out) i)))
+  (let max (cli.get_int (& c) "max"))
+  (let n (vec.len (& out)))
+  (let shown (if (or (<= max 0) (> max n)) n max))
+  (for i 0 shown (io.puts (vec.get (& out) i)))
+  (if (< shown n) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n shown)))))))
   (os.exit 2))

@@ -40,6 +40,7 @@ Source: `std/sys_windows.llr`. Import with `(use std.sys_windows)` for module fu
 | `sys_windows.llr_panic_frames` | `()` | `unit` |
 | `sys_windows.unlink` | `((path (ptr u8)))` | `i32` |
 | `sys_windows.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
+| `sys_windows.rmdir` | `((path (ptr u8)))` | `i32` |
 | `sys_windows.rename` | `((a (ptr u8)) (b (ptr u8)))` | `i32` |
 | `sys_windows.system` | `((cmd (ptr u8)))` | `i32` |
 | `sys_windows.popen` | `((cmd (ptr u8)) (mode (ptr u8)))` | `(ptr u8)` |

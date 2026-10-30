@@ -15,8 +15,8 @@ llr-read PATH [--from N] [--to N] [--max N]
 Output grammar:
 
 ```
-LINE|text          ; one per line
-more|NEXT|TOTAL    ; only when truncated: next unread line and total lines
+line|N|text       ; one per line, N is 1-based
+more|N             ; only when the window stops before end of file: N lines remain
 ```
 
 Exit: 0; 1 on unreadable file (`E|<read>|0|0|0|io.read|path=...`).

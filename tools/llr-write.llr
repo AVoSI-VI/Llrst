@@ -1,9 +1,10 @@
-;; llr-write PATH: create or replace the file with stdin.
+;; llr-write PATH: create or replace the file with stdin, creating parent directories.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
 (use std.io)
 (use std.os)
+(use std.path)
 
 (fn main () unit
   (let mut c (cli.new "llr-write" "create or replace PATH with stdin"))
@@ -11,6 +12,9 @@
   (cli.parse (&mut c) (os.args))
   (let path (cli.at (& c) 0))
   (let data (io.stdin))
+  (match (fs.mkdir_all (& (path.dir path)))
+    ((res.ok _) ())
+    ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<write>|0|0|0" (& e)))) (os.exit 1))))
   (match (fs.write path (& data))
     ((res.ok _) ())
     ((res.err e) (do (io.eputs (& (fmt.pipe2 "E|<write>|0|0|0" (& e)))) (os.exit 1))))

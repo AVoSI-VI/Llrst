@@ -9,5 +9,6 @@
 5. Build and try: `llrc build tools/llr-NAME.llr -o /tmp/llr-NAME`.
 6. `llr-fmt tools/llr-NAME.llr --lint` must be clean.
 7. Document in `docs/tools/llr-NAME.md` (flags table, output grammar, exit codes, one canon
-   invocation) and add a row to `docs/tools/README.md`.
-8. `scripts/install.sh` picks up every `tools/llr-*.llr` automatically.
+   invocation), add a row to `docs/tools/README.md`, and add the name to the `tools/` cell
+   in `README.md`.
+8. `scripts/install.sh` and `scripts/install.ps1` pick up every `tools/llr-*.llr` automatically.

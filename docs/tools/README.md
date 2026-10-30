@@ -15,9 +15,9 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | 6 | test runner | run tests, read failures | [llr-test](llr-test.md) |
 | 7 | formatter / linter | normalize layout, enforce canon | [llr-fmt](llr-fmt.md) |
 | 8 | diff | compare two files | [llr-diff](llr-diff.md) |
-| | write file | create or replace a whole file from stdin | [llr-write](llr-write.md) |
-| | list directory | sorted names in one directory | [llr-ls](llr-ls.md) |
-| | remove file | delete one file | [llr-rm](llr-rm.md) |
+| | write file | create or replace a whole file from stdin, creating parents | [llr-write](llr-write.md) |
+| | list directory | sorted recursive listing | [llr-ls](llr-ls.md) |
+| | remove file | delete a file or a directory tree | [llr-rm](llr-rm.md) |
 | | git read | status, diff, and log; no commit | [llr-git](llr-git.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
 | | type check | `type.*` and `name.*` errors | [llr-check](llr-check.md) |
@@ -28,4 +28,6 @@ behaviour lives in `std` (`cli`, `fmt`, `fs`, `glob`, `re`, `diff`, `sexp`), so 
 mostly argument parsing plus output.
 
 Common flags: `--help` prints `usage|NAME ARGS...|about`. Every tool with a list output
-accepts `--max N` and ends a truncated list with a `more|...` record.
+accepts `--max N`. A truncated list ends with `more|N`, where `N` is the number of records
+not shown. `llr-diff` and `llr-test` default `--max` to 0, which means no limit. `llr-git log`
+passes N to `git log -n` and does not print `more|`.

@@ -1,6 +1,7 @@
 # llr-ls
 
-Names in one directory, sorted. `.` and `..` are omitted. It does not recurse.
+A directory tree, sorted by relative path. `.` and `..` are omitted. Dot names are included
+and directories are walked. The path named on the command line is not itself a record.
 
 ```
 llr-ls PATH [--max N]
@@ -11,11 +12,12 @@ llr-ls PATH [--max N]
 Output grammar:
 
 ```
-NAME
-more|N             ; N further names not shown
+dir|REL
+file|REL
+more|N             ; N further paths not shown
 ```
 
-`|` and newline inside a name are escaped (`\x7c`, `\n`). An empty directory prints
+`|` and newline inside a path are escaped (`\x7c`, `\n`). An empty directory prints
 nothing and exits 0.
 
 Errors (stderr, exit 1):

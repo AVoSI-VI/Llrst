@@ -1,5 +1,6 @@
 ;; Files and directories. Errors are pipe-form strings: "io.read|path=x".
 (use std.io)
+(use std.path)
 (use std.sys)
 
 (fn err ((code (& str)) (path (& str))) str
@@ -94,6 +95,28 @@
     (ret (res.err (err "io.stat" path))))
   (res.ok n)))
 
+;; `.` is the walk stop: it already exists, and `path.dir` of a relative name is `.`.
+(pub (fn mkdir_all ((path (& str))) (res unit str)
+  (if (or (str.eq path ".") (str.eq path "")) (ret (res.ok ())))
+  (if (is_dir path) (ret (res.ok ())))
+  (let parent (path.dir path))
+  (if (not (str.eq (& parent) path))
+    (match (mkdir_all (& parent)) ((res.err e) (ret (res.err e))) ((res.ok _) ())))
+  (mkdir path)))
+
+(pub (fn rmdir ((path (& str))) (res unit str)
+  (let c (str.cstr path))
+  (if (!= (sys.rmdir (. c p)) 0i32) (ret (res.err (err "io.remove" path))))
+  (res.ok ())))
+
+(pub (fn remove_all ((path (& str))) (res unit str)
+  (if (not (is_dir path)) (ret (remove path)))
+  (let names (match (list path) ((res.ok v) v) ((res.err e) (ret (res.err e)))))
+  (for i 0 (vec.len (& names))
+    (let child (path.join path (vec.get (& names) i)))
+    (match (remove_all (& child)) ((res.err e) (ret (res.err e))) ((res.ok _) ())))
+  (rmdir path)))
+
 (test fs_edit
   (assert_eq (& (err "io.read" "p")) "io.read|path=p")
   (let p (str.from "/tmp/llr_fs_app.txt"))
@@ -129,6 +152,29 @@
   (assert_eq (vec.get (& names) 1) "b.txt")
   (res.unwrap (remove "/tmp/llr_fs_list/a.txt"))
   (res.unwrap (remove "/tmp/llr_fs_list/b.txt")))
+
+(test fs_tree
+  (assert (res.is_ok (& (mkdir_all "."))))
+  (assert (res.is_ok (& (mkdir_all "/tmp"))))
+  (let root (str.from "/tmp/llr_fs_nest"))
+  (res.unwrap (mkdir_all "/tmp/llr_fs_nest/a/b"))
+  (assert (is_dir "/tmp/llr_fs_nest/a/b"))
+  (res.unwrap (write "/tmp/llr_fs_nest/a/b/c.txt" "c"))
+  (res.unwrap (write "/tmp/llr_fs_file.txt" "x"))
+  (res.unwrap (remove_all "/tmp/llr_fs_file.txt"))
+  (assert (not (exists "/tmp/llr_fs_file.txt")))
+  (let missing (remove_all "/tmp/llr_fs_missing_tree"))
+  (assert_eq (& (res.unwrap_err missing)) "io.remove|path=/tmp/llr_fs_missing_tree")
+  (res.unwrap (write "/tmp/llr_fs_notdir" "x"))
+  (let denied (mkdir_all "/tmp/llr_fs_notdir/child"))
+  (assert (str.starts (& (res.unwrap_err denied)) "io.mkdir|path="))
+  (res.unwrap (remove "/tmp/llr_fs_notdir"))
+  (res.unwrap (remove_all (& root)))
+  (assert (not (exists (& root))))
+  (let empty (str.from "/tmp/llr_fs_empty"))
+  (res.unwrap (mkdir (& empty)))
+  (res.unwrap (rmdir (& empty)))
+  (assert (not (exists (& empty)))))
 
 (test fs_read_grow
   (let p (str.from "/tmp/llr_fs_grow.txt"))

@@ -40,6 +40,7 @@ Source: `std/sys_posix.llr`. Import with `(use std.sys_posix)` for module functi
 | `sys_posix.llr_panic_frames` | `()` | `unit` |
 | `sys_posix.unlink` | `((path (ptr u8)))` | `i32` |
 | `sys_posix.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
+| `sys_posix.rmdir` | `((path (ptr u8)))` | `i32` |
 | `sys_posix.rename` | `((a (ptr u8)) (b (ptr u8)))` | `i32` |
 | `sys_posix.system` | `((cmd (ptr u8)))` | `i32` |
 | `sys_posix.popen` | `((cmd (ptr u8)) (mode (ptr u8)))` | `(ptr u8)` |

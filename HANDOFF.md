@@ -318,18 +318,18 @@ Files: `std/*.llr`, `docs/std/*.md`, `docs/std/README.md`, `docs/canon/io.md`, `
 8. `[x]` `docs/workflows/refactor.md` says to edit `docs/std/<mod>.md` by hand; `std.md` step 6 regenerates with `llr-doc`. Keep one. `std.md` names only `tests/run.sh` and says std types are visible everywhere (only `pub` ones are).
 9. `[x]` Commit: `std: tests for every function, regenerated docs, llr-check finds std`.
 
-### Phase 5: tools `[ ]`
+### Phase 5: tools `[x]`
 
 Files: `tools/llr-write.llr`, `tools/llr-ls.llr`, `tools/llr-rm.llr`, `tools/llr-fmt.llr`, `tools/llr-http.llr`, `tools/llr-diff.llr`, `tools/llr-test.llr`, `docs/tools/*.md`, `docs/workflows/new-tool.md`, `docs/workflows/README.md`.
 
-1. `[ ]` `llr-write` replaces the whole file from stdin and does not create parent directories.
-2. `[ ]` `llr-ls` lists one directory and does not recurse.
-3. `[ ]` `llr-rm` deletes a file and does not remove a directory.
-4. `[ ]` `llr-fmt`: `--width N` (default 100), `--blank N` (default 1) between top-level forms; consecutive `use` forms and a form after a comment get no blank line; a comment inside a form forces multi-line.
-5. `[ ]` `llr-http` serves every file as `200 text/plain`; `docs/tools/llr-http.md` says "one exact route" and then lists `/health /graphql /soap /ws`.
-6. `[ ]` `docs/tools/README.md` says every list tool accepts `--max N` and every record starts with a tag: `llr-diff` and `llr-test` have no `--max`; `llr-read`, `llr-find`, `llr-grep`, `llr-ls` records have no tag; `more|` payloads differ per tool (`more|N`, `more|limit reached`, `more|NEXT|TOTAL`); `docs/workflows/README.md` tag list omits `usage file status log`. `llr-test.md` describes a forked child only (Windows re-execs). `fmtlint.llr` is named only here, not in `llr-fmt.md`.
-7. `[ ]` `docs/workflows/new-tool.md` step 7 adds a row to `docs/tools/README.md` but not to `README.md`; step 8 names `install.sh` only.
-8. `[ ]` Commit: `tools: write makes directories, ls recurses, rm removes directories`.
+1. `[x]` `llr-write` replaces the whole file from stdin and does not create parent directories.
+2. `[x]` `llr-ls` lists one directory and does not recurse.
+3. `[x]` `llr-rm` deletes a file and does not remove a directory.
+4. `[x]` `llr-fmt`: `--width N` (default 100), `--blank N` (default 1) between top-level forms; consecutive `use` forms and a form after a comment get no blank line; a comment inside a form forces multi-line.
+5. `[x]` `llr-http` serves every file as `200 text/plain`; `docs/tools/llr-http.md` says "one exact route" and then lists `/health /graphql /soap /ws`.
+6. `[x]` `docs/tools/README.md` says every list tool accepts `--max N` and every record starts with a tag: `llr-diff` and `llr-test` have no `--max`; `llr-read`, `llr-find`, `llr-grep`, `llr-ls` records have no tag; `more|` payloads differ per tool (`more|N`, `more|limit reached`, `more|NEXT|TOTAL`); `docs/workflows/README.md` tag list omits `usage file status log`. `llr-test.md` describes a forked child only (Windows re-execs). `fmtlint.llr` is named only here, not in `llr-fmt.md`.
+7. `[x]` `docs/workflows/new-tool.md` step 7 adds a row to `docs/tools/README.md` but not to `README.md`; step 8 names `install.sh` only.
+8. `[x]` Commit: `tools: write makes directories, ls recurses, rm removes directories`.
 
 ### Phase 6: platform, link, targets, scripts `[ ]`
 
@@ -391,3 +391,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-27: Phase 2. A moved field is `move.used` in `self/` as well as stage 0. Field-loan notes join across blocks. A field write does not set a drop flag; a single-field drop is flag-guarded. A struct field is `'static` only when its stored reference is. Private-field constructors are rejected outside the defining file. `(clos ...)` does not coerce to `(fn ...)`, and a generic trait method is `parse.expect|want=(types)`. `tests/check.ps1` and `tests/mir.ps1` match stage 0. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
 - 2026-10-28: Phase 3. `--deny` may be repeated and is the only way a warning fails the build. `pub` functions and `std` modules stay exempt from `use.unused` and `fn.unused`. Inlined calls and drop glue push panic frames (`str.at`, `vec.check`, `drop.box`). The frame list is thread-local (`llr_trace_push`). The catalogue matches the emitters. `link.failed` has no shared golden because the two linkers print different `cmd=` text. `oom` panics on this Windows host. `tests/check.ps1` and `tests/mir.ps1` match stage 0. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
 - 2026-10-30: Phase 4. A large diff middle is a linear-space LCS and `op` is public. `os.cwd` returns `(res str str)` and `io.cwd` on failure. `vec.any` and `vec.find` take a closure that can capture a needle. `llr-doc` emits traits, constants, and generic clauses; `docs/std` was regenerated, including `sys_posix`, `sys_windows`, `ast_expr`, and `check_more`. `llr-check` takes `--std`, searches the same places as `llrc`, and reports `name.dup`, `name.not_module`, `name.not_type`, `flow.brk_outside`, `match.bad_lit`, `match.not_enum`, `match.missing`, and `type.try`. The rule is every function, not every pub fn. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
+- 2026-10-30: Phase 5. `llr-write` creates parent directories. `llr-ls` lists a directory tree as `dir|` and `file|`. `llr-rm` deletes a file or a directory tree. `llr-fmt` already had `--width`, `--blank`, and the comment rules. List records are `line|`, `path|`, `hit|`, `dir|`, and `file|`, and a cut list is `more|N`. `llr-diff` and `llr-test` take `--max` (default 0, no limit). `llr-http` documents `GET /health`, `POST /graphql`, and `POST /soap`; files stay `200 text/plain`, and a websocket upgrade is any GET with those headers. `llr-test` documents the Windows re-exec. `fmtlint.llr` is named in `llr-fmt.md`. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.

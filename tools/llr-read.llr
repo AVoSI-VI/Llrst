@@ -1,4 +1,4 @@
-;; llr-read PATH [--from N] [--to N] [--max N]: numbered lines, N|text.
+;; llr-read PATH [--from N] [--to N] [--max N]: line|N|text.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
@@ -25,5 +25,5 @@
   (let lo (if (< from 1) 0 (- from 1)))
   (let mut hi (if (or (<= to 0) (> to n)) n to))
   (if (> (- hi lo) max) (set hi (+ lo max)))
-  (for i lo hi (io.puts (& (fmt.pipe2 (& (fmt.int (+ i 1))) (vec.get (& lines) i)))))
-  (if (< hi n) (io.puts (& (fmt.pipe3 "more" (& (fmt.int (+ hi 1))) (& (fmt.int n)))))))
+  (for i lo hi (io.puts (& (fmt.pipe3 "line" (& (fmt.int (+ i 1))) (vec.get (& lines) i)))))
+  (if (< hi n) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n hi))))))))

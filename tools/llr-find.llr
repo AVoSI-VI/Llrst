@@ -1,4 +1,4 @@
-;; llr-find PATTERN [DIR] [--max N]: files matching a glob, newest first, path|mtime.
+;; llr-find PATTERN [DIR] [--max N]: files matching a glob, newest first, path|PATH|mtime.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
@@ -34,6 +34,6 @@
   (let shown (if (> n max) max n))
   (for i 0 shown
     (let h (vec.get (& hits) i))
-    (io.puts (& (fmt.pipe2 (& (. h path)) (& (fmt.int (. h mtime)))))))
+    (io.puts (& (fmt.pipe3 "path" (& (fmt.field (& (. h path)))) (& (fmt.int (. h mtime)))))))
   (if (> n shown) (io.puts (& (fmt.pipe2 "more" (& (fmt.int (- n shown)))))))
   (if (== n 0) (os.exit 2)))

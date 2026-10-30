@@ -14,6 +14,8 @@
 | is dir | `(fs.is_dir (& path))` |
 | remove file | `(fs.remove (& path))` returns `(res unit str)` |
 | make dir | `(fs.mkdir (& path))` returns `(res unit str)` |
+| make dir tree | `(fs.mkdir_all (& path))` returns `(res unit str)`. `.` and an existing directory are success |
+| remove tree | `(fs.remove_all (& path))` returns `(res unit str)`. A file is unlinked; a directory is removed with its contents |
 | rename | `(fs.rename (& from) (& to))` returns `(res unit str)` |
 | list dir | `(fs.list (& path))` returns `(res (vec str) str)`, names only, sorted |
 | mtime | `(fs.mtime (& path))` returns `(res i64 str)` seconds |
