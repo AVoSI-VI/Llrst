@@ -15,6 +15,7 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | path | content |
 |------|---------|
 | `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
+| `DARWIN.md` | plan for an aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format |
 | `docs/canon/` | the one right way per task |

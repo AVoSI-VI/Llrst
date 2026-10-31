@@ -42,6 +42,10 @@ void *memmove(void *d, const void *s, u64 n) { return memcpy(d, s, n); }
 
 int main(int argc, char **argv);
 
+void llr_trace_push(void *slot) { (void)slot; }
+
+void llr_trace_pop(void *slot) { (void)slot; }
+
 void _start(void) {
   main(0, 0);
   exit(0);

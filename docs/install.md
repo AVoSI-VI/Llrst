@@ -11,12 +11,15 @@ scripts/install.ps1           # Windows, installs to %USERPROFILE%\.local
 scripts/install.ps1 PREFIX
 ```
 
-The script builds release `llrc` as stage 0 and does not install that binary. Stage 0 builds
-`llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llrs1` and `llrs2` must match
-byte for byte. `scripts/self.sh` is that bootstrap on Unix. `scripts/self.ps1` is the same
+The script builds release `llrc` as stage 0. On Linux it does not install that binary.
+Stage 0 builds `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llrs1` and
+`llrs2` must match byte for byte. `scripts/self.sh` is that bootstrap on Unix. On Darwin,
+`self/` emits ELF and Apple `ld` reports `unknown file type`, so the script installs stage 0
+as `llrc`. That binary emits the host Mach-O. `scripts/self.ps1` is the same
 bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
-`/Brepro`. `--stage` stops after `self|stage2=equal`. The install script then installs `llrs2`
-as `llrc`, copies `std/` and `examples/` to `PREFIX/share/llrst/`, compiles the host runtime
+`/Brepro`. `--stage` stops after `self|stage2=equal`. On Linux and Windows the install
+script then installs `llrs2` as `llrc`. It copies `std/` and `examples/` to
+`PREFIX/share/llrst/`, compiles the host runtime
 (`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
 and `runtime/llr_win_proc.c` on Windows), compiles every `tools/llr-*.llr`, and verifies with
 `examples/hello.llr`. Output is pipe records; the last line is `done|prefix=...|tools=N`.

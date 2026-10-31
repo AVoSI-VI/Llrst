@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds tests/run/hello.llr with --emit-obj for each cross target and checks `file`.
 # aarch64, riscv64, and s390x are then linked freestanding with lld. apple-darwin is not.
+# Apple clang has no RISC-V or SystemZ backend. A keg-only Homebrew LLVM clang does.
 # Output: ok|cross|TARGET or fail|cross|target=...|got=...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -49,19 +50,33 @@ check() {
   fi
 }
 
+host_cc() {
+  if [ -n "${LLR_CC:-}" ]; then
+    printf '%s\n' "$LLR_CC"
+  elif [ -x /opt/homebrew/opt/llvm/bin/clang ]; then
+    printf '%s\n' /opt/homebrew/opt/llvm/bin/clang
+  elif [ -x /usr/local/opt/llvm/bin/clang ]; then
+    printf '%s\n' /usr/local/opt/llvm/bin/clang
+  else
+    printf '%s\n' clang
+  fi
+}
+
 link_elf() {
   local triple="$1" clang_triple="$2" needle="$3" obj="$tmp/hello.o" bin="$tmp/hello.bin"
+  local cc
+  cc="$(host_cc)"
   check "$triple" "$needle"
   if [ ! -f "$obj" ]; then
     return
   fi
-  if ! clang --target="$clang_triple" -c -ffreestanding -fno-stack-protector -fno-builtin \
+  if ! "$cc" --target="$clang_triple" -c -ffreestanding -fno-stack-protector -fno-builtin \
       "$root/tests/cross_stub.c" -o "$tmp/stub.o" 2>"$tmp/err"; then
     echo "fail|cross|link|target=$triple|got=$(head -1 "$tmp/err")"
     fails=$((fails+1))
     return
   fi
-  if ! clang --target="$clang_triple" -fuse-ld=lld -nostdlib -static -Wl,-e,_start \
+  if ! "$cc" --target="$clang_triple" -fuse-ld=lld -nostdlib -static -Wl,-e,_start \
       "$tmp/stub.o" "$obj" -o "$bin" 2>"$tmp/err"; then
     echo "fail|cross|link|target=$triple|got=$(head -1 "$tmp/err")"
     fails=$((fails+1))
