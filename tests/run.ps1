@@ -69,6 +69,37 @@ function Exe-Path($path) {
     return "$path.exe"
 }
 
+function Compile-WinShim($name) {
+    $dir = Join-Path $root 'runtime'
+    $c = Join-Path $dir $name
+    $obj = Join-Path $dir ($name -replace '\.c$', '.obj')
+    $cl = Get-Command cl -ErrorAction SilentlyContinue
+    if ($cl) {
+        & cl.exe /nologo /c "/Fo$obj" $c | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "fail|setup|cc=$name"
+            exit 1
+        }
+        return
+    }
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        Write-Output 'fail|setup|cl=missing'
+        exit 1
+    }
+    $inst = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+    if (-not $inst) {
+        Write-Output 'fail|setup|cl=missing'
+        exit 1
+    }
+    $bat = Join-Path $inst.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
+    cmd /c "call `"$bat`" >nul && cl /nologo /c /Fo`"$obj`" `"$c`"" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "fail|setup|cc=$name"
+        exit 1
+    }
+}
+
 if ($env:LLRC) {
     $llrc = $env:LLRC
 } elseif (Test-Path -LiteralPath (Join-Path $root 'target\release\llrc.exe')) {
@@ -84,6 +115,10 @@ if (-not $llrc -or -not (Test-Path -LiteralPath $llrc)) {
     exit 1
 }
 $env:LLRST_STD = Join-Path $root 'std'
+$env:LLRST_RUNTIME = Join-Path $root 'runtime'
+foreach ($shim in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
+    Compile-WinShim $shim
+}
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('llr-tests-' + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 $fails = 0
@@ -293,6 +328,56 @@ try {
     if (-not $lineFail) { Write-Output 'ok|lines' } else { $fails++ }
 } finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Restore-Llrc($saved) {
+    if ($null -eq $saved) {
+        Remove-Item Env:LLRC -ErrorAction SilentlyContinue
+    } else {
+        $env:LLRC = $saved
+    }
+}
+
+$stage0 = Join-Path $root 'target\release\llrc.exe'
+if (-not (Test-Path -LiteralPath $stage0)) { $stage0 = Join-Path $root 'target\debug\llrc.exe' }
+if (-not (Test-Path -LiteralPath $stage0)) {
+    Write-Output 'fail|setup|stage0=not found|fix=cargo build --release'
+    $fails++
+} else {
+    $same = [System.IO.Path]::GetFullPath($llrc) -eq [System.IO.Path]::GetFullPath($stage0)
+    foreach ($diff in @('tests\check.ps1', 'tests\mir.ps1')) {
+        $saved = $env:LLRC
+        $env:LLRC = $stage0
+        $script = Join-Path $root $diff
+        if ($same) {
+            & powershell.exe -NoProfile -File $script
+        } else {
+            & powershell.exe -NoProfile -File $script $llrc
+        }
+        if ($LASTEXITCODE -ne 0) { $fails++ }
+        Restore-Llrc $saved
+    }
+    $saved = $env:LLRC
+    $env:LLRC = $stage0
+    & powershell.exe -NoProfile -File (Join-Path $root 'tests\self.ps1')
+    if ($LASTEXITCODE -ne 0) { $fails++ }
+    Restore-Llrc $saved
+    $bash = Get-Command bash -ErrorAction SilentlyContinue
+    if (-not $bash) {
+        Write-Output 'W|cross|skipped|fix=bash file ld.lld clang'
+    } else {
+        $saved = $env:LLRC
+        $slash = $stage0 -replace '\\', '/'
+        $crossLf = Join-Path $root 'target\cross.sh'
+        $crossText = [System.IO.File]::ReadAllText((Join-Path $root 'tests\cross.sh')) -replace "`r", ''
+        [System.IO.File]::WriteAllText($crossLf, $crossText)
+        Push-Location $root
+        & bash -c "LLRC=`$(wslpath -u '$slash' 2>/dev/null || cygpath -u '$slash') bash ./target/cross.sh"
+        $crossCode = $LASTEXITCODE
+        Pop-Location
+        if ($crossCode -ne 0) { $fails++ }
+        Restore-Llrc $saved
+    }
 }
 
 Write-Output "done|fails=$fails"

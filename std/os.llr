@@ -73,3 +73,20 @@
   (let r (capture cmd))
   (assert_eq (. r code) 0)
   (assert_eq (& (. r out)) "hi"))
+
+(fn exec_at ((file (& str)) (packed (& str))) i64
+  (let f (str.cstr file))
+  (let raw (str.cstr packed))
+  (as i64 (sys.llr_exec (. f p) (. raw p) (as u64 (str.len packed)))))
+
+(test os_exec
+  (if (== sys.os_id 2)
+    (do
+      (let mut p (str.from "/c"))
+      (str.push_byte (&mut p) 0u8)
+      (str.push (&mut p) "exit")
+      (str.push_byte (&mut p) 0u8)
+      (str.push (&mut p) "0")
+      (str.push_byte (&mut p) 0u8)
+      (assert_eq (exec_at "cmd.exe" (& p)) 0))
+    (assert_eq (exec_at "true" "") 0)))

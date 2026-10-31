@@ -13,31 +13,40 @@ scripts/install.ps1 PREFIX
 
 The script builds release `llrc` as stage 0 and does not install that binary. Stage 0 builds
 `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llrs1` and `llrs2` must match
-byte for byte. The script then installs `llrs2` as `llrc`, copies `std/` to
-`PREFIX/share/llrst/std`, compiles the host runtime (`runtime/llr_stat.c` on Unix,
-`runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`, and `runtime/llr_win_proc.c`
-on Windows), compiles every `tools/llr-*.llr`,
-and verifies with a hello world. Output is pipe records; the last line is
-`done|prefix=...|tools=N`. The installed compiler links those prebuilt objects. It does not
-compile the C files when the object is missing or older.
+byte for byte. `scripts/self.sh` is that bootstrap on Unix. `scripts/self.ps1` is the same
+bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
+`/Brepro`. `--stage` stops after `self|stage2=equal`. The install script then installs `llrs2`
+as `llrc`, copies `std/` and `examples/` to `PREFIX/share/llrst/`, compiles the host runtime
+(`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
+and `runtime/llr_win_proc.c` on Windows), compiles every `tools/llr-*.llr`, and verifies with
+`examples/hello.llr`. Output is pipe records; the last line is `done|prefix=...|tools=N`.
+The installed compiler links those prebuilt objects. It does not compile the C files when
+the object is missing or older.
 
 `fs.mtime` and `fs.size` link that object. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
-`open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`. The installed compiler does not
-target Darwin; that gap is Phase 6 in `HANDOFF.md`. `tests/run.sh` is the check for stage 0.
-The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
+`open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`, and the compiler renames
+`open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
+in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
+Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
+`aarch64`, `riscv64`, `s390x`, and `apple-darwin` objects stay on stage 0. `tests/run.sh` and
+`tests/run.ps1` check whichever `llrc` `LLRC` names; stage 0 is `target/release/llrc`. Both
+runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` against that
+stage 0 binary. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
-`llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places.
+`llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places, using the first of
+`clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
 
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
 `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. The executable path comes from
 `llr_exe_path`.
 
-Windows host: `scripts/install.ps1` builds stage 0, then the three `llrs` stages, and
-installs `llrc.exe`. `.cargo/config.toml` raises the Windows main-thread stack so the
-stage-0 compiles fit. The installed compiler links with `cl` and `/STACK:8388608`.
-`powershell -File tests\run.ps1` runs the golden suite. Output paths gain an `.exe` suffix.
-`/tmp` in programs maps to the Windows temp directory.
+Windows host: `scripts/install.ps1` builds stage 0, then `scripts/self.ps1` builds the three
+`llrs` stages, and installs `llrc.exe`. `.cargo/config.toml` raises the Windows main-thread
+stack so the stage-0 compiles fit. The installed compiler links with `cl` when the `.obj`
+shims are the ones on disk, and passes `/STACK:8388608`. `powershell -File tests\run.ps1`
+runs the golden suite. Output paths gain an `.exe` suffix. `/tmp` in programs maps to the
+Windows temp directory. `llrc run` passes the argument vector through `llr_exec`.
 
 ## Commands
 

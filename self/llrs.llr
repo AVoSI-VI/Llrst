@@ -114,6 +114,11 @@
 
 (fn host_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
 
+(fn pack_args ((args (& (vec str)))) str
+  (let mut s (str.new))
+  (for i 0 (vec.len args) (do (str.push (&mut s) (vec.get args i)) (str.push_byte (&mut s) 0u8)))
+  s)
+
 (fn run_cmd ((o drive.flags)) unit
   (let mut b o)
   (set (. b cmd) (str.from "build"))
@@ -121,25 +126,17 @@
   (let code (drive.run (& b)))
   (if (!= code 0) (os.exit code))
   (let exe (link.host_exe (& (. b out)) (host_win (& (. b target)))))
-  (let st (os.shell (& (cmd_line (& exe) (& (. b args))))))
+  (let packed (pack_args (& (. b args))))
+  (let file (str.cstr (& exe)))
+  (let raw (str.cstr (& packed)))
+  (let st (sys.llr_exec (. file p) (. raw p) (as u64 (str.len (& packed)))))
   (if (fs.exists (& exe)) (let _ (fs.remove (& exe))))
-  (os.exit st))
-
-(fn cmd_line ((exe (& str)) (args (& (vec str)))) str
-  (let mut s (quote exe))
-  (for i 0 (vec.len args)
-    (do (str.push (&mut s) " ") (str.push (&mut s) (& (quote (vec.get args i))))))
-  s)
-
-(fn quote ((s (& str))) str
-  (let mut o (str.from "'"))
-  (for i 0 (str.len s)
-    (if (== (str.at s i) 39u8) (str.push (&mut o) "'\\''") (str.push_byte (&mut o) (str.at s i))))
-  (str.push_byte (&mut o) 39u8)
-  o)
+  (os.exit (as i64 st)))
 
 (fn emit_cmd ((o (& drive.flags))) unit
-  (match (load.load_at (& (. o file)) (& (. o std)))
+  (if (not (drive.target_ok (& (. o target))))
+    (os.exit (drive.reject_target (& (. o file)) (& (. o target)))))
+  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o target)))
     ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
     ((res.ok p) (emit_ok o p))))
 

@@ -23,6 +23,7 @@ llrc="$target_dir/release/llrc"
 
 mkdir -p "$bin" "$share" || die "install|mkdir=$prefix"
 rm -rf "$share/std" && cp -r "$root/std" "$share/std" || die "install|copy=std"
+rm -rf "$share/examples" && cp -r "$root/examples" "$share/examples" || die "install|copy=examples"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
 say "ok|runtime|$share/llr_stat.o"
 LLRC="$llrc" "$root/scripts/self.sh" --stage || exit 1
@@ -47,11 +48,10 @@ done
 
 say "step|verify"
 tmp="$(mktemp -d)"
-printf '(use std.io)\n(fn main () unit (io.puts "hello world"))\n' >"$tmp/hello.llr"
-"$bin/llrc" build "$tmp/hello.llr" -o "$tmp/hello" || die "verify|compile hello"
+"$bin/llrc" build "$root/examples/hello.llr" -o "$tmp/hello" || die "verify|compile hello"
 out="$("$tmp/hello")"
 [ "$out" = "hello world" ] || die "verify|want=hello world|got=$out"
-"$bin/llr-grep" "fn main" "$tmp" >/dev/null || die "verify|llr-grep"
+"$bin/llr-grep" "fn main" "$root/examples" >/dev/null || die "verify|llr-grep"
 rm -rf "$tmp"
 say "ok|verify|hello world"
 

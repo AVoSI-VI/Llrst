@@ -1,8 +1,9 @@
-;; Host link. Unix is cc plus llr_stat.o. Windows is cl plus the prebuilt shims.
+;; Host link. Unix is cc or clang --target. Windows probes clang, gcc, cc, then cl.
 (use std.fs)
 (use std.os)
 (use std.path)
 (use std.str)
+(use std.sys)
 (use proj.diag)
 (use proj.link_win)
 (use proj.load)
@@ -48,16 +49,41 @@
   (let ext (if win ".obj" ".o"))
   (path.join (& (path.dir (& o))) (& (str.cat (& (path.stem (& o))) ext)))))
 
-(fn cc_cmd ((obj (& str)) (out (& str))) str
-  (let mut cmd (str.from "cc "))
-  (str.push (&mut cmd) (& (sh obj)))
-  (str.push (&mut cmd) " -o ")
-  (str.push (&mut cmd) (& (sh out)))
+(pub (fn host_darwin () bool
+  (if (== sys.os_id 2) (ret false))
+  (let r (os.capture "uname -s"))
+  (let name (str.trim (& (. r out))))
+  (str.starts (& name) "Darwin")))
+
+(fn q ((s (& str))) str (if (== sys.os_id 2) (link_win.dq s) (sh s)))
+
+(fn add_stat ((cmd (&mut str))) unit
   (let shim (runtime "llr_stat.o"))
-  (if (> (str.len (& shim)) 0)
-    (do (str.push (&mut cmd) " ") (str.push (&mut cmd) (& (sh (& shim))))))
-  (str.push (&mut cmd) " -pie -pthread")
+  (if (> (str.len (& shim)) 0) (do (str.push cmd " ") (str.push cmd (& (q (& shim)))))))
+
+(fn clang_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+  (let mut cmd (str.from "clang --target="))
+  (str.push (&mut cmd) target)
+  (str.push (&mut cmd) " ")
+  (str.push (&mut cmd) (& (q obj)))
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& (q out)))
+  (add_stat (&mut cmd))
   cmd)
+
+(fn host_cc ((obj (& str)) (out (& str))) str
+  (let mut cmd (str.from "cc "))
+  (str.push (&mut cmd) (& (q obj)))
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& (q out)))
+  (add_stat (&mut cmd))
+  (if (not (host_darwin)) (str.push (&mut cmd) " -pie"))
+  (str.push (&mut cmd) " -pthread")
+  cmd)
+
+(fn cc_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+  (if (> (str.len target) 0) (ret (clang_cmd obj out target)))
+  (host_cc obj out))
 
 (pub (fn host_exe ((out (& str)) (win bool)) str (if win (link_win.exe_of out) (str.clone out))))
 
@@ -68,6 +94,41 @@
   (diag.add (&mut d) "cmd" (str.clone cmd))
   (diag.add (&mut d) "got" (str.clone got))
   (diag.render (& d)))
+
+(fn have_one ((base (& str)) (ext (& str))) bool
+  (let p (runtime (& (str.cat base ext))))
+  (> (str.len (& p)) 0))
+
+(fn have ((ext (& str))) bool
+  (and (have_one "llr_wsa" ext)
+    (and (have_one "llr_win" ext) (and (have_one "llr_win_sock" ext) (have_one "llr_win_proc" ext)))))
+
+(fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (q p))))
+
+(fn gnu_cmd ((cc (& str)) (obj (& str)) (exe (& str))) str
+  (let mut cmd (str.clone cc))
+  (push_q (&mut cmd) obj)
+  (str.push (&mut cmd) " -o")
+  (push_q (&mut cmd) exe)
+  (let wsa (runtime "llr_wsa.o"))
+  (let win (runtime "llr_win.o"))
+  (let sock (runtime "llr_win_sock.o"))
+  (let proc (runtime "llr_win_proc.o"))
+  (push_q (&mut cmd) (& wsa))
+  (push_q (&mut cmd) (& win))
+  (push_q (&mut cmd) (& sock))
+  (push_q (&mut cmd) (& proc))
+  (str.push (&mut cmd) " -lws2_32 -Wl,--stack,8388608")
+  cmd)
+
+(fn via_gnu ((cc (& str)) (bytes (& str)) (out (& str)) (main (& str))) str
+  (let obj (obj_path out false))
+  (let exe (link_win.exe_of out))
+  (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
+  (let cmd (gnu_cmd cc (& obj) (& exe)))
+  (let code (os.shell (& cmd)))
+  (rm (& obj))
+  (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
 
 (fn via_cl ((bytes (& str)) (out (& str)) (main (& str))) str
   (let obj (obj_path out true))
@@ -85,11 +146,22 @@
   (rm (& obj))
   err)
 
-(pub (fn link ((bytes (& str)) (out (& str)) (win bool) (main (& str))) str
-  (if win (ret (via_cl bytes out main)))
+(fn is_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
+
+(fn via_win ((bytes (& str)) (out (& str)) (main (& str))) str
+  (let tool (link_win.pick (have ".o") (have ".obj")))
+  (if (== (str.len (& tool)) 0) (ret (fail main "clang, gcc, or cl" "missing")))
+  (if (str.eq (& tool) "cl") (ret (via_cl bytes out main)))
+  (via_gnu (& tool) bytes out main))
+
+(fn unix_link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str))) str
   (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let cmd (cc_cmd (& obj) out))
+  (let cmd (cc_cmd (& obj) out target))
   (let code (os.shell (& cmd)))
   (rm (& obj))
-  (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))
+  (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
+
+(pub (fn link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str))) str
+  (if (is_win target) (ret (via_win bytes out main)))
+  (unix_link bytes out target main)))

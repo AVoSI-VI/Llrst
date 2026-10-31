@@ -30,31 +30,6 @@ function Compile-Shim($dir, $name) {
     if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
 }
 
-function Invoke-Stage($name, $comp) {
-    Write-Output "step|$name"
-    foreach ($leaf in @('llrs', 'llrs.exe', 'llrs.o', 'llrs.obj')) {
-        $p = Join-Path $work $leaf
-        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
-    }
-    $err = Join-Path $out "$name.err"
-    $pref = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & $comp build (Join-Path $root 'self\llrs.llr') -o (Join-Path $work 'llrs') --std (Join-Path $root 'std') 2>$err
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = $pref
-    if ($code -ne 0) {
-        $msg = Get-Content -LiteralPath $err -TotalCount 1 -ErrorAction SilentlyContinue
-        if (-not $msg) { $msg = 'build failed' }
-        Die "$name|$msg"
-    }
-    $src = Join-Path $work 'llrs.exe'
-    if (-not (Test-Path -LiteralPath $src)) { $src = Join-Path $work 'llrs' }
-    if (-not (Test-Path -LiteralPath $src)) { Die "$name|binary=missing|path=$work\llrs" }
-    $dest = Join-Path $out "$name.exe"
-    Copy-Item -LiteralPath $src -Destination $dest -Force
-    Write-Output "ok|$name|$dest"
-}
-
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     Die 'setup|cargo=missing|fix=install rustup'
 }
@@ -72,36 +47,28 @@ New-Item -ItemType Directory -Force -Path $bin, $share | Out-Null
 $stdDest = Join-Path $share 'std'
 if (Test-Path -LiteralPath $stdDest) { Remove-Item -LiteralPath $stdDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'std') -Destination $stdDest -Recurse
+$exDest = Join-Path $share 'examples'
+if (Test-Path -LiteralPath $exDest) { Remove-Item -LiteralPath $exDest -Recurse -Force }
+Copy-Item -LiteralPath (Join-Path $root 'examples') -Destination $exDest -Recurse
 foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Copy-Item -LiteralPath (Join-Path $root "runtime\$name") -Destination (Join-Path $share $name) -Force
 }
 Write-Output 'step|runtime'
-$runtime = Join-Path $root 'runtime'
 foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Compile-Shim $share $name
-    Compile-Shim $runtime $name
 }
 Write-Output "ok|runtime|$share"
-$out = Join-Path $root 'target\self'
-$work = Join-Path $out 'work'
-New-Item -ItemType Directory -Force -Path $work | Out-Null
-foreach ($name in @('llrs0', 'llrs1', 'llrs2')) {
-    foreach ($ext in @('', '.exe')) {
-        $p = Join-Path $out "$name$ext"
-        if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force }
-    }
+$savedLlrc = $env:LLRC
+$env:LLRC = $llrc
+& powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'self.ps1') --stage
+$stageCode = $LASTEXITCODE
+if ($null -eq $savedLlrc) {
+    Remove-Item Env:LLRC -ErrorAction SilentlyContinue
+} else {
+    $env:LLRC = $savedLlrc
 }
-$env:LLRST_STD = Join-Path $root 'std'
-$env:LLRST_RUNTIME = $runtime
-Invoke-Stage 'llrs0' $llrc
-Invoke-Stage 'llrs1' (Join-Path $out 'llrs0.exe')
-Invoke-Stage 'llrs2' (Join-Path $out 'llrs1.exe')
-$llrs1 = Join-Path $out 'llrs1.exe'
-$llrs2 = Join-Path $out 'llrs2.exe'
-$h1 = (Get-FileHash -Algorithm SHA256 -LiteralPath $llrs1).Hash
-$h2 = (Get-FileHash -Algorithm SHA256 -LiteralPath $llrs2).Hash
-if ($h1 -ne $h2) { Die 'stage2|llrs1!=llrs2' }
-Write-Output 'self|stage2=equal'
+if ($stageCode -ne 0) { exit $stageCode }
+$llrs2 = Join-Path $root 'target\self\llrs2.exe'
 Copy-Item -LiteralPath $llrs2 -Destination (Join-Path $bin 'llrc.exe') -Force
 Write-Output "ok|llrs2|$bin\llrc.exe"
 Write-Output "ok|std|$stdDest"
@@ -128,8 +95,7 @@ Write-Output 'step|verify'
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('llr-install-' + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    $hello = Join-Path $tmp 'hello.llr'
-    [System.IO.File]::WriteAllText($hello, "(use std.io)`n(fn main () unit (io.puts `"hello world`"))`n")
+    $hello = Join-Path $root 'examples\hello.llr'
     $pref = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     & (Join-Path $bin 'llrc.exe') build $hello -o (Join-Path $tmp 'hello')
@@ -138,7 +104,7 @@ try {
     if ($code -ne 0) { Die 'verify|compile hello' }
     $out = (& (Join-Path $tmp 'hello.exe') | Out-String).Trim()
     if ($out -ne 'hello world') { Die "verify|want=hello world|got=$out" }
-    & (Join-Path $bin 'llr-grep.exe') 'fn main' $tmp | Out-Null
+    & (Join-Path $bin 'llr-grep.exe') 'fn main' (Join-Path $root 'examples') | Out-Null
     if ($LASTEXITCODE -ne 0) { Die 'verify|llr-grep' }
 } finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

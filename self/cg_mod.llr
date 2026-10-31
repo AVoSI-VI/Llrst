@@ -15,6 +15,7 @@
   (pub (checked bool))
   (pub (darwin bool))
   (pub (win bool))
+  (pub (be bool))
   (pub (chkstk i64))
   (pub (argc i64))
   (pub (argv i64))
@@ -50,13 +51,14 @@
   (push_zeros (&mut (. (. g obj) data)) 8)
   (elf.add_sym (&mut (. g obj)) name bind elf.st_object elf.sec_data at 8))
 
-(pub (fn new ((checked bool) (darwin bool) (win bool)) cg
+(pub (fn new ((checked bool) (darwin bool) (win bool) (be bool)) cg
   (let mut g
     (cg (elf.new)
       (cg_lay.new)
       checked
       darwin
       win
+      be
       (neg 1)
       0
       0
@@ -223,7 +225,7 @@
   (let mut rec (vec.new <u8>))
   (push_zeros (&mut rec) 24)
   (let mut rat (ro_bytes g (& rec) 8))
-  (put_u64 (&mut (. (. g obj) rodata)) (+ rat 8) (str.len s))
+  (put_u64 (&mut (. (. g obj) rodata)) (+ rat 8) (str.len s) (. g be))
   (elf.add_rel (&mut (. g obj)) elf.sec_rodata rat elf.abs64 bsym 0)
   (let mut ns (str.from "llr_ss"))
   (str.push (&mut ns) (& (str.from_int n)))
@@ -232,12 +234,13 @@
   (vec.push (&mut (. g ssym)) sym)
   sym))
 
-(fn put_u64 ((v (&mut (vec u8))) (at i64) (n i64)) unit
-  (let mut x n)
-  (for i 0 8 (vec.set v (+ at i) (as u8 (band x 255))) (set x (shr x 8))))
+(fn put_u64 ((v (&mut (vec u8))) (at i64) (n i64) (be bool)) unit
+  (let mut tmp (vec.new <u8>))
+  (cg_bits.put_int (&mut tmp) n 8 be)
+  (for i 0 8 (vec.set v (+ at i) (@ (vec.get (& tmp) i)))))
 
 (pub (fn scalar_sym ((g (&mut cg)) (ck i64) (v i64) (text (& str)) (t (& ty.sty))) i64
-  (let bytes (cg_bits.scalar_bytes ck v text t))
+  (let bytes (cg_bits.scalar_bytes ck v text t (. g be)))
   (let key (key_of ck v text))
   (let hit (find_key g (& key)))
   (if (>= hit 0) (ret hit))

@@ -4,11 +4,11 @@
 (use std.str)
 (use proj.diag)
 
-(fn dq ((s (& str))) str
+(pub (fn dq ((s (& str))) str
   (let mut o (str.from "\""))
   (str.push (&mut o) s)
   (str.push_byte (&mut o) 34u8)
-  o)
+  o))
 
 (fn slash ((p (& str))) str
   (let mut o (str.new))
@@ -49,6 +49,24 @@
   (str.push (&mut s) (& (dq (& b))))
   (str.push (&mut s) " >nul && ")
   s)
+
+(fn tool_ok ((name (& str))) bool
+  (let mut cmd (str.clone name))
+  (str.push (&mut cmd) " --version")
+  (== (. (os.capture (& cmd)) code) 0))
+
+(fn first_gnu () str
+  (if (tool_ok "clang") (ret (str.from "clang")))
+  (if (tool_ok "gcc") (ret (str.from "gcc")))
+  (if (tool_ok "cc") (ret (str.from "cc")))
+  (str.new))
+
+(fn cl_ready () bool (if (has_cl) (ret true)) (> (str.len (& (bat))) 0))
+
+(pub (fn pick ((gnu bool) (msvc bool)) str
+  (if gnu (do (let g (first_gnu)) (if (> (str.len (& g)) 0) (ret g))))
+  (if (and msvc (cl_ready)) (ret (str.from "cl")))
+  (str.new)))
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (dq p))))
 

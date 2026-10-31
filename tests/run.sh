@@ -25,6 +25,10 @@ for f in "$root"/tests/run/*.llr; do
   name="$(basename "$f" .llr)"
   want="${f%.llr}.out"
   [ -e "$want" ] || continue   # helper module for a proj.* test
+  if [ "$name" = os_id ] && [ "${OS:-}" = "Windows_NT" ]; then
+    printf '2\n' >"$tmp/os_id.want"
+    want="$tmp/os_id.want"
+  fi
   flags=()
   if [ -f "${f%.llr}.flags" ]; then
     read -r -a flags <"${f%.llr}.flags"
@@ -184,5 +188,31 @@ for f in "$root"/std/*.llr; do
 done
 
 "$root/scripts/check-lines.sh" || fails=$((fails+1))
+
+pick_exe() {
+  if [ -n "$1" ] && [ -x "$1" ]; then
+    printf '%s\n' "$1"
+  elif [ -n "$1" ] && [ -x "$1.exe" ]; then
+    printf '%s\n' "$1.exe"
+  else
+    printf '\n'
+  fi
+}
+stage0="$(pick_exe "$root/target/release/llrc")"
+[ -n "$stage0" ] || stage0="$(pick_exe "$root/target/debug/llrc")"
+if [ -z "$stage0" ] || [ ! -x "$stage0" ]; then
+  echo "fail|setup|stage0=not found|fix=cargo build --release"
+  fails=$((fails+1))
+else
+  if [ "$llrc" = "$stage0" ]; then
+    LLRC="$stage0" "$root/tests/check.sh" || fails=$((fails+1))
+    LLRC="$stage0" "$root/tests/mir.sh" || fails=$((fails+1))
+  else
+    LLRC="$stage0" "$root/tests/check.sh" "$llrc" || fails=$((fails+1))
+    LLRC="$stage0" "$root/tests/mir.sh" "$llrc" || fails=$((fails+1))
+  fi
+  LLRC="$stage0" "$root/tests/self.sh" || fails=$((fails+1))
+  LLRC="$stage0" "$root/tests/cross.sh" || fails=$((fails+1))
+fi
 echo "done|fails=$fails"
 [ "$fails" -eq 0 ]

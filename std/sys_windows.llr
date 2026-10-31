@@ -117,4 +117,6 @@
 
 (pub (extern llr_spawn_self ((arg (ptr u8))) i32))
 
+(pub (extern llr_exec ((file (ptr u8)) (args (ptr u8)) (n u64)) i32))
+
 (pub (extern llr_exe_path ((buf (ptr u8)) (n u64)) i64))

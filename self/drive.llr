@@ -36,18 +36,26 @@
 (pub (fn run ((o (& flags))) i64
   (if (not (target_ok (& (. o target))))
     (ret (bad (& (. o file)) "target.unsupported" (& (. o target)))))
-  (match (load.load_at (& (. o file)) (& (. o std)))
+  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o target)))
     ((res.err e) (do (io_err (& e)) (ret 1)))
     ((res.ok p) (build o p)))))
 
 (fn io_err ((e (& str))) unit (io.eputs e))
 
-(fn target_ok ((t (& str))) bool
+(pub (fn target_ok ((t (& str))) bool
   (if (== (str.len t) 0) (ret true))
   (if (not (str.has t "x86_64")) (ret false))
-  (not (str.has t "apple")))
+  (not (str.has t "apple"))))
+
+(pub (fn reject_target ((file (& str)) (got (& str))) i64 (bad file "target.unsupported" got)))
 
 (fn is_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
+
+(fn is_darwin ((t (& str))) bool
+  (if (> (str.len t) 0) (ret (or (str.has t "apple") (str.has t "darwin"))))
+  (link.host_darwin))
+
+(fn big_end ((t (& str))) bool (str.has t "s390x"))
 
 (fn bad ((file (& str)) (code (& str)) (got (& str))) i64
   (io.eputs (& (at_main file code "got" got "" "")))
@@ -72,7 +80,10 @@
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (let mut g
-    (cg_mod.new (. o checked) (str.has (& (. o target)) "apple") (is_win (& (. o target)))))
+    (cg_mod.new (. o checked)
+      (is_darwin (& (. o target)))
+      (is_win (& (. o target)))
+      (big_end (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (pump (&mut g) (& p) (&mut ds))
@@ -81,7 +92,7 @@
   (cg_entry.emit_main (&mut g) entry)
   (let bytes (cg_mod.finish (& g)))
   (if (. o emit_obj) (ret (write_obj o (& bytes) (&mut ds))))
-  (let err (link.link (& bytes) (& (out_path o)) (is_win (& (. o target))) (& (. o file))))
+  (let err (link.link (& bytes) (& (out_path o)) (& (. o target)) (& (. o file))))
   (if (> (str.len (& err)) 0) (do (io.eputs (& err)) (ret 1)))
   (finish o (&mut ds)))
 

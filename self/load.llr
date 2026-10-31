@@ -58,7 +58,9 @@
 (fn std_dir ((file (& str))) (res str str)
   (match (os.env "LLRST_STD") ((opt.some s) (res.ok (slash (& s)))) ((opt.none) (std_found file))))
 
-(fn os_name () str
+(fn os_name ((target (& str))) str
+  (if (> (str.len target) 0)
+    (ret (if (str.has target "windows") (str.from "sys_windows.llr") (str.from "sys_posix.llr"))))
   (match (os.env "OS")
     ((opt.some s)
       (if (str.eq (& s) "Windows_NT") (str.from "sys_windows.llr") (str.from "sys_posix.llr")))
@@ -130,8 +132,8 @@
   (set (. s is_std) true)
   (vec.set paths 0 (mod_std name)))
 
-(fn append_os ((srcs (&mut (vec src.loaded))) (dir (& str))) (res unit str)
-  (let file (path.join dir (& (os_name))))
+(fn append_os ((srcs (&mut (vec src.loaded))) (dir (& str)) (target (& str))) (res unit str)
+  (let file (path.join dir (& (os_name target))))
   (let extra (try (read_items (& file))))
   (let mut found (neg 1))
   (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) path)) "std.sys") (set found i)))
@@ -183,7 +185,7 @@
 
 (fn str_cat ((a (& str)) (b (& str))) str (let mut s (str.clone a)) (str.push (&mut s) b) s)
 
-(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "")))
+(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "" "")))
 
 (fn set_num ((n (&mut i64)) (v (& str))) unit
   (match (str.to_int v) ((opt.some x) (set (@ n) x)) ((opt.none) ())))
@@ -215,14 +217,14 @@
   (set (. d len) len)
   (diag.render (& d)))
 
-(pub (fn load_at ((file (& str)) (dir (& str))) (res prog.prog str)
+(pub (fn load_at ((file (& str)) (dir (& str)) (target (& str))) (res prog.prog str)
   (let root (if (> (str.len dir) 0) (slash dir) (try (std_dir file))))
   (let mut srcs (vec.new <src.loaded>))
   (let mut paths (vec.new <str>))
   (let mainp (slash file))
   (try (load_one (&mut srcs) (&mut paths) (str.from "main") (str.clone (& mainp)) false))
   (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
-  (try (append_os (&mut srcs) (& root)))
+  (try (append_os (&mut srcs) (& root) target))
   (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
   (match (collect.collect srcs)
     ((res.err e) (res.err (lift (& mainp) (& e))))

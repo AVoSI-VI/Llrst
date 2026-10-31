@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -98,6 +99,66 @@ int32_t llr_call_child(int32_t (*fn)(int64_t), int64_t arg) {
 
 int32_t llr_spawn_self(const char *arg) {
     (void)arg;
+    return -1;
+}
+
+/* argv is file plus NUL-separated args of length n. Exit code, 128+signal, or -1. */
+int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+    int extra = 0;
+    uint64_t i;
+    int k;
+    char **argv;
+    pid_t pid;
+    int status;
+    if (file == 0) {
+        return -1;
+    }
+    if (args != 0 && n > 0) {
+        extra = 1;
+        for (i = 0; i + 1 < n; i++) {
+            if (args[i] == 0) {
+                extra++;
+            }
+        }
+    }
+    argv = (char **)calloc((size_t)extra + 2, sizeof(char *));
+    if (argv == 0) {
+        return -1;
+    }
+    argv[0] = (char *)file;
+    k = 1;
+    i = 0;
+    while (args != 0 && i < n) {
+        argv[k++] = (char *)(args + i);
+        while (i < n && args[i] != 0) {
+            i++;
+        }
+        if (i < n && args[i] == 0) {
+            i++;
+        }
+    }
+    argv[k] = 0;
+    pid = fork();
+    if (pid < 0) {
+        free(argv);
+        return -1;
+    }
+    if (pid == 0) {
+        execvp(file, argv);
+        _exit(127);
+    }
+    status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        free(argv);
+        return -1;
+    }
+    free(argv);
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
     return -1;
 }
 

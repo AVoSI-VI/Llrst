@@ -252,6 +252,128 @@ static char *child_env(const char *arg) {
     return neu;
 }
 
+typedef struct cmdbuf {
+    char *p;
+    size_t len;
+    size_t cap;
+    int bad;
+} Cmdbuf;
+
+static void cmd_ch(Cmdbuf *b, char c) {
+    char *neu;
+    if (b->bad) {
+        return;
+    }
+    if (b->len + 2 >= b->cap) {
+        size_t ncap = b->cap == 0 ? 64 : b->cap * 2;
+        neu = (char *)realloc(b->p, ncap);
+        if (neu == NULL) {
+            b->bad = 1;
+            return;
+        }
+        b->p = neu;
+        b->cap = ncap;
+    }
+    b->p[b->len++] = c;
+}
+
+static void cmd_bs(Cmdbuf *b, size_t n) {
+    while (n > 0) {
+        cmd_ch(b, '\\');
+        n--;
+    }
+}
+
+static int cmd_quote(const char *s) {
+    const char *p;
+    if (s == NULL || s[0] == 0) {
+        return 1;
+    }
+    for (p = s; *p != 0; p++) {
+        if (*p == ' ' || *p == '\t' || *p == '"') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* CommandLineToArgvW quoting, so the child sees the same vector. */
+static void cmd_arg(Cmdbuf *b, const char *s) {
+    size_t bs;
+    if (b->len > 0) {
+        cmd_ch(b, ' ');
+    }
+    if (s == NULL) {
+        s = "";
+    }
+    if (!cmd_quote(s)) {
+        while (*s != 0) {
+            cmd_ch(b, *s++);
+        }
+        return;
+    }
+    cmd_ch(b, '"');
+    bs = 0;
+    for (; *s != 0; s++) {
+        if (*s == '\\') {
+            bs++;
+        } else if (*s == '"') {
+            cmd_bs(b, bs * 2 + 1);
+            cmd_ch(b, '"');
+            bs = 0;
+        } else {
+            cmd_bs(b, bs);
+            cmd_ch(b, *s);
+            bs = 0;
+        }
+    }
+    cmd_bs(b, bs * 2);
+    cmd_ch(b, '"');
+}
+
+int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+    Cmdbuf b;
+    uint64_t i;
+    STARTUPINFOA start;
+    PROCESS_INFORMATION info;
+    BOOL ok;
+    DWORD code;
+    if (file == NULL) {
+        return -1;
+    }
+    memset(&b, 0, sizeof b);
+    cmd_arg(&b, file);
+    i = 0;
+    while (args != NULL && i < n) {
+        cmd_arg(&b, args + i);
+        while (i < n && args[i] != 0) {
+            i++;
+        }
+        if (i < n && args[i] == 0) {
+            i++;
+        }
+    }
+    cmd_ch(&b, 0);
+    if (b.bad || b.p == NULL) {
+        free(b.p);
+        return -1;
+    }
+    memset(&start, 0, sizeof start);
+    start.cb = sizeof start;
+    memset(&info, 0, sizeof info);
+    ok = CreateProcessA(NULL, b.p, NULL, NULL, TRUE, 0, NULL, NULL, &start, &info);
+    free(b.p);
+    if (!ok) {
+        return -1;
+    }
+    WaitForSingleObject(info.hProcess, INFINITE);
+    code = 1;
+    GetExitCodeProcess(info.hProcess, &code);
+    CloseHandle(info.hProcess);
+    CloseHandle(info.hThread);
+    return (int32_t)code;
+}
+
 int32_t llr_spawn_self(const char *arg) {
     char exe[1024];
     if (GetModuleFileNameA(NULL, exe, sizeof exe) == 0) {

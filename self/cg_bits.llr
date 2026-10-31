@@ -82,16 +82,19 @@
 
 (pub (fn f32_bits ((s (& str))) i64 (scan s 0 23 127)))
 
-(fn put_le ((v (&mut (vec u8))) (n i64) (count i64)) unit
-  (let mut x n)
-  (for i 0 count (vec.push v (as u8 (band x 255))) (set x (shr x 8))))
+(pub (fn put_int ((v (&mut (vec u8))) (n i64) (count i64) (be bool)) unit
+  (for i 0 count
+    (let shift (if be (* (- (- count 1) i) 8) (* i 8)))
+    (vec.push v (as u8 (band (shr n shift) 255))))))
 
-(pub (fn scalar_bytes ((ck i64) (v i64) (text (& str)) (t (& ty.sty))) (vec u8)
+(pub (fn scalar_bytes ((ck i64) (v i64) (text (& str)) (t (& ty.sty)) (be bool)) (vec u8)
   (let mut o (vec.new <u8>))
   (if (== ck 2) (ret (do (vec.push (&mut o) (as u8 v)) o)))
   (if (== ck 1)
-    (if (== (. t kind) 1u8) (put_le (&mut o) (f32_bits text) 4) (put_le (&mut o) (f64_bits text) 8))
-    (put_le (&mut o) v (if (== (. t kind) 0u8) (int_w (. t id)) 8)))
+    (if (== (. t kind) 1u8)
+      (put_int (&mut o) (f32_bits text) 4 be)
+      (put_int (&mut o) (f64_bits text) 8 be))
+    (put_int (&mut o) v (if (== (. t kind) 0u8) (int_w (. t id)) 8) be))
   o))
 
 (fn int_w ((id i64)) i64
@@ -100,9 +103,21 @@
   (if (or (== id 2) (== id 6)) (ret 4))
   8)
 
+(fn byte_at ((v (& (vec u8))) (i i64)) i64 (as i64 (@ (vec.get v i))))
+
 (test bits_one
   (assert_eq (f64_bits "1") 4607182418800017408)
   (assert_eq (f64_bits "1.0") 4607182418800017408)
   (assert_eq (f64_bits "0.5") 4602678819172646912)
   (assert_eq (f64_bits "2") 4611686018427387904)
   (assert_eq (f32_bits "1") 1065353216))
+
+(test bits_end
+  (let mut le (vec.new <u8>))
+  (put_int (&mut le) 258 2 false)
+  (assert_eq (byte_at (& le) 0) 2)
+  (assert_eq (byte_at (& le) 1) 1)
+  (let mut be (vec.new <u8>))
+  (put_int (&mut be) 258 2 true)
+  (assert_eq (byte_at (& be) 0) 1)
+  (assert_eq (byte_at (& be) 1) 2))

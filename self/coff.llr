@@ -278,7 +278,7 @@
   (let out (str.from "target/coff_main"))
   (let exe (str.from "target\\coff_main.exe"))
   (rm (& exe))
-  (let err (link.link (& (hello)) (& out) true "target/coff_main"))
+  (let err (link.link (& (hello)) (& out) "windows" "target/coff_main"))
   (if (!= (str.len (& err)) 0) (assert_eq (& err) ""))
   (let ran (os.capture (& exe)))
   (rm (& exe))
