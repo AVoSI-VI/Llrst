@@ -392,18 +392,18 @@ Files: `self/drive.llr`, `self/llrs.llr`, `self/link.llr`, `scripts/install.sh`,
    them; `README.md` table rows for `DARWIN.md` and the new backend.
 6. `[x]` Commit: `platform: darwin and aarch64 targets in self/, install llrs2 on a Mac`.
 
-### Phase 6: stage 2 on this Mac `[ ]`
+### Phase 6: stage 2 on this Mac `[x]`
 
-1. `[ ]` `scripts/self.sh --stage` prints `self|stage2=equal`. On a mismatch, `cmp -l
+1. `[x]` `scripts/self.sh --stage` prints `self|stage2=equal`. On a mismatch, `cmp -l
    target/self/llrs1 target/self/llrs2 | head` then `llvm-objdump -d` on both around that
    offset.
-2. `[ ]` `scripts/self.sh` runs the suite with `llrs2` at `fails=0` (the 33 `tests/self.sh`
+2. `[x]` `scripts/self.sh` runs the suite with `llrs2` at `fails=0` (the 33 `tests/self.sh`
    rows are the known `llr-check` gap, not this plan). `tests/check.sh` and `tests/mir.sh`
    against stage 0 `fails=0`. `tests/x64_ref.sh` byte-equal.
-3. `[ ]` `scripts/install.sh`; from a fresh shell `llrc version`, `llrc run examples/hello.llr`,
+3. `[x]` `scripts/install.sh`; from a fresh shell `llrc version`, `llrc run examples/hello.llr`,
    `llr-grep "fn main" examples`.
-4. `[ ]` `HANDOFF.md` status block: `self|stage2=equal|scripts/self.sh record at <sha>|darwin arm64`.
-5. `[ ]` Commit: `self: llrs2 bootstraps on darwin arm64`.
+4. `[x]` `HANDOFF.md` status block: `self|stage2=equal|scripts/self.sh record at <sha>|darwin arm64`.
+5. `[x]` Commit: `self: llrs2 bootstraps on darwin arm64`.
 
 ## How to verify each phase
 
@@ -471,3 +471,13 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   s390x. Stage 0 `tests/cross.sh` still links all three ELF targets. `tests/run` and
   `std` x86-64 objects stayed byte-equal. `self/llrs` ELF and COFF snapshots were
   refreshed because the compiler text grew. `tests/check.sh` and `tests/mir.sh` fails=0.
+- 2026-10-31: Phase 6. `scripts/self.sh --stage` printed `self|stage2=equal` on the first
+  run at `1732bd6`; no `self/` code changed. `llrs2` is a 2 MB `Mach-O 64-bit executable
+  arm64`; each stage takes about 100 s. `scripts/self.sh` with `llrs2`: 534 `ok` rows,
+  goldens, std, `tests/check.sh`, `tests/mir.sh`, both `tests/cross.sh` passes, and
+  `tests/x64_ref.sh` all `done|fails=0`; the only failures are the 33 known `tests/self.sh`
+  rows (`llr-check` emits no borrow errors and has no `--deny`), which make the final
+  `done|fails=1`. `scripts/check-lines.sh` clean. `scripts/install.sh` installed `llrs2` as
+  `~/.local/bin/llrc` (byte-equal to `target/self/llrs2`) and built all 14 tools; from a
+  fresh login shell `llrc version`, `llrc run examples/hello.llr`, and `llr-grep "fn main"
+  examples` pass. The goal of this plan is met.

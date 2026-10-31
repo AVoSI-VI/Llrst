@@ -99,7 +99,7 @@ instances are compiled; std bodies are checked lazily.
 ```
 commit|ebaed76|Merge pull request #1 from AVoSI-VI/self-hosting-esty
 suite|tests/run.ps1|fails=3|2026-10-27|run/cast_float panic/cast_f_high panic/cast_f_neg|cranelift emit unreachable
-self|stage2=equal|scripts/self.sh record at 40dcadd|not re-run for this rewrite
+self|stage2=equal|scripts/self.sh record at 1732bd6|darwin arm64
 lines|compiler=9263 rs|self=12731 llr|std=6049 llr|tools=859 llr|max_file=compiler/src/mir/lower.rs 497|budget=500 soft, 1000 hard
 ```
 
