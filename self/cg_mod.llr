@@ -4,6 +4,7 @@
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
+(use proj.macho)
 (use proj.prog)
 (use proj.ty)
 (use proj.x64_buf)
@@ -83,6 +84,7 @@
       (vec.new <i64>)
       (neg 1)
       (neg 1)))
+  (set (. (. g obj) machine) elf.mach_x64)
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
@@ -326,4 +328,5 @@
 
 (pub (fn finish ((g (& cg))) str
   (if (. g win) (ret (coff.bytes (& (. g obj)))))
+  (if (. g darwin) (ret (macho.bytes (& (. g obj)))))
   (elf.bytes (& (. g obj)))))

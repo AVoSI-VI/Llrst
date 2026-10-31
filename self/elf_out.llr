@@ -58,7 +58,8 @@
   (pub (rel_text (vec u8)))
   (pub (rel_data (vec u8)))
   (pub (rel_rodata (vec u8)))
-  (pub (sym_info i64))))
+  (pub (sym_info i64))
+  (pub (machine i64))))
 
 (fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
 
@@ -111,7 +112,7 @@
   (push_n b align 8)
   (push_n b entsize 8))
 
-(fn ehdr ((b (&mut (vec u8))) (shoff i64) (shnum i64) (shstr i64)) unit
+(fn ehdr ((b (&mut (vec u8))) (machine i64) (shoff i64) (shnum i64) (shstr i64)) unit
   (vec.push b 127u8)
   (vec.push b 69u8)
   (vec.push b 76u8)
@@ -121,7 +122,7 @@
   (vec.push b 1u8)
   (for i 0 9 (vec.push b 0u8))
   (push_n b 1 2)
-  (push_n b 62 2)
+  (push_n b machine 2)
   (push_n b 1 4)
   (push_n b 0 8)
   (push_n b 0 8)
@@ -236,7 +237,7 @@
   (let n (count_sh p))
   (let lay (layout p (vec.len (& (. names tab)))))
   (let mut out (vec.new <u8>))
-  (ehdr (&mut out) (. lay shoff) n (- n 1))
+  (ehdr (&mut out) (. p machine) (. lay shoff) n (- n 1))
   (put_body (&mut out) p (& lay) (& names))
   (put_shdrs (&mut out) p (& lay) (& names) n)
   (to_str (& out))))

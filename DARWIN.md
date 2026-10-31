@@ -92,7 +92,7 @@ flowchart LR
 | `self/a64_int.llr`, `self/a64_mem.llr`, `self/a64_fp.llr` | integer, load/store, and floating-point encoders | 2 |
 | `self/a64_abi.llr` | `x0..x7`, `v0..v7`, 8-byte stack slots | 2 |
 | `self/a64.llr` | encoder tests against `llvm-mc` bytes; fp and abi tests live in their modules | 2 |
-| `self/macho.llr` (`macho_out.llr` if needed) | Mach-O 64 arm64 relocatable object | 3 |
+| `self/macho.llr`, `self/macho_out.llr` | Mach-O 64 arm64 relocatable object | 3 |
 | `self/isa_a64.llr` (split as needed) | aarch64 side of the seam | 4 |
 | `tests/x64_ref.sh` | x86-64 object snapshot and compare | 0 |
 | `docs/spec/targets.md` | triples per compiler | 5 |
@@ -203,8 +203,10 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/collect.llr` | 461 | not touched by this plan |
 | `self/cg_frame.llr` | 412 | Phase 1 removed the x64 calls |
 | `self/cg_term.llr` | 390 | Phase 1 |
-| `self/elf.llr` | 396 | Phase 3 adds aarch64 kinds; split tests out if it nears 500 |
-| `self/cg_mod.llr` | 329 | Phase 3 still adds the Mach-O finish |
+| `self/elf.llr` | 450 | Phase 3 added aarch64 kinds and `elf_a64` |
+| `self/cg_mod.llr` | 332 | Phase 3 routes Darwin finish to Mach-O |
+| `self/macho.llr` | 322 | Phase 3 symbols, relocs, and tests |
+| `self/macho_out.llr` | 255 | Phase 3 load commands and layout |
 | `self/isa_x64.llr` | 311 | Phase 1 |
 | `self/cg_isa.llr` | 270 | Phase 1; Phase 4 fills the aarch64 arm |
 | `self/a64.llr` | 321 | Phase 2 integer, branch, and memory tests |
@@ -214,7 +216,7 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/a64_abi.llr` | 107 | Phase 2; classify test lives here |
 | `self/a64_mem.llr` | 75 | Phase 2 load/store split out of `a64_int` |
 
-Totals: `self/` 14462 lines in 65 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
+Totals: `self/` 15097 lines in 67 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
 
 ## Phases
 
@@ -301,32 +303,32 @@ Files: `self/a64_buf.llr`, `self/a64_int.llr`, `self/a64_mem.llr`, `self/a64_fp.
    `a64_fp.llr` and the ABI test is at the bottom of `a64_abi.llr`.
 6. `[x]` Commit: `self: aarch64 encoder, fp, abi`.
 
-### Phase 3: object writers `[ ]`
+### Phase 3: object writers `[x]`
 
 Files: `self/macho.llr` (new; `self/macho_out.llr` if over 500), `self/elf.llr`, `self/elf_out.llr`, `self/cg_mod.llr`.
 
-1. `[ ]` `macho.llr` `(pub (fn bytes ((o (& elf.obj))) str)` emitting the shape in
+1. `[x]` `macho.llr` `(pub (fn bytes ((o (& elf.obj))) str)` emitting the shape in
    **Implementation notes**. Every symbol name gets a `_` prefix. Symbols ordered local,
    external defined, undefined; `n_type` `N_SECT` (`0x0e`), `N_SECT|N_EXT` (`0x0f`),
    `N_UNDF|N_EXT` (`0x01`); `n_sect` 1..4 for text, data, const, bss. `n_value` is the flat
    address (`vmaddr` of the section plus the offset). Section `vmaddr` values follow one
    another with 16-byte alignment for text and 8 for the rest.
-2. `[ ]` Relocations: `abs64` becomes `UNSIGNED` with `r_length 3`, `r_pcrel 0`;
+2. `[x]` Relocations: `abs64` becomes `UNSIGNED` with `r_length 3`, `r_pcrel 0`;
    `branch26` becomes `BRANCH26`, `r_length 2`, `r_pcrel 1`; `page21` becomes `PAGE21`,
    `r_pcrel 1`; `pageoff12` becomes `PAGEOFF12`, `r_pcrel 0`; all `r_extern 1` with
    `r_symbolnum` the Mach-O symbol index. A non-zero addend emits `ADDEND` first (guard; the
    codegen uses addend 0). Relocations per section are listed in reverse address order, as
    Apple tools do; `llvm-objdump -r` must accept either.
-3. `[ ]` `elf.llr`: `enc_kind` and `enc_addend` learn `branch26 -> R_AARCH64_CALL26 283`,
+3. `[x]` `elf.llr`: `enc_kind` and `enc_addend` learn `branch26 -> R_AARCH64_CALL26 283`,
    `page21 -> ADR_PREL_PG_HI21 275`, `pageoff12 -> ADD_ABS_LO12_NC 277`, `abs64 -> 257`
    when the object is aarch64; `elf.obj` gains `(pub (machine i64))` set by `cg_mod.new`;
    `elf_out.ehdr` writes it (62 or 183). Existing x86-64 tests unchanged.
-4. `[ ]` `cg_mod.finish`: `win -> coff.bytes`, `darwin -> macho.bytes`, else `elf.bytes`.
-5. `[ ]` Tests: `(test ...)` forms in `macho.llr` on a hand-built hello object assert the
+4. `[x]` `cg_mod.finish`: `win -> coff.bytes`, `darwin -> macho.bytes`, else `elf.bytes`.
+5. `[x]` Tests: `(test ...)` forms in `macho.llr` on a hand-built hello object assert the
    magic, `ncmds`, section count, symbol order, and one relocation of each kind; from the
    shell, `file` says `Mach-O 64-bit object arm64` and
    `/opt/homebrew/opt/llvm/bin/llvm-objdump -h -r -t` prints the expected table.
-6. `[ ]` Commit: `self: mach-o arm64 writer, aarch64 elf relocations`.
+6. `[x]` Commit: `self: mach-o arm64 writer, aarch64 elf relocations`.
 
 ### Phase 4: aarch64 side of the seam `[ ]`
 
@@ -438,3 +440,11 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   `tests/check.sh` and `tests/mir.sh` fails=0. `tests/x64_ref.sh` is byte-equal; it
   compiles `self/llrs.llr` with a relative path so the embedded source paths match the
   snapshot. The new modules are not linked into `llrs`.
+- 2026-10-31: Phase 3. Mach-O arm64 writer is `macho.llr` plus `macho_out.llr`.
+  `elf.obj.machine` selects `e_machine` and the aarch64 relocation types, because the
+  encoder kind numbers collide with x86-64. `cg_mod.new` stores `EM_X86_64` until phase 5.
+  `llvm-objdump -h -r -t` accepts the hand-built object, including `ARM64_RELOC_ADDEND`
+  immediately before `BRANCH26`. `tests/run` and `std` objects stayed byte-equal.
+  `self/llrs` ELF and COFF snapshots were refreshed because the writer is linked into
+  the compiler. `tests/check.sh` and `tests/mir.sh` fails=0. `elf_link` still fails on
+  this Mac: Apple ld rejects the ELF object. That test is unchanged.
