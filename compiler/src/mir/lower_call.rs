@@ -145,6 +145,24 @@ impl<'a> Lower<'a> {
         }
     }
 
+    pub fn lower_ref(&mut self, mutable: bool, place: &Expr, ty: &Ty, dest: Place, sp: Span) {
+        if let Some(c) = super::lower::const_static(self.prog, place) {
+            self.assign(&dest, Rvalue::Static(c), sp);
+            return;
+        }
+        let p = self.as_place(place);
+        if matches!(ty, Ty::Dyn { .. }) {
+            self.assign(&dest, Rvalue::BoxBorrow { mutable, place: p }, sp);
+            return;
+        }
+        self.assign(&dest, Rvalue::Ref { mutable, place: p, two_phase: false }, sp);
+    }
+
+    pub fn lower_box_pack(&mut self, data: &Expr, trait_id: crate::ty::DefId, self_ty: &Ty, dest: Place, sp: Span) {
+        let value = self.as_operand(data);
+        self.assign(&dest, Rvalue::BoxPack { value, trait_id, self_ty: self_ty.clone() }, sp);
+    }
+
     pub fn lower_dyn_pack(&mut self, data: &Expr, trait_id: crate::ty::DefId, self_ty: &Ty, dest: Place, sp: Span) {
         let ptr = self.as_operand(data);
         let slot = self.temp(Ty::Ptr(Box::new(Ty::Int(IntTy::U8))), sp);

@@ -1,0 +1,25 @@
+(use std.io)
+
+(struct tick (n i64))
+
+(impl tick
+  (pub (fn drop ((self (&mut tick))) unit
+    (io.puts (& (str.from_int (. self n)))))))
+
+(trait Id (fn n ((& Self)) i64))
+
+(impl Id tick (fn n ((self (& tick))) i64 (. self n)))
+
+(impl Id i64 (fn n ((self (& i64))) i64 (@ self)))
+
+(fn main () unit
+  (let a (box (dyn Id)) (tick 1))
+  (let b (box (dyn Id)) (tick 2))
+  (assert_eq (Id.n (& a)) 1)
+  (assert_eq (Id.n (& b)) 2)
+  (let c (box (dyn Id)) 9)
+  (assert_eq (Id.n (& c)) 9)
+  (let mut v (vec.new <(box (dyn Id))>))
+  (vec.push (&mut v) (tick 3))
+  (vec.push (&mut v) (tick 4))
+  (assert_eq (Id.n (& (@ (vec.get (& v) 0)))) 3))

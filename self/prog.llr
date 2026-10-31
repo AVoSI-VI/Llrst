@@ -362,7 +362,7 @@
   false)
 
 (pub (fn needs_drop ((p (& prog)) (t (& ty.sty))) bool
-  (if (== (. t kind) 10u8) (ret true))
+  (if (or (== (. t kind) 10u8) (== (. t kind) 15u8)) (ret true))
   (if (!= (. t kind) 8u8) (ret false))
   (if (>= (meth_id p (. t id) "drop") 0) (ret true))
   (field_drop p t)))

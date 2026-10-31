@@ -31,8 +31,8 @@
   (ty.clone (& (. r ty)))))
 
 (fn fcvt ((fx (&mut cg_frame.fncx)) (from (& ty.sty)) (to (& ty.sty))) unit
-  (cg_isa.f2f (&mut (. fx buf)) (& (. fx isa)) (!= (. from kind) 1u8) cg_isa.fp0 cg_isa.fp0)
-  (let _ to))
+  (if (== (. from kind) (. to kind)) (ret))
+  (cg_isa.f2f (&mut (. fx buf)) (& (. fx isa)) (!= (. from kind) 1u8) cg_isa.fp0 cg_isa.fp0))
 
 (fn icast ((g (&mut cg_mod.cg))
    (p (& prog.prog))

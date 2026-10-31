@@ -364,6 +364,7 @@
 (pub (fn finish_arg ((p (& prog.prog)) (c (&mut thir.ck)) (e thir.ex) (want (& ty.sty))) (res thir.ex str)
   (let ws (thir.shallow c want))
   (if (== (. ws kind) 11u8) (ret (thir_trait.pack_dyn p c e (& ws))))
+  (if (== (. ws kind) 15u8) (ret (thir_trait.pack_box p c e (& ws))))
   (if (thir.unify c (& (. e ty)) want) (res.ok e) (res.err (str.from "type.mismatch")))))
 
 (pub (fn check_try ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)

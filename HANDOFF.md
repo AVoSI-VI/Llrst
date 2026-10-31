@@ -50,6 +50,7 @@ install them, document them, write agent workflows.
 | git tool | `llr-git` reads status, diff, and log and does not change the repo. |
 | C runtime | `runtime/*.c` shims stay C and are prebuilt by install; the system C compiler is the linker driver only. |
 | warnings | A warning exits 0. `--deny CODE` may be repeated; each named warning is printed as `E` and the process exits 1. `use.unused` and `fn.unused` are not emitted for `std`. `fn.unused` is not emitted for `pub`, `extern`, or `main`. |
+| trait objects | `(& (dyn Trait))` is a fat pointer. `(box (dyn Trait))` owns the heap value; it is not `copy`. A value is packed where that type is expected. `(& box)` is the fat pointer unless a reference to the box is expected. No trait default methods: a framework callback is a `(clos ...)` field. |
 
 Out of scope: a garbage collector, a second syntax or precedence grammar, Unicode-aware
 regex, and any change that exists only to make `self/` smaller.

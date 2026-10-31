@@ -238,6 +238,25 @@
   (let o (if (ty.is_copy (& vt)) (mir.ocopy pl) (mir.omove pl)))
   (lower.push w (mir.sassign dest (mir.ruse o))))
 
+(pub (fn into_box ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (let o (lower.as_operand p w (vec.get (& (. e kids)) 0)))
+  (let mut r (mir.rvoid))
+  (set (. r kind) 19u8)
+  (set (. r op) (. e id))
+  (set (. r ty) (ty.clone (vec.get (& (. e tys)) 0)))
+  (vec.push (&mut (. r ops)) o)
+  (lower.push w (mir.sassign dest r))))
+
+(pub (fn into_box_borrow ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (let pl (lower.as_place p w (vec.get (& (. e kids)) 0)))
+  (let mut r (mir.rvoid))
+  (set (. r kind) 20u8)
+  (set (. r flag) (. e flag))
+  (set (. r local) (. pl local))
+  (set (. r pk) (lower.copy_pk (& pl)))
+  (set (. r pi) (lower.copy_pi (& pl)))
+  (lower.push w (mir.sassign dest r))))
+
 (pub (fn into_pack ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let ptr (lower.as_operand p w (vec.get (& (. e kids)) 0)))
   (let slot (lower.temp p w (ty.ptr_ty (ty.int 4)) (. e line) (. e col)))

@@ -1,4 +1,5 @@
 //! Cranelift backend: module setup, symbol management, data, ABI.
+mod boxdyn;
 mod clos;
 mod drop;
 mod func;

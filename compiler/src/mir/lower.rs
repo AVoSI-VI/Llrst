@@ -402,14 +402,7 @@ impl<'a> Lower<'a> {
                 }
             }
             ExprKind::Match { scrut, arms, by_ref } => self.lower_match(scrut, arms, *by_ref, dest, sp),
-            ExprKind::Ref { mutable, place } => {
-                if let Some(c) = const_static(self.prog, place) {
-                    self.assign(&dest, Rvalue::Static(c), sp);
-                } else {
-                    let p = self.as_place(place);
-                    self.assign(&dest, Rvalue::Ref { mutable: *mutable, place: p, two_phase: false }, sp);
-                }
-            }
+            ExprKind::Ref { mutable, place } => self.lower_ref(*mutable, place, &e.ty, dest, sp),
             ExprKind::Cast(inner) => {
                 let op = self.as_operand(inner);
                 self.assign(&dest, Rvalue::Cast(op, e.ty.clone()), sp);
@@ -448,6 +441,7 @@ impl<'a> Lower<'a> {
             }
             ExprKind::Call { callee, args } => self.lower_call(callee, args, &e.ty, dest, sp),
             ExprKind::DynPack { data, trait_id, self_ty } => self.lower_dyn_pack(data, *trait_id, self_ty, dest, sp),
+            ExprKind::BoxPack { data, trait_id, self_ty } => self.lower_box_pack(data, *trait_id, self_ty, dest, sp),
             ExprKind::Struct { fields, .. } => {
                 let ops: Vec<Operand> = fields.iter().map(|f| self.as_operand(f)).collect();
                 self.assign(&dest, Rvalue::Struct(e.ty.clone(), ops), sp);
@@ -463,7 +457,7 @@ impl<'a> Lower<'a> {
 
 }
 
-fn const_static(prog: &Program, place: &Expr) -> Option<Const> {
+pub(crate) fn const_static(prog: &Program, place: &Expr) -> Option<Const> {
     let ExprKind::Const(d) = &place.kind else { return None };
     let crate::resolve::DefKind::Const(c) = &prog.def(*d).kind else { return None };
     let crate::ast::ExprKind::Lit(l) = &c.value.kind else { return None };

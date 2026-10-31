@@ -54,6 +54,7 @@ TYPE := i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64 | f32 | f64 | bool | unit | 
       | (fn (TYPE...) TYPE)                  ; function pointer
       | (clos (TYPE...) TYPE)                ; owned closure; not a function pointer
       | (& (dyn TRAIT)) | (&mut (dyn TRAIT))     ; fat pointer: data, then vtable
+      | (box (dyn TRAIT))                      ; owned heap value plus vtable; not copy
       | T                                    ; generic parameter in scope
 ```
 

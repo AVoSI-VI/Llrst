@@ -108,7 +108,16 @@
   (if (== (. r kind) 15u8) (ret (pre "sizeof " (ty.show (& (. r ty))))))
   (if (== (. r kind) 16u8) (ret (str.from "vtable")))
   (if (== (. r kind) 17u8) (ret (str.from "static")))
+  (if (== (. r kind) 19u8) (ret (box_txt r)))
+  (if (== (. r kind) 20u8) (ret (ref_txt r)))
   (clos_txt r))
+
+(fn box_txt ((r (& mir.rv))) str
+  (let mut s (str.from "box#"))
+  (str.push (&mut s) (& (str.from_int (. r op))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (op_txt (vec.get (& (. r ops)) 0))))
+  s)
 
 (fn ref_txt ((r (& mir.rv))) str
   (let mut s (str.from "&"))

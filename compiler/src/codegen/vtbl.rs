@@ -16,7 +16,8 @@ impl<'a> Codegen<'a> {
             return *id;
         }
         let methods = impl_of(self.prog, tr, ty).expect("vtable").clone();
-        let fns: Vec<_> = methods.iter().map(|d| self.func_id(&(*d, Vec::new()))).collect();
+        let mut fns = vec![self.drop_glue(ty)];
+        fns.extend(methods.iter().map(|d| self.func_id(&(*d, Vec::new()))));
         let mut h = DefaultHasher::new();
         tr.hash(&mut h);
         ty.hash(&mut h);
@@ -47,7 +48,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         let Val::Agg(addr) = recv else { panic!("dyn receiver") };
         let data = self.b.ins().load(self.cg.ptr_ty, mf(), addr, 0);
         let vt = self.b.ins().load(self.cg.ptr_ty, mf(), addr, 8);
-        let fp = self.b.ins().load(self.cg.ptr_ty, mf(), vt, (slot * 8) as i32);
+        let fp = self.b.ins().load(self.cg.ptr_ty, mf(), vt, ((slot + 1) * 8) as i32);
         vals.push(data);
         for a in &args[1..] {
             let (v, ty) = self.operand(a);

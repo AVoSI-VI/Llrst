@@ -77,7 +77,7 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `flow.*` | `flow.brk_outside` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |
 | `clos.nested` | a closure body contains a closure |
-| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self` or `why=ref`) `trait.method` (`name=`) |
+| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self`, `why=ref`, or `why=dyn`) `trait.method` (`name=`) |
 | `link.*` | `link.failed` (`cmd=` `got=`). The two compilers do not print the same `cmd=` text, so there is no shared `tests/err` golden |
 | `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `fix=set LLRST_UI` when `ui` is missing; `use=` when a `proj.` or `ui.` file is missing) `io.write` (`path=` `got=`) |
 | `cli.*` | `cli.unknown_flag` (`flag=`) |

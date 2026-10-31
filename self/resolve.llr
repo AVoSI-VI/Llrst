@@ -119,8 +119,16 @@
   (str.push (&mut s) v)
   s)
 
+(fn box_of ((p (& prog.prog)) (m i64) (t (& ty))) (res ty.sty str)
+  (if (!= (vec.len (& (. t args))) 1) (ret (res.err (why_err p m t (str.from "dyn")))))
+  (let inner (vec.get (& (. t args)) 0))
+  (if (not (is_dyn inner)) (ret (res.err (why_err p m t (str.from "dyn")))))
+  (let fat (try (dyn_of p m inner false)))
+  (res.ok (ty.box_ty (. fat id))))
+
 (fn resolve_app ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
   (if (is_dyn t) (ret (res.err (why_err p m t (str.from "ref")))))
+  (if (str.eq (& (. t text)) "box") (ret (box_of p m t)))
   (let args (try (map_res p m gens (& (. t args)))))
   (let base (try (named p m gens t (vec.len (& args)))))
   (res.ok (ty.adt (. base id) args)))

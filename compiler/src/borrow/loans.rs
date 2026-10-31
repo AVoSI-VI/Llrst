@@ -29,6 +29,10 @@ pub fn compute(body: &Body) -> Vec<Loan> {
                 let point = Point { bb: bi as BlockId, idx: si };
                 loans.push(Loan { place: place.clone(), mutable: *mutable, two_phase: *two_phase, point, span: *sp });
             }
+            if let Stmt::Assign(_, Rvalue::BoxBorrow { mutable, place }) = s {
+                let point = Point { bb: bi as BlockId, idx: si };
+                loans.push(Loan { place: place.clone(), mutable: *mutable, two_phase: false, point, span: *sp });
+            }
         }
     }
     loans

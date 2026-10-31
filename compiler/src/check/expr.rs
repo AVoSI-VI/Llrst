@@ -125,7 +125,10 @@ impl<'a> Checker<'a> {
                 if place.is_place() {
                     self.require_place(&place, *mutable)?;
                 }
-                let ty = Ty::Ref { mutable: *mutable, lt: None, inner: Box::new(place.ty.clone()) };
+                let ty = match self.box_reborrow(&place.ty, *mutable, want) {
+                    Some(trait_id) => Ty::Dyn { mutable: *mutable, trait_id },
+                    None => Ty::Ref { mutable: *mutable, lt: None, inner: Box::new(place.ty.clone()) },
+                };
                 mk(ExprKind::Ref { mutable: *mutable, place: Box::new(place) }, ty, sp)
             }
             A::Deref(inner) => {
@@ -239,7 +242,7 @@ impl<'a> Checker<'a> {
 
     /// Unifies with the expected type, inserting the `&mut T` to `& T` coercion when needed.
     pub fn coerce(&mut self, e: Expr, want: &Ty) -> PResult<Expr> {
-        if matches!(self.shallow(want), Ty::Dyn { .. }) {
+        if matches!(self.shallow(want), Ty::Dyn { .. } | Ty::BoxDyn { .. }) {
             return self.finish_arg(e, want);
         }
         if self.unify(&e.ty, want) {
@@ -477,7 +480,7 @@ fn has_break(e: &Expr) -> bool {
         ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
         ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::Not(x) => has_break(x),
         ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),
-        ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } => has_break(x),
+        ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } | ExprKind::BoxPack { data: x, .. } | ExprKind::DynPack { data: x, .. } => has_break(x),
         _ => false,
     }
 }

@@ -362,6 +362,8 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 }
             }
             Rvalue::Closure { idx, caps } => self.clos_assign(dest, *idx, caps),
+            Rvalue::BoxPack { value, trait_id, self_ty } => self.box_pack(dest, value, *trait_id, self_ty),
+            Rvalue::BoxBorrow { place, .. } => self.box_borrow(dest, place),
             _ => {
                 let v = self.rvalue(rv, span);
                 let (daddr, dty) = self.place_addr(dest);
@@ -463,7 +465,9 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let gv = self.cg.module.declare_data_in_func(id, self.b.func);
                 Val::Scalar(self.b.ins().symbol_value(self.cg.ptr_ty, gv))
             }
-            Rvalue::Struct(..) | Rvalue::Variant(..) | Rvalue::Closure { .. } => unreachable!(),
+            Rvalue::Struct(..) | Rvalue::Variant(..) | Rvalue::Closure { .. } | Rvalue::BoxPack { .. } | Rvalue::BoxBorrow { .. } => {
+                unreachable!()
+            }
         }
     }
 

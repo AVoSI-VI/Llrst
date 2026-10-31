@@ -1,0 +1,28 @@
+(use std.io)
+
+(struct tick (n i64))
+
+(impl tick
+  (pub (fn drop ((self (&mut tick))) unit
+    (io.puts (& (str.from_int (. self n)))))))
+
+(struct btn (on_tap (clos (i64) i64)))
+
+(impl btn (pub (fn drop ((_self (&mut btn))) unit ())))
+
+(fn hold ((t tick)) (clos (i64) i64)
+  (clos ((n i64)) i64 (+ n (. t n))))
+
+(trait Tap (fn go ((& Self) i64) i64))
+
+(impl Tap btn (fn go ((self (& btn)) (n i64)) i64 (call (. self on_tap) n)))
+
+(fn main () unit
+  (let w (btn (hold (tick 10))))
+  (assert_eq (call (. w on_tap) 1) 11)
+  (let mut xs (vec.new <btn>))
+  (vec.push (&mut xs) (btn (hold (tick 20))))
+  (let e (vec.get (& xs) 0))
+  (assert_eq (call (. (@ e) on_tap) 2) 22)
+  (let b (box (dyn Tap)) (btn (hold (tick 30))))
+  (assert_eq (Tap.go (& b) 4) 34))

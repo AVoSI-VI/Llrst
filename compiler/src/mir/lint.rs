@@ -219,8 +219,10 @@ fn mark_op(read: &mut [bool], op: &Operand) {
 fn mark_stmt(read: &mut [bool], s: &Stmt) {
     let Stmt::Assign(_, rv) = s else { return };
     match rv {
-        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) => mark_op(read, op),
-        Rvalue::Ref { place, .. } | Rvalue::Discr(place) => mark_place(read, place),
+        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
+            mark_op(read, op);
+        }
+        Rvalue::Ref { place, .. } | Rvalue::BoxBorrow { place, .. } | Rvalue::Discr(place) => mark_place(read, place),
         Rvalue::Bin(_, a, b) | Rvalue::PtrAdd(a, b, _) | Rvalue::PtrEq(a, b) => {
             mark_op(read, a);
             mark_op(read, b);

@@ -4,6 +4,18 @@ use crate::diag::{Diag, Diags, PResult, Span};
 use crate::resolve::{resolve_ty, Def, DefKind, Program, TraitDef};
 use crate::ty::{DefId, Ty};
 
+/// `(box (dyn Trait))`. The single argument must be `(dyn Trait)`.
+pub fn box_ty(prog: &Program, module: u32, args: &[ast::TyExpr], sp: Span) -> PResult<Ty> {
+    let Some(ast::TyExpr::Dyn(name, _)) = args.first() else {
+        return Err(Diag::error(sp, "trait.object").kv("why", "dyn"));
+    };
+    if args.len() != 1 {
+        return Err(Diag::error(sp, "trait.object").kv("why", "dyn"));
+    }
+    let Ty::Dyn { trait_id, .. } = dyn_ty(prog, module, false, name, sp)? else { unreachable!() };
+    Ok(Ty::BoxDyn { trait_id })
+}
+
 pub fn dyn_ty(prog: &Program, module: u32, mutable: bool, name: &str, sp: Span) -> PResult<Ty> {
     let id = lookup(prog, module, name).ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", name))?;
     let tr = prog.trait_def(id).ok_or_else(|| Diag::error(sp, "name.not_type").kv("name", name))?;

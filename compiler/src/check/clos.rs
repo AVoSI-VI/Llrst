@@ -216,7 +216,7 @@ fn remap_expr(e: &mut Expr, start: u32) {
         }
         ExprKind::Struct { fields, .. } | ExprKind::Variant { fields, .. } => fields.iter_mut().for_each(|x| remap_expr(x, start)),
         ExprKind::Try { expr, .. } => remap_expr(expr, start),
-        ExprKind::DynPack { data, .. } => remap_expr(data, start),
+        ExprKind::DynPack { data, .. } | ExprKind::BoxPack { data, .. } => remap_expr(data, start),
         ExprKind::Closure { .. } => {}
         ExprKind::Lit(_) | ExprKind::Const(_) | ExprKind::Break | ExprKind::Continue | ExprKind::FnRef(_) => {}
     }

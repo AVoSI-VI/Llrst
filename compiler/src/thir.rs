@@ -140,6 +140,8 @@ pub enum ExprKind {
     Closure { caps: Vec<Expr>, inner: ClosBody },
     /// `&T` stored as a fat pointer for `trait_id`.
     DynPack { data: Box<Expr>, trait_id: DefId, self_ty: Ty },
+    /// Owned value moved onto the heap as `(box (dyn Trait))`.
+    BoxPack { data: Box<Expr>, trait_id: DefId, self_ty: Ty },
 }
 
 impl Expr {

@@ -96,9 +96,9 @@ Create each path in the phase that names it. Phases 0 through 2 are in the tree.
 ## Status
 
 ```
-plan|2026-10-31|phases=0-13|phase 2 done
+plan|2026-10-31|phases=0-13|phase 3 done
 compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
-language|no owned trait object|closures: whole-binding capture, no nesting, no coercion to fn (HANDOFF Phase 2 item 6)
+language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math and math_trig|no allocator, no png
 ```
 
@@ -107,10 +107,9 @@ std|math and math_trig|no allocator, no png
 Language and std facts that shape every phase. Each is verified against `docs/spec/` and
 `HANDOFF.md` on 2026-10-27; recheck before relying on one.
 
-- Trait objects exist only as `(& (dyn T))` and `(&mut (dyn T))` (`docs/spec/types.md`).
-  There is no owned trait object, so a heterogeneous widget list cannot be a `vec` of user
-  widget types today. **Language prerequisites** adds one. Until it lands, Phases 1 and 2
-  (raster, text) do not need it and proceed.
+- `(box (dyn Trait))` is an owned trait object: heap data plus vtable, not `copy`. A
+  heterogeneous widget list is a `(vec (box (dyn widget)))`. Construction is expected-type
+  coercion, recorded in `docs/spec/types.md`. `(& b)` on a box is `(& (dyn Trait))`.
 - A closure `(clos ...)` captures whole bindings, cannot contain a closure, and does not
   coerce to `(fn ...)` (`docs/spec/grammar.md`, HANDOFF Phase 2 item 6). `std/thread.llr`
   `submit` takes `(fn ((ptr u8)) unit)` plus a context pointer. Widget callbacks therefore
@@ -177,16 +176,16 @@ Files: `ui/ttf.llr`, `ui/ttf_cmap.llr`, `ui/ttf_glyf.llr`, `ui/glyph.llr`, `ui/f
 5. `[x]` `paint.draw_glyphs` and the `canvas` op; goldens for one line, wrapped text, ellipsis, kerning on and off.
 6. `[x]` Commit: `ui: truetype parsing, glyph cache, paragraph layout`.
 
-### Phase 3: language prerequisites `[ ]`
+### Phase 3: language prerequisites `[x]`
 
 Files: `compiler/src/` and `self/` twins per item, `docs/spec/types.md`, `docs/spec/grammar.md`, `docs/spec/errors.md`, `tests/run/`, `tests/err/`, `HANDOFF.md`.
 
-1. `[ ]` Owned trait object `(box (dyn Trait))`: heap data plus vtable, moved not copied, dropped through the vtable, borrowed to `(& (dyn Trait))` and `(&mut (dyn Trait))` by `(& b)`; `(box.new <Trait> v)` or a coercion at a `(box (dyn T))`-typed `let` (pick one; the canon doc records it). Codegen reuses `cg_vt.llr` vtables. Goldens: construction, drop order, a `vec` of boxes, a method call through a `vec` element.
-2. `[ ]` Closures usable as framework callbacks: a `(clos ...)` stored in a struct field and in a `vec`, dropped with it, called via `(call (. w on_tap) msg)`; a closure value moved into a `box`. Depends on HANDOFF Phase 2 item 6 for capture rules; add the ui-shaped goldens there.
-3. `[ ]` Trait default methods or an equivalent: `widget` has `build`, `create_element`, `key`; a user `stateless` writes `build` only. If defaults are not added, a `stateless` is a struct holding a `(clos ((& ctx)) (box (dyn widget)))` and the plan item is closed as "no default methods, closures instead"; record the choice.
-4. `[ ]` `f32` is complete in both backends: arithmetic, compare, casts, `--checked` behaviour, passing in XMM through closure trampolines (HANDOFF Phase 1 item 9 names the gap).
-5. `[ ]` Update `docs/spec/types.md`, `errors.md`, `HANDOFF.md` decisions and Phase 2 list.
-6. `[ ]` Commit: `lang: owned trait objects, closures as fields, f32 parity`.
+1. `[x]` Owned trait object `(box (dyn Trait))`: heap data plus vtable, moved not copied, dropped through the vtable, borrowed to `(& (dyn Trait))` and `(&mut (dyn Trait))` by `(& b)`. Construction is expected-type coercion, recorded in `docs/spec/types.md`. Codegen reuses `cg_vt.llr` vtables, with drop in place as word 0. Goldens: `tests/run/box_dyn.llr`.
+2. `[x]` Closures usable as framework callbacks: a `(clos ...)` stored in a struct field and in a `vec`, dropped with it, called via `(call (. w on_tap) msg)`; that struct moved into a `(box (dyn Trait))`. `tests/run/clos_cb.llr`.
+3. `[x]` No trait default methods. A user `stateless` is a struct holding a `(clos ((& ctx)) (box (dyn widget)))`; the framework type implements `widget`. Phase 4 builds that.
+4. `[x]` `f32` arithmetic, compare, casts, and an `f32` closure trampoline: `tests/run/f32.llr`. Checked `f32`-to-int: `tests/panic/cast_f32.llr`. A same-width float cast in `self/` is a no-op.
+5. `[x]` `docs/spec/types.md`, `grammar.md`, `memory.md`, `errors.md`, and `HANDOFF.md`.
+6. `[x]` Commit: `lang: owned trait objects, closures as fields, f32 parity`.
 
 ### Phase 4: the three trees and the null host `[ ]`
 
@@ -317,3 +316,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-31: Phase 0. `(use ui.NAME)` loads `ui/NAME.llr` on use in stage 0 and `self/`. `std/` stays eager. Install copies `ui/` beside `std`. `tests/ui` compares stdout and, when a `.ppm` exists, the `--shot` bytes.
 - 2026-10-31: Phase 1. `std/math.llr` and `std/math_trig.llr` are pure Llrst float math. `ui/` has geometry, paths, a fixed-point scanline rasterizer, clips, strokes, a display list, and PPM goldens under `tests/ui/raster_*`. `draw_glyphs` is recorded and not painted.
 - 2026-10-31: Phase 2. Liberation Sans Regular (OFL-1.1) is read from the `ui/` search path. TrueType `glyf` outlines, cmap formats 4 and 12, and kern format 0 feed a glyph cache and a paragraph layout. `draw_glyphs` paints coverage stamps. Goldens: `tests/ui/text_*`.
+- 2026-10-31: Phase 3. `(box (dyn Trait))` is an owned trait object, packed where that type is expected. `(& box)` is the fat pointer unless a reference to the box is expected. No trait default methods; a callback is a closure field. `f32` casts of the same width are a no-op in `self/`. Goldens: `tests/run/box_dyn`, `clos_cb`, `f32`.

@@ -11,6 +11,7 @@
 (use proj.thir_lit)
 (use proj.thir_clos)
 (use proj.thir_pat)
+(use proj.thir_trait)
 (use proj.ty)
 
 (fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
@@ -46,7 +47,7 @@
   (if (or (== k 9u8) (== k 10u8)) (ret (check_jump c e)))
   (if (== k 11u8) (ret (check_ret p c e)))
   (if (== k 12u8) (ret (thir_pat.check_match p c e won want)))
-  (if (== k 13u8) (ret (check_ref p c e)))
+  (if (== k 13u8) (ret (check_ref p c e won want)))
   (if (== k 14u8) (ret (check_deref p c e)))
   (if (== k 15u8) (ret (check_field p c e)))
   (if (== k 16u8) (ret (check_cast p c e)))
@@ -273,9 +274,11 @@
   (vec.push (&mut (. x kids)) v)
   (res.ok x))
 
-(fn check_ref ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+(fn check_ref ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)
   (let place (try (check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
   (if (is_place (& place)) (try (require_place c (& place) (. e mut))))
+  (let sty (thir.shallow c (& (. place ty))))
+  (if (thir_trait.rebox_ok c (& sty) (. e mut) won want) (ret (res.ok (thir_trait.rebox c e place))))
   (let t (ty.ref_ty (. e mut) (str.new) (ty.clone (& (. place ty)))))
   (let mut x (at c e 14u8 t))
   (set (. x flag) (. e mut))
@@ -461,7 +464,7 @@
 
 (fn coerce ((p (& prog.prog)) (c (&mut thir.ck)) (e thir.ex) (want (& ty.sty))) (res thir.ex str)
   (let ws (thir.shallow c want))
-  (if (== (. ws kind) 11u8) (ret (thir_call.finish_arg p c e want)))
+  (if (or (== (. ws kind) 11u8) (== (. ws kind) 15u8)) (ret (thir_call.finish_arg p c e want)))
   (if (thir.unify c (& (. e ty)) want) (ret (res.ok e)))
   (coerce_ref p c e (& ws)))
 

@@ -240,6 +240,7 @@
   (if (== k 28u8) (ret (lower_call.into_try p w e dest)))
   (if (== k 29u8) (ret (lower_clos.into_clos p w e dest)))
   (if (== k 30u8) (ret (lower_call.into_pack p w e dest)))
+  (if (== k 32u8) (ret (lower_call.into_box p w e dest)))
   (if (== k 2u8) (into_const p w e dest)))
 
 (fn into_place ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
@@ -285,15 +286,15 @@
 (fn st_drop_place ((p (& mir.place))) mir.st
   (mir.st 1u8 (. p local) (copy_pk p) (copy_pi p) (mir.rvoid) 0 0 0))
 
-(fn copy_pk ((p (& mir.place))) (vec u8)
+(pub (fn copy_pk ((p (& mir.place))) (vec u8)
   (let mut o (vec.new <u8>))
   (for i 0 (vec.len (& (. p pk))) (vec.push (&mut o) (@ (vec.get (& (. p pk)) i))))
-  o)
+  o))
 
-(fn copy_pi ((p (& mir.place))) (vec i64)
+(pub (fn copy_pi ((p (& mir.place))) (vec i64)
   (let mut o (vec.new <i64>))
   (for i 0 (vec.len (& (. p pi))) (vec.push (&mut o) (@ (vec.get (& (. p pi)) i))))
-  o)
+  o))
 
 (fn through_ptr ((e (& thir.ex))) bool
   (if (== (. e kind) 15u8)
@@ -413,6 +414,8 @@
 
 (fn into_ref ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
   (let inner (vec.get (& (. e kids)) 0))
+  (if (and (== (. (. e ty) kind) 11u8) (== (. (. inner ty) kind) 15u8))
+    (ret (lower_call.into_box_borrow p w e dest)))
   (if (const_static p inner) (ret (lower_call.static_assign p w inner dest)))
   (let pl (as_place p w inner))
   (let mut r (mir.rvoid))

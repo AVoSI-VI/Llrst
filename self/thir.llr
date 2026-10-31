@@ -294,7 +294,23 @@
 (pub (fn nshow ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 8u8) (ret (adt_nm p t)))
   (if (== (. t kind) 6u8) (ret (ref_nm p t)))
+  (if (== (. t kind) 11u8) (ret (dyn_nm p t)))
+  (if (== (. t kind) 15u8) (ret (box_nm p t)))
   (ty.show t)))
+
+(fn dyn_nm ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (if (. t flag) "&mut" "&"))
+  (str.push (&mut s) " (dyn ")
+  (str.push (&mut s) (& (prog.type_name p (. t id))))
+  (str.push (&mut s) "))")
+  s)
+
+(fn box_nm ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "(box (dyn "))
+  (str.push (&mut s) (& (prog.type_name p (. t id))))
+  (str.push (&mut s) "))")
+  s)
 
 (fn adt_nm ((p (& prog.prog)) (t (& ty.sty))) str
   (let n (str.clone (& (. (vec.get (& (. p defs)) (. t id)) name))))

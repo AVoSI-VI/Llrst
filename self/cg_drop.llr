@@ -100,9 +100,11 @@
   (let disp (frame_open g (&mut b)))
   (cg_frame.bpush g (&mut b) disp (& (frame_name p t)))
   (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
-  (if (== (. t kind) 10u8)
-    (glue_clos (&mut b) (& (. g isa)) (cg_isa.arg_i 0))
-    (glue_adt g p (&mut b) t))
+  (if (== (. t kind) 15u8)
+    (glue_box g p (&mut b))
+    (if (== (. t kind) 10u8)
+      (glue_clos (&mut b) (& (. g isa)) (cg_isa.arg_i 0))
+      (if (== (. t kind) 8u8) (glue_adt g p (&mut b) t) ())))
   (cg_frame.bpop g (&mut b) disp)
   (cg_isa.epilogue (&mut b) (& (. g isa)))
   (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
@@ -115,8 +117,21 @@
   (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (neg 8) (cg_isa.arg_i 0))
   disp)
 
+(fn glue_box ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code))) unit
+  (let arg (cg_isa.arg_i 0))
+  (cg_frame.bload b (& (. g isa)) 8 cg_isa.acc arg 0)
+  (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (neg 16) cg_isa.acc)
+  (cg_frame.bload b (& (. g isa)) 8 cg_isa.acc arg 8)
+  (cg_frame.bload b (& (. g isa)) 8 cg_isa.dst cg_isa.acc 0)
+  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (neg 16))
+  (cg_isa.call_r b (& (. g isa)) cg_isa.dst)
+  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (neg 16))
+  (let free (cg_mod.extern_sym g p (prog.std_fn p "sys" "free")))
+  (cg_isa.call_sym b (& (. g isa)) free))
+
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
+  (if (== (. t kind) 15u8) (ret (str.from "drop.box")))
   (if (!= (. t kind) 8u8) (ret (cat "drop." (& (ty.show t)))))
   (framed p (& (prog.type_name p (. t id))) (& (. t args))))
 

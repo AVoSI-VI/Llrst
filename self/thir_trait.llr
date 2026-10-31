@@ -67,6 +67,33 @@
       (vec.push (&mut (. x kids)) (try (thir_call.finish_arg p c a (& pty))))))
   (res.ok x))
 
+(pub (fn rebox_ok ((c (&mut thir.ck)) (sty (& ty.sty)) (mutable bool) (won bool) (want (& ty.sty))) bool
+  (if (!= (. sty kind) 15u8) (ret false))
+  (if (not won) (ret true))
+  (let w (thir.shallow c want))
+  (if (and (== (. w kind) 6u8) (== (. (ty.inner (& w)) kind) 15u8)) (ret false))
+  (and (== (. w kind) 11u8) (and (== (. w flag) mutable) (== (. w id) (. sty id))))))
+
+(pub (fn rebox ((c (& thir.ck)) (e (& expr)) (place thir.ex)) thir.ex
+  (let mut x (thir.ex_new 14u8 (ty.dyn_ty (. e mut) (. (. place ty) id)) (. e line) (. e col) (. c file)))
+  (set (. x flag) (. e mut))
+  (set (. x len) (. e len))
+  (vec.push (&mut (. x kids)) place)
+  x))
+
+(pub (fn pack_box ((p (& prog.prog)) (c (&mut thir.ck)) (e thir.ex) (want (& ty.sty))) (res thir.ex str)
+  (let got (thir.shallow c (& (. e ty))))
+  (if (thir.unify c (& got) want) (ret (res.ok e)))
+  (let self_ty (force_int c (thir.zonk_ty c (& got))))
+  (if (< (prog.impl_of p (. want id) (& self_ty)) 0)
+    (ret (res.err (thir.kv2 "trait.missing" "trait" (prog.type_name p (. want id)) "ty" (thir.nshow p (& self_ty))))))
+  (let mut x (thir.ex_new 32u8 (ty.clone want) (. e line) (. e col) (. e file)))
+  (set (. x len) (. e len))
+  (set (. x id) (. want id))
+  (vec.push (&mut (. x kids)) e)
+  (vec.push (&mut (. x tys)) self_ty)
+  (res.ok x)))
+
 (pub (fn pack_dyn ((p (& prog.prog)) (c (&mut thir.ck)) (e thir.ex) (want (& ty.sty))) (res thir.ex str)
   (let got (thir.shallow c (& (. e ty))))
   (if (thir.unify c (& got) want) (ret (res.ok e)))

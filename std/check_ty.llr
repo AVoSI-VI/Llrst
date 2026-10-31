@@ -100,7 +100,15 @@
   (or (check.is_num s)
     (or (str.eq s "bool") (or (str.eq s "unit") (or (str.eq s "str") (or (str.eq s "never") (str.eq s "Self")))))))
 
+(fn check_box ((srcs (& (vec source))) (from i64) (t (& ty))) (opt str)
+  (let bad (check.span (. t line) (. t col) (. t len) "trait.object" (& (check.kv "why" "dyn"))))
+  (if (!= (vec.len (& (. t args))) 1) (ret (opt.some bad)))
+  (let inner (vec.get (& (. t args)) 0))
+  (if (not (and (== (. inner kind) 1u8) (str.eq (& (. inner text)) "dyn"))) (ret (opt.some bad)))
+  (check_dyn srcs from inner))
+
 (pub (fn check_ty ((defs (& (vec def))) (srcs (& (vec source))) (from i64) (t (& ty)) (gens (& (vec str)))) (opt str)
+  (if (and (== (. t kind) 1u8) (str.eq (& (. t text)) "box")) (ret (check_box srcs from t)))
   (if (and (== (. t kind) 1u8) (str.eq (& (. t text)) "dyn")) (ret (check_dyn srcs from t)))
   (if (or (== (. t kind) 0u8) (== (. t kind) 1u8))
     (do

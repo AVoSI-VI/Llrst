@@ -470,6 +470,7 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
             }
             Ty::Adt(d, Vec::new())
         }
+        TyExpr::App(n, args, sp) if n == "box" => return crate::traitres::box_ty(prog, module, args, *sp),
         TyExpr::App(n, args, sp) => {
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
             if !prog.visible(module, d) {
