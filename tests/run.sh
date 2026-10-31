@@ -14,6 +14,7 @@ if [ -z "$llrc" ] || [ ! -x "$llrc" ]; then
   exit 1
 fi
 export LLRST_STD="$root/std"
+export LLRST_UI="$root/ui"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
   echo "fail|setup|cc=llr_stat.c"
   exit 1

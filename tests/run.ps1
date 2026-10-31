@@ -115,6 +115,7 @@ if (-not $llrc -or -not (Test-Path -LiteralPath $llrc)) {
     exit 1
 }
 $env:LLRST_STD = Join-Path $root 'std'
+$env:LLRST_UI = Join-Path $root 'ui'
 $env:LLRST_RUNTIME = Join-Path $root 'runtime'
 foreach ($shim in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Compile-WinShim $shim

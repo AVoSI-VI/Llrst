@@ -6,6 +6,7 @@
 (use ui.blend)
 (use ui.canvas)
 (use ui.geom)
+(use ui.paint)
 (use ui.ppm)
 
 (fn main () unit
@@ -22,7 +23,7 @@
     (geom.rect 0.0f32 0.0f32 2.0f32 2.0f32)
     (blend.color.rgba 255u8 0u8 0u8 255u8))
   (canvas.canvas.restore (&mut cv))
-  (canvas.canvas.draw_glyphs (&mut cv))
+  (canvas.canvas.draw_glyphs (&mut cv) (vec.new <paint.stamp>))
   (io.puts (& (canvas.canvas.dump (& cv))))
   (let mut bm (bitmap.bitmap.new 16 16))
   (canvas.canvas.replay (& cv) (&mut bm))

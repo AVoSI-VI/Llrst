@@ -67,7 +67,7 @@ flowchart LR
   ev["events"] --> host
 ```
 
-Planned layout. None of these paths exist yet; create them in the phase that names them.
+Create each path in the phase that names it. Phases 0 through 2 are in the tree.
 
 | path | role |
 |------|------|
@@ -96,10 +96,10 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 ## Status
 
 ```
-plan|2026-10-31|phases=0-13|phase 1 done
+plan|2026-10-31|phases=0-13|phase 2 done
 compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
 language|no owned trait object|closures: whole-binding capture, no nesting, no coercion to fn (HANDOFF Phase 2 item 6)
-std|35 modules|no math, no allocator, no png
+std|math and math_trig|no allocator, no png
 ```
 
 ## Implementation notes (constraints the plan is built around)
@@ -125,10 +125,10 @@ Language and std facts that shape every phase. Each is verified against `docs/sp
 - Stage 0 (Cranelift) already emits aarch64 ELF and apple-darwin objects (`tests/cross.sh`).
   It is the reference for the `self/` aarch64 backend. Cranelift does not emit wasm; the
   wasm backend has no stage 0 twin, so its reference is `tests/run` goldens under `wasmtime`.
-- `std/` has no float math (`sqrt sin cos floor ceil pow`), no allocator (`sys` imports
-  `malloc` `realloc` `free`), and no image codec. wasm32 has no libc unless WASI brings one,
-  so `std/alloc.llr` and `std/math.llr` are written in Llrst and used on every target where
-  the extern is missing.
+- `std/math.llr` and `std/math_trig.llr` are pure Llrst (`sqrt sin cos floor ceil pow` and
+  the rest). There is still no allocator (`sys` imports `malloc` `realloc` `free`) and no
+  image codec. wasm32 has no libc unless WASI brings one, so `std/alloc.llr` is written in
+  Llrst and used on every target where the extern is missing.
 - `self/load.llr` loads `main`, every file in sorted `std/`, the host OS externs, then `proj.*`
   modules found beside `main`. `(use ui.NAME)` loads `ui/NAME.llr` only when named, from
   `--ui`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. Stage 0
@@ -166,16 +166,16 @@ Files: `ui/geom.llr`, `ui/mat.llr`, `ui/path.llr`, `ui/bitmap.llr`, `ui/blend.ll
 6. `[x]` Goldens: `tests/ui/raster_*.llr` each draw one feature and write a `.ppm`; dumps of a display list as `op|args` lines in `.out`.
 7. `[x]` Commit: `ui: geometry, paths, scanline rasterizer, display list, ppm goldens`.
 
-### Phase 2: text `[ ]`
+### Phase 2: text `[x]`
 
 Files: `ui/ttf.llr`, `ui/ttf_cmap.llr`, `ui/ttf_glyf.llr`, `ui/glyph.llr`, `ui/font.llr`, `ui/text.llr`, `ui/fonts/`, `ui/FONTS.md`, `tests/ui/`.
 
-1. `[ ]` Pick one OFL font (regular weight) and record it in `ui/FONTS.md` with the licence file beside it. The font bytes are read at run time from the `ui/fonts` dir found by the same search as `ui/`; embedding in the binary is a later `llr-ui pack` concern.
-2. `[ ]` `ttf`: table directory, `head hhea maxp hmtx loca`; `ttf_cmap`: formats 4 and 12; `ttf_glyf`: simple and composite outlines to `path`; `kern` format 0. TrueType outlines only; CFF is rejected with `font.unsupported`.
-3. `[ ]` `glyph`: rasterize an outline at a pixel size into an 8-bit coverage mask; a cache keyed by `(font, glyph, size)` with a byte budget; `font`: metrics (`ascent descent line_gap`), advance, kerning pair.
-4. `[ ]` `text`: a paragraph layout: runs of one style, greedy line breaking at spaces, max width, max lines with an ellipsis, alignment, `height`, `hit` from a point to a byte offset, caret rect from an offset. UTF-8 decoded to code points; unmapped code points draw `.notdef`.
-5. `[ ]` `paint.draw_glyphs` and the `canvas` op; goldens for one line, wrapped text, ellipsis, kerning on and off.
-6. `[ ]` Commit: `ui: truetype parsing, glyph cache, paragraph layout`.
+1. `[x]` Pick one OFL font (regular weight) and record it in `ui/FONTS.md` with the licence file beside it. The font bytes are read at run time from the `ui/fonts` dir found by the same search as `ui/`; embedding in the binary is a later `llr-ui pack` concern.
+2. `[x]` `ttf`: table directory, `head hhea maxp hmtx loca`; `ttf_cmap`: formats 4 and 12; `ttf_glyf`: simple and composite outlines to `path`; `kern` format 0. TrueType outlines only; CFF is rejected with `font.unsupported`.
+3. `[x]` `glyph`: rasterize an outline at a pixel size into an 8-bit coverage mask; a cache keyed by `(font, glyph, size)` with a byte budget; `font`: metrics (`ascent descent line_gap`), advance, kerning pair.
+4. `[x]` `text`: a paragraph layout: runs of one style, greedy line breaking at spaces, max width, max lines with an ellipsis, alignment, `height`, `hit` from a point to a byte offset, caret rect from an offset. UTF-8 decoded to code points; unmapped code points draw `.notdef`.
+5. `[x]` `paint.draw_glyphs` and the `canvas` op; goldens for one line, wrapped text, ellipsis, kerning on and off.
+6. `[x]` Commit: `ui: truetype parsing, glyph cache, paragraph layout`.
 
 ### Phase 3: language prerequisites `[ ]`
 
@@ -316,3 +316,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-27: plan written after eight scope questions were answered by the owner (place and name, own rasterizer, own TrueType, wasm32 in `self/` with WASI, aarch64 in `self/` with both mobile OSes, three desktop OSes, Flutter's three trees, all five extras). No code changed. Language gaps were taken from `HANDOFF.md` and `docs/spec/`; no path under `ui/`, `web/`, or the new `self/` and `std/` files exists yet.
 - 2026-10-31: Phase 0. `(use ui.NAME)` loads `ui/NAME.llr` on use in stage 0 and `self/`. `std/` stays eager. Install copies `ui/` beside `std`. `tests/ui` compares stdout and, when a `.ppm` exists, the `--shot` bytes.
 - 2026-10-31: Phase 1. `std/math.llr` and `std/math_trig.llr` are pure Llrst float math. `ui/` has geometry, paths, a fixed-point scanline rasterizer, clips, strokes, a display list, and PPM goldens under `tests/ui/raster_*`. `draw_glyphs` is recorded and not painted.
+- 2026-10-31: Phase 2. Liberation Sans Regular (OFL-1.1) is read from the `ui/` search path. TrueType `glyf` outlines, cmap formats 4 and 12, and kern format 0 feed a glyph cache and a paragraph layout. `draw_glyphs` paints coverage stamps. Goldens: `tests/ui/text_*`.

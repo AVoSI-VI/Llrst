@@ -4,4 +4,4 @@ scale|2.000|2.000
 rotate|0.000
 fill_rect|0.000|0.000|2.000|2.000|0|0|255|255
 restore
-draw_glyphs
+draw_glyphs|0

@@ -10,6 +10,14 @@
   (pub (linear geom.pt geom.pt blend.color blend.color))
   (pub (image bitmap.bitmap i64))))
 
+(pub (struct stamp
+  (pub (x f32))
+  (pub (y f32))
+  (pub (w i64))
+  (pub (h i64))
+  (pub (cov (vec u8)))
+  (pub (color blend.color))))
+
 (pub (enum op
   (pub (save))
   (pub (restore))
@@ -22,7 +30,7 @@
   (pub (fill_path path.path fill i64))
   (pub (stroke_path path.path stroke.stroke blend.color))
   (pub (draw_image bitmap.bitmap geom.rect i64))
-  (pub (draw_glyphs))))
+  (pub (draw_glyphs (vec stamp)))))
 
 (fn fmt_f ((x f32)) str
   (let mut n (as i64 (* (as f64 x) 1000.0)))
@@ -68,6 +76,16 @@
       (cat (cat (cat (cat base "image") (& (str.from_int (. im w)))) (& (str.from_int (. im h))))
         (& (str.from_int (@ mode)))))))
 
+(fn stamp_s ((s str) (g (& stamp))) str
+  (coli (& (. g color))
+    (cat (cat (cat (cat s (& (fmt_f (. g x)))) (& (fmt_f (. g y)))) (& (str.from_int (. g w))))
+      (& (str.from_int (. g h))))))
+
+(fn glyphs_s ((gs (& (vec stamp)))) str
+  (let mut s (cat (str.from "draw_glyphs") (& (str.from_int (vec.len gs)))))
+  (for i 0 (vec.len gs) (set s (stamp_s s (vec.get gs i))))
+  s)
+
 (pub (fn line ((o (& op))) str
   (match o
     ((op.save) (str.from "save"))
@@ -88,15 +106,19 @@
     ((op.draw_image im r mode)
       (cat (cat (cat (rect_s "draw_image" r) (& (str.from_int (. im w)))) (& (str.from_int (. im h))))
         (& (str.from_int (@ mode)))))
-    ((op.draw_glyphs) (str.from "draw_glyphs")))))
+    ((op.draw_glyphs gs) (glyphs_s gs)))))
 
 (test paint_dump
   (let o (op.fill_rect (geom.rect 1.0f32 2.0f32 10.0f32 8.0f32) (blend.color 0u8 0u8 255u8 255u8)))
   (let s (line (& o)))
   (assert_eq (& s) "fill_rect|1.000|2.000|10.000|8.000|0|0|255|255")
-  (let g (op.draw_glyphs))
+  (let mut cov (vec.new <u8>))
+  (vec.push (&mut cov) 255u8)
+  (let mut gst (vec.new <stamp>))
+  (vec.push (&mut gst) (stamp 1.0f32 2.0f32 1 1 cov (blend.color 0u8 0u8 255u8 255u8)))
+  (let g (op.draw_glyphs gst))
   (let gs (line (& g)))
-  (assert_eq (& gs) "draw_glyphs")
+  (assert_eq (& gs) "draw_glyphs|1|1.000|2.000|1|1|0|0|255|255")
   (assert_eq (& (fmt_f -1.5f32)) "-1.500")
   (let t (op.translate 1.0f32 2.0f32))
   (let ts (line (& t)))

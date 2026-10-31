@@ -125,6 +125,30 @@
         (raster_fill.image bm (& cv) im (& to) mode)))
     ((opt.none) ())))
 
+(fn blit_px ((bm (&mut bitmap.bitmap)) (cl (& raster_clip.clips)) (x i64) (y i64) (k u8) (c (& blend.color))) unit
+  (if (or (< x 0) (or (>= x (. bm w)) (or (< y 0) (>= y (. bm h))))) (ret))
+  (let ck (raster_clip.clips.cover cl x y k))
+  (if (== ck 0u8) (ret))
+  (let col (blend.color.cover c ck))
+  (blend.over bm x y (& col)))
+
+(fn blit_stamp ((bm (&mut bitmap.bitmap)) (cl (& raster_clip.clips)) (m (& mat.mat)) (g (& paint.stamp))) unit
+  (let p (geom.pt (. g x) (. g y)))
+  (let q (mat.mat.apply m (& p)))
+  (let x0 (as i64 (math.floor32 (. q x))))
+  (let y0 (as i64 (math.floor32 (. q y))))
+  (for y 0 (. g h)
+    (for x 0 (. g w)
+      (let k (@ (vec.get (& (. g cov)) (+ (* y (. g w)) x))))
+      (if (> k 0u8) (blit_px bm cl (+ x0 x) (+ y0 y) k (& (. g color)))))))
+
+(fn do_glyphs ((bm (&mut bitmap.bitmap))
+   (ms (& (vec mat.mat)))
+   (cl (& raster_clip.clips))
+   (gs (& (vec paint.stamp)))) unit
+  (let m (cur ms))
+  (for i 0 (vec.len gs) (blit_stamp bm cl (& m) (vec.get gs i))))
+
 (fn do_clip_rect ((ms (& (vec mat.mat))) (cl (&mut raster_clip.clips)) (r (& geom.rect))) unit
   (let m (cur ms))
   (let path (rect_path r (& m)))
@@ -156,7 +180,7 @@
     ((paint.op.fill_path p f rule) (do_fill_path bm ms cl p f (@ rule)))
     ((paint.op.stroke_path p st c) (do_stroke bm ms cl p st c))
     ((paint.op.draw_image im r mode) (do_image bm ms cl im r (@ mode)))
-    ((paint.op.draw_glyphs) ())))
+    ((paint.op.draw_glyphs gs) (do_glyphs bm ms cl gs))))
 
 (pub (struct canvas (ops (vec paint.op))))
 
@@ -182,7 +206,8 @@
     (vec.push (&mut (. self ops)) (paint.op.stroke_path p st c))))
   (pub (fn draw_image ((self (&mut canvas)) (im bitmap.bitmap) (r geom.rect) (mode i64)) unit
     (vec.push (&mut (. self ops)) (paint.op.draw_image im r mode))))
-  (pub (fn draw_glyphs ((self (&mut canvas))) unit (vec.push (&mut (. self ops)) (paint.op.draw_glyphs))))
+  (pub (fn draw_glyphs ((self (&mut canvas)) (gs (vec paint.stamp))) unit
+    (vec.push (&mut (. self ops)) (paint.op.draw_glyphs gs))))
   (pub (fn dump ((self (& canvas))) str
     (let mut s (str.new))
     (for i 0 (vec.len (& (. self ops)))
@@ -200,14 +225,19 @@
   (canvas.fill_rect (&mut c)
     (geom.rect 2.0f32 2.0f32 4.0f32 4.0f32)
     (blend.color.rgba 255u8 0u8 0u8 255u8))
-  (canvas.draw_glyphs (&mut c))
+  (let mut cov (vec.new <u8>))
+  (vec.push (&mut cov) 255u8)
+  (let mut gs (vec.new <paint.stamp>))
+  (vec.push (&mut gs) (paint.stamp 0.0f32 0.0f32 1 1 cov (blend.color.rgba 0u8 0u8 255u8 255u8)))
+  (canvas.draw_glyphs (&mut c) gs)
   (let d (canvas.dump (& c)))
   (assert (str.starts (& d) "fill_rect|2.000|2.000|4.000|4.000|0|0|255|255"))
-  (assert (str.has (& d) "draw_glyphs"))
+  (assert (str.has (& d) "draw_glyphs|1|0.000|0.000|1|1|255|0|0|255"))
   (let mut bm (bitmap.bitmap.new 8 8))
   (canvas.replay (& c) (&mut bm))
   (assert_eq (bitmap.bitmap.byte (& bm) 3 3 2) 255u8)
   (assert_eq (bitmap.bitmap.byte (& bm) 0 0 2) 0u8)
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 0) 255u8)
   (canvas.save (&mut c))
   (canvas.translate (&mut c) 2.0f32 0.0f32)
   (canvas.scale (&mut c) 1.0f32 1.0f32)

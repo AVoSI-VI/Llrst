@@ -1,0 +1,119 @@
+;; Glyph coverage masks and a byte-budget cache.
+(use std.math)
+(use ui.geom)
+(use ui.mat)
+(use ui.path)
+(use ui.raster)
+
+(pub (struct mask (pub (left f32)) (pub (top f32)) (pub (w i64)) (pub (h i64)) (pub (cov (vec u8)))))
+
+(pub (struct cache (budget i64) (used i64) (order (vec i64)) (tab (map i64 mask))))
+
+(pub (fn bytes ((m (& mask))) i64 (* (. m w) (. m h))))
+
+(fn copy_cov ((c (& (vec u8)))) (vec u8)
+  (let mut o (vec.new <u8>))
+  (for i 0 (vec.len c) (vec.push (&mut o) (@ (vec.get c i))))
+  o)
+
+(pub (fn copy ((m (& mask))) mask (mask (. m left) (. m top) (. m w) (. m h) (copy_cov (& (. m cov))))))
+
+(pub (fn raster ((p (& path.path)) (scale f32)) mask
+  (if (== (vec.len (& (. p pts))) 0) (ret (mask 0.0f32 0.0f32 0 0 (vec.new <u8>))))
+  (let s (mat.mat.scale scale (neg scale)))
+  (let scaled (path.path.transform p (& s)))
+  (let b (path.path.bounds (& scaled)))
+  (if (or (<= (. b w) 0.0f32) (<= (. b h) 0.0f32)) (ret (mask 0.0f32 0.0f32 0 0 (vec.new <u8>))))
+  (let left (- (math.floor32 (. b x)) 1.0f32))
+  (let top (- (math.floor32 (. b y)) 1.0f32))
+  (let right (+ (math.ceil32 (geom.rect.right (& b))) 1.0f32))
+  (let bottom (+ (math.ceil32 (geom.rect.bottom (& b))) 1.0f32))
+  (let w (as i64 (- right left)))
+  (let h (as i64 (- bottom top)))
+  (if (or (<= w 0) (<= h 0)) (ret (mask 0.0f32 0.0f32 0 0 (vec.new <u8>))))
+  (let t (mat.mat.translate (neg left) (neg top)))
+  (let shifted (path.path.transform (& scaled) (& t)))
+  (mask left top w h (raster.coverage (& shifted) w h 0))))
+
+(pub (fn qsize ((size f32)) i64 (as i64 (* (as f64 size) 64.0))))
+
+(pub (fn key ((gid i64) (q i64)) i64 (bor (shl gid 20) (band q 1048575))))
+
+(impl cache
+  (pub (fn new ((budget i64)) cache (cache budget 0 (vec.new <i64>) (map.new <i64 mask>))))
+  (pub (fn used ((self (& cache))) i64 (. self used)))
+  (pub (fn len ((self (& cache))) i64 (map.len (& (. self tab))))))
+
+(fn drop_key ((self (&mut cache)) (k i64)) unit
+  (let mut n 0)
+  (match (map.get (& (. self tab)) (& k)) ((opt.some m) (set n (bytes m))) ((opt.none) ()))
+  (drop (map.del (&mut (. self tab)) (& k)))
+  (set (. self used) (if (> (. self used) n) (- (. self used) n) 0))
+  (let mut i 0)
+  (while (< i (vec.len (& (. self order))))
+    (if (== (@ (vec.get (& (. self order)) i)) k)
+      (do (drop (vec.remove (&mut (. self order)) i)) (ret))
+      (set i (+ i 1)))))
+
+(fn order_at ((self (& cache)) (i i64)) i64 (@ (vec.get (& (. self order)) i)))
+
+(fn evict ((self (&mut cache)) (extra i64)) unit
+  (while (and (> (vec.len (& (. self order))) 0) (> (+ (. self used) extra) (. self budget)))
+    (let old (order_at self 0))
+    (drop_key self old)))
+
+(impl cache
+  (pub (fn get ((self (& cache)) (k i64)) (opt mask)
+    (match (map.get (& (. self tab)) (& k))
+      ((opt.some m) (opt.some (copy m)))
+      ((opt.none) (opt.none <mask>)))))
+  (pub (fn put ((self (&mut cache)) (k i64) (m mask)) unit
+    (let n (bytes (& m)))
+    (if (or (<= (. self budget) 0) (> n (. self budget))) (ret))
+    (if (map.has (& (. self tab)) (& k)) (drop_key self k))
+    (evict self n)
+    (set (. self used) (+ (. self used) n))
+    (vec.push (&mut (. self order)) k)
+    (map.put (&mut (. self tab)) k m)))
+  (pub (fn set_budget ((self (&mut cache)) (n i64)) unit (set (. self budget) n) (evict self 0))))
+
+(fn box ((x0 f32) (y0 f32) (x1 f32) (y1 f32)) path.path
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (geom.pt x0 y0))
+  (path.path.line (&mut p) (geom.pt x1 y0))
+  (path.path.line (&mut p) (geom.pt x1 y1))
+  (path.path.line (&mut p) (geom.pt x0 y1))
+  (path.path.close (&mut p))
+  p)
+
+(fn covered ((m (& mask))) bool
+  (for i 0 (vec.len (& (. m cov))) (if (> (@ (vec.get (& (. m cov)) i)) 200u8) (ret true)))
+  false)
+
+(fn solid ((n i64)) mask
+  (let mut c (vec.new <u8>))
+  (for i 0 n (vec.push (&mut c) 255u8))
+  (mask 0.0f32 0.0f32 n 1 c))
+
+(test glyph_cache
+  (assert_eq (qsize 16.0f32) 1024)
+  (assert_eq (key 1 64) 1048640)
+  (let blank (raster (& (path.path.new)) 1.0f32))
+  (assert_eq (. blank w) 0)
+  (let m (raster (& (box 0.0f32 0.0f32 100.0f32 100.0f32)) 0.1f32))
+  (assert (> (. m w) 0))
+  (assert (covered (& m)))
+  (assert (> (bytes (& m)) 0))
+  (let mut c (cache.new 4))
+  (cache.put (&mut c) 1 (solid 3))
+  (assert_eq (cache.used (& c)) 3)
+  (assert_eq (cache.len (& c)) 1)
+  (cache.put (&mut c) 2 (solid 3))
+  (assert_eq (cache.len (& c)) 1)
+  (assert (opt.is_none (& (cache.get (& c) 1))))
+  (assert (opt.is_some (& (cache.get (& c) 2))))
+  (cache.put (&mut c) 3 (solid 5))
+  (assert_eq (cache.len (& c)) 1)
+  (cache.set_budget (&mut c) 0)
+  (assert_eq (cache.len (& c)) 0)
+  (drop (copy (& m))))
