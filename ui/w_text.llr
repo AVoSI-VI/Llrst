@@ -1,0 +1,21 @@
+;; A single-style paragraph. Width wraps at the incoming max constraint.
+(use std.str)
+(use ui.blend)
+(use ui.key)
+(use ui.widget)
+
+(pub (fn text ((s (& str)) (size f32) (c blend.color)) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d text) (str.clone s))
+  (set (. d font_size) size)
+  (set (. d color) (blend.color (. c b) (. c g) (. c r) (. c a)))
+  (widget.make widget.ty_text
+    (key.key.none)
+    (vec.new < (box (dyn widget.widget)) >)
+    d
+    false
+    (widget.nop))))
+
+(test w_text_ty
+  (let w (text "Hi" 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8)))
+  (assert_eq (widget.widget.name (& w)) "text"))

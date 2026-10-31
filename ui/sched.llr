@@ -1,0 +1,82 @@
+;; One frame's events: hit, messages, focus, then the caller rebuilds.
+(use ui.element)
+(use ui.event)
+(use ui.focus)
+(use ui.hit)
+(use ui.render)
+(use ui.state)
+(use ui.widget)
+
+(pub (struct ptrs
+  (pub (focus i64))
+  (pub (cap u32))
+  (pub (has_cap bool))
+  (pub (text str))
+  (pub (quit bool))))
+
+(pub (fn ptrs_new () ptrs (ptrs (neg 1) 0u32 false (str.new) false)))
+
+(fn owner ((es (& element.elems)) (id u32)) (opt u32)
+  (let mut cur id)
+  (let mut on true)
+  (while on
+    (if (== (element.role_at es cur) widget.role_full) (ret (opt.some cur)))
+    (if (not (. (vec.get (& (. es nodes)) (as i64 cur)) has_parent)) (ret (opt.none <u32>)))
+    (set cur (. (vec.get (& (. es nodes)) (as i64 cur)) parent)))
+  (opt.none <u32>))
+
+(fn send ((es (&mut element.elems)) (id u32) (msg i64)) unit
+  (let n (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+  (state.state.msg (&mut (. n st)) msg))
+
+(fn fire ((es (&mut element.elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (let msg (widget.widget.signal (& (. (vec.get (& (. es nodes)) (as i64 id)) widget))))
+  (if (== msg 0) (ret))
+  (match (owner es id) ((opt.some s) (do (send es s msg) (element.mark es rt s))) ((opt.none) ())))
+
+(fn hit_of ((rt (& render.rtree)) (x f32) (y f32)) (opt u32)
+  (match (render.visual_root rt) ((opt.some id) (hit.at rt id x y)) ((opt.none) (opt.none <u32>))))
+
+(fn same_hit ((hit (opt u32)) (cap u32)) bool
+  (match hit ((opt.some id) (== id cap)) ((opt.none) false)))
+
+(fn on_pointer ((es (&mut element.elems)) (rt (&mut render.rtree)) (p (&mut ptrs)) (kind i64) (x f32) (y f32)) unit
+  (let h (hit_of rt x y))
+  (if (== kind event.down)
+    (match h
+      ((opt.some id) (do (set (. p cap) id) (set (. p has_cap) true)))
+      ((opt.none) (set (. p has_cap) false))))
+  (if (== kind event.cancel) (set (. p has_cap) false))
+  (if (and (== kind event.up) (and (. p has_cap) (same_hit h (. p cap)))) (fire es rt (. p cap)))
+  (if (== kind event.up) (set (. p has_cap) false)))
+
+(fn on_key ((es (& element.elems))
+   (rt (& render.rtree))
+   (root u32)
+   (p (&mut ptrs))
+   (down i64)
+   (code i64)
+   (mods i64)) unit
+  (if (or (!= down 1) (!= code event.tab)) (ret))
+  (let mut ids (vec.new <u32>))
+  (focus.collect es rt root (&mut ids))
+  (let has (>= (. p focus) 0))
+  (let cur (if has (as u32 (. p focus)) 0u32))
+  (match (focus.tab (& ids) cur has (!= (band mods 1) 0))
+    ((opt.some id) (set (. p focus) (as i64 id)))
+    ((opt.none) ())))
+
+(fn one ((es (&mut element.elems)) (rt (&mut render.rtree)) (root u32) (p (&mut ptrs)) (e (& event.event))) unit
+  (match e
+    ((event.event.pointer k x y _ _) (on_pointer es rt p (@ k) (@ x) (@ y)))
+    ((event.event.key d c m) (on_key es rt root p (@ d) (@ c) (@ m)))
+    ((event.event.text s) (set (. p text) (str.clone s)))
+    ((event.event.quit) (set (. p quit) true))
+    ((event.event.frame) ())))
+
+(pub (fn handle ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (root u32)
+   (p (&mut ptrs))
+   (ev (& (vec event.event)))) unit
+  (for i 0 (vec.len ev) (one es rt root p (vec.get ev i)))))

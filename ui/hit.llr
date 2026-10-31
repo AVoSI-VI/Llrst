@@ -1,0 +1,26 @@
+;; Deepest gesture whose rect contains the point. Later children are in front.
+(use ui.geom)
+(use ui.render)
+
+(fn node ((rt (& render.rtree)) (id u32)) (& render.rnode) (vec.get (& (. rt nodes)) (as i64 id)))
+
+(fn inside ((n (& render.rnode)) (x f32) (y f32)) bool
+  (and (and (>= x (. n x)) (< x (+ (. n x) (. n w))))
+    (and (>= y (. n y)) (< y (+ (. n y) (. n h))))))
+
+(fn walk ((rt (& render.rtree)) (id u32) (x f32) (y f32)) (opt u32)
+  (if (not (render.live rt id)) (ret (opt.none <u32>)))
+  (if (not (inside (node rt id) x y)) (ret (opt.none <u32>)))
+  (let ks (render.kids_of rt id))
+  (let mut found (opt.none <u32>))
+  (for i 0 (vec.len (& ks))
+    (match (walk rt (@ (vec.get (& ks) i)) x y)
+      ((opt.some v) (set found (opt.some v)))
+      ((opt.none) ())))
+  (match found
+    ((opt.some v) (opt.some v))
+    ((opt.none) (if (. (node rt id) gesture) (opt.some (. (node rt id) elem)) (opt.none <u32>)))))
+
+(pub (fn at ((rt (& render.rtree)) (id u32) (x f32) (y f32)) (opt u32) (walk rt id x y)))
+
+(test hit_empty (let rt (render.new)) (assert_eq (vec.len (& (. rt nodes))) 0))

@@ -1,0 +1,33 @@
+;; Row, column, expanded, and flex. Flex factor is parent data on the child render node.
+(use ui.key)
+(use ui.widget)
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(pub (fn row ((kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (widget.make widget.ty_row (key.key.none) kids (widget.blank) false (widget.nop))))
+
+(pub (fn column ((kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (widget.make widget.ty_column (key.key.none) kids (widget.blank) false (widget.nop))))
+
+(fn flex_to ((n i64) (ty i64) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d flex) n)
+  (widget.make ty (key.key.none) (one child) d false (widget.nop)))
+
+(pub (fn flex ((n i64) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (flex_to n widget.ty_flex child)))
+
+(pub (fn expanded ((child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (flex_to 1 widget.ty_expanded child)))
+
+(test w_flex_ty
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (widget.empty))
+  (let w (row ks))
+  (assert_eq (widget.widget.name (& w)) "row")
+  (let e (expanded (widget.empty)))
+  (assert_eq (widget.widget.ty (& e)) widget.ty_expanded))

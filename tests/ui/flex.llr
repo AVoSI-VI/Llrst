@@ -1,0 +1,22 @@
+;; Row with a fixed child, expanded, and flex 2.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.w_box)
+(use ui.w_flex)
+(use ui.widget)
+
+(fn sized ((w f32) (h f32)) (box (dyn widget.widget)) (w_box.sized w h (widget.empty)))
+
+(fn kids () (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (sized 10.0f32 8.0f32))
+  (vec.push (&mut ks) (w_flex.expanded (sized 4.0f32 8.0f32)))
+  (vec.push (&mut ks) (w_flex.flex 2 (sized 4.0f32 6.0f32)))
+  ks)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_flex.row (kids))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

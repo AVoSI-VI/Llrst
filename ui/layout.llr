@@ -1,0 +1,35 @@
+;; Pure flex and stack numbers. A main axis larger than unbound is unbounded.
+(use std.math)
+
+(pub (const unbound f32 10000000000.0f32))
+
+(pub (fn bounded ((x f32)) bool (< x unbound)))
+
+(pub (fn clamp ((x f32) (lo f32) (hi f32)) f32
+  (let y (math.max32 x lo))
+  (if (bounded hi) (math.min32 y hi) y)))
+
+(pub (fn align_off ((space f32) (child f32) (a f32)) f32
+  (if (<= space child) (ret 0.0f32))
+  (if (< a 0.0f32) (ret 0.0f32))
+  (* (- space child) a)))
+
+(pub (fn share ((free f32) (flex i64) (total i64)) f32
+  (if (or (<= flex 0) (<= total 0)) (ret 0.0f32))
+  (* free (/ (as f32 flex) (as f32 total)))))
+
+(pub (fn free_main ((max f32) (used f32)) f32
+  (if (not (bounded max)) (ret 0.0f32))
+  (math.max32 0.0f32 (- max used))))
+
+(pub (fn span ((max f32) (used f32) (lo f32)) f32
+  (if (bounded max) (clamp max lo max) (math.max32 used lo))))
+
+(test layout_share
+  (assert_eq (as i64 (share 70.0f32 1 1)) 70)
+  (assert_eq (as i64 (share 70.0f32 0 1)) 0)
+  (assert_eq (as i64 (free_main 80.0f32 10.0f32)) 70)
+  (assert_eq (as i64 (free_main unbound 10.0f32)) 0)
+  (assert_eq (as i64 (align_off 10.0f32 4.0f32 0.5f32)) 3)
+  (assert_eq (as i64 (span 80.0f32 10.0f32 0.0f32)) 80)
+  (assert (not (bounded unbound))))

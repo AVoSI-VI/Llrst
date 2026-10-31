@@ -6,6 +6,7 @@
 (use proj.thir)
 (use proj.thir_call)
 (use proj.thir_expr)
+(use proj.thir_pat)
 (use proj.ty)
 
 (pub (fn call_trait ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (name (& str))) (res thir.ex str)
@@ -14,6 +15,7 @@
   (let method (str.slice name (+ dot 1) (str.len name)))
   (let tr (prog.lookup_trait p (. c module) (& trn)))
   (if (< tr 0) (ret (res.err (str.from "name.unknown"))))
+  (if (not (prog.visible p (. c module) tr)) (ret (res.err (thir_pat.priv_code p tr))))
   (trait_call p c e tr (& method))))
 
 (fn trait_call ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (tr i64) (method (& str))) (res thir.ex str)

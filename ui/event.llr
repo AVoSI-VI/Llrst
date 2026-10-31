@@ -1,0 +1,70 @@
+;; Pointer, key, text, and script records. Pointer kind: 0 down, 1 move, 2 up, 3 cancel, 4 scroll.
+(use std.str)
+
+(pub (enum event
+  (pub (pointer i64 f32 f32 f32 f32))
+  (pub (key i64 i64 i64))
+  (pub (text str))
+  (pub (frame))
+  (pub (quit))))
+
+(pub (const down i64 0))
+
+(pub (const move i64 1))
+
+(pub (const up i64 2))
+
+(pub (const cancel i64 3))
+
+(pub (const scroll i64 4))
+
+(pub (const tab i64 9))
+
+(fn eq_at ((xs (& (vec str))) (i i64) (s (& str))) bool
+  (if (>= i (vec.len xs)) (ret false))
+  (str.eq (vec.get xs i) s))
+
+(fn f_at ((xs (& (vec str))) (i i64)) f32
+  (if (>= i (vec.len xs)) (ret 0.0f32))
+  (match (str.to_int (vec.get xs i)) ((opt.some n) (as f32 n)) ((opt.none) 0.0f32)))
+
+(fn i_at ((xs (& (vec str))) (i i64)) i64
+  (if (>= i (vec.len xs)) (ret 0))
+  (match (str.to_int (vec.get xs i)) ((opt.some n) n) ((opt.none) 0)))
+
+(fn ptr_ev ((xs (& (vec str))) (kind i64)) event
+  (event.pointer kind (f_at xs 1) (f_at xs 2) (f_at xs 3) (f_at xs 4)))
+
+(fn key_ev ((xs (& (vec str)))) event
+  (let down (if (eq_at xs 1 "down") 1 0))
+  (event.key down (i_at xs 2) (i_at xs 3)))
+
+(pub (fn parse_line ((s (& str))) (opt event)
+  (let xs (str.split s 124u8))
+  (if (== (vec.len (& xs)) 0) (ret (opt.none <event>)))
+  (if (eq_at (& xs) 0 "down") (ret (opt.some (ptr_ev (& xs) down))))
+  (if (eq_at (& xs) 0 "move") (ret (opt.some (ptr_ev (& xs) move))))
+  (if (eq_at (& xs) 0 "up") (ret (opt.some (ptr_ev (& xs) up))))
+  (if (eq_at (& xs) 0 "cancel") (ret (opt.some (ptr_ev (& xs) cancel))))
+  (if (eq_at (& xs) 0 "scroll") (ret (opt.some (ptr_ev (& xs) scroll))))
+  (if (eq_at (& xs) 0 "key") (ret (opt.some (key_ev (& xs)))))
+  (if (eq_at (& xs) 0 "text") (ret (opt.some (event.text (str.clone (vec.get (& xs) 1))))))
+  (if (eq_at (& xs) 0 "frame") (ret (opt.some (event.frame))))
+  (if (eq_at (& xs) 0 "quit") (ret (opt.some (event.quit))))
+  (opt.none <event>)))
+
+(test event_parse
+  (match (parse_line "down|3|4")
+    ((opt.some (event.pointer k x y _ _))
+      (do (assert_eq k down) (assert_eq (as i64 x) 3) (assert_eq (as i64 y) 4)))
+    ((opt.some _) (assert false))
+    ((opt.none) (assert false)))
+  (match (parse_line "key|down|9|1")
+    ((opt.some (event.key d c m)) (do (assert_eq d 1) (assert_eq c tab) (assert_eq m 1)))
+    ((opt.some _) (assert false))
+    ((opt.none) (assert false)))
+  (match (parse_line "frame")
+    ((opt.some (event.frame)) (assert true))
+    ((opt.some _) (assert false))
+    ((opt.none) (assert false)))
+  (assert (opt.is_none (& (parse_line "nope")))))

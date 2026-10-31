@@ -1,0 +1,8 @@
+(use proj.id_trait)
+(use std.io)
+
+(fn main () unit
+  (let b (id_trait.make 7))
+  (io.puts (& (str.from_int (id_trait.Id.n (& b)))))
+  (let c (box (dyn id_trait.Id)) (id_trait.tick 8))
+  (io.puts (& (str.from_int (id_trait.Id.n (& c))))))

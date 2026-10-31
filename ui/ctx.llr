@@ -1,0 +1,63 @@
+;; Build snapshot. size is the host, not the element. Ancestors are nearest first.
+(use ui.blend)
+(use ui.geom)
+
+(pub (struct theme (pub (bg blend.color)) (pub (fg blend.color))))
+
+(impl theme
+  (pub (fn standard () theme
+    (theme (blend.color.rgba 255u8 255u8 255u8 255u8) (blend.color.rgba 0u8 0u8 0u8 255u8)))))
+
+(pub (struct ctx
+  (pub (w f32))
+  (pub (h f32))
+  (pub (scale f32))
+  (th theme)
+  (pub (id u32))
+  (anc (vec u32))
+  (tys (vec i64))))
+
+(fn copy_u ((src (& (vec u32)))) (vec u32)
+  (let mut o (vec.new <u32>))
+  (for i 0 (vec.len src) (vec.push (&mut o) (@ (vec.get src i))))
+  o)
+
+(fn copy_i ((src (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len src) (vec.push (&mut o) (@ (vec.get src i))))
+  o)
+
+(impl ctx
+  (pub (fn root ((w f32) (h f32) (scale f32) (id u32)) ctx
+    (ctx w h scale (theme.standard) id (vec.new <u32>) (vec.new <i64>))))
+  (pub (fn size ((self (& ctx))) geom.size (geom.size (. self w) (. self h))))
+  (pub (fn theme ((self (& ctx))) theme
+    (theme (blend.color (. (. (. self th) bg) b)
+       (. (. (. self th) bg) g)
+       (. (. (. self th) bg) r)
+       (. (. (. self th) bg) a))
+      (blend.color (. (. (. self th) fg) b)
+        (. (. (. self th) fg) g)
+        (. (. (. self th) fg) r)
+        (. (. (. self th) fg) a)))))
+  (pub (fn find_ancestor ((self (& ctx)) (ty i64)) (opt u32)
+    (for i 0 (vec.len (& (. self anc)))
+      (if (== (@ (vec.get (& (. self tys)) i)) ty)
+        (ret (opt.some (@ (vec.get (& (. self anc)) i))))))
+    (opt.none <u32>)))
+  (pub (fn child ((self (& ctx)) (id u32) (parent_ty i64)) ctx
+    (let mut anc (copy_u (& (. self anc))))
+    (let mut tys (copy_i (& (. self tys))))
+    (vec.insert (&mut anc) 0 (. self id))
+    (vec.insert (&mut tys) 0 parent_ty)
+    (ctx (. self w) (. self h) (. self scale) (ctx.theme self) id anc tys))))
+
+(test ctx_ancestor
+  (let c (ctx.root 80.0f32 48.0f32 1.0f32 1u32))
+  (assert (opt.is_none (& (ctx.find_ancestor (& c) 3))))
+  (let d (ctx.child (& c) 2u32 9))
+  (match (ctx.find_ancestor (& d) 9)
+    ((opt.some id) (assert_eq (as i64 id) 1))
+    ((opt.none) (assert false)))
+  (let s (ctx.size (& c)))
+  (assert_eq (as i64 (. s w)) 80))

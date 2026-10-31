@@ -242,6 +242,7 @@
         "name.unknown"
         "name"
         (str.clone (& (. it name)))))))
+  (if (not (prog.visible p mi tr)) (ret (res.err (priv_tr p mi it tr))))
   (let tyn (str.clone (& (. (. it ret) text))))
   (let self_ty (try (resolve.resolve p mi (& (vec.new <str>)) (& (. it ret)))))
   (if (>= (prog.impl_of p tr (& self_ty)) 0)
@@ -459,3 +460,12 @@
   (let mut o (vec.new <i64>))
   (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
   o)
+
+(fn priv_tr ((p (& prog.prog)) (mi i64) (it (& item)) (tr i64)) str
+  (let d (vec.get (& (. p defs)) tr))
+  (let file (& (. (vec.get (& (. p mods)) mi) file)))
+  (let mut g (diag.make true (str.clone file) (. it line) (. it col) (. it len) (str.from "name.private")))
+  (diag.add (&mut g) "name" (str.clone (& (. d name))))
+  (diag.add (&mut g) "module" (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (diag.add (&mut g) "fix" (str.from "(pub ...)"))
+  (diag.render (& g)))

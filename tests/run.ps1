@@ -209,6 +209,8 @@ try {
         $shot = Join-Path $tmp "ui_$name.shot"
         $runArgs = @()
         if (Test-Path -LiteralPath $ppm) { $runArgs = @('--shot', $shot) }
+        $ev = Join-Path $_.DirectoryName "$name.events"
+        if (Test-Path -LiteralPath $ev) { $runArgs += @('--events', $ev) }
         $code = Invoke-Native (Exe-Path $bin) $runArgs $out $stderr $root
         $ok = $true
         if (-not (Same-Bytes $out $want)) {

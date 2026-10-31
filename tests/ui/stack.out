@@ -1,0 +1,12 @@
+widget|0|stack|-
+widget|1|sized_box|-
+widget|2|empty|-
+widget|3|positioned|-
+widget|4|sized_box|-
+widget|5|empty|-
+render|0|0.000|0.000|20.000|10.000
+render|1|0.000|0.000|20.000|10.000
+render|2|0.000|0.000|20.000|10.000
+render|3|2.000|3.000|8.000|6.000
+render|4|2.000|3.000|8.000|6.000
+focus|-

@@ -53,7 +53,7 @@ impl<'a> Checker<'a> {
         if let Some(b) = Builtin::from_path(callee) {
             return self.check_builtin(b, &targs, args, want, sp);
         }
-        if let Some((tr_name, method)) = callee.split_once('.') {
+        if let Some((tr_name, method)) = callee.rsplit_once('.') {
             if let Some(id) = crate::traitres::lookup(self.prog, self.module, tr_name) {
                 if self.prog.trait_def(id).is_some() {
                     self.require_visible(id, sp)?;

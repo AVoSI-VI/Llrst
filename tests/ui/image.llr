@@ -1,0 +1,21 @@
+;; An image sized to its bitmap.
+(use std.io)
+(use ui.app)
+(use ui.bitmap)
+(use ui.host_null)
+(use ui.w_image)
+
+(fn red () bitmap.bitmap
+  (let mut b (bitmap.bitmap.new 4 4))
+  (for y 0 4
+    (for x 0 4
+      (do
+        (bitmap.bitmap.set_byte (&mut b) x y 2 255u8)
+        (bitmap.bitmap.set_byte (&mut b) x y 3 255u8))))
+  b)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_image.image (red))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

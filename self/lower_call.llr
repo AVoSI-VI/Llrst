@@ -1,13 +1,13 @@
 ;; Calls, builtins, try, and dyn packing.
-(use std.str)
 (use proj.inline)
 (use proj.lit)
 (use proj.lower)
-(use proj.thir_expr)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
+(use proj.thir_expr)
 (use proj.ty)
+(use std.str)
 
 (pub (fn static_assign ((p (& prog.prog)) (w (&mut lower.low)) (inner (& thir.ex)) (dest mir.place)) unit
   (let d (vec.get (& (. p defs)) (. inner id)))
@@ -45,7 +45,9 @@
   o)
 
 (fn prep_one ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) mir.op
-  (if (and (== (. e kind) 14u8) (and (. e flag) (thir_expr.is_place (vec.get (& (. e kids)) 0))))
+  (if (and (== (. e kind) 14u8)
+     (and (. e flag)
+       (and (!= (. (. e ty) kind) 11u8) (thir_expr.is_place (vec.get (& (. e kids)) 0)))))
     (ret (two_ref p w e)))
   (if (and (thir_expr.is_place e) (and (== (. (. e ty) kind) 6u8) (. (. e ty) flag)))
     (do

@@ -113,7 +113,7 @@ float-to-int saturates and int-to-float rounds.
 (vec.push (&mut xs) 2)
 ```
 
-`(box i64)` is `trait.object|why=dyn`. `(& b)` and `(&mut b)` on a box are `(& (dyn Eq))` and `(&mut (dyn Eq))`, unless the expected type is a reference to the box itself (as in `vec.get`). There are no trait default methods. A callback the framework would have defaulted is a `(clos ...)` field on a struct, and that struct is what gets boxed.
+`(box i64)` is `trait.object|why=dyn`. `(& b)` and `(&mut b)` on a box are `(& (dyn Eq))` and `(&mut (dyn Eq))`, unless the expected type is a reference to the box itself (as in `vec.get`). A method call on either reborrow passes that fat pointer, so `(&mut Self)` methods mutate the heap value. A trait defined in another module is `module.Trait`: `(box (dyn id.Id))`, `(impl id.Id ty ...)`, and `id.Id.method`. There are no trait default methods. A callback the framework would have defaulted is a `(clos ...)` field on a struct, and that struct is what gets boxed.
 
 `drop` and `copy` stay compiler-known. `copy` is primitives (including `bool` and `unit`), shared refs, raw pointers, `(fn ...)`, and a shared trait object. `(box (dyn Trait))` is not `copy`.
 

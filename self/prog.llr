@@ -303,7 +303,10 @@
   (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 3u8)) id (neg 1))))
 
 (pub (fn lookup_trait ((p (& prog)) (module i64) (name (& str))) i64
-  (let id (lookup_item p module name))
+  (let id
+    (if (str.has name ".")
+      (lookup_qual p module name false)
+      (lookup_item p module name)))
   (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 4u8)) id (neg 1))))
 
 (fn last_seg ((s (& str))) str

@@ -1,0 +1,135 @@
+;; Headless host. Size and events come from argv; present writes a PPM when --shot is set.
+(use std.cli)
+(use std.fs)
+(use std.os)
+(use std.str)
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.ppm)
+
+(pub (struct host_null
+  (w i64)
+  (h i64)
+  (sc f32)
+  (shot str)
+  (lines (vec str))
+  (at i64)
+  (cursor i64)
+  (clip str)
+  (text_on bool)
+  (text_r geom.rect)
+  (quitb bool)
+  (clock i64)
+  (step i64)
+  (frames i64)
+  (want bool)))
+
+(fn blank ((w i64) (h i64)) host_null
+  (host_null w
+    h
+    1.0f32
+    (str.new)
+    (vec.new <str>)
+    0
+    0
+    (str.new)
+    false
+    (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32)
+    false
+    0
+    16
+    1
+    false))
+
+(fn keep_lines ((s (& str)) (out (&mut (vec str)))) unit
+  (let ls (str.lines s))
+  (for i 0 (vec.len (& ls))
+    (let line (vec.get (& ls) i))
+    (if (> (str.len line) 0) (vec.push out (str.clone line)))))
+
+(fn opt_i ((c (& cli.cli)) (name (& str)) (cur i64)) i64
+  (let s (cli.get c name))
+  (if (== (str.len s) 0) (ret cur))
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) cur)))
+
+(fn apply ((self (&mut host_null)) (c (& cli.cli))) unit
+  (let shot (cli.get c "shot"))
+  (if (> (str.len shot) 0) (set (. self shot) (str.clone shot)))
+  (let ev (cli.get c "events"))
+  (if (> (str.len ev) 0) (host_null.load_file self ev))
+  (set (. self w) (opt_i c "w" (. self w)))
+  (set (. self h) (opt_i c "h" (. self h)))
+  (set (. self frames) (opt_i c "frames" (. self frames)))
+  (set (. self step) (opt_i c "step" (. self step)))
+  (let sc (cli.get c "scale"))
+  (if (> (str.len sc) 0)
+    (match (str.to_int sc) ((opt.some n) (set (. self sc) (as f32 n))) ((opt.none) ()))))
+
+(impl host_null
+  (pub (fn make ((w i64) (h i64)) host_null (blank w h)))
+  (pub (fn load_text ((self (&mut host_null)) (s (& str))) unit
+    (set (. self lines) (vec.new <str>))
+    (set (. self at) 0)
+    (keep_lines s (&mut (. self lines)))))
+  (pub (fn load_file ((self (&mut host_null)) (path (& str))) unit
+    (match (fs.read path) ((res.ok s) (host_null.load_text self (& s))) ((res.err _) ()))))
+  (pub (fn take_args ((self (&mut host_null))) unit
+    (let mut c (cli.new "ui" "null host"))
+    (cli.opt (&mut c) "shot" "")
+    (cli.opt (&mut c) "events" "")
+    (cli.opt (&mut c) "w" "")
+    (cli.opt (&mut c) "h" "")
+    (cli.opt (&mut c) "scale" "")
+    (cli.opt (&mut c) "frames" "")
+    (cli.opt (&mut c) "step" "")
+    (cli.parse (&mut c) (os.args))
+    (apply self (& c))))
+  (pub (fn from_args () host_null (let mut h (blank 80 48)) (host_null.take_args (&mut h)) h))
+  (pub (fn frames ((self (& host_null))) i64 (. self frames)))
+  (pub (fn quitting ((self (& host_null))) bool (. self quitb)))
+  (pub (fn cursor_id ((self (& host_null))) i64 (. self cursor)))
+  (pub (fn clip_text ((self (& host_null))) str (str.clone (& (. self clip)))))
+  (pub (fn text_on ((self (& host_null))) bool (. self text_on))))
+
+(fn push_ev ((out (&mut (vec event.event))) (e event.event)) bool
+  (match e ((event.event.frame) true) (other (do (vec.push out other) false))))
+
+(impl host.host
+  host_null
+  (fn size ((self (& host_null))) geom.size (geom.size (as f32 (. self w)) (as f32 (. self h))))
+  (fn scale ((self (& host_null))) f32 (. self sc))
+  (fn present ((self (&mut host_null)) (bm (& bitmap.bitmap))) unit
+    (set (. self clock) (+ (. self clock) (. self step)))
+    (if (== (str.len (& (. self shot))) 0) (ret))
+    (drop (fs.write (& (. self shot)) (& (ppm.write bm)))))
+  (fn poll ((self (&mut host_null)) (out (&mut (vec event.event)))) unit
+    (while (< (. self at) (vec.len (& (. self lines))))
+      (let line (str.clone (vec.get (& (. self lines)) (. self at))))
+      (set (. self at) (+ (. self at) 1))
+      (match (event.parse_line (& line)) ((opt.some e) (if (push_ev out e) (ret))) ((opt.none) ()))))
+  (fn request_frame ((self (&mut host_null))) unit (set (. self want) true))
+  (fn now_ms ((self (& host_null))) i64 (. self clock))
+  (fn set_cursor ((self (&mut host_null)) (id i64)) unit (set (. self cursor) id))
+  (fn clipboard_get ((self (& host_null))) str (str.clone (& (. self clip))))
+  (fn clipboard_set ((self (&mut host_null)) (s (& str))) unit (set (. self clip) (str.clone s)))
+  (fn text_input ((self (&mut host_null)) (on bool) (r (& geom.rect))) unit
+    (set (. self text_on) on)
+    (set (. self text_r) (geom.rect (. r x) (. r y) (. r w) (. r h))))
+  (fn quit ((self (&mut host_null))) unit (set (. self quitb) true)))
+
+(test host_null_poll
+  (let mut h (host_null.make 8 4))
+  (host_null.load_text (&mut h) "down|1|2\nframe\nup|1|2\n")
+  (let mut ev (vec.new <event.event>))
+  (host.host.poll (&mut h) (&mut ev))
+  (assert_eq (vec.len (& ev)) 1)
+  (host.host.poll (&mut h) (&mut ev))
+  (assert_eq (vec.len (& ev)) 2)
+  (assert_eq (host.host.now_ms (& h)) 0)
+  (let bm (bitmap.bitmap.new 1 1))
+  (host.host.present (&mut h) (& bm))
+  (assert_eq (host.host.now_ms (& h)) 16)
+  (host.host.set_cursor (&mut h) 3)
+  (assert_eq (host_null.cursor_id (& h)) 3))

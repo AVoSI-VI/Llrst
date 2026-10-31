@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out; stderr equals .err when that
 # file exists, and must be empty otherwise; exit status is 0 unless .code exists),
-# tests/ui/*.llr (same, built with --std std --ui ui; NAME.ppm is compared to --shot output),
+# tests/ui/*.llr (same, built with --std std --ui ui; NAME.ppm is compared to --shot
+# output; NAME.events is passed as --events),
 # tests/err/*.llr (stderr must equal .err),
 # tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal
 # .err and exit 0), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
@@ -100,6 +101,9 @@ for f in "$root"/tests/ui/*.llr; do
   args=()
   if [ -f "${f%.llr}.ppm" ]; then
     args=(--shot "$shot")
+  fi
+  if [ -f "${f%.llr}.events" ]; then
+    args+=(--events "${f%.llr}.events")
   fi
   set +u
   "$tmp/ui_$name" "${args[@]}" >"$tmp/ui_$name.out" 2>"$tmp/ui_$name.stderr"

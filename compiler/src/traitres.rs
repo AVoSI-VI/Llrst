@@ -90,6 +90,9 @@ fn fill_trait(prog: &mut Program, mi: u32, t: &ast::TraitDecl, diags: &Diags) ->
 fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> PResult<()> {
     let tr = lookup(prog, mi, &t.trait_name).ok_or_else(|| Diag::error(t.span, "name.unknown").kv("name", t.trait_name.clone()))?;
     let td = prog.trait_def(tr).ok_or_else(|| Diag::error(t.span, "name.not_type").kv("name", t.trait_name.clone()))?;
+    if !prog.visible(mi, tr) {
+        return Err(prog.private_diag(t.span, tr));
+    }
     let self_ty = resolve_ty(prog, mi, &[], &ast::TyExpr::Name(t.ty_name.clone(), t.span))?;
     let sigs = td.methods.clone();
     if t.methods.len() != sigs.len() {
@@ -158,6 +161,12 @@ fn trait_ids(prog: &Program, module: u32, names: &[String], sp: Span) -> PResult
 }
 
 pub fn lookup(prog: &Program, module: u32, name: &str) -> Option<DefId> {
+    if let Some((alias, item)) = name.split_once('.') {
+        let m = &prog.modules[module as usize];
+        let mi = *m.uses.get(alias)?;
+        prog.used_uses.borrow_mut().insert((module, alias.to_string()));
+        return prog.modules[mi as usize].items.get(item).copied();
+    }
     let m = &prog.modules[module as usize];
     if let Some(id) = m.items.get(name) {
         return Some(*id);

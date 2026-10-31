@@ -1,0 +1,209 @@
+;; Render arena. Ids stay put; a dead node is skipped. Custom objects are leaves.
+(use ui.canvas)
+(use ui.geom)
+(use ui.render_box)
+(use ui.widget)
+
+(pub (struct rnode
+  (pub (elem u32))
+  (pub (parent u32))
+  (pub (has_parent bool))
+  (pub (kids (vec u32)))
+  (pub (ty i64))
+  (pub (x f32))
+  (pub (y f32))
+  (pub (w f32))
+  (pub (h f32))
+  (pub (rx f32))
+  (pub (ry f32))
+  (pub (cminw f32))
+  (pub (cmaxw f32))
+  (pub (cminh f32))
+  (pub (cmaxh f32))
+  (pub (has_c bool))
+  (pub (dirty_lay bool))
+  (pub (dirty_paint bool))
+  (pub (relayout_b bool))
+  (pub (repaint_b bool))
+  (pub (flex i64))
+  (pub (gesture bool))
+  (pub (has_pos bool))
+  (pub (px f32))
+  (pub (py f32))
+  (pub (pw f32))
+  (pub (ph f32))
+  (pub (live bool))
+  (pub (d widget.rdesc))))
+
+(pub (struct rtree (pub (nodes (vec rnode)))))
+
+(pub (trait render
+  (fn layout ((&mut Self) (& render_box.constraints)) geom.size)
+  (fn paint ((& Self) (&mut canvas.canvas) f32 f32) unit)
+  (fn hit ((& Self) f32 f32) bool)))
+
+(pub (struct empty_r))
+
+(impl render
+  empty_r
+  (fn layout ((_s (&mut empty_r)) (_c (& render_box.constraints))) geom.size
+    (geom.size 0.0f32 0.0f32))
+  (fn paint ((_s (& empty_r)) (_c (&mut canvas.canvas)) (_x f32) (_y f32)) unit ())
+  (fn hit ((_s (& empty_r)) (_x f32) (_y f32)) bool false))
+
+(pub (fn empty_box () (box (dyn render)) (empty_r)))
+
+(pub (fn new () rtree (rtree (vec.new <rnode>))))
+
+(fn at ((rt (& rtree)) (id u32)) (& rnode) (vec.get (& (. rt nodes)) (as i64 id)))
+
+(fn at_mut ((rt (&mut rtree)) (id u32)) (&mut rnode) (vec.get_mut (&mut (. rt nodes)) (as i64 id)))
+
+(pub (fn live ((rt (& rtree)) (id u32)) bool (. (at rt id) live)))
+
+(pub (fn has_parent ((rt (& rtree)) (id u32)) bool (. (at rt id) has_parent)))
+
+(pub (fn parent ((rt (& rtree)) (id u32)) u32 (. (at rt id) parent)))
+
+(pub (fn relayout_b ((rt (& rtree)) (id u32)) bool (. (at rt id) relayout_b)))
+
+(pub (fn repaint_b ((rt (& rtree)) (id u32)) bool (. (at rt id) repaint_b)))
+
+(pub (fn kids_of ((rt (& rtree)) (id u32)) (vec u32)
+  (let n (at rt id))
+  (let mut o (vec.new <u32>))
+  (for i 0 (vec.len (& (. n kids))) (vec.push (&mut o) (@ (vec.get (& (. n kids)) i))))
+  o))
+
+(fn make ((elem u32) (parent u32) (has bool) (ty i64) (d widget.rdesc) (pd (& widget.pdata))) rnode
+  (rnode elem
+    parent
+    has
+    (vec.new <u32>)
+    ty
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    false
+    false
+    false
+    (. pd relayout)
+    (. pd repaint)
+    (. pd flex)
+    (. pd gesture)
+    (. pd has_pos)
+    (. pd x)
+    (. pd y)
+    (. pd w)
+    (. pd h)
+    true
+    d))
+
+(pub (fn add ((rt (&mut rtree))
+   (elem u32)
+   (parent u32)
+   (has bool)
+   (ty i64)
+   (d widget.rdesc)
+   (pd (& widget.pdata))) u32
+  (let id (as u32 (vec.len (& (. rt nodes)))))
+  (vec.push (&mut (. rt nodes)) (make elem parent has ty d pd))
+  (if has (vec.push (&mut (. (at_mut rt parent) kids)) id))
+  id))
+
+(pub (fn clear_kids ((rt (&mut rtree)) (id u32)) unit (vec.clear (&mut (. (at_mut rt id) kids)))))
+
+(pub (fn add_kid ((rt (&mut rtree)) (parent u32) (id u32)) unit
+  (vec.push (&mut (. (at_mut rt parent) kids)) id)))
+
+(fn flag ((rt (&mut rtree)) (id u32) (lay bool) (paint bool)) unit
+  (let n (at_mut rt id))
+  (if lay (set (. n dirty_lay) true))
+  (if paint (set (. n dirty_paint) true)))
+
+(fn bubble ((rt (&mut rtree)) (id u32) (lay bool)) unit
+  (if (not (has_parent rt id)) (ret))
+  (let p (parent rt id))
+  (flag rt p lay (not lay))
+  (if (and lay (relayout_b rt p)) (ret))
+  (if (and (not lay) (repaint_b rt p)) (ret))
+  (bubble rt p lay))
+
+(pub (fn touch ((rt (&mut rtree)) (id u32)) unit
+  (flag rt id true true)
+  (bubble rt id true)
+  (bubble rt id false)))
+
+(pub (fn set_rel ((rt (&mut rtree)) (id u32) (rx f32) (ry f32)) unit
+  (let n (at_mut rt id))
+  (set (. n rx) rx)
+  (set (. n ry) ry)))
+
+(fn set_xy ((rt (&mut rtree)) (id u32) (x f32) (y f32)) unit
+  (let n (at_mut rt id))
+  (set (. n x) x)
+  (set (. n y) y))
+
+(fn rel_pt ((rt (& rtree)) (id u32)) geom.pt (let n (at rt id)) (geom.pt (. n rx) (. n ry)))
+
+(pub (fn place_abs ((rt (&mut rtree)) (id u32) (x f32) (y f32)) unit
+  (set_xy rt id x y)
+  (let ks (kids_of rt id))
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (let p (rel_pt rt kid))
+    (place_abs rt kid (+ x (. p x)) (+ y (. p y))))))
+
+(pub (fn replace_desc ((rt (&mut rtree))
+   (id u32)
+   (ty i64)
+   (d widget.rdesc)
+   (gesture bool)
+   (relayout bool)
+   (repaint bool)) unit
+  (let n (at_mut rt id))
+  (set (. n ty) ty)
+  (set (. n d) d)
+  (set (. n gesture) gesture)
+  (set (. n relayout_b) relayout)
+  (set (. n repaint_b) repaint)))
+
+(pub (fn set_pdata ((rt (&mut rtree)) (id u32) (pd (& widget.pdata))) unit
+  (let n (at_mut rt id))
+  (set (. n flex) (. pd flex))
+  (set (. n has_pos) (. pd has_pos))
+  (set (. n px) (. pd x))
+  (set (. n py) (. pd y))
+  (set (. n pw) (. pd w))
+  (set (. n ph) (. pd h))))
+
+(pub (fn kill ((rt (&mut rtree)) (id u32)) unit
+  (let n (at_mut rt id))
+  (set (. n live) false)
+  (vec.clear (&mut (. n kids)))))
+
+(pub (fn visual_root ((rt (& rtree))) (opt u32)
+  (for i 0 (vec.len (& (. rt nodes)))
+    (let n (vec.get (& (. rt nodes)) i))
+    (if (and (. n live) (not (. n has_parent))) (ret (opt.some (as u32 i)))))
+  (opt.none <u32>)))
+
+(test render_touch
+  (let mut rt (new))
+  (let pd (widget.no_data))
+  (let root (add (&mut rt) 0u32 0u32 false 1 (widget.blank) (& pd)))
+  (let mut mid_pd (widget.no_data))
+  (set (. mid_pd relayout) true)
+  (let mid (add (&mut rt) 1u32 root true 5 (widget.blank) (& mid_pd)))
+  (let leaf (add (&mut rt) 2u32 mid true 1 (widget.blank) (& pd)))
+  (touch (&mut rt) leaf)
+  (assert (. (at (& rt) leaf) dirty_lay))
+  (assert (. (at (& rt) mid) dirty_lay))
+  (assert (not (. (at (& rt) root) dirty_lay))))

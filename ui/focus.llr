@@ -1,0 +1,38 @@
+;; Tab order is the preorder of gesture elements.
+(use ui.element)
+(use ui.render)
+
+(pub (fn collect ((es (& element.elems)) (rt (& render.rtree)) (id u32) (out (&mut (vec u32)))) unit
+  (if (not (element.live_at es id)) (ret))
+  (if (and (element.has_render_at es id)
+     (. (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))) gesture))
+    (vec.push out id))
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks)) (collect es rt (@ (vec.get (& ks) i)) out))))
+
+(fn index_of ((ids (& (vec u32))) (cur u32)) i64
+  (for i 0 (vec.len ids) (if (== (@ (vec.get ids i)) cur) (ret i)))
+  (neg 1))
+
+(pub (fn tab ((ids (& (vec u32))) (cur u32) (has bool) (shift bool)) (opt u32)
+  (let n (vec.len ids))
+  (if (== n 0) (ret (opt.none <u32>)))
+  (if (not has) (ret (opt.some (@ (vec.get ids (if shift (- n 1) 0))))))
+  (let i (index_of ids cur))
+  (if (< i 0) (ret (opt.some (@ (vec.get ids 0)))))
+  (let j (if shift (if (== i 0) (- n 1) (- i 1)) (if (== i (- n 1)) 0 (+ i 1))))
+  (opt.some (@ (vec.get ids j)))))
+
+(test focus_tab
+  (let mut ids (vec.new <u32>))
+  (vec.push (&mut ids) 2u32)
+  (vec.push (&mut ids) 5u32)
+  (match (tab (& ids) 0u32 false false)
+    ((opt.some id) (assert_eq (as i64 id) 2))
+    ((opt.none) (assert false)))
+  (match (tab (& ids) 2u32 true false)
+    ((opt.some id) (assert_eq (as i64 id) 5))
+    ((opt.none) (assert false)))
+  (match (tab (& ids) 2u32 true true)
+    ((opt.some id) (assert_eq (as i64 id) 5))
+    ((opt.none) (assert false))))

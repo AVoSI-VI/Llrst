@@ -1,0 +1,34 @@
+;; Null host: size, scale, cursor, clipboard, text input, one scripted event, quit.
+(use std.io)
+(use std.str)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.host_null)
+
+(fn line ((n i64)) unit (io.puts (& (str.from_int n))))
+
+(fn point ((e (& event.event))) unit
+  (match e
+    ((event.event.pointer _ x y _ _) (do (line (as i64 (@ x))) (line (as i64 (@ y)))))
+    (_ ())))
+
+(fn main () unit
+  (let mut h (host_null.host_null.from_args))
+  (let sz (host.host.size (& h)))
+  (line (as i64 (. sz w)))
+  (line (as i64 (. sz h)))
+  (line (as i64 (host.host.scale (& h))))
+  (host.host.set_cursor (&mut h) 2)
+  (line (host_null.host_null.cursor_id (& h)))
+  (host.host.clipboard_set (&mut h) "ab")
+  (io.puts (& (host.host.clipboard_get (& h))))
+  (let r (geom.rect 1.0f32 2.0f32 3.0f32 4.0f32))
+  (host.host.text_input (&mut h) true (& r))
+  (line (if (host_null.host_null.text_on (& h)) 1 0))
+  (let mut ev (vec.new <event.event>))
+  (host.host.poll (&mut h) (&mut ev))
+  (line (vec.len (& ev)))
+  (if (> (vec.len (& ev)) 0) (point (vec.get (& ev) 0)))
+  (host.host.quit (&mut h))
+  (line (if (host_null.host_null.quitting (& h)) 1 0)))

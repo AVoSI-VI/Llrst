@@ -1,0 +1,8 @@
+widget|0|stateful|-
+widget|4|gesture|1
+widget|5|sized_box|-
+widget|6|empty|-
+render|3|0.000|0.000|20.000|20.000
+render|4|0.000|0.000|20.000|20.000
+render|5|0.000|0.000|20.000|20.000
+focus|-

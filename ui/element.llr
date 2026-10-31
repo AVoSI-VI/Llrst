@@ -1,0 +1,377 @@
+;; Element arena. Reconciliation keeps a child when its type id and key match.
+(use ui.ctx)
+(use ui.key)
+(use ui.render)
+(use ui.state)
+(use ui.widget)
+
+(pub (struct elem
+  (pub (ty i64))
+  (pub (k key.key))
+  (pub (role i64))
+  (pub (parent u32))
+  (pub (has_parent bool))
+  (pub (kids (vec u32)))
+  (pub (render u32))
+  (pub (has_render bool))
+  (pub (widget (box (dyn widget.widget))))
+  (pub (st (box (dyn state.state))))
+  (pub (has_st bool))
+  (pub (dirty bool))
+  (pub (live bool))))
+
+(pub (struct elems (pub (nodes (vec elem))) (pub (vw f32)) (pub (vh f32)) (pub (sc f32))))
+
+(struct info (ty i64) (k key.key) (role i64) (pd widget.pdata))
+
+(struct rpar (has bool) (id u32))
+
+(pub (fn new () elems (elems (vec.new <elem>) 80.0f32 48.0f32 1.0f32)))
+
+(pub (fn set_view ((es (&mut elems)) (w f32) (h f32) (sc f32)) unit
+  (set (. es vw) w)
+  (set (. es vh) h)
+  (set (. es sc) sc)))
+
+(fn at ((es (& elems)) (id u32)) (& elem) (vec.get (& (. es nodes)) (as i64 id)))
+
+(fn at_mut ((es (&mut elems)) (id u32)) (&mut elem) (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+
+(pub (fn live_at ((es (& elems)) (id u32)) bool (. (at es id) live)))
+
+(pub (fn ty_at ((es (& elems)) (id u32)) i64 (. (at es id) ty)))
+
+(pub (fn role_at ((es (& elems)) (id u32)) i64 (. (at es id) role)))
+
+(fn parent_at ((es (& elems)) (id u32)) u32 (. (at es id) parent))
+
+(fn has_par ((es (& elems)) (id u32)) bool (. (at es id) has_parent))
+
+(pub (fn render_at ((es (& elems)) (id u32)) u32 (. (at es id) render)))
+
+(pub (fn has_render_at ((es (& elems)) (id u32)) bool (. (at es id) has_render)))
+
+(fn has_st_at ((es (& elems)) (id u32)) bool (. (at es id) has_st))
+
+(fn dirty_at ((es (& elems)) (id u32)) bool (. (at es id) dirty))
+
+(fn key_at ((es (& elems)) (id u32)) key.key
+  (let n (at es id))
+  (key.key (. (. n k) on) (. (. n k) id)))
+
+(pub (fn kids_at ((es (& elems)) (id u32)) (vec u32)
+  (let n (at es id))
+  (let mut o (vec.new <u32>))
+  (for i 0 (vec.len (& (. n kids))) (vec.push (&mut o) (@ (vec.get (& (. n kids)) i))))
+  o))
+
+(fn dead ((parent u32) (has bool)) elem
+  (elem 0
+    (key.key.none)
+    0
+    parent
+    has
+    (vec.new <u32>)
+    0u32
+    false
+    (widget.empty)
+    (state.no_state)
+    false
+    false
+    false))
+
+(fn reserve ((es (&mut elems)) (parent u32) (has bool)) u32
+  (let id (as u32 (vec.len (& (. es nodes)))))
+  (vec.push (&mut (. es nodes)) (dead parent has))
+  id)
+
+(fn info_of ((w (& (box (dyn widget.widget))))) info
+  (info (widget.widget.ty (& (@ w)))
+    (widget.widget.key (& (@ w)))
+    (widget.widget.role (& (@ w)))
+    (widget.widget.pdata (& (@ w)))))
+
+(fn put ((es (&mut elems)) (id u32) (w (box (dyn widget.widget))) (inf (& info))) unit
+  (let n (at_mut es id))
+  (set (. n ty) (. inf ty))
+  (set (. n k) (key.key (. (. inf k) on) (. (. inf k) id)))
+  (set (. n role) (. inf role))
+  (set (. n widget) w)
+  (set (. n live) true))
+
+(fn take_init ((es (&mut elems)) (id u32)) (opt (box (dyn state.state)))
+  (let n (at_mut es id))
+  (widget.widget.take_state (&mut (. n widget))))
+
+(fn set_st ((es (&mut elems)) (id u32) (s (box (dyn state.state)))) unit
+  (let n (at_mut es id))
+  (set (. n st) s)
+  (set (. n has_st) true))
+
+(fn keep ((es (&mut elems)) (id u32) (got (opt (box (dyn state.state))))) unit
+  (match got ((opt.some s) (set_st es id s)) ((opt.none) ())))
+
+(fn pull_state ((es (&mut elems)) (id u32)) unit
+  (if (!= (role_at es id) widget.role_full) (ret))
+  (let has (has_st_at es id))
+  (let got (take_init es id))
+  (if has (drop got) (keep es id got)))
+
+(fn fill_at ((es (&mut elems)) (id u32) (out (&mut widget.rdesc))) unit
+  (let n (at_mut es id))
+  (widget.widget.fill (&mut (. n widget)) out))
+
+(fn set_render ((es (&mut elems)) (id u32) (rid u32)) unit
+  (let n (at_mut es id))
+  (set (. n render) rid)
+  (set (. n has_render) true))
+
+(fn attach ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (pr u32) (has bool) (inf (& info))) unit
+  (let mut d (widget.blank))
+  (fill_at es id (&mut d))
+  (if (has_render_at es id)
+    (do
+      (render.replace_desc rt
+        (render_at es id)
+        (. inf ty)
+        d
+        (. (. inf pd) gesture)
+        (. (. inf pd) relayout)
+        (. (. inf pd) repaint))
+      (render.touch rt (render_at es id)))
+    (do
+      (let rid (render.add rt id pr has (. inf ty) d (& (. inf pd))))
+      (set_render es id rid)
+      (render.touch rt rid))))
+
+(fn rparent ((es (& elems)) (id u32)) rpar
+  (if (has_render_at es id) (ret (rpar true (render_at es id))))
+  (if (not (has_par es id)) (ret (rpar false 0u32)))
+  (rparent es (parent_at es id)))
+
+(fn mount_new ((es (&mut elems))
+   (rt (&mut render.rtree))
+   (parent u32)
+   (w (box (dyn widget.widget)))
+   (c (& ctx.ctx))) u32
+  (let id (reserve es parent true))
+  (let cc (ctx.ctx.child c id (ty_at es parent)))
+  (let rp (rparent es parent))
+  (install es rt id w (& cc) (. rp id) (. rp has))
+  id)
+
+(fn can_up ((es (& elems)) (id u32) (ty i64) (k (& key.key))) bool
+  (let got (key_at es id))
+  (and (live_at es id) (and (== (ty_at es id) ty) (key.key.same (& got) k))))
+
+(fn used_at ((u (& (vec bool))) (i i64)) bool (@ (vec.get u i)))
+
+(fn find_key ((es (& elems)) (old (& (vec u32))) (u (& (vec bool))) (ty i64) (k (& key.key))) i64
+  (for j 0 (vec.len old)
+    (if (and (not (used_at u j)) (can_up es (@ (vec.get old j)) ty k)) (ret j)))
+  (neg 1))
+
+(fn find_slot ((es (& elems)) (old (& (vec u32))) (u (& (vec bool))) (i i64) (w (& (box (dyn widget.widget))))) i64
+  (let ty (widget.widget.ty (& (@ w))))
+  (let k (widget.widget.key (& (@ w))))
+  (if (and (< i (vec.len old)) (and (not (used_at u i)) (can_up es (@ (vec.get old i)) ty (& k))))
+    (ret i))
+  (if (not (. k on)) (ret (neg 1)))
+  (find_key es old u ty (& k)))
+
+(fn falses ((n i64)) (vec bool)
+  (let mut o (vec.new <bool>))
+  (for i 0 n (vec.push (&mut o) false))
+  o)
+
+(fn set_kids ((es (&mut elems)) (id u32) (ks (vec u32))) unit (set (. (at_mut es id) kids) ks))
+
+(fn link_vis ((es (& elems)) (rt (&mut render.rtree)) (rid u32) (elem u32)) unit
+  (if (not (live_at es elem)) (ret))
+  (if (has_render_at es elem) (ret (render.add_kid rt rid (render_at es elem))))
+  (let ks (kids_at es elem))
+  (for i 0 (vec.len (& ks)) (link_vis es rt rid (@ (vec.get (& ks) i)))))
+
+(fn relink ((es (& elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (if (not (has_render_at es id)) (ret))
+  (let rid (render_at es id))
+  (render.clear_kids rt rid)
+  (let ks (kids_at es id))
+  (for i 0 (vec.len (& ks)) (link_vis es rt rid (@ (vec.get (& ks) i)))))
+
+(fn apply_one ((es (& elems)) (rt (&mut render.rtree)) (elem u32) (pd (& widget.pdata))) unit
+  (if (not (live_at es elem)) (ret))
+  (if (has_render_at es elem)
+    (do (render.set_pdata rt (render_at es elem) pd) (render.touch rt (render_at es elem)) (ret)))
+  (let ks (kids_at es elem))
+  (for i 0 (vec.len (& ks)) (apply_one es rt (@ (vec.get (& ks) i)) pd)))
+
+(fn pdata_of ((es (& elems)) (id u32)) widget.pdata (widget.widget.pdata (& (. (at es id) widget))))
+
+(fn apply ((es (& elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (let pd (pdata_of es id))
+  (let ks (kids_at es id))
+  (for i 0 (vec.len (& ks)) (apply_one es rt (@ (vec.get (& ks) i)) (& pd))))
+
+(fn reconcile ((es (&mut elems))
+   (rt (&mut render.rtree))
+   (parent u32)
+   (nw (vec (box (dyn widget.widget))))
+   (c (& ctx.ctx))) unit
+  (let old (kids_at es parent))
+  (let mut used (falses (vec.len (& old))))
+  (let mut next (vec.new <u32>))
+  (let mut rest nw)
+  (let n (vec.len (& rest)))
+  (for i 0 n (place_i es rt parent (& old) (&mut used) (&mut next) (&mut rest) c i))
+  (for j 0 (vec.len (& old))
+    (if (not (used_at (& used) j)) (unmount es rt (@ (vec.get (& old) j)))))
+  (set_kids es parent next))
+
+(fn place_i ((es (&mut elems))
+   (rt (&mut render.rtree))
+   (parent u32)
+   (old (& (vec u32)))
+   (used (&mut (vec bool)))
+   (next (&mut (vec u32)))
+   (rest (&mut (vec (box (dyn widget.widget)))))
+   (c (& ctx.ctx))
+   (i i64)) unit
+  (let w (vec.remove rest 0))
+  (let slot (find_slot es old used i (& w)))
+  (if (< slot 0) (ret (vec.push next (mount_new es rt parent w c))))
+  (vec.set used slot true)
+  (let id (@ (vec.get old slot)))
+  (let cc (ctx.ctx.child c id (ty_at es parent)))
+  (let rp (rparent es parent))
+  (install es rt id w (& cc) (. rp id) (. rp has))
+  (vec.push next id))
+
+(fn build_less ((es (&mut elems)) (id u32) (c (& ctx.ctx))) (box (dyn widget.widget))
+  (let n (at_mut es id))
+  (widget.widget.build (&mut (. n widget)) c))
+
+(fn build_full ((es (&mut elems)) (id u32) (c (& ctx.ctx))) (box (dyn widget.widget))
+  (if (not (has_st_at es id)) (ret (widget.empty)))
+  (let n (at_mut es id))
+  (state.state.build (& (. n st)) c))
+
+(fn take_kids ((es (&mut elems)) (id u32)) (vec (box (dyn widget.widget)))
+  (let n (at_mut es id))
+  (widget.widget.take_children (&mut (. n widget))))
+
+(fn sync ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (c (& ctx.ctx))) unit
+  (let role (role_at es id))
+  (let mut ws (vec.new < (box (dyn widget.widget)) >))
+  (if (== role widget.role_less) (vec.push (&mut ws) (build_less es id c)))
+  (if (== role widget.role_full) (vec.push (&mut ws) (build_full es id c)))
+  (if (== role widget.role_leaf) (set ws (take_kids es id)))
+  (reconcile es rt id ws c)
+  (relink es rt id)
+  (if (widget.parent_data (ty_at es id)) (apply es rt id)))
+
+(fn install ((es (&mut elems))
+   (rt (&mut render.rtree))
+   (id u32)
+   (w (box (dyn widget.widget)))
+   (c (& ctx.ctx))
+   (pr u32)
+   (has_pr bool)) unit
+  (let ty (widget.widget.ty (& w)))
+  (let k (widget.widget.key (& w)))
+  (let role (widget.widget.role (& w)))
+  (let pd (widget.widget.pdata (& w)))
+  (let inf (info ty k role pd))
+  (put es id w (& inf))
+  (pull_state es id)
+  (if (and (== (. inf role) widget.role_leaf) (not (widget.parent_data (. inf ty))))
+    (attach es rt id pr has_pr (& inf)))
+  (sync es rt id c))
+
+(fn dispose ((es (&mut elems)) (id u32)) unit
+  (if (not (has_st_at es id)) (ret))
+  (let n (at_mut es id))
+  (state.state.dispose (&mut (. n st)))
+  (set (. n has_st) false))
+
+(fn clear_el ((es (&mut elems)) (id u32)) unit
+  (let n (at_mut es id))
+  (set (. n live) false)
+  (set (. n has_render) false)
+  (set (. n widget) (widget.empty))
+  (set (. n st) (state.no_state))
+  (vec.clear (&mut (. n kids))))
+
+(pub (fn unmount ((es (&mut elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (if (not (live_at es id)) (ret))
+  (let ks (kids_at es id))
+  (for i 0 (vec.len (& ks)) (unmount es rt (@ (vec.get (& ks) i))))
+  (dispose es id)
+  (if (has_render_at es id) (render.kill rt (render_at es id)))
+  (clear_el es id)))
+
+(pub (fn update ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (w (box (dyn widget.widget))) (c (& ctx.ctx))) unit
+  (let rp (if (has_par es id) (rparent es (parent_at es id)) (rpar false 0u32)))
+  (install es rt id w c (. rp id) (. rp has))))
+
+(pub (fn mount ((es (&mut elems)) (rt (&mut render.rtree)) (w (box (dyn widget.widget)))) u32
+  (let id (reserve es 0u32 false))
+  (let c (ctx.ctx.root (. es vw) (. es vh) (. es sc) id))
+  (install es rt id w (& c) 0u32 false)
+  id))
+
+(fn clear_dirty ((es (&mut elems)) (id u32)) unit (set (. (at_mut es id) dirty) false))
+
+(pub (fn mark ((es (&mut elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (set (. (at_mut es id) dirty) true)
+  (if (has_render_at es id) (render.touch rt (render_at es id)))))
+
+(pub (fn rebuild ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (c (& ctx.ctx))) unit
+  (if (not (live_at es id)) (ret))
+  (if (dirty_at es id) (do (clear_dirty es id) (sync es rt id c)))
+  (let ty (ty_at es id))
+  (let ks (kids_at es id))
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (let cc (ctx.ctx.child c kid ty))
+    (rebuild es rt kid (& cc)))))
+
+(fn sized ((w f32) (k key.key)) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d min_w) w)
+  (set (. d max_w) w)
+  (set (. d min_h) 8.0f32)
+  (set (. d max_h) 8.0f32)
+  (set (. d tight) true)
+  (widget.make widget.ty_sized k (vec.new < (box (dyn widget.widget)) >) d false (widget.nop)))
+
+(fn col ((a (box (dyn widget.widget))) (b (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) a)
+  (vec.push (&mut ks) b)
+  (widget.make widget.ty_column (key.key.none) ks (widget.blank) false (widget.nop)))
+
+(test element_reconcile
+  (let mut es (new))
+  (let mut rt (render.new))
+  (let root
+    (mount (&mut es)
+      (&mut rt)
+      (col (sized 10.0f32 (key.key.none)) (sized 12.0f32 (key.key.value 3u32)))))
+  (let before (kids_at (& es) root))
+  (let keep (@ (vec.get (& before) 1)))
+  (let c (ctx.ctx.root 80.0f32 40.0f32 1.0f32 root))
+  (update (&mut es)
+    (&mut rt)
+    root
+    (col (sized 10.0f32 (key.key.none)) (sized 12.0f32 (key.key.value 3u32)))
+    (& c))
+  (let after (kids_at (& es) root))
+  (assert_eq (as i64 (@ (vec.get (& after) 1))) (as i64 keep))
+  (update (&mut es)
+    (&mut rt)
+    root
+    (col (sized 10.0f32 (key.key.none)) (sized 12.0f32 (key.key.value 9u32)))
+    (& c))
+  (let moved (kids_at (& es) root))
+  (assert (!= (as i64 (@ (vec.get (& moved) 1))) (as i64 keep))))

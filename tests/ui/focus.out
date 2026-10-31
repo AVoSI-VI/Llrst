@@ -1,0 +1,15 @@
+widget|0|column|-
+widget|1|gesture|1
+widget|2|sized_box|-
+widget|3|empty|-
+widget|4|gesture|2
+widget|5|sized_box|-
+widget|6|empty|-
+render|0|0.000|0.000|16.000|24.000
+render|1|0.000|0.000|16.000|12.000
+render|2|0.000|0.000|16.000|12.000
+render|3|0.000|0.000|16.000|12.000
+render|4|0.000|12.000|16.000|12.000
+render|5|0.000|12.000|16.000|12.000
+render|6|0.000|12.000|16.000|12.000
+focus|1

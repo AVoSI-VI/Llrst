@@ -332,6 +332,13 @@
 
 (pub (fn height ((self (& para))) f32 (. self height)))
 
+(pub (fn width ((self (& para))) f32
+  (let mut m 0.0f32)
+  (for i 0 (vec.len (& (. self lines)))
+    (let w (. (vec.get (& (. self lines)) i) w))
+    (if (> w m) (set m w)))
+  m))
+
 (pub (fn cut ((self (& para))) i64 (. self cut)))
 
 (fn cell_end ((c (& cell))) f32 (+ (. c x) (. c adv)))

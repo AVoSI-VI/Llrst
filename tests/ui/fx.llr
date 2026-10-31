@@ -1,0 +1,32 @@
+;; Opacity, clip, and transform. Opacity blends the child into the shot.
+(use std.io)
+(use ui.app)
+(use ui.blend)
+(use ui.host_null)
+(use ui.w_box)
+(use ui.w_flex)
+(use ui.w_fx)
+(use ui.widget)
+
+(fn box ((w f32) (h f32)) (box (dyn widget.widget)) (w_box.sized w h (widget.empty)))
+
+(fn swatch () (box (dyn widget.widget))
+  (w_box.container (blend.color.rgba 0u8 0u8 220u8 255u8)
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    (box 16.0f32 16.0f32)))
+
+(fn kids () (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (w_fx.opacity 0.5f32 (swatch)))
+  (vec.push (&mut ks) (w_fx.clip_rect (box 8.0f32 8.0f32)))
+  (vec.push (&mut ks) (w_fx.transform 1.0f32 2.0f32 1.0f32 1.0f32 0.0f32 (box 8.0f32 8.0f32)))
+  ks)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_flex.column (kids))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

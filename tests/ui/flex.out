@@ -1,0 +1,17 @@
+widget|0|row|-
+widget|1|sized_box|-
+widget|2|empty|-
+widget|3|expanded|-
+widget|4|sized_box|-
+widget|5|empty|-
+widget|6|flex|-
+widget|7|sized_box|-
+widget|8|empty|-
+render|0|0.000|0.000|80.000|8.000
+render|1|0.000|0.000|10.000|8.000
+render|2|0.000|0.000|10.000|8.000
+render|3|10.000|0.000|23.333|8.000
+render|4|10.000|0.000|23.333|8.000
+render|5|33.333|0.000|46.666|6.000
+render|6|33.333|0.000|46.666|6.000
+focus|-

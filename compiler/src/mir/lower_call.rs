@@ -12,9 +12,10 @@ impl<'a> Lower<'a> {
         }
         let mut ops = Vec::new();
         for a in args {
-            // two-phase &mut borrows directly in argument position
+            // two-phase &mut borrows directly in argument position.
+            // `(&mut box)` is a fat pointer (BoxBorrow), not a thin address.
             if let ExprKind::Ref { mutable: true, place } = &a.kind {
-                if place.is_place() {
+                if place.is_place() && !matches!(a.ty, Ty::Dyn { .. }) {
                     let p = self.as_place(place);
                     let t = self.temp(a.ty.clone(), a.span);
                     self.assign(&Place::local(t), Rvalue::Ref { mutable: true, place: p, two_phase: true }, a.span);

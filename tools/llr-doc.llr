@@ -84,7 +84,13 @@
     (let c (sexp.child t n i))
     (if (and (== (sexp.kind t c) 2u8) (str.eq (sexp.head t c) "fn")) (add_fn t c (& name) traits))))
 
-(fn take_pub ((t (& tree)) (n i64) (mod (& str)) (types (&mut str)) (traits (&mut str)) (consts (&mut str)) (fns (&mut str))) unit
+(fn take_pub ((t (& tree))
+   (n i64)
+   (mod (& str))
+   (types (&mut str))
+   (traits (&mut str))
+   (consts (&mut str))
+   (fns (&mut str))) unit
   (let inner (unwrap_inline t (sexp.child t n 1)))
   (let ih (sexp.head t inner))
   (if (or (str.eq ih "struct") (str.eq ih "enum")) (add_type t inner types))
@@ -92,7 +98,13 @@
   (if (str.eq ih "const") (add_const t inner mod consts))
   (if (or (str.eq ih "fn") (str.eq ih "extern")) (add_fn t inner mod fns)))
 
-(fn walk ((t (& tree)) (mod (& str)) (types (&mut str)) (traits (&mut str)) (consts (&mut str)) (fns (&mut str)) (tests (&mut str))) unit
+(fn walk ((t (& tree))
+   (mod (& str))
+   (types (&mut str))
+   (traits (&mut str))
+   (consts (&mut str))
+   (fns (&mut str))
+   (tests (&mut str))) unit
   (for i 0 (vec.len (& (. t top)))
     (let n (@ (vec.get (& (. t top)) i)))
     (if (== (sexp.kind t n) 3u8) (cont))
@@ -113,14 +125,32 @@
     (if (== (sexp.kind t n) 3u8) (ret (trim_comment (sexp.text t n)))))
   (str.new))
 
+(fn last_slash ((s (& str))) i64
+  (let mut at (neg 1))
+  (let mut i 0)
+  (while (< i (str.len s)) (do (if (== (str.at s i) 47u8) (set at i)) (set i (+ i 1))))
+  at)
+
+(fn pkg_of ((src (& str))) str
+  (let i (last_slash src))
+  (if (< i 0) (ret (str.from "std")))
+  (let parent (str.slice src 0 i))
+  (let j (last_slash (& parent)))
+  (if (< j 0) parent (str.slice (& parent) (+ j 1) (str.len (& parent)))))
+
 (fn default_head ((src (& str)) (mod (& str)) (comment (& str))) str
-  (let mut s (str.from "# std."))
+  (let pkg (pkg_of src))
+  (let mut s (str.from "# "))
+  (str.push (&mut s) (& pkg))
+  (str.push_byte (&mut s) 46u8)
   (str.push (&mut s) mod)
   (str.push (&mut s) "\n\n")
   (str.push (&mut s) comment)
   (str.push (&mut s) "\n\nSource: `")
   (str.push (&mut s) src)
-  (str.push (&mut s) "`. Import with `(use std.")
+  (str.push (&mut s) "`. Import with `(use ")
+  (str.push (&mut s) (& pkg))
+  (str.push_byte (&mut s) 46u8)
   (str.push (&mut s) mod)
   (str.push (&mut s) ")` for module functions; types and methods need no import.\n\n")
   s)

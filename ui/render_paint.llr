@@ -1,0 +1,145 @@
+;; Paint the render tree into one bitmap. Opacity, clip, and transform isolate their children.
+(use std.math)
+(use std.str)
+(use ui.bitmap)
+(use ui.blend)
+(use ui.canvas)
+(use ui.geom)
+(use ui.paint)
+(use ui.render)
+(use ui.render_box)
+(use ui.widget)
+
+(fn node ((rt (& render.rtree)) (id u32)) (& render.rnode) (vec.get (& (. rt nodes)) (as i64 id)))
+
+(fn color_of ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a)))
+
+(fn clone_bm ((b (& bitmap.bitmap))) bitmap.bitmap
+  (let mut n (bitmap.bitmap.new (. b w) (. b h)))
+  (for i 0 (vec.len (& (. b px))) (vec.set (&mut (. n px)) i (@ (vec.get (& (. b px)) i))))
+  n)
+
+(fn scale_px ((bm (&mut bitmap.bitmap)) (a f32)) unit
+  (let k (as u8 (math.round32 (* a 255.0f32))))
+  (for y 0 (. bm h)
+    (for x 0 (. bm w)
+      (let c
+        (blend.color (bitmap.bitmap.byte bm x y 0)
+          (bitmap.bitmap.byte bm x y 1)
+          (bitmap.bitmap.byte bm x y 2)
+          (bitmap.bitmap.byte bm x y 3)))
+      (let o (blend.color.cover (& c) k))
+      (bitmap.bitmap.set_byte bm x y 0 (. o b))
+      (bitmap.bitmap.set_byte bm x y 1 (. o g))
+      (bitmap.bitmap.set_byte bm x y 2 (. o r))
+      (bitmap.bitmap.set_byte bm x y 3 (. o a)))))
+
+(fn paint_kids ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas)) (sc f32)) unit
+  (let ks (render.kids_of rt id))
+  (for i 0 (vec.len (& ks)) (paint_id rt g (@ (vec.get (& ks) i)) cv sc)))
+
+(fn paint_color ((rt (& render.rtree)) (id u32) (cv (&mut canvas.canvas))) unit
+  (let n (node rt id))
+  (if (not (. (. n d) has_color)) (ret))
+  (let rect (geom.rect (. n x) (. n y) (. n w) (. n h)))
+  (let col (color_of (& (. (. n d) color))))
+  (canvas.canvas.fill_rect cv rect col))
+
+(fn paint_image ((rt (& render.rtree)) (id u32) (cv (&mut canvas.canvas))) unit
+  (let n (node rt id))
+  (if (not (. (. n d) has_image)) (ret))
+  (let rect (geom.rect (. n x) (. n y) (. n w) (. n h)))
+  (canvas.canvas.draw_image cv (clone_bm (& (. (. n d) image))) rect 0))
+
+(fn paint_text ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas))) unit
+  (let text (str.clone (& (. (. (node rt id) d) text))))
+  (if (== (str.len (& text)) 0) (ret))
+  (let size (. (. (node rt id) d) font_size))
+  (let col (color_of (& (. (. (node rt id) d) color))))
+  (let x (. (node rt id) x))
+  (let y (. (node rt id) y))
+  (let max_w (. (node rt id) w))
+  (let gs (glyphs g (& text) size max_w col))
+  (canvas.canvas.save cv)
+  (canvas.canvas.translate cv x y)
+  (canvas.canvas.draw_glyphs cv gs)
+  (canvas.canvas.restore cv))
+
+(fn glyphs ((g (&mut render_box.fonts)) (text (& str)) (size f32) (max_w f32) (col blend.color)) (vec paint.stamp)
+  (render_box.glyphs g text size max_w col))
+
+(fn paint_custom ((rt (& render.rtree)) (id u32) (cv (&mut canvas.canvas))) unit
+  (let n (node rt id))
+  (if (not (. (. n d) has_custom)) (ret))
+  (render.render.paint (& (. (. n d) custom)) cv (. n x) (. n y)))
+
+(fn paint_clip ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas)) (sc f32)) unit
+  (let n (node rt id))
+  (let rect (geom.rect (. n x) (. n y) (. n w) (. n h)))
+  (canvas.canvas.save cv)
+  (canvas.canvas.clip_rect cv rect)
+  (paint_kids rt g id cv sc)
+  (canvas.canvas.restore cv))
+
+(fn paint_xform ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas)) (sc f32)) unit
+  (let n (node rt id))
+  (let x (. n x))
+  (let y (. n y))
+  (let tx (. (. n d) tx))
+  (let ty (. (. n d) ty))
+  (let sx (. (. n d) sx))
+  (let sy (. (. n d) sy))
+  (let rot (. (. n d) rot))
+  (canvas.canvas.save cv)
+  (canvas.canvas.translate cv x y)
+  (canvas.canvas.translate cv tx ty)
+  (canvas.canvas.scale cv sx sy)
+  (canvas.canvas.rotate cv rot)
+  (canvas.canvas.translate cv (neg x) (neg y))
+  (paint_kids rt g id cv sc)
+  (canvas.canvas.restore cv))
+
+(fn paint_opacity ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas)) (sc f32)) unit
+  (let n (node rt id))
+  (let x (. n x))
+  (let y (. n y))
+  (let w (. n w))
+  (let h (. n h))
+  (let a (. (. n d) opacity))
+  (let dw (as i64 (math.ceil32 (* w sc))))
+  (let dh (as i64 (math.ceil32 (* h sc))))
+  (if (or (<= dw 0) (<= dh 0)) (ret))
+  (let mut child (canvas.canvas.new))
+  (canvas.canvas.scale (&mut child) sc sc)
+  (canvas.canvas.translate (&mut child) (neg x) (neg y))
+  (paint_kids rt g id (&mut child) sc)
+  (let mut bm (bitmap.bitmap.new dw dh))
+  (canvas.canvas.replay (& child) (&mut bm))
+  (scale_px (&mut bm) a)
+  (canvas.canvas.draw_image cv bm (geom.rect x y w h) 0))
+
+(fn paint_id ((rt (& render.rtree)) (g (&mut render_box.fonts)) (id u32) (cv (&mut canvas.canvas)) (sc f32)) unit
+  (if (not (render.live rt id)) (ret))
+  (paint_color rt id cv)
+  (paint_image rt id cv)
+  (paint_text rt g id cv)
+  (paint_custom rt id cv)
+  (if (== (. (node rt id) ty) widget.ty_opacity) (ret (paint_opacity rt g id cv sc)))
+  (if (. (. (node rt id) d) clip) (ret (paint_clip rt g id cv sc)))
+  (if (. (. (node rt id) d) has_xform) (ret (paint_xform rt g id cv sc)))
+  (paint_kids rt g id cv sc))
+
+(pub (fn paint ((rt (& render.rtree))
+   (g (&mut render_box.fonts))
+   (id u32)
+   (bm (&mut bitmap.bitmap))
+   (vw f32)
+   (vh f32)
+   (sc f32)) unit
+  (let mut cv (canvas.canvas.new))
+  (canvas.canvas.scale (&mut cv) sc sc)
+  (canvas.canvas.fill_rect (&mut cv)
+    (geom.rect 0.0f32 0.0f32 vw vh)
+    (blend.color.rgba 255u8 255u8 255u8 255u8))
+  (paint_id rt g id (&mut cv) sc)
+  (canvas.canvas.replay (& cv) bm)))

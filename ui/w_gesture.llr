@@ -1,0 +1,19 @@
+;; A tap target. The closure returns a message id; 0 means none.
+(use ui.key)
+(use ui.widget)
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(pub (fn gesture ((tap (clos () i64)) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (widget.make widget.ty_gesture (key.key.none) (one child) (widget.blank) true tap)))
+
+(pub (fn tap ((msg i64) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (gesture (clos () i64 msg) child)))
+
+(test w_gesture_msg
+  (let w (tap 4 (widget.empty)))
+  (assert_eq (widget.widget.signal (& w)) 4)
+  (assert_eq (widget.widget.name (& w)) "gesture"))
