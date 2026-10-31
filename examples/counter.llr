@@ -1,0 +1,37 @@
+;; Flutter counter. A tap sends message 1 and the text key is the count.
+(use ui.app)
+(use ui.blend)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.key)
+(use ui.state)
+(use ui.w_box)
+(use ui.w_flex)
+(use ui.w_gesture)
+(use ui.w_text)
+(use ui.widget)
+
+(struct model (n i64))
+
+(fn label ((n i64)) (box (dyn widget.widget))
+  (widget.with_key (w_text.text (& (str.from_int n)) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8))
+    (key.key.value (as u32 n))))
+
+(fn view ((n i64)) (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (label n))
+  (vec.push (&mut ks) (w_gesture.tap 1 (w_box.sized 24.0f32 24.0f32 (widget.empty))))
+  (w_flex.column ks))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (view (. self n)))
+  (fn msg ((self (&mut model)) (m i64)) unit (if (== m 1) (set (. self n) (+ (. self n) 1))))
+  (fn dispose ((_s (&mut model))) unit ()))
+
+(fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (model 0)))
+
+(fn main () unit
+  (let mut h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (app.run h (root) n))
