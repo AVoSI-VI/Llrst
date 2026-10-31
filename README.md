@@ -15,6 +15,7 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | path | content |
 |------|---------|
 | `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
+| `UIFRAME.md` | plan for `llr-ui`, the UI framework |
 | `DARWIN.md` | plan for the aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format, targets |
@@ -25,6 +26,8 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | `compiler/` | stage 0 `llrc` (Rust, Cranelift); not installed |
 | `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs`, emitting x86-64 ELF and COFF and aarch64 ELF and Mach-O |
 | `std/` | standard library (Llrst) |
+| `ui/` | UI framework (Llrst); `(use ui.NAME)` loads `ui/NAME.llr` |
+| `web/` | browser glue for the wasm UI host |
 | `runtime/` | C shims: `llr_stat.c` on Unix; `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` on Windows |
 | `scripts/` | `install.sh`, `install.ps1`, `self.sh`, `check-lines.sh` |
 | `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff llr-doc llr-check` (Llrst) |

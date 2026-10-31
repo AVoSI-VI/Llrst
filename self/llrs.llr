@@ -14,10 +14,10 @@
 (use proj.prog)
 
 (fn usage () unit
-  (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]")
-  (io.eputs "usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]")
-  (io.eputs "usage|llrc check FILE [--std DIR] [--deny CODE]")
-  (io.eputs "usage|llrc emit-mir FILE [--std DIR] [--deny CODE]")
+  (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--checked] [--deny CODE]")
+  (io.eputs "usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]")
+  (io.eputs "usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]")
+  (io.eputs "usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]")
   (io.eputs "usage|llrc version"))
 
 (fn unknown ((flag (& str))) unit
@@ -34,6 +34,7 @@
 (fn parse ((args (& (vec str)))) drive.flags
   (let mut o
     (drive.flags (str.new)
+      (str.new)
       (str.new)
       (str.new)
       (str.new)
@@ -72,6 +73,7 @@
   (if (str.eq (& a) "-o") (set (. out out) (take args i)))
   (if (str.eq (& a) "--target") (set (. out target) (take args i)))
   (if (str.eq (& a) "--std") (set (. out std) (take args i)))
+  (if (str.eq (& a) "--ui") (set (. out ui) (take args i)))
   (if (str.eq (& a) "--deny") (vec.push (&mut (. out deny)) (take args i)))
   (if (not (known (& a))) (do (unknown (& a)) (os.exit 1)))
   out)
@@ -80,7 +82,8 @@
   (or (str.eq a "--test")
     (or (str.eq a "--emit-obj")
       (or (str.eq a "--checked")
-        (or (str.eq a "-o") (or (str.eq a "--target") (or (str.eq a "--std") (str.eq a "--deny"))))))))
+        (or (str.eq a "-o")
+          (or (str.eq a "--target") (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny")))))))))
 
 (fn command ((c (& str))) bool
   (or (str.eq c "build")
@@ -136,7 +139,7 @@
 (fn emit_cmd ((o (& drive.flags))) unit
   (if (not (drive.target_ok (& (. o target))))
     (os.exit (drive.reject_target (& (. o file)) (& (. o target)))))
-  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o target)))
+  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target)))
     ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
     ((res.ok p) (emit_ok o p))))
 

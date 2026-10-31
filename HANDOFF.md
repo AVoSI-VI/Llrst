@@ -80,7 +80,7 @@ flowchart LR
 
 | pass | file(s) | what it owns |
 |------|---------|--------------|
-| load | `load.llr`, `src.llr` | main, sorted `std/`, host OS externs, then `proj.*`; std search `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std` |
+| load | `load.llr`, `src.llr` | main, sorted `std/`, host OS externs, then `proj.*` and `ui.*` on use; std search `--std`, `$LLRST_STD`, `<exe>/../std`, `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`; ui search `--ui`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui` |
 | resolve | `collect.llr`, `resolve.llr`, `prog.llr` | def ids, methods, traits and impls, visibility, `(inline ...)` notes |
 | types | `ty.llr`, `lit.llr` | ints, floats, bool, refs, pointers, adts, fns, closures, dyn, params, infer; literal parsing |
 | check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr`, `thir_lit.llr`, `thir_clos.llr` | one typed body per instance; closure capture |
@@ -89,7 +89,7 @@ flowchart LR
 | codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | every local a slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), or Mach-O arm64 |
 | link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims |
-| driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
+| driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
 
 Generics are monomorphized by re-checking the body per instantiation. Only reachable
 instances are compiled; std bodies are checked lazily.

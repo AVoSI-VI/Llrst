@@ -44,7 +44,7 @@ Goal: turn a machine diagnostic into a fix.
 | `trait.dup` | two impls of the same trait for `ty=` |
 | `trait.object` | `why=self` means the method returns or takes `Self`; `why=ref` means a trait object was written as a bare name |
 | `trait.method` | the impl is missing `name=` or its signature does not match |
-| `io.read` | `path=` could not be read; `fix=set LLRST_STD` or add the `proj.` file named by `use=` |
+| `io.read` | `path=` could not be read; `fix=set LLRST_STD` or `fix=set LLRST_UI`, or add the `proj.` or `ui.` file named by `use=` |
 | `lex.*` | close the string or fix the escape; `lex.bad_suffix` means the literal suffix is not a type |
 | `target.unsupported` | `--target` is not an `x86_64` triple this compiler emits; `got=` |
 | `use.unused` | delete the `(use ...)`; `name=` is the alias. `std` modules are not linted |

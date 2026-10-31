@@ -18,7 +18,7 @@ Stage 0 builds `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llr
 Darwin. `scripts/self.ps1` is the same
 bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
 `/Brepro`. `--stage` stops after `self|stage2=equal`. The install
-script then installs `llrs2` as `llrc`. It copies `std/` and `examples/` to
+script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, and `examples/` to
 `PREFIX/share/llrst/`, compiles the host runtime
 (`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
 and `runtime/llr_win_proc.c` on Windows), compiles every `tools/llr-*.llr`, and verifies with
@@ -44,7 +44,9 @@ that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
 
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
-`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. The executable path comes from
+`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. It finds `ui` in this order:
+`--ui DIR`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. A program
+that never uses `ui` does not need that directory. The executable path comes from
 `llr_exe_path`.
 
 Windows host: `scripts/install.ps1` builds stage 0, then `scripts/self.ps1` builds the three
@@ -59,10 +61,10 @@ Windows temp directory. `llrc run` passes the argument vector through `llr_exec`
 Flags may come before or after the subcommand. `version` prints `llrc|0.1.0`.
 
 ```
-usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
-usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]
-usage|llrc check FILE [--std DIR] [--deny CODE]
-usage|llrc emit-mir FILE [--std DIR] [--deny CODE]
+usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
+usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]
+usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]
+usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc version
 ```
 

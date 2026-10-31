@@ -28,6 +28,7 @@
   (pub (out str))
   (pub (target str))
   (pub (std str))
+  (pub (ui str))
   (pub (test bool))
   (pub (emit_obj bool))
   (pub (checked bool))
@@ -37,7 +38,7 @@
 (pub (fn run ((o (& flags))) i64
   (if (not (target_ok (& (. o target))))
     (ret (bad (& (. o file)) "target.unsupported" (& (. o target)))))
-  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o target)))
+  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target)))
     ((res.err e) (do (io_err (& e)) (ret 1)))
     ((res.ok p) (build o p)))))
 

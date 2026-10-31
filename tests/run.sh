@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out; stderr equals .err when that
-# file exists, and must be empty otherwise; exit status is 0 unless .code exists), tests/err/*.llr (stderr must equal .err),
+# file exists, and must be empty otherwise; exit status is 0 unless .code exists),
+# tests/ui/*.llr (same, built with --std std --ui ui; NAME.ppm is compared to --shot output),
+# tests/err/*.llr (stderr must equal .err),
 # tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal
 # .err and exit 0), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
@@ -78,6 +80,53 @@ for f in "$root"/tests/run/*.llr; do
   fi
   if [ "$ok" -eq 1 ]; then
     echo "ok|run/$name"
+  fi
+done
+
+for f in "$root"/tests/ui/*.llr; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f" .llr)"
+  want="${f%.llr}.out"
+  [ -e "$want" ] || continue
+  set +u
+  ( cd "$root" && "$llrc" build "tests/ui/$name.llr" --std std --ui ui -o "$tmp/ui_$name" 2>"$tmp/ui_$name.cerr" )
+  built=$?
+  set -u
+  if [ "$built" -ne 0 ]; then
+    echo "fail|ui/$name|compile|$(head -1 "$tmp/ui_$name.cerr")"; fails=$((fails+1)); continue
+  fi
+  shot="$tmp/ui_$name.shot"
+  args=()
+  if [ -f "${f%.llr}.ppm" ]; then
+    args=(--shot "$shot")
+  fi
+  set +u
+  "$tmp/ui_$name" "${args[@]}" >"$tmp/ui_$name.out" 2>"$tmp/ui_$name.stderr"
+  code=$?
+  set -u
+  ok=1
+  if ! cmp -s "$tmp/ui_$name.out" "$want"; then
+    echo "fail|ui/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/ui_$name.out" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ -s "$tmp/ui_$name.stderr" ]; then
+    echo "fail|ui/$name|stderr|got=$(head -c 200 "$tmp/ui_$name.stderr" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$code" -ne 0 ]; then
+    echo "fail|ui/$name|code=$code"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ -f "${f%.llr}.ppm" ] && ! cmp -s "$shot" "${f%.llr}.ppm"; then
+    echo "fail|ui/$name|ppm|want=$(head -c 200 "${f%.llr}.ppm" | tr '\n' ' ')|got=$(head -c 200 "$shot" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    echo "ok|ui/$name"
   fi
 done
 

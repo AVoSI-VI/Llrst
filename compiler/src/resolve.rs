@@ -208,13 +208,14 @@ pub struct Loader<'a> {
     pub diags: &'a Diags,
     pub std_dir: PathBuf,
     pub proj_dir: PathBuf,
+    pub ui_dir: Option<PathBuf>,
     parsed: Vec<(String, u32, Vec<Item>, bool)>,
     by_path: HashMap<String, u32>,
 }
 
 impl<'a> Loader<'a> {
-    pub fn new(sm: &'a mut SourceMap, diags: &'a Diags, std_dir: PathBuf, proj_dir: PathBuf) -> Self {
-        Loader { sm, diags, std_dir, proj_dir, parsed: Vec::new(), by_path: HashMap::new() }
+    pub fn new(sm: &'a mut SourceMap, diags: &'a Diags, std_dir: PathBuf, proj_dir: PathBuf, ui_dir: Option<PathBuf>) -> Self {
+        Loader { sm, diags, std_dir, proj_dir, ui_dir, parsed: Vec::new(), by_path: HashMap::new() }
     }
 
     fn load_file(&mut self, mod_path: &str, file: &Path, is_std: bool) -> PResult<u32> {
@@ -272,6 +273,12 @@ impl<'a> Loader<'a> {
                 let path = p.join(".");
                 if p.len() == 2 && p[0] == "proj" {
                     let f = self.proj_dir.join(format!("{}.llr", p[1]));
+                    self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
+                } else if p.len() == 2 && p[0] == "ui" {
+                    let dir = self.ui_dir.clone().ok_or_else(|| {
+                        Diag::error(Span::default(), "io.read").kv("path", "ui").kv("fix", "set LLRST_UI")
+                    })?;
+                    let f = dir.join(format!("{}.llr", p[1]));
                     self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
                 } else if !(p.len() == 2 && p[0] == "std" && self.by_path.contains_key(&path)) {
                     return Err(Diag::error(sp, "name.not_module").kv("name", path));

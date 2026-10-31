@@ -15,6 +15,7 @@ pub struct Options {
     pub output: Option<PathBuf>,
     pub target: Option<String>,
     pub std_dir: Option<PathBuf>,
+    pub ui_dir: Option<PathBuf>,
     pub test: bool,
     pub emit_obj: bool,
     pub emit_mir: bool,
@@ -45,6 +46,26 @@ pub fn find_std(opt: &Options) -> PResult<PathBuf> {
         }
     }
     Err(Diag::error(Span::default(), "io.read").kv("path", "std").kv("fix", "set LLRST_STD"))
+}
+
+/// `--ui`, then `$LLRST_UI`, then share, `<exe>/../../ui`, then `./ui`.
+/// `None` means no directory was found; a use of `ui.*` reports that.
+pub fn find_ui(opt: &Options) -> Option<PathBuf> {
+    if let Some(d) = &opt.ui_dir {
+        return Some(d.clone());
+    }
+    if let Ok(d) = std::env::var("LLRST_UI") {
+        return Some(PathBuf::from(d));
+    }
+    let mut cands = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            cands.push(dir.join("../share/llrst/ui"));
+            cands.push(dir.join("../../ui"));
+        }
+    }
+    cands.push(PathBuf::from("ui"));
+    cands.into_iter().find(|c| c.is_dir())
 }
 
 /// `sys_windows.llr` on a Windows triple, otherwise `sys_posix.llr`.
@@ -78,8 +99,9 @@ pub fn run(opt: Options) -> i32 {
 
 fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     let std_dir = find_std(opt)?;
+    let ui_dir = find_ui(opt);
     let proj_dir = opt.input.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let mut prog = Loader::new(sm, diags, std_dir, proj_dir).load(&opt.input, opt.target.as_deref())?;
+    let mut prog = Loader::new(sm, diags, std_dir, proj_dir, ui_dir).load(&opt.input, opt.target.as_deref())?;
     if diags.has_errors() {
         return Ok(());
     }

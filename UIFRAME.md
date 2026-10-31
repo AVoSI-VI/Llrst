@@ -96,7 +96,7 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 ## Status
 
 ```
-plan|2026-10-27|phases=0-13|none started
+plan|2026-10-31|phases=0-13|phase 0 done
 compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
 language|no owned trait object|closures: whole-binding capture, no nesting, no coercion to fn (HANDOFF Phase 2 item 6)
 std|35 modules|no math, no allocator, no png
@@ -129,31 +129,30 @@ Language and std facts that shape every phase. Each is verified against `docs/sp
   `malloc` `realloc` `free`), and no image codec. wasm32 has no libc unless WASI brings one,
   so `std/alloc.llr` and `std/math.llr` are written in Llrst and used on every target where
   the extern is missing.
-- `self/load.llr` loads `main`, sorted `std/`, the host OS externs, then `proj.*` modules
-  found beside `main` or under the std dir. `ui.*` needs the same treatment as `std.*` with
-  its own search list (`--ui`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`,
-  `./ui`). Stage 0 (`compiler/src/driver.rs`, `resolve.rs`) must learn the prefix too or
-  `tests/check.sh` and `tests/mir.sh` cannot cover `ui/`.
+- `self/load.llr` loads `main`, every file in sorted `std/`, the host OS externs, then `proj.*`
+  modules found beside `main`. `(use ui.NAME)` loads `ui/NAME.llr` only when named, from
+  `--ui`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. Stage 0
+  (`compiler/src/driver.rs`, `resolve.rs`) resolves the same prefix.
 - `--target` does not switch `sys_windows.llr` / `sys_posix.llr` (HANDOFF Phase 6 item 3).
   Every cross target in this plan (wasm, Android, iOS) needs that fixed first.
-- `scripts/check-lines.sh` and the copy in `tests/run.ps1` scan `compiler/src std tools docs
-  scripts tests self` and `runtime/*.c`. Add `ui`, `web`, `runtime/*.m`.
+- `scripts/check-lines.sh` and the copy in `tests/run.ps1` scan `compiler/src`, `std`, `ui`,
+  `web`, `tools`, `docs`, `scripts`, `tests`, `self`, and `runtime/*.{c,m}`.
 
 ## Phases
 
 Phases 1 and 2 need nothing new from the compiler. Phase 3 is the language work. Phases 6
 and 8 are compiler backends and can run in parallel with 4, 5, 10, 11 once Phase 3 is in.
 
-### Phase 0: plan, loader, harness `[ ]`
+### Phase 0: plan, loader, harness `[x]`
 
 Files: `UIFRAME.md`, `self/load.llr`, `self/src.llr`, `compiler/src/driver.rs`, `compiler/src/resolve.rs`, `scripts/check-lines.sh`, `scripts/install.sh`, `scripts/install.ps1`, `tests/run.sh`, `tests/run.ps1`, `README.md`, `docs/canon/program.md`.
 
-1. `[ ]` `ui.*` module prefix: `self/load.llr` and stage 0 resolve `(use ui.NAME)` to `ui/NAME.llr` with the search list in the notes; `ui/` files are loaded lazily like `std/`, only when named by a `use`. Error for a missing dir mirrors `io.read|path=std|fix=set LLRST_STD` with `ui`.
-2. `[ ]` `install.sh` and `install.ps1` copy `ui/` to `<prefix>/share/llrst/ui` beside `std`; `--ui` and `$LLRST_UI` documented in `docs/install.md`.
-3. `[ ]` `tests/run.sh` and `tests/run.ps1`: a `tests/ui/` group where `NAME.llr` is built with `--std std --ui ui`, run, stdout compared to `NAME.out`, and if `NAME.ppm` exists the program's `--shot PATH` output is compared bytewise.
-4. `[ ]` `scripts/check-lines.sh` and the `run.ps1` copy scan `ui/`, `web/`, `runtime/*.m`.
-5. `[ ]` `README.md` rows for `ui/`, `web/`, `UIFRAME.md`; `docs/canon/program.md` gains the `ui.*` import rule.
-6. `[ ]` Commit: `ui: loader knows ui.*, install copies it, tests/ui group`.
+1. `[x]` `ui.*` module prefix: `self/load.llr` and stage 0 resolve `(use ui.NAME)` to `ui/NAME.llr` with the search list in the notes. `std/` is loaded in full. `ui/` is loaded only when named by a `use`. Error for a missing dir mirrors `io.read|path=std|fix=set LLRST_STD` with `ui`.
+2. `[x]` `install.sh` and `install.ps1` copy `ui/` to `<prefix>/share/llrst/ui` beside `std`; `--ui` and `$LLRST_UI` documented in `docs/install.md`.
+3. `[x]` `tests/run.sh` and `tests/run.ps1`: a `tests/ui/` group where `NAME.llr` is built with `--std std --ui ui`, run, stdout compared to `NAME.out`, and if `NAME.ppm` exists the program's `--shot PATH` output is compared bytewise.
+4. `[x]` `scripts/check-lines.sh` and the `run.ps1` copy scan `ui/`, `web/`, `runtime/*.m`.
+5. `[x]` `README.md` rows for `ui/`, `web/`, `UIFRAME.md`; `docs/canon/program.md` gains the `ui.*` import rule.
+6. `[x]` Commit: `ui: loader knows ui.*, install copies it, tests/ui group`.
 
 ### Phase 1: geometry and rasterizer `[ ]`
 
@@ -315,3 +314,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 ## Progress log
 
 - 2026-10-27: plan written after eight scope questions were answered by the owner (place and name, own rasterizer, own TrueType, wasm32 in `self/` with WASI, aarch64 in `self/` with both mobile OSes, three desktop OSes, Flutter's three trees, all five extras). No code changed. Language gaps were taken from `HANDOFF.md` and `docs/spec/`; no path under `ui/`, `web/`, or the new `self/` and `std/` files exists yet.
+- 2026-10-31: Phase 0. `(use ui.NAME)` loads `ui/NAME.llr` on use in stage 0 and `self/`. `std/` stays eager. Install copies `ui/` beside `std`. `tests/ui` compares stdout and, when a `.ppm` exists, the `--shot` bytes.

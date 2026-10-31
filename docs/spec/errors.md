@@ -79,7 +79,7 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `clos.nested` | a closure body contains a closure |
 | `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self` or `why=ref`) `trait.method` (`name=`) |
 | `link.*` | `link.failed` (`cmd=` `got=`). The two compilers do not print the same `cmd=` text, so there is no shared `tests/err` golden |
-| `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `use=` when a `proj.` file is missing) `io.write` (`path=` `got=`) |
+| `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `fix=set LLRST_UI` when `ui` is missing; `use=` when a `proj.` or `ui.` file is missing) `io.write` (`path=` `got=`) |
 | `cli.*` | `cli.unknown_flag` (`flag=`) |
 | `target.*` | `target.unsupported` (`got=`) |
 

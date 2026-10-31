@@ -17,7 +17,9 @@
 (use std.io std.str)  ; no: canon.program.use_one
 ```
 Imports go first in the file, sorted by path. `std.*` modules are referenced as their last
-segment: `io.puts`, `str.cat`.
+segment: `io.puts`, `str.cat`. `(use ui.NAME)` loads `ui/NAME.llr` the same way, one module
+per use. `ui` types are not prelude. The directory is `--ui`, then `$LLRST_UI`, then
+`<exe>/../share/llrst/ui`, `<exe>/../../ui`, then `./ui`.
 
 ## Modules
 

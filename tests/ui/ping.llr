@@ -1,0 +1,6 @@
+(use std.io)
+(use ui.ping)
+
+(fn main () unit
+  (let s (ping.msg))
+  (io.puts (& s)))

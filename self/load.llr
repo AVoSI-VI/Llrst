@@ -1,4 +1,4 @@
-;; Load order matches llrc: main, sorted std, host OS externs, then proj modules.
+;; Load order matches llrc: main, sorted std, host OS externs, then proj and ui on use.
 (use std.ast)
 (use std.fs)
 (use std.os)
@@ -43,11 +43,39 @@
   (if (has_sys (& c)) (ret c))
   (str.new))
 
-(fn std_miss ((file (& str))) str
+(fn dir_miss ((file (& str)) (path (& str)) (fix (& str))) str
   (let mut d (diag.make true (slash file) 1 1 0 (str.from "io.read")))
-  (diag.add (&mut d) "path" (str.from "std"))
-  (diag.add (&mut d) "fix" (str.from "set LLRST_STD"))
+  (diag.add (&mut d) "path" (str.from path))
+  (diag.add (&mut d) "fix" (str.from fix))
   (diag.render (& d)))
+
+(fn std_miss ((file (& str))) str (dir_miss file "std" "set LLRST_STD"))
+
+(fn ui_miss ((file (& str))) str (dir_miss file "ui" "set LLRST_UI"))
+
+(fn ui_hit ((dir (& str))) str
+  (if (== (str.len dir) 0) (ret (str.new)))
+  (let share (path.join (& (path.join dir "../share/llrst")) "ui"))
+  (if (fs.is_dir (& share)) (ret share))
+  (let up (path.join dir "../../ui"))
+  (if (fs.is_dir (& up)) (ret up))
+  (str.new))
+
+(fn ui_found () str
+  (let hit (ui_hit (& (exe_dir))))
+  (if (> (str.len (& hit)) 0) (ret hit))
+  (if (fs.is_dir "ui") (ret (str.from "ui")))
+  (str.new))
+
+(fn ui_dir ((over (& str))) str
+  (if (> (str.len over) 0) (ret (slash over)))
+  (match (os.env "LLRST_UI") ((opt.some s) (ret (slash (& s)))) ((opt.none) ()))
+  (ui_found))
+
+(fn plain_ui ((name (& str))) bool
+  (if (not (str.starts name "ui.")) (ret false))
+  (let rest (str.slice name 3 (str.len name)))
+  (match (str.find_byte (& rest) 46u8) ((opt.none) (> (str.len (& rest)) 0)) ((opt.some _) false)))
 
 (fn std_found ((file (& str))) (res str str)
   (let hit (std_hit (& (exe_dir))))
@@ -145,7 +173,7 @@
 
 (fn use_proj ((it (& item))) bool (and (== (. it kind) 0u8) (str.starts (& (. it name)) "proj.")))
 
-(fn load_projs ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str))) (res unit str)
+(fn load_projs ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (main (& str)) (ui (& str))) (res unit str)
   (let dir (path.dir main))
   (let mut i 0)
   (while (< i (vec.len srcs))
@@ -153,8 +181,10 @@
     (for k 0 n
       (let name (str.clone (& (. (vec.get (& (. (vec.get srcs i) items)) k) name))))
       (let kind (. (vec.get (& (. (vec.get srcs i) items)) k) kind))
-      (if (and (== kind 0u8) (str.starts (& name) "proj."))
-        (try (load_proj srcs paths (& dir) (& name) main))))
+      (let is_proj (and (== kind 0u8) (str.starts (& name) "proj.")))
+      (let is_ui (and (== kind 0u8) (plain_ui (& name))))
+      (if is_proj (try (load_proj srcs paths (& dir) (& name) main)))
+      (if is_ui (try (load_ui srcs paths ui (& name) main))))
     (set i (+ i 1)))
   (res.ok ()))
 
@@ -165,6 +195,19 @@
    (main (& str))) (res unit str)
   (if (>= (path_i paths modp) 0) (ret (res.ok ())))
   (let file (path.join dir (& (str_cat (& (last_seg modp)) ".llr"))))
+  (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
+    ((res.ok _) (res.ok ()))
+    ((res.err e)
+      (if (str.has (& e) "|io.read|") (res.err (proj_miss main (& file) modp)) (res.err e)))))
+
+(fn load_ui ((srcs (&mut (vec src.loaded)))
+   (paths (&mut (vec str)))
+   (ui (& str))
+   (modp (& str))
+   (main (& str))) (res unit str)
+  (if (>= (path_i paths modp) 0) (ret (res.ok ())))
+  (if (== (str.len ui) 0) (ret (res.err (ui_miss main))))
+  (let file (path.join ui (& (str_cat (& (last_seg modp)) ".llr"))))
   (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
     ((res.ok _) (res.ok ()))
     ((res.err e)
@@ -185,7 +228,7 @@
 
 (fn str_cat ((a (& str)) (b (& str))) str (let mut s (str.clone a)) (str.push (&mut s) b) s)
 
-(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "" "")))
+(pub (fn load_prog ((file (& str))) (res prog.prog str) (load_at file "" "" "")))
 
 (fn set_num ((n (&mut i64)) (v (& str))) unit
   (match (str.to_int v) ((opt.some x) (set (@ n) x)) ((opt.none) ())))
@@ -227,15 +270,16 @@
   (if (and (== (str.len target) 0) (host_darwin)) (ret (str.from "aarch64")))
   (str.from "x86_64"))
 
-(pub (fn load_at ((file (& str)) (dir (& str)) (target (& str))) (res prog.prog str)
+(pub (fn load_at ((file (& str)) (dir (& str)) (ui (& str)) (target (& str))) (res prog.prog str)
   (let root (if (> (str.len dir) 0) (slash dir) (try (std_dir file))))
+  (let uroot (ui_dir ui))
   (let mut srcs (vec.new <src.loaded>))
   (let mut paths (vec.new <str>))
   (let mainp (slash file))
   (try (load_one (&mut srcs) (&mut paths) (str.from "main") (str.clone (& mainp)) false))
   (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
   (try (append_os (&mut srcs) (& root) target))
-  (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
+  (try (load_projs (&mut srcs) (&mut paths) (& mainp) (& uroot)))
   (match (collect.collect srcs)
     ((res.err e) (res.err (lift (& mainp) (& e))))
     ((res.ok p) (do (let mut q p) (set (. q arch) (arch_of target)) (res.ok q))))))

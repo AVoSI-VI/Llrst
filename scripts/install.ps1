@@ -47,6 +47,9 @@ New-Item -ItemType Directory -Force -Path $bin, $share | Out-Null
 $stdDest = Join-Path $share 'std'
 if (Test-Path -LiteralPath $stdDest) { Remove-Item -LiteralPath $stdDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'std') -Destination $stdDest -Recurse
+$uiDest = Join-Path $share 'ui'
+if (Test-Path -LiteralPath $uiDest) { Remove-Item -LiteralPath $uiDest -Recurse -Force }
+Copy-Item -LiteralPath (Join-Path $root 'ui') -Destination $uiDest -Recurse
 $exDest = Join-Path $share 'examples'
 if (Test-Path -LiteralPath $exDest) { Remove-Item -LiteralPath $exDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'examples') -Destination $exDest -Recurse
@@ -72,6 +75,7 @@ $llrs2 = Join-Path $root 'target\self\llrs2.exe'
 Copy-Item -LiteralPath $llrs2 -Destination (Join-Path $bin 'llrc.exe') -Force
 Write-Output "ok|llrs2|$bin\llrc.exe"
 Write-Output "ok|std|$stdDest"
+Write-Output "ok|ui|$uiDest"
 Remove-Item Env:LLRST_RUNTIME -ErrorAction SilentlyContinue
 $env:LLRST_STD = $stdDest
 $tools = @(Get-ChildItem -LiteralPath (Join-Path $root 'tools') -Filter 'llr-*.llr')
