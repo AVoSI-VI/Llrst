@@ -1,0 +1,96 @@
+;; Desktop shim calls. The linked object is the host operating system.
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+
+(pub (extern llr_ui_open ((w i64) (h i64)) (ptr u8)))
+
+(pub (extern llr_ui_close ((p (ptr u8))) unit))
+
+(pub (extern llr_ui_size ((p (ptr u8)) (w (ptr i64)) (h (ptr i64))) unit))
+
+(pub (extern llr_ui_scale ((p (ptr u8))) f32))
+
+(pub (extern llr_ui_present ((p (ptr u8)) (px (ptr u8)) (w i64) (h i64) (stride i64)) unit))
+
+(pub (extern llr_ui_poll ((p (ptr u8)) (buf (ptr u8)) (cap i64)) i64))
+
+(pub (extern llr_ui_request_frame ((p (ptr u8))) unit))
+
+(pub (extern llr_ui_now_ms ((p (ptr u8))) i64))
+
+(pub (extern llr_ui_set_cursor ((p (ptr u8)) (id i64)) unit))
+
+(pub (extern llr_ui_clip_get ((p (ptr u8)) (buf (ptr u8)) (cap i64)) i64))
+
+(pub (extern llr_ui_clip_set ((p (ptr u8)) (bytes (ptr u8)) (n i64)) unit))
+
+(pub (extern llr_ui_text_input ((p (ptr u8)) (on i64) (x f32) (y f32) (w f32) (h f32)) unit))
+
+(pub (extern llr_ui_quit ((p (ptr u8))) unit))
+
+(pub (struct slot (p (ptr u8))))
+
+(pub (fn close ((s (&mut slot))) unit
+  (if (ptr.eq (. s p) (ptr.null <u8>)) (ret))
+  (llr_ui_close (. s p))
+  (set (. s p) (ptr.null <u8>))))
+
+(pub (fn quit ((s (&mut slot))) unit
+  (if (ptr.eq (. s p) (ptr.null <u8>)) (ret))
+  (llr_ui_quit (. s p))
+  (set (. s p) (ptr.null <u8>))))
+
+(impl slot (pub (fn drop ((self (&mut slot))) unit (close self))))
+
+(pub (fn open ((w i64) (h i64)) slot
+  (let p (llr_ui_open w h))
+  (if (ptr.eq p (ptr.null <u8>)) (panic "host.open"))
+  (slot p)))
+
+(pub (fn size ((s (& slot))) geom.size
+  (let mut w 0)
+  (let mut h 0)
+  (llr_ui_size (. s p) (as (ptr i64) (&mut w)) (as (ptr i64) (&mut h)))
+  (geom.size (as f32 w) (as f32 h))))
+
+(pub (fn scale ((s (& slot))) f32 (llr_ui_scale (. s p))))
+
+(fn pixels ((bm (& bitmap.bitmap))) (ptr u8)
+  (if (== (vec.len (& (. bm px))) 0) (ret (ptr.null <u8>)))
+  (vec.ptr (& (. bm px))))
+
+(pub (fn present ((s (& slot)) (bm (& bitmap.bitmap))) unit
+  (llr_ui_present (. s p) (pixels bm) (. bm w) (. bm h) (. bm stride))))
+
+(pub (fn poll ((s (& slot)) (out (&mut (vec event.event)))) unit
+  (let mut b (vec.new <u8>))
+  (let cap (* event.rec_bytes 64))
+  (vec.reserve (&mut b) cap)
+  (let n (llr_ui_poll (. s p) (vec.ptr (& b)) cap))
+  (event.take_rec (vec.ptr (& b)) n out)))
+
+(pub (fn request_frame ((s (& slot))) unit (llr_ui_request_frame (. s p))))
+
+(pub (fn now_ms ((s (& slot))) i64 (llr_ui_now_ms (. s p))))
+
+(pub (fn set_cursor ((s (& slot)) (id i64)) unit (llr_ui_set_cursor (. s p) id)))
+
+(pub (fn clip_get ((s (& slot))) str
+  (let n (llr_ui_clip_get (. s p) (ptr.null <u8>) 0))
+  (if (<= n 0) (ret (str.new)))
+  (let mut o (str.new))
+  (str.reserve (&mut o) n)
+  (let got (llr_ui_clip_get (. s p) (. o p) n))
+  (if (<= got 0) (ret (str.new)))
+  (let k (if (> got n) n got))
+  (set (. o len) k)
+  o))
+
+(pub (fn clip_set ((s (& slot)) (text (& str))) unit
+  (let c (str.cstr text))
+  (llr_ui_clip_set (. s p) (. c p) (str.len text))))
+
+(pub (fn text_input ((s (& slot)) (on bool) (r (& geom.rect))) unit
+  (let flag (if on 1 0))
+  (llr_ui_text_input (. s p) flag (. r x) (. r y) (. r w) (. r h))))

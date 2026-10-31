@@ -1,4 +1,4 @@
-;; Pointer, key, text, and script records. Pointer kind: 0 down, 1 move, 2 up, 3 cancel, 4 scroll.
+;; Pointer, key, text, and script records. take_rec reads the 64-byte host record.
 (use std.str)
 
 (pub (enum event
@@ -19,6 +19,26 @@
 (pub (const scroll i64 4))
 
 (pub (const tab i64 9))
+
+(pub (const shift i64 1))
+
+(pub (const ctrl i64 2))
+
+(pub (const alt i64 4))
+
+(pub (const meta i64 8))
+
+(pub (const rec_bytes i64 64))
+
+(pub (const rec_pointer i64 1))
+
+(pub (const rec_key i64 2))
+
+(pub (const rec_text i64 3))
+
+(pub (const rec_frame i64 4))
+
+(pub (const rec_quit i64 5))
 
 (fn eq_at ((xs (& (vec str))) (i i64) (s (& str))) bool
   (if (>= i (vec.len xs)) (ret false))
@@ -68,3 +88,90 @@
     ((opt.some _) (assert false))
     ((opt.none) (assert false)))
   (assert (opt.is_none (& (parse_line "nope")))))
+
+(fn rec_at ((buf (ptr u8)) (i i64)) (ptr u8) (ptr.add buf (* i rec_bytes)))
+
+(fn ri ((p (ptr u8)) (off i64)) i64 (as i64 (ptr.read (as (ptr i32) (ptr.add p off)))))
+
+(fn rf ((p (ptr u8)) (off i64)) f32 (ptr.read (as (ptr f32) (ptr.add p off))))
+
+(fn one ((p (ptr u8))) (opt event)
+  (let k (ri p 0))
+  (if (== k rec_pointer)
+    (ret (opt.some (event.pointer (ri p 4) (rf p 16) (rf p 20) (rf p 24) (rf p 28)))))
+  (if (== k rec_key) (ret (opt.some (event.key (ri p 4) (ri p 8) (ri p 12)))))
+  (if (== k rec_frame) (ret (opt.some (event.frame))))
+  (if (== k rec_quit) (ret (opt.some (event.quit))))
+  (opt.none <event>))
+
+(fn text_len ((p (ptr u8))) i64 (let n (ri p 4)) (if (< n 0) (ret 0)) (if (> n 32) 32 n))
+
+(fn text_of ((p (ptr u8))) str
+  (let n (text_len p))
+  (if (== n 0) (ret (str.new)))
+  (str.from_raw (ptr.add p 32) n))
+
+(fn text_span ((buf (ptr u8)) (i i64) (n i64) (s (&mut str))) i64
+  (let mut j i)
+  (while (and (< j n) (== (ri (rec_at buf j) 0) rec_text))
+    (let part (text_of (rec_at buf j)))
+    (str.push s (& part))
+    (set j (+ j 1)))
+  j)
+
+(pub (fn take_rec ((buf (ptr u8)) (n i64) (out (&mut (vec event)))) unit
+  (if (or (<= n 0) (ptr.eq buf (ptr.null <u8>))) (ret))
+  (let mut i 0)
+  (while (< i n)
+    (let p (rec_at buf i))
+    (if (== (ri p 0) rec_text)
+      (do (let mut s (str.new)) (set i (text_span buf i n (&mut s))) (vec.push out (event.text s)))
+      (do (match (one p) ((opt.some e) (vec.push out e)) ((opt.none) ())) (set i (+ i 1)))))))
+
+(fn rec_buf ((n i64)) (vec u8)
+  (let mut b (vec.new <u8>))
+  (for i 0 (* n rec_bytes) (vec.push (&mut b) 0u8))
+  b)
+
+(fn put_i ((b (&mut (vec u8))) (off i64) (n i64)) unit
+  (ptr.write (as (ptr i32) (ptr.add (vec.ptr b) off)) (as i32 n)))
+
+(fn put_f ((b (&mut (vec u8))) (off i64) (x f32)) unit
+  (ptr.write (as (ptr f32) (ptr.add (vec.ptr b) off)) x))
+
+(test event_rec_keys
+  (let mut ev (vec.new <event>))
+  (take_rec (ptr.null <u8>) 0 (&mut ev))
+  (assert_eq (vec.len (& ev)) 0)
+  (let mut b (rec_buf 3))
+  (put_i (&mut b) 0 rec_pointer)
+  (put_i (&mut b) 4 down)
+  (put_f (&mut b) 16 3.0f32)
+  (put_f (&mut b) 20 4.0f32)
+  (put_i (&mut b) 64 rec_key)
+  (put_i (&mut b) 68 1)
+  (put_i (&mut b) 72 tab)
+  (put_i (&mut b) 76 shift)
+  (put_i (&mut b) 128 rec_quit)
+  (take_rec (vec.ptr (& b)) 3 (&mut ev))
+  (match (vec.remove (&mut ev) 0)
+    ((event.pointer k x y _ _)
+      (do (assert_eq k down) (assert_eq (as i64 x) 3) (assert_eq (as i64 y) 4)))
+    (_ (assert false)))
+  (match (vec.remove (&mut ev) 0)
+    ((event.key d c m) (do (assert_eq d 1) (assert_eq c tab) (assert_eq m shift)))
+    (_ (assert false)))
+  (match (vec.remove (&mut ev) 0) ((event.quit) (assert true)) (_ (assert false))))
+
+(test event_rec_text
+  (let mut b (rec_buf 2))
+  (put_i (&mut b) 0 rec_text)
+  (put_i (&mut b) 4 1)
+  (ptr.write (ptr.add (vec.ptr (& b)) 32) 65u8)
+  (put_i (&mut b) 64 rec_text)
+  (put_i (&mut b) 68 1)
+  (ptr.write (ptr.add (vec.ptr (& b)) 96) 66u8)
+  (let mut ev (vec.new <event>))
+  (take_rec (vec.ptr (& b)) 2 (&mut ev))
+  (assert_eq (vec.len (& ev)) 1)
+  (match (vec.remove (&mut ev) 0) ((event.text s) (assert_eq (& s) "AB")) (_ (assert false))))

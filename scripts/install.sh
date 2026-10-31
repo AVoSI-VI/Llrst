@@ -27,6 +27,16 @@ rm -rf "$share/ui" && cp -r "$root/ui" "$share/ui" || die "install|copy=ui"
 rm -rf "$share/examples" && cp -r "$root/examples" "$share/examples" || die "install|copy=examples"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
 say "ok|runtime|$share/llr_stat.o"
+os_name="$(uname -s)"
+if [ "$os_name" = "Darwin" ]; then
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac.m" -o "$share/llr_ui_mac.o" || die "build-runtime|clang llr_ui_mac.m"
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac_in.m" -o "$share/llr_ui_mac_in.o" || die "build-runtime|clang llr_ui_mac_in.m"
+  say "ok|runtime|$share/llr_ui_mac.o"
+elif [ "$os_name" = "Linux" ]; then
+  cc -c -fPIC "$root/runtime/llr_ui_x11.c" -o "$share/llr_ui_x11.o" || die "build-runtime|cc llr_ui_x11.c"
+  cc -c -fPIC "$root/runtime/llr_ui_x11_in.c" -o "$share/llr_ui_x11_in.o" || die "build-runtime|cc llr_ui_x11_in.c"
+  say "ok|runtime|$share/llr_ui_x11.o"
+fi
 LLRC="$llrc" bash "$root/scripts/self.sh" --stage || exit 1
 stage="$root/target/self/llrs2"
 [ -f "$stage" ] || stage="$root/target/self/llrs2.exe"

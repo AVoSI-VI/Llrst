@@ -76,6 +76,8 @@
    (win (& str))
    (sock (& str))
    (proc (& str))
+   (ui_a (& str))
+   (ui_b (& str))
    (main (& str))) str
   (let pre (prefix))
   (if (str.eq (& pre) "missing") (ret (fail main "cl" "cl missing")))
@@ -87,6 +89,11 @@
   (push_q (&mut cmd) win)
   (push_q (&mut cmd) sock)
   (push_q (&mut cmd) proc)
+  (if (> (str.len ui_a) 0)
+    (do
+      (push_q (&mut cmd) ui_a)
+      (push_q (&mut cmd) ui_b)
+      (str.push (&mut cmd) " user32.lib gdi32.lib imm32.lib shell32.lib")))
   (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))

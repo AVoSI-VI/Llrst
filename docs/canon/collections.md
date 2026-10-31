@@ -30,6 +30,7 @@
 | last | `(vec.last (& v))` returns `(opt (& T))` |
 | clear | `(vec.clear (&mut v))` |
 | take all | `(vec.take (&mut v))` returns the vec, leaves empty |
+| bytes for an extern | `(vec.ptr (& v))` returns `(ptr T)`. An empty vec is null |
 
 No map or filter in v1. Write the loop. A predicate that captures a binding is `(clos ...)`, passed to `vec.any` or `vec.find`. It is not a `(fn ...)`.
 

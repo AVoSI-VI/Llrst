@@ -73,6 +73,35 @@ fn link_err(cmd: &Command, got: &str) -> Diag {
     Diag::error(Span::default(), "link.failed").kv("cmd", format!("{:?}", cmd)).kv("got", got.to_string())
 }
 
+fn wants_ui(obj: &[u8]) -> bool {
+    let needle = b"llr_ui_open";
+    obj.windows(needle.len()).any(|w| w == needle)
+}
+
+fn ui_missing() -> Diag {
+    Diag::error(Span::default(), "link.failed").kv("cmd", "cc").kv("got", "llr_ui_*.o missing")
+}
+
+fn ui_darwin(target: Option<&str>) -> bool {
+    match target {
+        Some(t) => t.contains("apple") || t.contains("darwin"),
+        None => cfg!(target_os = "macos"),
+    }
+}
+
+fn add_ui_unix(cmd: &mut Command, target: Option<&str>) -> PResult<()> {
+    let darwin = ui_darwin(target);
+    let (a, b) = if darwin { ("llr_ui_mac.o", "llr_ui_mac_in.o") } else { ("llr_ui_x11.o", "llr_ui_x11_in.o") };
+    cmd.arg(find_named(a).ok_or_else(ui_missing)?);
+    cmd.arg(find_named(b).ok_or_else(ui_missing)?);
+    if darwin {
+        cmd.arg("-framework").arg("Cocoa");
+    } else {
+        cmd.arg("-lX11");
+    }
+    Ok(())
+}
+
 fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
     let obj_path = out.with_extension("o");
     write_obj(&obj_path, obj)?;
@@ -94,6 +123,9 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
         cmd.arg("-pie");
         cmd.arg("-pthread");
     }
+    if wants_ui(obj) {
+        add_ui_unix(&mut cmd, target)?;
+    }
     finish_link(&mut cmd, &obj_path)
 }
 
@@ -101,6 +133,7 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
     let out = force_exe(out);
     let tool = cc_tool()?;
     let shim = ensure_shim(&tool)?;
+    let ui = if wants_ui(obj) { ensure_ui(&tool)? } else { Vec::new() };
     let obj_path = out.with_extension(if tool.msvc { "obj" } else { "o" });
     write_obj(&obj_path, obj)?;
     let mut cmd = Command::new(tool.name);
@@ -112,13 +145,26 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
         for part in &shim {
             cmd.arg(part);
         }
+        for part in &ui {
+            cmd.arg(part);
+        }
+        if !ui.is_empty() {
+            cmd.arg("user32.lib").arg("gdi32.lib").arg("imm32.lib").arg("shell32.lib");
+        }
         cmd.arg("ws2_32.lib").arg("/link").arg("/STACK:8388608");
     } else {
         cmd.arg(&obj_path);
         for part in &shim {
             cmd.arg(part);
         }
-        cmd.arg("-o").arg(&out).arg("-lws2_32").arg("-Wl,--stack,8388608");
+        for part in &ui {
+            cmd.arg(part);
+        }
+        cmd.arg("-o").arg(&out).arg("-lws2_32");
+        if !ui.is_empty() {
+            cmd.args(["-luser32", "-lgdi32", "-limm32", "-lshell32"]);
+        }
+        cmd.arg("-Wl,--stack,8388608");
     }
     finish_link(&mut cmd, &obj_path)
 }
@@ -220,18 +266,24 @@ fn tool_ok(name: &str, msvc: bool) -> bool {
     cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
+fn ensure_ui(tool: &Tool) -> PResult<Vec<PathBuf>> {
+    ensure_named(tool, &["llr_ui_win.c", "llr_ui_win_in.c"], "llr_ui_win.c")
+}
+
 fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
+    ensure_named(tool, &["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c"], "llr_win.c")
+}
+
+fn ensure_named(tool: &Tool, names: &[&str], anchor: &str) -> PResult<Vec<PathBuf>> {
     let ext = if tool.msvc { "obj" } else { "o" };
-    let names = ["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c"];
-    if let Some(src) = find_named("llr_win.c") {
+    if let Some(src) = find_named(anchor) {
         let dir = src.parent().unwrap_or_else(|| Path::new("."));
         let mut objs = Vec::new();
         for name in names {
             let file = dir.join(name);
             if !file.is_file() {
-                return Err(Diag::error(Span::default(), "link.failed")
-                    .kv("cmd", "clang, gcc, or cl")
-                    .kv("got", format!("{name} missing")));
+                let got = if anchor.starts_with("llr_ui") { "llr_ui_*.o missing".to_string() } else { format!("{name} missing") };
+                return Err(Diag::error(Span::default(), "link.failed").kv("cmd", "clang, gcc, or cl").kv("got", got));
             }
             let obj = file.with_extension(ext);
             if stale(&file, &obj) {
@@ -245,7 +297,8 @@ fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
     for name in names {
         let stem = name.trim_end_matches(".c");
         let obj = find_named(&format!("{stem}.{ext}")).ok_or_else(|| {
-            Diag::error(Span::default(), "link.failed").kv("cmd", "clang, gcc, or cl").kv("got", format!("{stem}.{ext} missing"))
+            let got = if anchor.starts_with("llr_ui") { "llr_ui_*.o missing".to_string() } else { format!("{stem}.{ext} missing") };
+            Diag::error(Span::default(), "link.failed").kv("cmd", "clang, gcc, or cl").kv("got", got)
         })?;
         objs.push(obj);
     }

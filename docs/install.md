@@ -21,7 +21,7 @@ bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the lin
 script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, and `examples/` to
 `PREFIX/share/llrst/`, compiles the host runtime
 (`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
-and `runtime/llr_win_proc.c` on Windows), compiles every `tools/llr-*.llr`, and verifies with
+and `runtime/llr_win_proc.c` on Windows, plus the desktop UI shim for this host), compiles every `tools/llr-*.llr`, and verifies with
 `examples/hello.llr`. Output is pipe records; the last line is `done|prefix=...|tools=N`.
 The installed compiler links those prebuilt objects. It does not compile the C files when
 the object is missing or older.
@@ -42,6 +42,13 @@ that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
 `llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places, using the first of
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
+A program that calls `llr_ui_open` also links the UI shim from that search: `llr_ui_win`
+and `llr_ui_win_in` with `user32 gdi32 imm32 shell32` on Windows, `llr_ui_mac` and
+`llr_ui_mac_in` with `-framework Cocoa` on Darwin, and `llr_ui_x11` and `llr_ui_x11_in`
+with `-lX11` elsewhere. Darwin compiles the `.m` files with `clang -fobjc-arc`. Linux
+compiles the X11 files and needs the `X11/Xlib.h` headers (`libx11-dev`). The compiler
+does not compile those files itself on Unix. `tests/run.sh` compiles the host UI objects
+into `runtime/` beside `llr_stat.o`. The suite does not open a window.
 
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
 `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. It finds `ui` in this order:

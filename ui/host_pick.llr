@@ -1,0 +1,22 @@
+;; Picks the desktop host from the operating system.
+(use std.os)
+(use std.str)
+(use std.sys)
+(use ui.host)
+(use ui.host_mac)
+(use ui.host_win)
+(use ui.host_x11)
+
+(fn darwin () bool
+  (if (== sys.os_id 2) (ret false))
+  (let r (os.capture "uname -s"))
+  (str.starts (& (str.trim (& (. r out)))) "Darwin"))
+
+(pub (fn which () i64 (if (== sys.os_id 2) (ret 2)) (if (darwin) (ret 3)) 1))
+
+(pub (fn open ((w i64) (h i64)) (box (dyn host.host))
+  (if (== sys.os_id 2) (ret (host_win.host_win.open w h)))
+  (if (darwin) (ret (host_mac.host_mac.open w h)))
+  (host_x11.host_x11.open w h)))
+
+(test host_pick_which (let n (which)) (assert (or (== n 1) (or (== n 2) (== n 3)))))

@@ -1,0 +1,30 @@
+;; X11 host. The shim object is chosen at link time.
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.host_shim)
+
+(pub (struct host_x11 (s host_shim.slot)))
+
+(impl host_x11
+  (pub (fn open ((w i64) (h i64)) host_x11 (host_x11 (host_shim.open w h))))
+  (pub (fn drop ((self (&mut host_x11))) unit (host_shim.close (&mut (. self s))))))
+
+(impl host.host
+  host_x11
+  (fn size ((self (& host_x11))) geom.size (host_shim.size (& (. self s))))
+  (fn scale ((self (& host_x11))) f32 (host_shim.scale (& (. self s))))
+  (fn present ((self (&mut host_x11)) (bm (& bitmap.bitmap))) unit
+    (host_shim.present (& (. self s)) bm))
+  (fn poll ((self (&mut host_x11)) (out (&mut (vec event.event)))) unit
+    (host_shim.poll (& (. self s)) out))
+  (fn request_frame ((self (&mut host_x11))) unit (host_shim.request_frame (& (. self s))))
+  (fn now_ms ((self (& host_x11))) i64 (host_shim.now_ms (& (. self s))))
+  (fn set_cursor ((self (&mut host_x11)) (id i64)) unit (host_shim.set_cursor (& (. self s)) id))
+  (fn clipboard_get ((self (& host_x11))) str (host_shim.clip_get (& (. self s))))
+  (fn clipboard_set ((self (&mut host_x11)) (text (& str))) unit
+    (host_shim.clip_set (& (. self s)) text))
+  (fn text_input ((self (&mut host_x11)) (on bool) (r (& geom.rect))) unit
+    (host_shim.text_input (& (. self s)) on r))
+  (fn quit ((self (&mut host_x11))) unit (host_shim.quit (&mut (. self s)))))

@@ -15,6 +15,7 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 | `vec.new` | `()` | `(vec T)` |
 | `vec.len` | `((self (& (vec T))))` | `i64` |
 | `vec.is_empty` | `((self (& (vec T))))` | `bool` |
+| `vec.ptr` | `((self (& (vec T))))` | `(ptr T)` |
 | `vec.reserve` | `((self (&mut (vec T))) (extra i64))` | `unit` |
 | `vec.push` | `((self (&mut (vec T))) (x T))` | `unit` |
 | `vec.get` | `((self (& (vec T))) (i i64))` | `(& T)` |
@@ -38,4 +39,4 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 
 ## Tests
 
-`vec_push_get`, `vec_str_owned`, `vec_sort_stable`, `vec_edit`, `vec_index`, `vec_find`
+`vec_push_get`, `vec_str_owned`, `vec_sort_stable`, `vec_edit`, `vec_index`, `vec_find`, `vec_ptr`

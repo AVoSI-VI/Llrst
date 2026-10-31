@@ -10,6 +10,7 @@
     (if (> (. self cap) 0) (sys.free (as (ptr u8) (. self p)))))
   (pub (fn len ((self (& (vec T)))) i64 (. self len)))
   (pub (fn is_empty ((self (& (vec T)))) bool (== (. self len) 0)))
+  (pub (fn ptr ((self (& (vec T)))) (ptr T) (. self p)))
   (pub (fn reserve ((self (&mut (vec T))) (extra i64)) unit
     (let need (+ (. self len) extra))
     (if (<= need (. self cap)) (ret))
@@ -254,3 +255,10 @@
   (match (vec.find (& v) (clos ((x (& str))) bool (str.eq x (& again))))
     ((opt.some i) (assert_eq i 2))
     ((opt.none) (assert false))))
+
+(test vec_ptr
+  (let empty (vec.new <u8>))
+  (assert (ptr.eq (vec.ptr (& empty)) (ptr.null <u8>)))
+  (let mut v (vec.new <u8>))
+  (vec.push (&mut v) 7u8)
+  (assert_eq (ptr.read (vec.ptr (& v))) 7u8))

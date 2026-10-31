@@ -20,6 +20,26 @@ cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
   echo "fail|setup|cc=llr_stat.c"
   exit 1
 }
+os_name="$(uname -s)"
+if [ "$os_name" = "Darwin" ]; then
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac.m" -o "$root/runtime/llr_ui_mac.o" || {
+    echo "fail|setup|cc=llr_ui_mac.m"
+    exit 1
+  }
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac_in.m" -o "$root/runtime/llr_ui_mac_in.o" || {
+    echo "fail|setup|cc=llr_ui_mac_in.m"
+    exit 1
+  }
+elif [ "$os_name" = "Linux" ]; then
+  cc -c -fPIC "$root/runtime/llr_ui_x11.c" -o "$root/runtime/llr_ui_x11.o" || {
+    echo "fail|setup|cc=llr_ui_x11.c|fix=install libx11-dev"
+    exit 1
+  }
+  cc -c -fPIC "$root/runtime/llr_ui_x11_in.c" -o "$root/runtime/llr_ui_x11_in.o" || {
+    echo "fail|setup|cc=llr_ui_x11_in.c|fix=install libx11-dev"
+    exit 1
+  }
+fi
 export LLRST_RUNTIME="$root/runtime"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

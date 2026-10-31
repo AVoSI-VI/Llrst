@@ -20,6 +20,16 @@ Source: `ui/host.llr`. Import with `(use ui.host)` for module functions; types a
 | `host.text_input` | `((&mut Self) bool (& geom.rect))` | `unit` |
 | `host.quit` | `((&mut Self))` | `unit` |
 
+## Constants
+
+| name | type | value |
+|------|------|-------|
+| `host.cursor_arrow` | `i64` | `0` |
+| `host.cursor_text` | `i64` | `1` |
+| `host.cursor_hand` | `i64` | `2` |
+| `host.cursor_cross` | `i64` | `3` |
+| `host.cursor_wait` | `i64` | `4` |
+
 ## Functions
 
 | name | params | returns |

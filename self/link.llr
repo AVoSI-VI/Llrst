@@ -112,6 +112,38 @@
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (q p))))
 
+(fn wants_ui ((bytes (& str))) bool (str.has bytes "llr_ui_open"))
+
+(fn target_dar ((t (& str))) bool
+  (if (> (str.len t) 0) (ret (or (str.has t "apple") (str.has t "darwin"))))
+  (host_darwin))
+
+(fn ui_stem ((win bool) (dar bool)) str
+  (if win (ret (str.from "llr_ui_win")))
+  (if dar (ret (str.from "llr_ui_mac")))
+  (str.from "llr_ui_x11"))
+
+(fn ui_libs ((win bool) (dar bool)) str
+  (if win (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32")))
+  (if dar (ret (str.from "-framework Cocoa")))
+  (str.from "-lX11"))
+
+(fn add_named ((cmd (&mut str)) (name (& str))) bool
+  (let p (runtime name))
+  (if (== (str.len (& p)) 0) (ret false))
+  (push_q cmd (& p))
+  true)
+
+(fn add_ui ((cmd (&mut str)) (win bool) (dar bool) (ext (& str))) str
+  (let stem (ui_stem win dar))
+  (let a (str.cat (& stem) ext))
+  (let b (str.cat (& (str.cat (& stem) "_in")) ext))
+  (if (not (add_named cmd (& a))) (ret (str.from "llr_ui_*.o missing")))
+  (if (not (add_named cmd (& b))) (ret (str.from "llr_ui_*.o missing")))
+  (str.push cmd " ")
+  (str.push cmd (& (ui_libs win dar)))
+  (str.new))
+
 (fn gnu_cmd ((cc (& str)) (obj (& str)) (exe (& str))) str
   (let mut cmd (str.clone cc))
   (push_q (&mut cmd) obj)
@@ -132,7 +164,11 @@
   (let obj (obj_path out false))
   (let exe (link_win.exe_of out))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let cmd (gnu_cmd cc (& obj) (& exe)))
+  (let mut cmd (gnu_cmd cc (& obj) (& exe)))
+  (if (wants_ui bytes)
+    (do
+      (let err (add_ui (&mut cmd) true false ".o"))
+      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main cc (& err)))))))
   (let code (os.shell (& cmd)))
   (rm (& obj))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
@@ -149,7 +185,15 @@
      (== (str.len (& sock)) 0)
      (== (str.len (& proc)) 0))
     (do (rm (& obj)) (ret (fail main "cl" "llr_win.obj missing"))))
-  (let err (link_win.link (& obj) out (& wsa) (& shim) (& sock) (& proc) main))
+  (let mut ua (str.new))
+  (let mut ub (str.new))
+  (if (wants_ui bytes)
+    (do
+      (set ua (runtime "llr_ui_win.obj"))
+      (set ub (runtime "llr_ui_win_in.obj"))
+      (if (or (== (str.len (& ua)) 0) (== (str.len (& ub)) 0))
+        (do (rm (& obj)) (ret (fail main "cl" "llr_ui_*.o missing"))))))
+  (let err (link_win.link (& obj) out (& wsa) (& shim) (& sock) (& proc) (& ua) (& ub) main))
   (rm (& obj))
   err)
 
@@ -164,7 +208,11 @@
 (fn unix_link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str))) str
   (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let cmd (cc_cmd (& obj) out target))
+  (let mut cmd (cc_cmd (& obj) out target))
+  (if (wants_ui bytes)
+    (do
+      (let err (add_ui (&mut cmd) false (target_dar target) ".o"))
+      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))))
   (let code (os.shell (& cmd)))
   (rm (& obj))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
@@ -172,6 +220,8 @@
 (pub (fn link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str))) str
   (if (is_win target) (ret (via_win bytes out main)))
   (unix_link bytes out target main)))
+
+(test wants_ui_name (assert (wants_ui "xxllr_ui_openyy")) (assert (not (wants_ui "llr_stat"))))
 
 (test mach_a64
   (assert_eq (mach_a64 "arm64") true)
