@@ -1,0 +1,203 @@
+;; Scalar floating-point encodings. Loads go through a64_mem so the offset forms match.
+(use proj.a64_buf)
+(use proj.a64_mem)
+(use std.str)
+
+(fn wide ((single bool)) i64 (if single 0 0x400000))
+
+(fn fbin ((single bool) (op i64)) i64 (if single (- op 0x400000) op))
+
+(fn fop ((single bool) (unscaled bool) (store bool)) i64
+  (let base (if store (if single 0xBD000000 0xFD000000) (if single 0xBD400000 0xFD400000)))
+  (if unscaled (- base 0x1000000) base))
+
+(fn emit_f ((b (&mut a64_buf.buf)) (single bool) (rt i64) (base i64) (disp i64) (store bool)) unit
+  (let size (if single 4 8))
+  (let o (a64_mem.resolve b base disp size))
+  (let op (fop single (. o unscaled) store))
+  (a64_mem.emit b op rt (. o base) (. o disp) (. o unscaled) size))
+
+(fn gf ((single bool) (to_f bool)) i64
+  (let bit (if single 0 0x80400000))
+  (let dir (if to_f 0x10000 0))
+  (+ 0x1E260000 (+ bit dir)))
+
+(fn cvt_i ((single bool) (w i64) (uns bool) (op i64)) i64
+  (let f (wide single))
+  (let s (if (== w 8) (shl 1 31) 0))
+  (let u (if uns 0x10000 0))
+  (+ op (+ f (+ s u))))
+
+(pub (fn fmov_to ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (gf single true) dst src))))
+
+(pub (fn fmov_from ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (gf single false) dst src))))
+
+(pub (fn fmov ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (fbin single 0x1E604000) dst src))))
+
+(pub (fn fld ((b (&mut a64_buf.buf)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (emit_f b single dst base disp false)))
+
+(pub (fn fst ((b (&mut a64_buf.buf)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (emit_f b single src base disp true)))
+
+(fn bin ((b (&mut a64_buf.buf)) (single bool) (op i64) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr (fbin single op) dst rn rm)))
+
+(pub (fn fadd ((b (&mut a64_buf.buf)) (single bool) (dst i64) (rn i64) (rm i64)) unit
+  (bin b single 0x1E602800 dst rn rm)))
+
+(pub (fn fsub ((b (&mut a64_buf.buf)) (single bool) (dst i64) (rn i64) (rm i64)) unit
+  (bin b single 0x1E603800 dst rn rm)))
+
+(pub (fn fmul ((b (&mut a64_buf.buf)) (single bool) (dst i64) (rn i64) (rm i64)) unit
+  (bin b single 0x1E600800 dst rn rm)))
+
+(pub (fn fdiv ((b (&mut a64_buf.buf)) (single bool) (dst i64) (rn i64) (rm i64)) unit
+  (bin b single 0x1E601800 dst rn rm)))
+
+(pub (fn fneg ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (fbin single 0x1E614000) dst src))))
+
+(pub (fn fcmp ((b (&mut a64_buf.buf)) (single bool) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr (fbin single 0x1E602000) 0 rn rm))))
+
+(pub (fn scvtf ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (cvt_i single w false 0x1E220000) dst src))))
+
+(pub (fn ucvtf ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (cvt_i single w true 0x1E220000) dst src))))
+
+(pub (fn fcvtzs ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (cvt_i single w false 0x1E380000) dst src))))
+
+(pub (fn fcvtzu ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (cvt_i single w true 0x1E380000) dst src))))
+
+(pub (fn fcvt ((b (&mut a64_buf.buf)) (to_single bool) (dst i64) (src i64)) unit
+  (let op (if to_single 0x1E624000 0x1E22C000))
+  (a64_buf.push_w b (a64_buf.rr op dst src))))
+
+(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
+
+(fn hex_byte ((s (&mut str)) (x u8)) unit
+  (str.push_byte s (nib (shr x 4u8)))
+  (str.push_byte s (nib (band x 15u8))))
+
+(fn hex ((b (& a64_buf.buf))) str
+  (let mut s (str.new))
+  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
+  s)
+
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+
+(fn fresh () a64_buf.buf (a64_buf.new))
+
+(test fmov_to
+  (let mut b (fresh))
+  (fmov_to (&mut b) false a64_buf.v0 a64_buf.x1)
+  (fmov_to (&mut b) true a64_buf.v0 a64_buf.x1)
+  (eq (& b) "2000679e2000271e"))
+
+(test fmov_from
+  (let mut b (fresh))
+  (fmov_from (&mut b) false a64_buf.x0 a64_buf.v1)
+  (fmov_from (&mut b) true a64_buf.x0 a64_buf.v1)
+  (eq (& b) "2000669e2000261e"))
+
+(test fmov
+  (let mut b (fresh))
+  (fmov (&mut b) false a64_buf.v0 a64_buf.v16)
+  (fmov (&mut b) true a64_buf.v0 a64_buf.v1)
+  (eq (& b) "0042601e2040201e"))
+
+(test fld
+  (let mut b (fresh))
+  (fld (&mut b) false a64_buf.v0 a64_buf.x1 8)
+  (fld (&mut b) true a64_buf.v0 a64_buf.x1 4)
+  (fld (&mut b) false a64_buf.v0 a64_buf.x1 (neg 8))
+  (fld (&mut b) false a64_buf.v0 a64_buf.x1 32768)
+  (eq (& b) "200440fd200440bd20805ffc2e204091c00140fd"))
+
+(test fst
+  (let mut b (fresh))
+  (fst (&mut b) false a64_buf.x1 8 a64_buf.v0)
+  (fst (&mut b) true a64_buf.x1 4 a64_buf.v0)
+  (fst (&mut b) false a64_buf.x1 (neg 8) a64_buf.v0)
+  (eq (& b) "200400fd200400bd20801ffc"))
+
+(test fadd
+  (let mut b (fresh))
+  (fadd (&mut b) false a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (fadd (&mut b) true a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (eq (& b) "2028621e2028221e"))
+
+(test fsub
+  (let mut b (fresh))
+  (fsub (&mut b) false a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (fsub (&mut b) true a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (eq (& b) "2038621e2038221e"))
+
+(test fmul
+  (let mut b (fresh))
+  (fmul (&mut b) false a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (fmul (&mut b) true a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (eq (& b) "2008621e2008221e"))
+
+(test fdiv
+  (let mut b (fresh))
+  (fdiv (&mut b) false a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (fdiv (&mut b) true a64_buf.v0 a64_buf.v1 a64_buf.v2)
+  (eq (& b) "2018621e2018221e"))
+
+(test fneg
+  (let mut b (fresh))
+  (fneg (&mut b) false a64_buf.v0 a64_buf.v1)
+  (fneg (&mut b) true a64_buf.v0 a64_buf.v1)
+  (eq (& b) "2040611e2040211e"))
+
+(test fcmp
+  (let mut b (fresh))
+  (fcmp (&mut b) false a64_buf.v0 a64_buf.v1)
+  (fcmp (&mut b) true a64_buf.v0 a64_buf.v1)
+  (eq (& b) "0020611e0020211e"))
+
+(test scvtf
+  (let mut b (fresh))
+  (scvtf (&mut b) false a64_buf.v0 a64_buf.x1 8)
+  (scvtf (&mut b) true a64_buf.v0 a64_buf.x1 8)
+  (scvtf (&mut b) false a64_buf.v0 a64_buf.x1 4)
+  (scvtf (&mut b) true a64_buf.v0 a64_buf.x1 4)
+  (eq (& b) "2000629e2000229e2000621e2000221e"))
+
+(test ucvtf
+  (let mut b (fresh))
+  (ucvtf (&mut b) false a64_buf.v0 a64_buf.x1 8)
+  (ucvtf (&mut b) true a64_buf.v0 a64_buf.x1 8)
+  (ucvtf (&mut b) false a64_buf.v0 a64_buf.x1 4)
+  (ucvtf (&mut b) true a64_buf.v0 a64_buf.x1 4)
+  (eq (& b) "2000639e2000239e2000631e2000231e"))
+
+(test fcvtzs
+  (let mut b (fresh))
+  (fcvtzs (&mut b) false a64_buf.x0 a64_buf.v1 8)
+  (fcvtzs (&mut b) false a64_buf.x0 a64_buf.v1 4)
+  (fcvtzs (&mut b) true a64_buf.x0 a64_buf.v1 8)
+  (fcvtzs (&mut b) true a64_buf.x0 a64_buf.v1 4)
+  (eq (& b) "2000789e2000781e2000389e2000381e"))
+
+(test fcvtzu
+  (let mut b (fresh))
+  (fcvtzu (&mut b) false a64_buf.x0 a64_buf.v1 8)
+  (fcvtzu (&mut b) false a64_buf.x0 a64_buf.v1 4)
+  (fcvtzu (&mut b) true a64_buf.x0 a64_buf.v1 8)
+  (fcvtzu (&mut b) true a64_buf.x0 a64_buf.v1 4)
+  (eq (& b) "2000799e2000791e2000399e2000391e"))
+
+(test fcvt
+  (let mut b (fresh))
+  (fcvt (&mut b) false a64_buf.v0 a64_buf.v1)
+  (fcvt (&mut b) true a64_buf.v0 a64_buf.v1)
+  (eq (& b) "20c0221e2040621e"))

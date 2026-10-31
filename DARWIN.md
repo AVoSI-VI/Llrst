@@ -89,9 +89,9 @@ flowchart LR
 | `self/isa_x64.llr` (`isa_x64_fp.llr` if needed) | x86-64 side; maps virtual registers to `rax rcx rdx r11 r10 xmm0 xmm1 rbp rsp` | 1 |
 | `self/cg_cast.llr` | casts split out of `cg_op.llr` (497 lines today) | 0 |
 | `self/a64_buf.llr` | words, registers, condition codes, label fixups, relocation kinds | 2 |
-| `self/a64_int.llr`, `self/a64_fp.llr` | integer and floating-point encoders | 2 |
+| `self/a64_int.llr`, `self/a64_mem.llr`, `self/a64_fp.llr` | integer, load/store, and floating-point encoders | 2 |
 | `self/a64_abi.llr` | `x0..x7`, `v0..v7`, 8-byte stack slots | 2 |
-| `self/a64.llr` | encoder tests against `llvm-mc` bytes | 2 |
+| `self/a64.llr` | encoder tests against `llvm-mc` bytes; fp and abi tests live in their modules | 2 |
 | `self/macho.llr` (`macho_out.llr` if needed) | Mach-O 64 arm64 relocatable object | 3 |
 | `self/isa_a64.llr` (split as needed) | aarch64 side of the seam | 4 |
 | `tests/x64_ref.sh` | x86-64 object snapshot and compare | 0 |
@@ -207,8 +207,14 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/cg_mod.llr` | 329 | Phase 3 still adds the Mach-O finish |
 | `self/isa_x64.llr` | 311 | Phase 1 |
 | `self/cg_isa.llr` | 270 | Phase 1; Phase 4 fills the aarch64 arm |
+| `self/a64.llr` | 321 | Phase 2 integer, branch, and memory tests |
+| `self/a64_buf.llr` | 276 | Phase 2 |
+| `self/a64_fp.llr` | 203 | Phase 2; float tests live here |
+| `self/a64_int.llr` | 197 | Phase 2 |
+| `self/a64_abi.llr` | 107 | Phase 2; classify test lives here |
+| `self/a64_mem.llr` | 75 | Phase 2 load/store split out of `a64_int` |
 
-Totals: `self/` 13283 lines in 59 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
+Totals: `self/` 14462 lines in 65 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
 
 ## Phases
 
@@ -262,34 +268,38 @@ Files: `self/cg_isa.llr` (new), `self/isa_x64.llr` (new; `isa_x64_fp.llr` if ove
    `fails=0`; `scripts/check-lines.sh` clean.
 6. `[x]` Commit: `self: cg passes emit through cg_isa; x86-64 bytes unchanged`.
 
-### Phase 2: aarch64 encoder and ABI `[ ]`
+### Phase 2: aarch64 encoder and ABI `[x]`
 
-Files: `self/a64_buf.llr`, `self/a64_int.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`, `self/a64.llr` (all new).
+Files: `self/a64_buf.llr`, `self/a64_int.llr`, `self/a64_mem.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`, `self/a64.llr` (all new).
 
-1. `[ ]` `a64_buf.llr`: registers `x0..x30 sp` (`fp=29 lr=30`, `sp` as id 31 in the
+1. `[x]` `a64_buf.llr`: registers `x0..x30 sp` (`fp=29 lr=30`, `sp` as id 31 in the
    base-register position, `xzr` as 31 in operand positions, handled per encoder), `v0..v31`;
    condition codes `eq=0 ne=1 cs=2 cc=3 mi=4 pl=5 vs=6 vc=7 hi=8 ls=9 ge=10 lt=11 gt=12 le=13`;
    `push_w` little-endian 32-bit word; labels with `b` (imm26) and `b.cond` (imm19) fixups
    patched into the instruction bitfields in `finish`; relocation records
    `{at kind sym}` with kinds `branch26 page21 pageoff12 abs64`.
-2. `[ ]` `a64_int.llr`: `mov_ri` as the shortest `movz`/`movk`/`movn` sequence; `add_ri`/
+2. `[x]` `a64_int.llr`: `mov_ri` as the shortest `movz`/`movk`/`movn` sequence; `add_ri`/
    `sub_ri` imm12 with optional `lsl 12`, otherwise through `x15`; `add_rr sub_rr adds subs
    cmp_rr cmp_ri`; `and_rr orr_rr eor_rr`; `lslv lsrv asrv`; `mul madd msub sdiv udiv smulh
    umulh`; `neg mvn`; `sxtb sxth sxtw uxtb uxth`; `ldr str` imm12 scaled for 8/4 bytes,
    `ldrb ldrh ldrsb ldrsh ldrsw strb strh`, `ldur stur` family for -256..255, a helper that
    picks the form or materialises the address in `x14`; `stp ldp` pre/post-index for
    `x29,x30`; `b b_cond bl blr br ret`; `cset csel`; `clz`; `brk 0`; `adrp add_lo12`;
-   `mov_sp` (`add sp, x29, #0` and `mov x29, sp`).
-3. `[ ]` `a64_fp.llr`: `fmov` gpr to fpr and back (32 and 64), `ldr/str` s and d with the
+   `mov_sp` (`add sp, x29, #0` and `mov x29, sp`). Load/store and the offset helper are
+   `a64_mem.llr`, so `a64_int.llr` stays under 500 lines. `to_sp` and `from_sp` are the two
+   directions of `mov_sp`.
+3. `[x]` `a64_fp.llr`: `fmov` gpr to fpr and back (32 and 64), `ldr/str` s and d with the
    same offset helper, `fadd fsub fmul fdiv fneg`, `fcmp`, `scvtf ucvtf` from w/x to s/d,
-   `fcvtzs fcvtzu` to w/x, `fcvt` s to d and d to s.
-4. `[ ]` `a64_abi.llr`: `cls_int` to `x0..x7`, `cls_float` to `v0..v7`, overflow to 8-byte
+   `fcvtzs fcvtzu` to w/x, `fcvt` s to d and d to s. Scalar `fmov` between FPRs is included
+   for phase 4 `to_ret`.
+4. `[x]` `a64_abi.llr`: `cls_int` to `x0..x7`, `cls_float` to `v0..v7`, overflow to 8-byte
    stack slots at `[sp, #8k]`; `classify cc cls out` with the same `arg {reg xmm off}` shape
    as `x64_abi` so `cg_isa.classify` is one call.
-5. `[ ]` `a64.llr`: one `(test ...)` per encoder form asserting exact bytes taken from
+5. `[x]` `a64.llr`: one `(test ...)` per encoder form asserting exact bytes taken from
    `llvm-mc -triple=arm64-apple-macos -show-encoding`; label fixup tests for forward and
-   backward branches; a relocation record test.
-6. `[ ]` Commit: `self: aarch64 encoder, fp, abi`.
+   backward branches; a relocation record test. Float tests are at the bottom of
+   `a64_fp.llr` and the ABI test is at the bottom of `a64_abi.llr`.
+6. `[x]` Commit: `self: aarch64 encoder, fp, abi`.
 
 ### Phase 3: object writers `[ ]`
 
@@ -422,3 +432,9 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   stayed byte-equal. `self/llrs` ELF and COFF snapshots were refreshed because the
   compiler text grew. `tests/check.sh` and `tests/mir.sh` fails=0. `fneg` on the seam
   is `xorps`/`xorpd` and is not what `cg_ovf.fneg` emits; that sign-bit xor stayed.
+- 2026-10-31: Phase 2. AArch64 encoder, FP, and AAPCS64 classify. Load/store is
+  `a64_mem.llr` so `a64_int` stays under 500 lines. Float tests live in `a64_fp.llr`
+  and the ABI test in `a64_abi.llr`. `llr-test` fails=0 against llvm-mc bytes.
+  `tests/check.sh` and `tests/mir.sh` fails=0. `tests/x64_ref.sh` is byte-equal; it
+  compiles `self/llrs.llr` with a relative path so the embedded source paths match the
+  snapshot. The new modules are not linked into `llrs`.

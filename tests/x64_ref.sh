@@ -6,6 +6,7 @@
 # Output: ok|x64/elf/NAME or fail|x64/coff/NAME|first=<offset>. Last line done|fails=N.
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root" || exit 1
 save=""
 if [ "${1:-}" = "--save" ]; then
   if [ -z "${2:-}" ]; then
@@ -149,8 +150,9 @@ for f in "$root"/std/*.llr; do
   emit coff "$name" "$f" 1
 done
 
-emit elf "self/llrs" "$root/self/llrs.llr" 0
-emit coff "self/llrs" "$root/self/llrs.llr" 0
+# The compiler image records source paths as given. The snapshot used a relative path.
+emit elf "self/llrs" "self/llrs.llr" 0
+emit coff "self/llrs" "self/llrs.llr" 0
 
 echo "done|fails=$fails"
 [ "$fails" -eq 0 ]

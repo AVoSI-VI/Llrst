@@ -1,0 +1,276 @@
+;; Instruction words, label fixups, and relocation records.
+;; Register 31 is sp as an add/sub-immediate operand or a load base, and xzr in every
+;; other field. Fixups splice imm26 or imm19 into the word. Relocation addends stay 0.
+(use std.vec)
+
+(pub (const x0 i64 0))
+
+(pub (const x1 i64 1))
+
+(pub (const x2 i64 2))
+
+(pub (const x3 i64 3))
+
+(pub (const x4 i64 4))
+
+(pub (const x5 i64 5))
+
+(pub (const x6 i64 6))
+
+(pub (const x7 i64 7))
+
+(pub (const x8 i64 8))
+
+(pub (const x9 i64 9))
+
+(pub (const x10 i64 10))
+
+(pub (const x11 i64 11))
+
+(pub (const x12 i64 12))
+
+(pub (const x13 i64 13))
+
+(pub (const x14 i64 14))
+
+(pub (const x15 i64 15))
+
+(pub (const x16 i64 16))
+
+(pub (const x17 i64 17))
+
+(pub (const x18 i64 18))
+
+(pub (const x19 i64 19))
+
+(pub (const x20 i64 20))
+
+(pub (const x21 i64 21))
+
+(pub (const x22 i64 22))
+
+(pub (const x23 i64 23))
+
+(pub (const x24 i64 24))
+
+(pub (const x25 i64 25))
+
+(pub (const x26 i64 26))
+
+(pub (const x27 i64 27))
+
+(pub (const x28 i64 28))
+
+(pub (const x29 i64 29))
+
+(pub (const x30 i64 30))
+
+(pub (const fp i64 29))
+
+(pub (const lr i64 30))
+
+(pub (const sp i64 31))
+
+(pub (const xzr i64 31))
+
+(pub (const v0 i64 0))
+
+(pub (const v1 i64 1))
+
+(pub (const v2 i64 2))
+
+(pub (const v3 i64 3))
+
+(pub (const v4 i64 4))
+
+(pub (const v5 i64 5))
+
+(pub (const v6 i64 6))
+
+(pub (const v7 i64 7))
+
+(pub (const v8 i64 8))
+
+(pub (const v9 i64 9))
+
+(pub (const v10 i64 10))
+
+(pub (const v11 i64 11))
+
+(pub (const v12 i64 12))
+
+(pub (const v13 i64 13))
+
+(pub (const v14 i64 14))
+
+(pub (const v15 i64 15))
+
+(pub (const v16 i64 16))
+
+(pub (const v17 i64 17))
+
+(pub (const v18 i64 18))
+
+(pub (const v19 i64 19))
+
+(pub (const v20 i64 20))
+
+(pub (const v21 i64 21))
+
+(pub (const v22 i64 22))
+
+(pub (const v23 i64 23))
+
+(pub (const v24 i64 24))
+
+(pub (const v25 i64 25))
+
+(pub (const v26 i64 26))
+
+(pub (const v27 i64 27))
+
+(pub (const v28 i64 28))
+
+(pub (const v29 i64 29))
+
+(pub (const v30 i64 30))
+
+(pub (const v31 i64 31))
+
+(pub (const eq i64 0))
+
+(pub (const ne i64 1))
+
+(pub (const cs i64 2))
+
+(pub (const cc i64 3))
+
+(pub (const mi i64 4))
+
+(pub (const pl i64 5))
+
+(pub (const vs i64 6))
+
+(pub (const vc i64 7))
+
+(pub (const hi i64 8))
+
+(pub (const ls i64 9))
+
+(pub (const ge i64 10))
+
+(pub (const lt i64 11))
+
+(pub (const gt i64 12))
+
+(pub (const le i64 13))
+
+(pub (const fix26 i64 0))
+
+(pub (const fix19 i64 1))
+
+(pub (const branch26 i64 2))
+
+(pub (const page21 i64 3))
+
+(pub (const pageoff12 i64 4))
+
+(pub (const abs64 i64 5))
+
+(pub (struct fix (pub (at i64)) (pub (lab i64)) (pub (kind i64))))
+
+(pub (struct rel (pub (at i64)) (pub (kind i64)) (pub (sym i64))))
+
+(pub (struct buf
+  (pub (bytes (vec u8)))
+  (pub (labs (vec i64)))
+  (pub (fixs (vec fix)))
+  (pub (rels (vec rel)))))
+
+(pub (fn new () buf (buf (vec.new <u8>) (vec.new <i64>) (vec.new <fix>) (vec.new <rel>))))
+
+(pub (fn len ((b (& buf))) i64 (vec.len (& (. b bytes)))))
+
+(pub (fn at ((b (& buf)) (i i64)) u8 (@ (vec.get (& (. b bytes)) i))))
+
+(pub (fn push ((b (&mut buf)) (x u8)) unit (vec.push (&mut (. b bytes)) x)))
+
+(fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
+
+(pub (fn push_n ((b (&mut buf)) (n i64) (count i64)) unit (for i 0 count (push b (lo n (* i 8))))))
+
+(pub (fn push_w ((b (&mut buf)) (n i64)) unit (push_n b n 4)))
+
+(pub (fn read_w ((b (& buf)) (pos i64)) i64
+  (let b0 (as i64 (at b pos)))
+  (let b1 (as i64 (at b (+ pos 1))))
+  (let b2 (as i64 (at b (+ pos 2))))
+  (let b3 (as i64 (at b (+ pos 3))))
+  (+ b0 (+ (shl b1 8) (+ (shl b2 16) (shl b3 24))))))
+
+(pub (fn write_w ((b (&mut buf)) (pos i64) (n i64)) unit
+  (vec.set (&mut (. b bytes)) pos (lo n 0))
+  (vec.set (&mut (. b bytes)) (+ pos 1) (lo n 8))
+  (vec.set (&mut (. b bytes)) (+ pos 2) (lo n 16))
+  (vec.set (&mut (. b bytes)) (+ pos 3) (lo n 24))))
+
+(pub (fn sf ((w i64)) i64 (if (== w 8) (shl 1 31) 0)))
+
+(pub (fn rr ((op i64) (rd i64) (rn i64)) i64 (+ op (+ (shl rn 5) rd))))
+
+(pub (fn rrr ((op i64) (rd i64) (rn i64) (rm i64)) i64 (+ (rr op rd rn) (shl rm 16))))
+
+(pub (fn ri12 ((op i64) (rd i64) (rn i64) (imm i64) (sh i64)) i64
+  (+ (rr op rd rn) (+ (shl sh 22) (shl imm 10)))))
+
+(pub (fn mem12 ((op i64) (rt i64) (rn i64) (imm i64)) i64 (+ (rr op rt rn) (shl imm 10))))
+
+(pub (fn mem9 ((op i64) (rt i64) (rn i64) (imm i64)) i64 (+ (rr op rt rn) (shl (band imm 511) 12))))
+
+(pub (fn pair ((op i64) (rt i64) (rt2 i64) (rn i64) (imm7 i64)) i64
+  (+ (rr op rt rn) (+ (shl rt2 10) (shl (band imm7 127) 15)))))
+
+(pub (fn label ((b (&mut buf))) i64
+  (let id (vec.len (& (. b labs))))
+  (vec.push (&mut (. b labs)) (neg 1))
+  id))
+
+(pub (fn bind ((b (&mut buf)) (id i64)) unit (let n (len b)) (vec.set (&mut (. b labs)) id n)))
+
+(pub (fn fix_w ((b (&mut buf)) (lab i64) (kind i64) (word i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b fixs)) (fix at lab kind))
+  (push_w b word)))
+
+(pub (fn reloc ((b (&mut buf)) (kind i64) (sym i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b rels)) (rel at kind sym))))
+
+(pub (fn reloc_abs ((b (&mut buf)) (sym i64)) unit (reloc b abs64 sym) (push_n b 0 8)))
+
+(fn fix_at ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) at))
+
+(fn fix_lab ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) lab))
+
+(fn fix_kind ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) kind))
+
+(fn lab_at ((b (& buf)) (i i64)) i64 (@ (vec.get (& (. b labs)) i)))
+
+(fn patch26 ((w i64) (d i64)) i64 (bor (band w 0xFC000000) (band d 0x03FFFFFF)))
+
+(fn patch19 ((w i64) (d i64)) i64 (bor (band w 0xFF00001F) (shl (band d 0x7FFFF) 5)))
+
+(fn patch ((b (&mut buf)) (i i64)) bool
+  (let at (fix_at b i))
+  (let target (lab_at b (fix_lab b i)))
+  (if (< target 0) (ret false))
+  (let d (/ (- target at) 4))
+  (let w (read_w b at))
+  (if (== (fix_kind b i) fix26) (write_w b at (patch26 w d)) (write_w b at (patch19 w d)))
+  true)
+
+(pub (fn finish ((b (&mut buf))) bool
+  (let mut ok true)
+  (let n (vec.len (& (. b fixs))))
+  (for i 0 n (if (not (patch b i)) (set ok false)))
+  ok))

@@ -1,0 +1,197 @@
+;; Integer and branch encodings. An immediate that misses imm12 is built in x15.
+;; uxtb and uxth are ubfm into X, so the result is zero-extended to 64 bits.
+(use proj.a64_buf)
+
+(fn hw ((n i64) (sh i64)) i64 (band (shr n sh) 65535))
+
+(fn hw_count ((n i64) (want i64)) i64
+  (let mut c 0)
+  (for i 0 4 (if (== (hw n (* i 16)) want) (set c (+ c 1))))
+  c)
+
+(fn prefer_n ((n i64)) bool (> (hw_count n 65535) (hw_count n 0)))
+
+(fn mov_hw ((b (&mut a64_buf.buf)) (op i64) (dst i64) (imm i64) (sh i64)) unit
+  (let h (/ sh 16))
+  (a64_buf.push_w b (+ op (+ (shl h 21) (+ (shl imm 5) dst)))))
+
+(fn emit_z ((b (&mut a64_buf.buf)) (dst i64) (h i64) (sh i64) (started (&mut bool))) unit
+  (if (== h 0) (ret))
+  (if (@ started) (mov_hw b 0xF2800000 dst h sh) (mov_hw b 0xD2800000 dst h sh))
+  (set (@ started) true))
+
+(fn emit_n ((b (&mut a64_buf.buf)) (dst i64) (h i64) (sh i64) (started (&mut bool))) unit
+  (if (== h 65535) (ret))
+  (if (@ started) (mov_hw b 0xF2800000 dst h sh) (mov_hw b 0x92800000 dst (bxor h 65535) sh))
+  (set (@ started) true))
+
+(fn emit_one ((b (&mut a64_buf.buf)) (dst i64) (n i64) (i i64) (movn bool) (started (&mut bool))) unit
+  (let sh (* i 16))
+  (let h (hw n sh))
+  (if movn (emit_n b dst h sh started) (emit_z b dst h sh started)))
+
+(fn emit_mov ((b (&mut a64_buf.buf)) (dst i64) (n i64) (movn bool)) unit
+  (let mut started false)
+  (for i 0 4 (emit_one b dst n i movn (&mut started)))
+  (if started (ret))
+  (if movn (mov_hw b 0x92800000 dst 0 0) (mov_hw b 0xD2800000 dst 0 0)))
+
+(pub (fn mov_ri ((b (&mut a64_buf.buf)) (dst i64) (n i64)) unit (emit_mov b dst n (prefer_n n))))
+
+(fn dp ((b (&mut a64_buf.buf)) (w i64) (op i64) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr (+ (a64_buf.sf w) op) dst rn rm)))
+
+(fn dp_ra ((b (&mut a64_buf.buf)) (w i64) (op i64) (dst i64) (rn i64) (rm i64) (ra i64)) unit
+  (let word (a64_buf.rrr (+ (a64_buf.sf w) op) dst rn rm))
+  (a64_buf.push_w b (+ word (shl ra 10))))
+
+(pub (fn add_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x0B000000 dst rn rm)))
+
+(pub (fn sub_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x4B000000 dst rn rm)))
+
+(pub (fn adds ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x2B000000 dst rn rm)))
+
+(pub (fn subs ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x6B000000 dst rn rm)))
+
+(pub (fn cmp_rr ((b (&mut a64_buf.buf)) (w i64) (rn i64) (rm i64)) unit (subs b w a64_buf.xzr rn rm)))
+
+(pub (fn and_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x0A000000 dst rn rm)))
+
+(pub (fn orr_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x2A000000 dst rn rm)))
+
+(pub (fn eor_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x4A000000 dst rn rm)))
+
+(pub (fn lslv ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x1AC02000 dst rn rm)))
+
+(pub (fn lsrv ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x1AC02400 dst rn rm)))
+
+(pub (fn asrv ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x1AC02800 dst rn rm)))
+
+(pub (fn mul ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp_ra b w 0x1B000000 dst rn rm a64_buf.xzr)))
+
+(pub (fn madd ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64) (ra i64)) unit
+  (dp_ra b w 0x1B000000 dst rn rm ra)))
+
+(pub (fn msub ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64) (ra i64)) unit
+  (dp_ra b w 0x1B008000 dst rn rm ra)))
+
+(pub (fn sdiv ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x1AC00C00 dst rn rm)))
+
+(pub (fn udiv ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x1AC00800 dst rn rm)))
+
+(pub (fn smulh ((b (&mut a64_buf.buf)) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr 0x9B407C00 dst rn rm))))
+
+(pub (fn umulh ((b (&mut a64_buf.buf)) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr 0x9BC07C00 dst rn rm))))
+
+(pub (fn neg ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rm i64)) unit (sub_rr b w dst a64_buf.xzr rm)))
+
+(pub (fn mvn ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rm i64)) unit
+  (dp b w 0x2A200000 dst a64_buf.xzr rm)))
+
+(fn bfm ((b (&mut a64_buf.buf)) (op i64) (dst i64) (rn i64) (imms i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (+ op (shl imms 10)) dst rn)))
+
+(pub (fn sxtb ((b (&mut a64_buf.buf)) (dst i64) (rn i64)) unit (bfm b 0x93400000 dst rn 7)))
+
+(pub (fn sxth ((b (&mut a64_buf.buf)) (dst i64) (rn i64)) unit (bfm b 0x93400000 dst rn 15)))
+
+(pub (fn sxtw ((b (&mut a64_buf.buf)) (dst i64) (rn i64)) unit (bfm b 0x93400000 dst rn 31)))
+
+(pub (fn uxtb ((b (&mut a64_buf.buf)) (dst i64) (rn i64)) unit (bfm b 0xD3400000 dst rn 7)))
+
+(pub (fn uxth ((b (&mut a64_buf.buf)) (dst i64) (rn i64)) unit (bfm b 0xD3400000 dst rn 15)))
+
+(pub (fn clz ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64)) unit
+  (a64_buf.push_w b (a64_buf.rr (+ (a64_buf.sf w) 0x5AC01000) dst rn))))
+
+(pub (fn csel ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64) (cc i64)) unit
+  (let word (a64_buf.rrr (+ (a64_buf.sf w) 0x1A800000) dst rn rm))
+  (a64_buf.push_w b (+ word (shl cc 12)))))
+
+(pub (fn cset ((b (&mut a64_buf.buf)) (dst i64) (cc i64)) unit
+  (let word (a64_buf.rrr 0x9A800400 dst a64_buf.xzr a64_buf.xzr))
+  (a64_buf.push_w b (+ word (shl (bxor cc 1) 12)))))
+
+(pub (fn brk ((b (&mut a64_buf.buf))) unit (a64_buf.push_w b 0xD4200000)))
+
+(fn u12 ((n i64)) bool (and (>= n 0) (<= n 4095)))
+
+(fn u12s ((n i64)) bool (and (and (>= n 0) (== (band n 4095) 0)) (<= (shr n 12) 4095)))
+
+(fn imm_base ((w i64) (sub bool) (flags bool)) i64
+  (let op (if sub 0x40000000 0))
+  (let fl (if flags 0x20000000 0))
+  (+ (a64_buf.sf w) (+ 0x11000000 (+ op fl))))
+
+(fn put_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64) (sh i64) (sub bool) (flags bool)) unit
+  (let rd (if flags a64_buf.xzr dst))
+  (a64_buf.push_w b (a64_buf.ri12 (imm_base w sub flags) rd rn imm sh)))
+
+(fn neg_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64) (sub bool) (flags bool)) bool
+  (if (>= imm 0) (ret false))
+  (let mag (neg imm))
+  (if (u12 mag) (do (put_ri b w dst rn mag 0 (not sub) flags) (ret true)))
+  (if (u12s mag) (do (put_ri b w dst rn (shr mag 12) 1 (not sub) flags) (ret true)))
+  false)
+
+(fn reg_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64) (sub bool) (flags bool)) unit
+  (mov_ri b a64_buf.x15 imm)
+  (if flags (ret (cmp_rr b w rn a64_buf.x15)))
+  (if sub (sub_rr b w dst rn a64_buf.x15) (add_rr b w dst rn a64_buf.x15)))
+
+(fn emit_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64) (sub bool) (flags bool)) unit
+  (if (u12 imm) (ret (put_ri b w dst rn imm 0 sub flags)))
+  (if (u12s imm) (ret (put_ri b w dst rn (shr imm 12) 1 sub flags)))
+  (if (neg_ri b w dst rn imm sub flags) (ret))
+  (reg_ri b w dst rn imm sub flags))
+
+(pub (fn add_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64)) unit
+  (emit_ri b w dst rn imm false false)))
+
+(pub (fn sub_ri ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (imm i64)) unit
+  (emit_ri b w dst rn imm true false)))
+
+(pub (fn cmp_ri ((b (&mut a64_buf.buf)) (w i64) (rn i64) (imm i64)) unit
+  (emit_ri b w a64_buf.xzr rn imm true true)))
+
+(pub (fn b ((b (&mut a64_buf.buf)) (lab i64)) unit (a64_buf.fix_w b lab a64_buf.fix26 0x14000000)))
+
+(pub (fn b_cond ((b (&mut a64_buf.buf)) (cc i64) (lab i64)) unit
+  (a64_buf.fix_w b lab a64_buf.fix19 (+ 0x54000000 cc))))
+
+(pub (fn bl ((b (&mut a64_buf.buf)) (sym i64)) unit
+  (a64_buf.reloc b a64_buf.branch26 sym)
+  (a64_buf.push_w b 0x94000000)))
+
+(pub (fn blr ((b (&mut a64_buf.buf)) (rn i64)) unit (a64_buf.push_w b (a64_buf.rr 0xD63F0000 0 rn))))
+
+(pub (fn br ((b (&mut a64_buf.buf)) (rn i64)) unit (a64_buf.push_w b (a64_buf.rr 0xD61F0000 0 rn))))
+
+(pub (fn ret ((b (&mut a64_buf.buf))) unit (a64_buf.push_w b (a64_buf.rr 0xD65F0000 0 a64_buf.lr))))
+
+(pub (fn adrp ((b (&mut a64_buf.buf)) (dst i64) (sym i64)) unit
+  (a64_buf.reloc b a64_buf.page21 sym)
+  (a64_buf.push_w b (+ 0x90000000 dst))))
+
+(pub (fn add_lo12 ((b (&mut a64_buf.buf)) (dst i64) (rn i64) (sym i64)) unit
+  (a64_buf.reloc b a64_buf.pageoff12 sym)
+  (a64_buf.push_w b (a64_buf.ri12 0x91000000 dst rn 0 0))))
+
+(pub (fn to_sp ((b (&mut a64_buf.buf)) (src i64)) unit (add_ri b 8 a64_buf.sp src 0)))
+
+(pub (fn from_sp ((b (&mut a64_buf.buf)) (dst i64)) unit (add_ri b 8 dst a64_buf.sp 0)))
