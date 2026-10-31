@@ -1,0 +1,270 @@
+;; ISA seam. Passes emit virtual registers; x86-64 runs when a64 is false.
+(use proj.isa_x64)
+(use proj.isa_x64_fp)
+(use proj.x64_buf)
+
+(pub (const acc i64 0))
+
+(pub (const tmp i64 1))
+
+(pub (const hi i64 2))
+
+(pub (const addr i64 3))
+
+(pub (const dst i64 4))
+
+(pub (const fp0 i64 5))
+
+(pub (const fp1 i64 6))
+
+(pub (const fp i64 7))
+
+(pub (const sp i64 8))
+
+(pub (const ret_i i64 9))
+
+(pub (const ret_f i64 10))
+
+(pub (const eq i64 0))
+
+(pub (const ne i64 1))
+
+(pub (const lt i64 2))
+
+(pub (const le i64 3))
+
+(pub (const gt i64 4))
+
+(pub (const ge i64 5))
+
+(pub (const ult i64 6))
+
+(pub (const ule i64 7))
+
+(pub (const ugt i64 8))
+
+(pub (const uge i64 9))
+
+(pub (const ovf i64 10))
+
+(pub (const carry i64 11))
+
+(pub (const unord i64 12))
+
+(pub (const cls_int i64 0))
+
+(pub (const cls_float i64 1))
+
+(pub (struct isa (pub (a64 bool)) (pub (win bool))))
+
+(pub (struct arg (pub (reg i64)) (pub (xmm bool)) (pub (off i64))))
+
+(pub (fn arg_i ((n i64)) i64 (+ 16 n)))
+
+(pub (fn arg_f ((n i64)) i64 (+ 32 n)))
+
+(pub (fn ld ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (base i64) (disp i64)) unit
+  (if (not (. s a64)) (isa_x64.ld b s w dst base disp))))
+
+(pub (fn st ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (src i64) (base i64) (disp i64)) unit
+  (if (not (. s a64)) (isa_x64.st b s w src base disp))))
+
+(pub (fn lea ((b (&mut x64_buf.buf)) (s (& isa)) (dst i64) (base i64) (disp i64)) unit
+  (if (not (. s a64)) (isa_x64.lea b s dst base disp))))
+
+(pub (fn mov_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.mov_rr b s w dst src))))
+
+(pub (fn mov_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.mov_ri b s w dst imm))))
+
+(pub (fn zero ((b (&mut x64_buf.buf)) (s (& isa)) (dst i64)) unit
+  (if (not (. s a64)) (isa_x64.zero b s dst))))
+
+(pub (fn sym_addr ((b (&mut x64_buf.buf)) (s (& isa)) (dst i64) (sym i64)) unit
+  (if (not (. s a64)) (isa_x64.sym_addr b s dst sym))))
+
+(pub (fn call_sym ((b (&mut x64_buf.buf)) (s (& isa)) (sym i64)) unit
+  (if (. s a64) (ret))
+  (isa_x64.call_sym b s sym)
+  (from_ret b s)))
+
+(pub (fn call_r ((b (&mut x64_buf.buf)) (s (& isa)) (r i64)) unit
+  (if (. s a64) (ret))
+  (isa_x64.call_r b s r)
+  (from_ret b s)))
+
+(pub (fn jmp ((b (&mut x64_buf.buf)) (s (& isa)) (lab i64)) unit
+  (if (not (. s a64)) (isa_x64.jmp b s lab))))
+
+(pub (fn jcc ((b (&mut x64_buf.buf)) (s (& isa)) (cc i64) (lab i64)) unit
+  (if (not (. s a64)) (isa_x64.jcc b s cc lab))))
+
+(pub (fn label ((b (&mut x64_buf.buf)) (s (& isa))) i64 (if (. s a64) (ret 0) (isa_x64.label b s))))
+
+(pub (fn bind ((b (&mut x64_buf.buf)) (s (& isa)) (id i64)) unit
+  (if (not (. s a64)) (isa_x64.bind b s id))))
+
+(pub (fn cmp_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.cmp_rr b s w dst src))))
+
+(pub (fn cmp_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.cmp_ri b s w dst imm))))
+
+(pub (fn test_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.test_rr b s w dst src))))
+
+(pub (fn setcc ((b (&mut x64_buf.buf)) (s (& isa)) (cc i64) (dst i64)) unit
+  (if (not (. s a64)) (isa_x64.setcc b s cc dst))))
+
+(pub (fn add_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.add_rr b s w dst src))))
+
+(pub (fn sub_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.sub_rr b s w dst src))))
+
+(pub (fn mul_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.mul_rr b s w dst src))))
+
+(pub (fn and_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.and_rr b s w dst src))))
+
+(pub (fn or_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.or_rr b s w dst src))))
+
+(pub (fn xor_rr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.xor_rr b s w dst src))))
+
+(pub (fn add_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.add_ri b s w dst imm))))
+
+(pub (fn sub_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.sub_ri b s w dst imm))))
+
+(pub (fn mul_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.mul_ri b s w dst imm))))
+
+(pub (fn and_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.and_ri b s w dst imm))))
+
+(pub (fn or_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.or_ri b s w dst imm))))
+
+(pub (fn xor_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.xor_ri b s w dst imm))))
+
+(pub (fn sdiv ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit
+  (if (not (. s a64)) (isa_x64.sdiv b s w))))
+
+(pub (fn udiv ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit
+  (if (not (. s a64)) (isa_x64.udiv b s w))))
+
+(pub (fn srem ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit
+  (if (not (. s a64)) (isa_x64.srem b s w))))
+
+(pub (fn urem ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit
+  (if (not (. s a64)) (isa_x64.urem b s w))))
+
+(pub (fn shl ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit (if (not (. s a64)) (isa_x64.shl b s w))))
+
+(pub (fn shr ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit (if (not (. s a64)) (isa_x64.shr b s w))))
+
+(pub (fn sar ((b (&mut x64_buf.buf)) (s (& isa)) (w i64)) unit (if (not (. s a64)) (isa_x64.sar b s w))))
+
+(pub (fn shr_ri ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (imm i64)) unit
+  (if (not (. s a64)) (isa_x64.shr_ri b s w dst imm))))
+
+(pub (fn neg ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64)) unit
+  (if (not (. s a64)) (isa_x64.neg b s w dst))))
+
+(pub (fn not ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64)) unit
+  (if (not (. s a64)) (isa_x64.not b s w dst))))
+
+(pub (fn widen ((b (&mut x64_buf.buf)) (s (& isa)) (dst i64) (src i64) (to_w i64) (from_w i64) (signed bool)) unit
+  (if (not (. s a64)) (isa_x64.widen b s dst src to_w from_w signed))))
+
+(pub (fn add_ovf ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (signed bool)) i64
+  (if (. s a64) (ret ovf) (isa_x64.add_ovf b s w signed))))
+
+(pub (fn sub_ovf ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (signed bool)) i64
+  (if (. s a64) (ret ovf) (isa_x64.sub_ovf b s w signed))))
+
+(pub (fn mul_ovf ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (signed bool)) i64
+  (if (. s a64) (ret ovf) (isa_x64.mul_ovf b s w signed))))
+
+(pub (fn exact_bits ((b (&mut x64_buf.buf)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64.exact_bits b s w dst src))))
+
+(pub (fn trap ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.trap b s))))
+
+(pub (fn to_ret ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.to_ret b s))))
+
+(pub (fn from_ret ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.from_ret b s))))
+
+(pub (fn prologue ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.prologue b s))))
+
+(pub (fn epilogue ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.epilogue b s))))
+
+(pub (fn pop_fp ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.pop_fp b s))))
+
+(pub (fn ret ((b (&mut x64_buf.buf)) (s (& isa))) unit (if (not (. s a64)) (isa_x64.ret b s))))
+
+(pub (fn probe ((b (&mut x64_buf.buf)) (s (& isa)) (frame i64) (sym i64)) unit
+  (if (not (. s a64)) (isa_x64.probe b s frame sym))))
+
+(pub (fn save_arg ((b (&mut x64_buf.buf)) (s (& isa)) (a (& arg)) (w i64) (disp i64) (xmm bool)) unit
+  (if (not (. s a64)) (isa_x64.save_arg b s a w disp xmm))))
+
+(pub (fn pass_reg ((b (&mut x64_buf.buf)) (s (& isa)) (a (& arg)) (slot i64)) unit
+  (if (not (. s a64)) (isa_x64.pass_reg b s a slot))))
+
+(pub (fn pass_mem ((b (&mut x64_buf.buf)) (s (& isa)) (frame i64) (a (& arg)) (slot i64)) unit
+  (if (not (. s a64)) (isa_x64.pass_mem b s frame a slot))))
+
+(pub (fn copy ((b (&mut x64_buf.buf)) (s (& isa)) (n i64)) unit
+  (if (not (. s a64)) (isa_x64.copy b s n))))
+
+(pub (fn trace_push ((b (&mut x64_buf.buf)) (s (& isa)) (disp i64) (name i64) (sym i64)) unit
+  (if (not (. s a64)) (isa_x64.trace_push b s disp name sym))))
+
+(pub (fn trace_pop ((b (&mut x64_buf.buf)) (s (& isa)) (disp i64) (sym i64)) unit
+  (if (not (. s a64)) (isa_x64.trace_pop b s disp sym))))
+
+(pub (fn classify ((s (& isa)) (cls (& (vec i64))) (out (&mut (vec arg)))) unit
+  (if (not (. s a64)) (isa_x64.classify s cls out))))
+
+(pub (fn fmov ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fmov b s single dst src))))
+
+(pub (fn fld ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fld b s single dst base disp))))
+
+(pub (fn fst ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fst b s single base disp src))))
+
+(pub (fn fadd ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fadd b s single dst src))))
+
+(pub (fn fsub ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fsub b s single dst src))))
+
+(pub (fn fmul ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fmul b s single dst src))))
+
+(pub (fn fdiv ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fdiv b s single dst src))))
+
+(pub (fn fneg ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fneg b s single dst src))))
+
+(pub (fn fcmp ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.fcmp b s single dst src))))
+
+(pub (fn i2f ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.i2f b s single dst src w))))
+
+(pub (fn f2i ((b (&mut x64_buf.buf)) (s (& isa)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.f2i b s single dst src w))))
+
+(pub (fn f2f ((b (&mut x64_buf.buf)) (s (& isa)) (to_single bool) (dst i64) (src i64)) unit
+  (if (not (. s a64)) (isa_x64_fp.f2f b s to_single dst src))))

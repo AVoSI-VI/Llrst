@@ -1,4 +1,5 @@
-;; rbp frame. Every local is a slot. Caller-saved scratch is rax, rcx, rdx, r10, r11, xmm0.
+;; Frame pointer slots. Scratch is acc, tmp, hi, dst, addr, and fp0.
+(use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
 (use proj.elf)
@@ -6,10 +7,7 @@
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
-(use proj.x64_abi)
 (use proj.x64_buf)
-(use proj.x64_int)
-(use proj.x64_sse)
 
 (pub (struct fncx
   (pub (buf x64_buf.buf))
@@ -31,49 +29,38 @@
   (pub (cdrop (vec i64)))
   (pub (line i64))
   (pub (col i64))
-  (pub (path str))))
-
-(pub (fn m ((base i64) (disp i64)) x64_buf.mem (x64_buf.mem base (neg 1) 1 disp)))
+  (pub (path str))
+  (pub (isa cg_isa.isa))))
 
 (pub (fn ld ((fx (&mut fncx)) (w i64) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_int.load (&mut (. fx buf)) w dst (& mm))))
+  (cg_isa.ld (&mut (. fx buf)) (& (. fx isa)) w dst base disp)))
 
 (pub (fn st ((fx (&mut fncx)) (w i64) (base i64) (disp i64) (src i64)) unit
-  (let mm (m base disp))
-  (x64_int.store (&mut (. fx buf)) w (& mm) src)))
+  (cg_isa.st (&mut (. fx buf)) (& (. fx isa)) w src base disp)))
 
 (pub (fn lea ((fx (&mut fncx)) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_int.lea (&mut (. fx buf)) 8 dst (& mm))))
+  (cg_isa.lea (&mut (. fx buf)) (& (. fx isa)) dst base disp)))
 
-(pub (fn bload ((b (&mut x64_buf.buf)) (w i64) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_int.load b w dst (& mm))))
+(pub (fn bload ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (dst i64) (base i64) (disp i64)) unit
+  (cg_isa.ld b s w dst base disp)))
 
-(pub (fn bstore ((b (&mut x64_buf.buf)) (w i64) (base i64) (disp i64) (src i64)) unit
-  (let mm (m base disp))
-  (x64_int.store b w (& mm) src)))
+(pub (fn bstore ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (base i64) (disp i64) (src i64)) unit
+  (cg_isa.st b s w src base disp)))
 
-(pub (fn bsdld ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_sse.movsd_load b dst (& mm))))
+(pub (fn bsdld ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+  (cg_isa.fld b s false dst base disp)))
 
-(pub (fn bsdst ((b (&mut x64_buf.buf)) (base i64) (disp i64) (src i64)) unit
-  (let mm (m base disp))
-  (x64_sse.movsd_store b (& mm) src)))
+(pub (fn bsdst ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
+  (cg_isa.fst b s false base disp src)))
 
-(pub (fn bssld ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_sse.movss_load b dst (& mm))))
+(pub (fn bssld ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+  (cg_isa.fld b s true dst base disp)))
 
-(pub (fn bssst ((b (&mut x64_buf.buf)) (base i64) (disp i64) (src i64)) unit
-  (let mm (m base disp))
-  (x64_sse.movss_store b (& mm) src)))
+(pub (fn bssst ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
+  (cg_isa.fst b s true base disp src)))
 
-(pub (fn blea ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
-  (let mm (m base disp))
-  (x64_int.lea b 8 dst (& mm))))
+(pub (fn blea ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+  (cg_isa.lea b s dst base disp)))
 
 (pub (fn reset ((fx (&mut fncx))) unit (set (. fx used) 0)))
 
@@ -90,7 +77,7 @@
   (set (@ cur) (+ c size))
   (neg (@ cur)))
 
-(fn blank ((b (& mir.body))) fncx
+(fn blank ((b (& mir.body)) (hw cg_isa.isa)) fncx
   (fncx (x64_buf.new)
     (vec.new <i64>)
     (vec.new <bool>)
@@ -110,7 +97,8 @@
     (vec.new <i64>)
     0
     0
-    (str.clone (& (. b path)))))
+    (str.clone (& (. b path)))
+    hw))
 
 (fn local_slot ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (cur (&mut i64)) (t (& ty.sty))) unit
   (let l (cg_lay.of (&mut (. g lays)) p t))
@@ -153,7 +141,7 @@
 (fn classes ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body))) (vec i64)
   (let mut c (vec.new <i64>))
   (let ret (& (. (vec.get (& (. b locs)) 0) ty)))
-  (if (cg_lay.is_agg ret) (vec.push (&mut c) x64_abi.cls_int))
+  (if (cg_lay.is_agg ret) (vec.push (&mut c) cg_isa.cls_int))
   (for i 1 (+ (. b args) 1)
     (let t (& (. (vec.get (& (. b locs)) i) ty)))
     (if (not (ty.is_unit t)) (vec.push (&mut c) (cls_of t))))
@@ -161,17 +149,20 @@
   (let _ p)
   c)
 
-(fn cls_of ((t (& ty.sty))) i64 (if (cg_lay.is_float t) x64_abi.cls_float x64_abi.cls_int))
+(fn cls_of ((t (& ty.sty))) i64 (if (cg_lay.is_float t) cg_isa.cls_float cg_isa.cls_int))
 
 (pub (fn stack_n ((cls (& (vec i64)))) i64
-  (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify x64_abi.sysv cls (&mut args))
+  (let mut args (vec.new <cg_isa.arg>))
+  (let hw (cg_isa.isa false false))
+  (cg_isa.classify (& hw) cls (&mut args))
   (let mut n 0)
   (for i 0 (vec.len (& args)) (if (>= (. (vec.get (& args) i) off) 0) (set n (+ n 1))))
   n))
 
+(fn host_isa ((g (& cg_mod.cg))) cg_isa.isa (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+
 (pub (fn open ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body)) (out_bytes i64) (trace bool)) fncx
-  (let mut fx (blank b))
+  (let mut fx (blank b (host_isa g)))
   (let mut cur 0)
   (if (cg_lay.is_agg (& (. (vec.get (& (. b locs)) 0) ty)))
     (do (set (. fx has_sret) true) (set (. fx sret) (alloc (&mut cur) 8 8))))
@@ -183,16 +174,15 @@
   (set cur (+ cur 4096))
   (set (. fx frame) (cg_lay.align_up (+ cur out_bytes) 16))
   (for i 0 (vec.len (& (. b blocks)))
-    (vec.push (&mut (. fx labs)) (x64_buf.label (&mut (. fx buf)))))
-  (x64_int.push_r (&mut (. fx buf)) x64_buf.rbp)
-  (x64_int.mov_rr (&mut (. fx buf)) 8 x64_buf.rbp x64_buf.rsp)
+    (vec.push (&mut (. fx labs)) (cg_isa.label (&mut (. fx buf)) (& (. fx isa)))))
+  (cg_isa.prologue (&mut (. fx buf)) (& (. fx isa)))
   (probe g (&mut fx))
-  (if (!= (. fx frame) 0) (x64_int.sub_ri (&mut (. fx buf)) 8 x64_buf.rsp (. fx frame)))
+  (if (!= (. fx frame) 0) (cg_isa.sub_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.sp (. fx frame)))
   (save_in g p (&mut fx) b)
   (zero_flags (&mut fx))
   (flag_params p (&mut fx) b)
   (if trace (emit_trace g (&mut fx) (& (. b name))))
-  (x64_int.jmp (&mut (. fx buf)) (@ (vec.get (& (. fx labs)) 0)))
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) (@ (vec.get (& (. fx labs)) 0)))
   fx))
 
 (fn probe ((g (&mut cg_mod.cg)) (fx (&mut fncx))) unit
@@ -201,13 +191,12 @@
   (if (< (. g chkstk) 0)
     (set (. g chkstk)
       (elf.add_sym (&mut (. g obj)) "__chkstk" elf.global elf.st_none elf.sec_undef 0 0)))
-  (x64_int.mov_ri (&mut (. fx buf)) 8 x64_buf.rax (. fx frame))
-  (x64_int.call_sym (&mut (. fx buf)) (. g chkstk)))
+  (cg_isa.probe (&mut (. fx buf)) (& (. fx isa)) (. fx frame) (. g chkstk)))
 
 (fn save_in ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (b (& mir.body))) unit
   (let cls (classes g p b))
-  (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify (cg_mod.call_cc g) (& cls) (&mut args))
+  (let mut args (vec.new <cg_isa.arg>))
+  (cg_isa.classify (& (. g isa)) (& cls) (&mut args))
   (let mut ai 0)
   (let disp (. fx sret))
   (let sret (. fx has_sret))
@@ -218,21 +207,13 @@
     (if (not (ty.is_unit (& t)))
       (do (save_param g p fx (vec.get (& args) ai) (& t) i k) (set ai (+ ai 1)) (set k (+ k 1))))))
 
-(fn save_one ((fx (&mut fncx)) (a (& x64_abi.arg)) (w i64) (disp i64) (xmm bool)) unit
-  (if (>= (. a reg) 0)
-    (ret (do (if xmm (st_xmm fx w disp (. a reg)) (st fx w x64_buf.rbp disp (. a reg))))))
-  (ld fx w x64_buf.rax x64_buf.rbp (+ (. a off) 8))
-  (st fx w x64_buf.rbp disp x64_buf.rax))
-
-(fn st_xmm ((fx (&mut fncx)) (w i64) (disp i64) (reg i64)) unit
-  (if (== w 4)
-    (bssst (&mut (. fx buf)) x64_buf.rbp disp reg)
-    (bsdst (&mut (. fx buf)) x64_buf.rbp disp reg)))
+(fn save_one ((fx (&mut fncx)) (a (& cg_isa.arg)) (w i64) (disp i64) (xmm bool)) unit
+  (cg_isa.save_arg (&mut (. fx buf)) (& (. fx isa)) a w disp xmm))
 
 (fn save_param ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut fncx))
-   (a (& x64_abi.arg))
+   (a (& cg_isa.arg))
    (t (& ty.sty))
    (local i64)
    (k i64)) unit
@@ -245,36 +226,22 @@
 (fn save_agg ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut fncx))
-   (a (& x64_abi.arg))
+   (a (& cg_isa.arg))
    (t (& ty.sty))
    (local i64)
    (k i64)) unit
   (let hold (- (. fx scratch) (* (+ k 1) 8)))
   (save_one fx a 8 hold false)
-  (ld fx 8 x64_buf.r11 x64_buf.rbp hold)
+  (ld fx 8 cg_isa.addr cg_isa.fp hold)
   (let dest (off_at fx local))
-  (lea fx x64_buf.r10 x64_buf.rbp dest)
+  (lea fx cg_isa.dst cg_isa.fp dest)
   (let n (cg_lay.size (&mut (. g lays)) p t))
   (copy g p fx n))
 
 (pub (fn copy ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (n i64)) unit
   (let _ g)
   (let _ p)
-  (if (<= n 0) (ret))
-  (if (or (== n 1) (or (== n 2) (or (== n 4) (== n 8)))) (ret (copy_n fx n)))
-  (let mut i 0)
-  (while (>= (- n i) 8) (do (copy_off fx 8 i) (set i (+ i 8))))
-  (while (< i n) (do (copy_off fx 1 i) (set i (+ i 1))))))
-
-(fn copy_n ((fx (&mut fncx)) (n i64)) unit (copy_off fx n 0))
-
-(fn copy_off ((fx (&mut fncx)) (w i64) (i i64)) unit
-  (x64_int.add_ri (&mut (. fx buf)) 8 x64_buf.r11 i)
-  (x64_int.add_ri (&mut (. fx buf)) 8 x64_buf.r10 i)
-  (ld fx w x64_buf.rax x64_buf.r11 0)
-  (st fx w x64_buf.r10 0 x64_buf.rax)
-  (x64_int.sub_ri (&mut (. fx buf)) 8 x64_buf.r11 i)
-  (x64_int.sub_ri (&mut (. fx buf)) 8 x64_buf.r10 i))
+  (cg_isa.copy (&mut (. fx buf)) (& (. fx isa)) n)))
 
 (fn fon_at ((fx (& fncx)) (i i64)) bool (@ (vec.get (& (. fx fon)) i)))
 
@@ -312,8 +279,8 @@
   (for i 1 (+ (. b args) 1) (set_flag fx i true)))
 
 (pub (fn set_byte ((fx (&mut fncx)) (disp i64) (on bool)) unit
-  (x64_int.mov_ri (&mut (. fx buf)) 4 x64_buf.rax (if on 1 0))
-  (st fx 1 x64_buf.rbp disp x64_buf.rax)))
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 4 cg_isa.acc (if on 1 0))
+  (st fx 1 cg_isa.fp disp cg_isa.acc)))
 
 (fn i64s ((row (& (vec i64)))) (vec i64)
   (let mut o (vec.new <i64>))
@@ -357,10 +324,7 @@
 
 (fn emit_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64) (name (& str))) unit
   (let ns (cg_mod.cstr_sym g name))
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.r10 ns)
-  (st fx 8 x64_buf.rbp (+ disp 8) x64_buf.r10)
-  (lea fx (cg_mod.a0 g) x64_buf.rbp disp)
-  (x64_int.call_sym (&mut (. fx buf)) (cg_mod.trace_push g)))
+  (cg_isa.trace_push (&mut (. fx buf)) (& (. fx isa)) disp ns (cg_mod.trace_push g)))
 
 (pub (fn push_inline ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (slot i64) (name (& str))) unit
   (emit_at g fx (@ (vec.get (& (. fx toff)) slot)) name)))
@@ -373,28 +337,22 @@
   (pop_at g fx (@ (vec.get (& (. fx toff)) slot)))))
 
 (fn pop_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64)) unit
-  (lea fx (cg_mod.a0 g) x64_buf.rbp disp)
-  (x64_int.call_sym (&mut (. fx buf)) (cg_mod.trace_pop g)))
+  (cg_isa.trace_pop (&mut (. fx buf)) (& (. fx isa)) disp (cg_mod.trace_pop g)))
 
 (pub (fn bpush ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64) (name (& str))) unit
   (let ns (cg_mod.cstr_sym g name))
-  (x64_int.lea_rip b x64_buf.r10 ns)
-  (bstore b 8 x64_buf.rbp (+ disp 8) x64_buf.r10)
-  (blea b (cg_mod.a0 g) x64_buf.rbp disp)
-  (x64_int.call_sym b (cg_mod.trace_push g))))
+  (let sym (cg_mod.trace_push g))
+  (cg_isa.trace_push b (& (. g isa)) disp ns sym)))
 
 (pub (fn bpop ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64)) unit
-  (blea b (cg_mod.a0 g) x64_buf.rbp disp)
-  (x64_int.call_sym b (cg_mod.trace_pop g))))
+  (let sym (cg_mod.trace_pop g))
+  (cg_isa.trace_pop b (& (. g isa)) disp sym)))
 
-(pub (fn epilogue ((fx (&mut fncx))) unit
-  (x64_int.mov_rr (&mut (. fx buf)) 8 x64_buf.rsp x64_buf.rbp)
-  (x64_int.pop_r (&mut (. fx buf)) x64_buf.rbp)
-  (x64_int.ret (&mut (. fx buf)))))
+(pub (fn epilogue ((fx (&mut fncx))) unit (cg_isa.epilogue (&mut (. fx buf)) (& (. fx isa)))))
 
 (pub (fn addr_local ((fx (&mut fncx)) (reg i64) (local i64)) unit
-  (if (@ (vec.get (& (. fx z)) local)) (ret (x64_int.xor_rr (&mut (. fx buf)) 4 reg reg)))
-  (lea fx reg x64_buf.rbp (@ (vec.get (& (. fx off)) local)))))
+  (if (@ (vec.get (& (. fx z)) local)) (ret (cg_isa.zero (&mut (. fx buf)) (& (. fx isa)) reg)))
+  (lea fx reg cg_isa.fp (@ (vec.get (& (. fx off)) local)))))
 
 (pub (fn place ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -403,7 +361,7 @@
    (local i64)
    (pk (& (vec u8)))
    (pi (& (vec i64)))) ty.sty
-  (addr_local fx x64_buf.r11 local)
+  (addr_local fx cg_isa.addr local)
   (let mut ty (ty.clone (& (. (vec.get locs local) ty))))
   (let mut variant (neg 1))
   (for i 0 (vec.len pk)
@@ -417,7 +375,7 @@
    (variant (&mut i64))
    (k u8)
    (n i64)) ty.sty
-  (if (== k 1u8) (ret (do (ld fx 8 x64_buf.r11 x64_buf.r11 0) (ty.inner ty))))
+  (if (== k 1u8) (ret (do (ld fx 8 cg_isa.addr cg_isa.addr 0) (ty.inner ty))))
   (if (== k 2u8) (ret (do (set (@ variant) n) (ty.clone ty))))
   (field_step g p fx ty variant n))
 
@@ -432,7 +390,7 @@
     (if (>= (@ variant) 0)
       (@ (vec.get (vec.get (& (. l vars)) (@ variant)) n))
       (@ (vec.get (& (. l fields)) n))))
-  (if (!= off 0) (x64_int.add_ri (&mut (. fx buf)) 8 x64_buf.r11 off))
+  (if (!= off 0) (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr off))
   (let next (mir.field_ty p ty (@ variant) n))
   (set (@ variant) (neg 1))
   next)
@@ -440,19 +398,15 @@
 (pub (fn load_s ((fx (&mut fncx)) (t (& ty.sty))) unit
   (if (ty.is_unit t) (ret))
   (if (cg_lay.is_float t) (ret (ld_xmm fx t)))
-  (ld fx (cg_lay.width t) x64_buf.rax x64_buf.r11 0)))
+  (ld fx (cg_lay.width t) cg_isa.acc cg_isa.addr 0)))
 
 (fn ld_xmm ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (if (== (. t kind) 1u8)
-    (bssld (&mut (. fx buf)) 0 x64_buf.r11 0)
-    (bsdld (&mut (. fx buf)) 0 x64_buf.r11 0)))
+  (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp0 cg_isa.addr 0))
 
 (pub (fn store_s ((fx (&mut fncx)) (t (& ty.sty))) unit
   (if (ty.is_unit t) (ret))
   (if (cg_lay.is_float t) (ret (st_xmm_r11 fx t)))
-  (st fx (cg_lay.width t) x64_buf.r10 0 x64_buf.rax)))
+  (st fx (cg_lay.width t) cg_isa.dst 0 cg_isa.acc)))
 
 (fn st_xmm_r11 ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (if (== (. t kind) 1u8)
-    (bssst (&mut (. fx buf)) x64_buf.r10 0 0)
-    (bsdst (&mut (. fx buf)) x64_buf.r10 0 0)))
+  (cg_isa.fst (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.dst 0 cg_isa.fp0))

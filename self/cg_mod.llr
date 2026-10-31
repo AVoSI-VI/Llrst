@@ -1,13 +1,13 @@
 ;; ELF object, symbols, and the 24-byte static str record.
-(use std.str)
 (use proj.cg_bits)
+(use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
 (use proj.prog)
 (use proj.ty)
-(use proj.x64_abi)
 (use proj.x64_buf)
+(use std.str)
 
 (pub (struct cg
   (pub (obj elf.obj))
@@ -16,6 +16,7 @@
   (pub (darwin bool))
   (pub (win bool))
   (pub (be bool))
+  (pub (isa cg_isa.isa))
   (pub (chkstk i64))
   (pub (argc i64))
   (pub (argv i64))
@@ -59,6 +60,7 @@
       darwin
       win
       be
+      (cg_isa.isa false win)
       (neg 1)
       0
       0
@@ -309,8 +311,6 @@
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
   (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b))))
 
-(pub (fn call_cc ((g (& cg))) i64 (if (. g win) x64_abi.win64 x64_abi.sysv)))
-
 (fn undef ((g (&mut cg)) (name (& str))) i64
   (elf.add_sym (&mut (. g obj)) name elf.global elf.st_none elf.sec_undef 0 0))
 
@@ -323,10 +323,6 @@
   (if (>= (. g tpop) 0) (ret (. g tpop)))
   (set (. g tpop) (undef g "llr_trace_pop"))
   (. g tpop)))
-
-(pub (fn a0 ((g (& cg))) i64 (if (. g win) x64_buf.rcx x64_buf.rdi)))
-
-(pub (fn a1 ((g (& cg))) i64 (if (. g win) x64_buf.rdx x64_buf.rsi)))
 
 (pub (fn finish ((g (& cg))) str
   (if (. g win) (ret (coff.bytes (& (. g obj)))))

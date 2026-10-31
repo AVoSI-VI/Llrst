@@ -197,16 +197,18 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 
 | File | Lines | Note |
 | --- | --- | --- |
-| `self/cg_op.llr` | 287 | Casts live in `cg_cast.llr` (229 lines) |
+| `self/cg_op.llr` | 269 | Casts live in `cg_cast.llr` (217 lines) |
 | `self/thir_expr.llr` | 493 | not touched by this plan |
 | `self/lower.llr` | 493 | not touched by this plan |
 | `self/collect.llr` | 461 | not touched by this plan |
-| `self/cg_frame.llr` | 458 | Phase 1 removes x64 calls; should shrink |
-| `self/cg_term.llr` | 408 | Phase 1 |
+| `self/cg_frame.llr` | 412 | Phase 1 removed the x64 calls |
+| `self/cg_term.llr` | 390 | Phase 1 |
 | `self/elf.llr` | 396 | Phase 3 adds aarch64 kinds; split tests out if it nears 500 |
-| `self/cg_mod.llr` | 333 | Phase 1 and 3 |
+| `self/cg_mod.llr` | 329 | Phase 3 still adds the Mach-O finish |
+| `self/isa_x64.llr` | 311 | Phase 1 |
+| `self/cg_isa.llr` | 270 | Phase 1; Phase 4 fills the aarch64 arm |
 
-Totals: `self/` 12731 lines in 56 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
+Totals: `self/` 13283 lines in 59 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
 
 ## Phases
 
@@ -232,15 +234,15 @@ Files: `tests/x64_ref.sh` (new), `self/cg_op.llr`, `self/cg_cast.llr` (new), `te
    Architecture pass table gains `cg_cast.llr`.
 6. `[x]` Commit: `self: cg_cast split, x64 object snapshot harness`.
 
-### Phase 1: the ISA seam (x86-64 bytes unchanged) `[ ]`
+### Phase 1: the ISA seam (x86-64 bytes unchanged) `[x]`
 
 Files: `self/cg_isa.llr` (new), `self/isa_x64.llr` (new; `isa_x64_fp.llr` if over 500), `self/cg_frame.llr`, `self/cg_term.llr`, `self/cg_op.llr`, `self/cg_cast.llr`, `self/cg_ovf.llr`, `self/cg_drop.llr`, `self/cg_clos.llr`, `self/cg_entry.llr`, `self/cg_mod.llr`.
 
-1. `[ ]` `cg_isa.llr` constants: virtual registers `acc tmp hi addr dst fp0 fp1 fp sp` plus
+1. `[x]` `cg_isa.llr` constants: virtual registers `acc tmp hi addr dst fp0 fp1 fp sp` plus
    `ret_i ret_f` and `arg_i N`/`arg_f N` accessors; condition codes
    `eq ne lt le gt ge ult ule ugt uge ovf carry unord`; a `(pub (struct isa (pub (a64 bool)) (pub (win bool))))`
    stored in `cg_mod.cg` and passed by `(& isa)`.
-2. `[ ]` Operations, each a thin function taking `(&mut x64_buf.buf)` (rename the field type
+2. `[x]` Operations, each a thin function taking `(&mut x64_buf.buf)` (rename the field type
    later) and the `isa`: `ld w dst base disp`, `st w src base disp`, `lea dst base disp`,
    `mov_rr`, `mov_ri` (64-bit), `zero dst`, `sym_addr dst sym`, `call_sym`, `call_r`,
    `jmp lab`, `jcc cc lab`, `label`, `bind`, `cmp_rr w`, `cmp_ri w`, `test_rr w`, `setcc cc`,
@@ -250,15 +252,15 @@ Files: `self/cg_isa.llr` (new), `self/isa_x64.llr` (new; `isa_x64_fp.llr` if ove
    with `single bool`, `to_ret`/`from_ret` (no-op on x64), `prologue frame`, `epilogue`,
    `probe frame`, `save_args`, `pass_reg`, `pass_mem`, `copy n`, `trace_push disp sym`,
    `trace_pop disp`.
-3. `[ ]` Replace every `x64_int.*`, `x64_sse.*`, `x64_abi.*`, and `x64_buf.<register|cc>` use
+3. `[x]` Replace every `x64_int.*`, `x64_sse.*`, `x64_abi.*`, and `x64_buf.<register|cc>` use
    in the eight `cg_*` files with the seam. After this, `rg 'x64_' self/cg_*.llr` lists only
    `x64_buf.buf`, `x64_buf.new`, `x64_buf.len`, `x64_buf.at`, `x64_buf.finish`, and
    `(. b rels)` in `cg_mod.append_fn`; those move behind `cg_isa` in Phase 4.
-4. `[ ]` `x64_abi.classify` is called only from `cg_isa.classify`; `cg_mod.call_cc/a0/a1`
+4. `[x]` `x64_abi.classify` is called only from `cg_isa.classify`; `cg_mod.call_cc/a0/a1`
    move into `isa_x64`.
-5. `[ ]` `tests/x64_ref.sh` byte-equal for every object; `tests/check.sh`, `tests/mir.sh`
+5. `[x]` `tests/x64_ref.sh` byte-equal for every object; `tests/check.sh`, `tests/mir.sh`
    `fails=0`; `scripts/check-lines.sh` clean.
-6. `[ ]` Commit: `self: cg passes emit through cg_isa; x86-64 bytes unchanged`.
+6. `[x]` Commit: `self: cg passes emit through cg_isa; x86-64 bytes unchanged`.
 
 ### Phase 2: aarch64 encoder and ABI `[ ]`
 
@@ -415,3 +417,8 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   split. Each moved function body matches the old `cg_op` body. `self/llrs` grew by the
   `cg_op.eval_cast` forwarder (481 bytes of `.text`), so those two snapshot files were
   refreshed. `tests/check.sh` and `tests/mir.sh` fails=0.
+- 2026-10-30: Phase 1. The eight codegen passes emit through `cg_isa`; `isa_x64` maps the
+  virtual registers onto the existing x86-64 encoders. `tests/run` and `std` objects
+  stayed byte-equal. `self/llrs` ELF and COFF snapshots were refreshed because the
+  compiler text grew. `tests/check.sh` and `tests/mir.sh` fails=0. `fneg` on the seam
+  is `xorps`/`xorpd` and is not what `cg_ovf.fneg` emits; that sign-bit xor stayed.
