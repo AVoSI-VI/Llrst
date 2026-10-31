@@ -86,7 +86,7 @@ flowchart LR
 | check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr`, `thir_lit.llr`, `thir_clos.llr` | one typed body per instance; closure capture |
 | MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `lower_clos.llr`, `lower_div.llr`, `inline.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div`, inline substitution |
 | borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `static_ck.llr`, `lint.llr` | loans, holders, init, `'static`, warnings |
-| codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr` | every local a slot; SysV or Win64; `--checked` traps; vtables; closure trampolines |
+| codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr` | every local a slot; SysV or Win64; `--checked` traps; vtables; closure trampolines |
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr` | ELF64 (PC32, PLT32, 64) or COFF (REL32, ADDR64) |
 | link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims |
 | driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
@@ -100,7 +100,7 @@ instances are compiled; std bodies are checked lazily.
 commit|ebaed76|Merge pull request #1 from AVoSI-VI/self-hosting-esty
 suite|tests/run.ps1|fails=3|2026-10-27|run/cast_float panic/cast_f_high panic/cast_f_neg|cranelift emit unreachable
 self|stage2=equal|scripts/self.sh record at 40dcadd|not re-run for this rewrite
-lines|compiler=9263 rs|self=11660 llr|std=6049 llr|tools=859 llr|max_file=self/cg_op.llr 497|budget=500 soft, 1000 hard
+lines|compiler=9263 rs|self=12731 llr|std=6049 llr|tools=859 llr|max_file=compiler/src/mir/lower.rs 497|budget=500 soft, 1000 hard
 ```
 
 ## Implementation notes (things you would otherwise rediscover)
@@ -229,7 +229,8 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | File | Lines | Note |
 | --- | --- | --- |
 | `compiler/src/mir/lower.rs` | 497 | Stage 0; split before a Phase 2 move change |
-| `self/cg_op.llr` | 497 | Split before any Phase 1 cast or trampoline change |
+| `self/cg_op.llr` | 287 | Casts live in `cg_cast.llr` |
+| `self/cg_cast.llr` | 229 | Cast emitters moved out of `cg_op.llr` |
 | `compiler/src/codegen/func.rs` | 486 | Trace push/pop lives in `codegen/trace.rs` |
 | `self/thir_expr.llr` | 493 | Split before Phase 1 span work |
 | `self/lower.llr` | 493 | Statement spans are set before a `let` or `set` is lowered |
@@ -394,4 +395,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-30: Phase 4. A large diff middle is a linear-space LCS and `op` is public. `os.cwd` returns `(res str str)` and `io.cwd` on failure. `vec.any` and `vec.find` take a closure that can capture a needle. `llr-doc` emits traits, constants, and generic clauses; `docs/std` was regenerated, including `sys_posix`, `sys_windows`, `ast_expr`, and `check_more`. `llr-check` takes `--std`, searches the same places as `llrc`, and reports `name.dup`, `name.not_module`, `name.not_type`, `flow.brk_outside`, `match.bad_lit`, `match.not_enum`, `match.missing`, and `type.try`. The rule is every function, not every pub fn. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
 - 2026-10-30: Phase 5. `llr-write` creates parent directories. `llr-ls` lists a directory tree as `dir|` and `file|`. `llr-rm` deletes a file or a directory tree. `llr-fmt` already had `--width`, `--blank`, and the comment rules. List records are `line|`, `path|`, `hit|`, `dir|`, and `file|`, and a cut list is `more|N`. `llr-diff` and `llr-test` take `--max` (default 0, no limit). `llr-http` documents `GET /health`, `POST /graphql`, and `POST /soap`; files stay `200 text/plain`, and a websocket upgrade is any GET with those headers. `llr-test` documents the Windows re-exec. `fmtlint.llr` is named in `llr-fmt.md`. `tests/run.ps1` fails=3, the same Cranelift float-cast panics.
 - 2026-10-30: Phase 6. `--target` selects `sys_windows.llr` or `sys_posix.llr`. Integer bytes follow a big-endian flag that is set for an `s390x` triple; accepted targets stay little-endian x86-64, and the other ISAs stay on stage 0. A Unix triple links with `clang --target`. An empty triple uses `cc`, and a Darwin host omits `-pie` and renames the six libc calls. Windows probes `clang`, `gcc`, `cc`, then `cl`, and links the prebuilt shim extension that exists. `llrc run` passes arguments through `llr_exec`. `scripts/self.ps1` is the Windows bootstrap. Installers copy `examples/` and verify with `examples/hello.llr`. `tests/run.sh` expects `os_id` 2 when `OS=Windows_NT`. Both runners call check, mir, self, and cross against stage 0. Goldens and std tests fails=0 under the rebuilt self compiler, including the three former Cranelift float-cast cases. `tests/check.ps1` and `tests/mir.ps1` fails=0 against stage 0. `tests/self.ps1` fails=33 because `llr-check` does not emit borrow errors or `--deny`. On this host `tests/cross.sh` is `fail|setup|lld=missing`.
+- 2026-10-30: Darwin phase 0. Cast emitters moved to `self/cg_cast.llr`; `cg_op.eval_cast` calls it. `tests/x64_ref.sh` snapshots x86-64 ELF and COFF. `tests/run` and `std` objects stayed byte-equal. The `self/llrs` object grew by the forwarder; each moved function body is the same bytes, and that snapshot was refreshed. `tests/check.sh` and `tests/mir.sh` fails=0.
 - 2026-10-30: Darwin. Stage 0 is the installed `llrc`: `scripts/self.sh` stops at `llrs1` with `ld: unknown file type` because `self/` emits ELF. Goldens, std tests, `tests/check.sh`, and `tests/mir.sh` fails=0. `tests/self.sh` fails=33 because `llr-check` does not emit borrow errors or `--deny`. `tests/cross.sh` links aarch64; riscv64 and s390x need a clang with those backends (Homebrew `llvm` is keg-only at `/opt/homebrew/opt/llvm/bin/clang`). The plan to self-host on this Mac is `DARWIN.md`.

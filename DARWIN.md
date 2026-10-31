@@ -31,13 +31,11 @@ output of `self/` stays byte-identical throughout.
 - `self/` emits x86-64 only, into `elf.llr` (ELF64) or `coff.llr`. On this Mac
   `scripts/self.sh` builds `llrs0` with stage 0, then `llrs0` builds `llrs1` and the link
   fails with `ld: unknown file type in .../llrs.o` because the object is ELF.
-- Uncommitted working-tree changes from the install session: `scripts/install.sh` installs
-  stage 0 as `llrc` when `uname -s` is `Darwin`; `tests/cross_stub.c` defines
-  `llr_trace_push`/`llr_trace_pop`; `tests/check.sh` wraps the empty `flags` array in
-  `set +u`; `tests/cross.sh` prefers `/opt/homebrew/opt/llvm/bin/clang` (`LLR_CC` overrides);
-  `scripts/self.sh`, `tests/mir.sh`, `tests/self.sh` gained the execute bit; `docs/install.md`
-  and `HANDOFF.md` describe the Darwin stage-0 install. Commit these first as
-  `platform: darwin installs stage 0, cross stub trace shims`.
+- The install-session changes (Darwin stage-0 install, `llr_trace_push` / `llr_trace_pop`
+  in `tests/cross_stub.c`, the bash 3.2 `set +u` guard, Homebrew clang, the execute bits on
+  `scripts/self.sh`, `tests/mir.sh`, and `tests/self.sh`, and the install docs) are in
+  `06d7d5f` (`add plan for apple self hosting`). That message is not
+  `platform: darwin installs stage 0, cross stub trace shims`. The history was left as it is.
 - `~/.local/bin/llrc` is stage 0 today; `~/.zshrc` puts `~/.local/bin` on `PATH`.
 
 ## Rules for this work
@@ -199,7 +197,7 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 
 | File | Lines | Note |
 | --- | --- | --- |
-| `self/cg_op.llr` | 497 | Phase 0 splits casts into `cg_cast.llr` before any edit |
+| `self/cg_op.llr` | 287 | Casts live in `cg_cast.llr` (229 lines) |
 | `self/thir_expr.llr` | 493 | not touched by this plan |
 | `self/lower.llr` | 493 | not touched by this plan |
 | `self/collect.llr` | 461 | not touched by this plan |
@@ -208,16 +206,16 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/elf.llr` | 396 | Phase 3 adds aarch64 kinds; split tests out if it nears 500 |
 | `self/cg_mod.llr` | 333 | Phase 1 and 3 |
 
-Totals: `self/` 12712 lines in 54 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
+Totals: `self/` 12731 lines in 56 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
 
 ## Phases
 
-### Phase 0: guards and splits (no behaviour change) `[ ]`
+### Phase 0: guards and splits (no behaviour change) `[x]`
 
 Files: `tests/x64_ref.sh` (new), `self/cg_op.llr`, `self/cg_cast.llr` (new), `tests/run.sh`, `HANDOFF.md`.
 
-1. `[ ]` Commit the pending working-tree changes listed in **Situation**.
-2. `[ ]` `tests/x64_ref.sh`: `LLRC` defaults to `target/self/llrs0` (built by `scripts/self.sh`
+1. `[x]` Commit the pending working-tree changes listed in **Situation**.
+2. `[x]` `tests/x64_ref.sh`: `LLRC` defaults to `target/self/llrs0` (built by `scripts/self.sh`
    up to its first step; add `--llrs0` to `self.sh` or build it inline with stage 0). For
    every `tests/run/*.llr`, every `std/*.llr` that has a `(test` form (`--test`), and
    `self/llrs.llr`, run `build FILE --emit-obj --target x86_64-unknown-linux-gnu -o DIR/NAME`.
@@ -225,14 +223,14 @@ Files: `tests/x64_ref.sh` (new), `self/cg_op.llr`, `self/cg_cast.llr` (new), `te
    `cmp -s` and prints `ok|x64/NAME` or `fail|x64/NAME|first=<byte>`; last line
    `done|fails=N`. Add a Windows pass with `--target x86_64-pc-windows-gnu` for the COFF
    writer. `tests/run.sh` calls it after `tests/cross.sh` when the snapshot directory exists.
-3. `[ ]` `tests/x64_ref.sh --save target/self/x64_ref` once, before any `self/` edit.
-4. `[ ]` Move `cast`, `eval_cast`, `fcvt`, `icast`, `cast_chk`, `cast_su`, `cast_hi`,
+3. `[x]` `tests/x64_ref.sh --save target/self/x64_ref` once, before any `self/` edit.
+4. `[x]` Move `cast`, `eval_cast`, `fcvt`, `icast`, `cast_chk`, `cast_su`, `cast_hi`,
    `cast_to_s`, `itof`, `utof`, `exact`, `abs_rcx`, `ftoi`, `trunc_f`, `chk_f`, `fmin`,
    `fmax`, `fpow`, `fbound`, `imin`, `imax` (`cg_op.llr` lines 283-497) into `cg_cast.llr`;
    `cg_op.eval_cast` becomes a call into `cg_cast`. Snapshot compare must be byte-equal.
-5. `[ ]` `tests/check.sh`, `tests/mir.sh`, `scripts/check-lines.sh` clean. HANDOFF
+5. `[x]` `tests/check.sh`, `tests/mir.sh`, `scripts/check-lines.sh` clean. HANDOFF
    Architecture pass table gains `cg_cast.llr`.
-6. `[ ]` Commit: `self: cg_cast split, x64 object snapshot harness`.
+6. `[x]` Commit: `self: cg_cast split, x64 object snapshot harness`.
 
 ### Phase 1: the ISA seam (x86-64 bytes unchanged) `[ ]`
 
@@ -411,3 +409,9 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
 - 2026-10-30: plan written after two owner decisions (native aarch64 over Rosetta; binary
   encoder and writer over assembly text). Stage 0 installed as `llrc` on this Mac in the
   meantime; no `self/` code changed.
+- 2026-10-30: Phase 0. Step 1 was already `06d7d5f`. `tests/x64_ref.sh` and `scripts/self.sh
+  --llrs0` snapshot ELF and COFF. `tests/run/field_lib.llr` and `tests/run/pub_lib.llr` are
+  skipped (no `main`). `tests/run` and `std` objects stayed byte-equal after the `cg_cast`
+  split. Each moved function body matches the old `cg_op` body. `self/llrs` grew by the
+  `cg_op.eval_cast` forwarder (481 bytes of `.text`), so those two snapshot files were
+  refreshed. `tests/check.sh` and `tests/mir.sh` fails=0.
