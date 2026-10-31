@@ -1,0 +1,100 @@
+;; Float math with no libm. f32 entry points round an f64 result.
+;; 2^53: every larger finite magnitude is already an integer.
+(const lim f64 9007199254740992.0)
+
+(struct sc (v f64) (e i64))
+
+(fn nan () f64 (/ 0.0 0.0))
+
+(pub (fn abs ((x f64)) f64 (if (< x 0.0) (neg x) x)))
+
+(pub (fn min ((a f64) (b f64)) f64 (if (< a b) a b)))
+
+(pub (fn max ((a f64) (b f64)) f64 (if (> a b) a b)))
+
+(pub (fn floor ((x f64)) f64
+  (if (!= x x) (ret x))
+  (if (or (>= x lim) (<= x (neg lim))) (ret x))
+  (let n (as i64 x))
+  (let t (as f64 n))
+  (if (and (< x 0.0) (!= t x)) (- t 1.0) t)))
+
+(pub (fn ceil ((x f64)) f64 (neg (floor (neg x)))))
+
+(pub (fn round ((x f64)) f64 (let a (floor (+ (abs x) 0.5))) (if (< x 0.0) (neg a) a)))
+
+;; Pull a positive finite value into [1, 4) by powers of four.
+(fn scale_in ((x f64)) sc
+  (let mut v x)
+  (let mut e 0)
+  (while (>= v 4.0) (set v (/ v 4.0)) (set e (+ e 1)))
+  (while (< v 1.0) (set v (* v 4.0)) (set e (- e 1)))
+  (sc v e))
+
+(fn newton ((s f64)) f64
+  (let mut g (if (> s 1.0) (/ s 2.0) 1.0))
+  (for i 0 8 (set g (/ (+ g (/ s g)) 2.0)))
+  g)
+
+(fn pow2 ((e i64)) f64
+  (let mut r 1.0)
+  (let n (if (< e 0) (neg e) e))
+  (for i 0 n (set r (* r 2.0)))
+  (if (< e 0) (/ 1.0 r) r))
+
+(pub (fn sqrt ((x f64)) f64
+  (if (!= x x) (ret x))
+  (if (< x 0.0) (ret (nan)))
+  (if (== x 0.0) (ret 0.0))
+  (if (== (* x 2.0) x) (ret x))
+  (let s (scale_in x))
+  (* (newton (. s v)) (pow2 (. s e)))))
+
+(pub (fn abs32 ((x f32)) f32 (as f32 (abs (as f64 x)))))
+
+(pub (fn min32 ((a f32) (b f32)) f32 (as f32 (min (as f64 a) (as f64 b)))))
+
+(pub (fn max32 ((a f32) (b f32)) f32 (as f32 (max (as f64 a) (as f64 b)))))
+
+(pub (fn floor32 ((x f32)) f32 (as f32 (floor (as f64 x)))))
+
+(pub (fn ceil32 ((x f32)) f32 (as f32 (ceil (as f64 x)))))
+
+(pub (fn round32 ((x f32)) f32 (as f32 (round (as f64 x)))))
+
+(pub (fn sqrt32 ((x f32)) f32 (as f32 (sqrt (as f64 x)))))
+
+(fn near ((g f64) (w f64)) bool (< (abs (- g w)) 0.000001))
+
+(test math_floor
+  (assert_eq (as i64 (floor 1.9)) 1)
+  (assert_eq (as i64 (floor -1.2)) -2)
+  (assert_eq (as i64 (floor 2.0)) 2)
+  (assert_eq (as i64 (floor 0.0)) 0)
+  (assert_eq (as i64 (ceil 1.2)) 2)
+  (assert_eq (as i64 (ceil -1.2)) -1)
+  (assert_eq (as i64 (round 1.5)) 2)
+  (assert_eq (as i64 (round -1.5)) -2)
+  (assert_eq (as i64 (round 1.2)) 1)
+  (assert_eq (as i64 (abs -3.5)) 3)
+  (assert_eq (as i64 (min 1.0 2.0)) 1)
+  (assert_eq (as i64 (max 1.0 2.0)) 2))
+
+(test math_sqrt
+  (assert (near (sqrt 4.0) 2.0))
+  (assert (near (sqrt 2.0) 1.414213562))
+  (assert (near (sqrt 0.25) 0.5))
+  (let s (scale_in 8.0))
+  (drop (newton (. s v)))
+  (drop (pow2 (. s e)))
+  (drop (pow2 -2))
+  (drop (nan)))
+
+(test math_f32
+  (assert_eq (as i64 (as f64 (floor32 -1.2f32))) -2)
+  (assert_eq (as i64 (as f64 (ceil32 1.2f32))) 2)
+  (assert_eq (as i64 (as f64 (round32 1.5f32))) 2)
+  (assert_eq (as i64 (as f64 (abs32 -3.5f32))) 3)
+  (assert_eq (as i64 (as f64 (min32 1.0f32 2.0f32))) 1)
+  (assert_eq (as i64 (as f64 (max32 1.0f32 2.0f32))) 2)
+  (assert (near (as f64 (sqrt32 4.0f32)) 2.0)))

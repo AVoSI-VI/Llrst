@@ -35,6 +35,8 @@
 | [mqtt_sess](mqtt_sess.md) | MQTT topic filters. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Keys need `Hash` and `Eq`. |
+| [math](math.md) | `f64` and `f32` abs, min, max, floor, ceil, round, sqrt. No libm. |
+| [math_trig](math_trig.md) | sin, cos, atan2, pow for `f64` and `f32`. |
 | [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
 | [json](json.md) | Minimal JSON encoding. |
 | [json_read](json_read.md) | JSON objects, arrays, strings, ints, bools, and null. |

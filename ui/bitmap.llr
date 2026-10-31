@@ -1,0 +1,21 @@
+(pub (struct bitmap (pub (w i64)) (pub (h i64)) (pub (stride i64)) (pub (px (vec u8)))))
+
+(impl bitmap
+  (pub (fn new ((w i64) (h i64)) bitmap
+    (let stride (* w 4))
+    (let mut px (vec.new <u8>))
+    (for i 0 (* stride h) (vec.push (&mut px) 0u8))
+    (bitmap w h stride px)))
+  (pub (fn index ((self (& bitmap)) (x i64) (y i64)) i64 (+ (* y (. self stride)) (* x 4))))
+  (pub (fn byte ((self (& bitmap)) (x i64) (y i64) (ch i64)) u8
+    (@ (vec.get (& (. self px)) (+ (bitmap.index self x y) ch)))))
+  (pub (fn set_byte ((self (&mut bitmap)) (x i64) (y i64) (ch i64) (v u8)) unit
+    (vec.set (&mut (. self px)) (+ (bitmap.index self x y) ch) v))))
+
+(test bitmap_px
+  (let mut b (bitmap.new 2 2))
+  (assert_eq (. b stride) 8)
+  (assert_eq (bitmap.byte (& b) 1 1 0) 0u8)
+  (bitmap.set_byte (&mut b) 1 0 2 255u8)
+  (assert_eq (bitmap.byte (& b) 1 0 2) 255u8)
+  (assert_eq (bitmap.index (& b) 1 0) 4))

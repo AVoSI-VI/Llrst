@@ -1,0 +1,73 @@
+(use std.math)
+
+(pub (struct pt (pub (x f32)) (pub (y f32))))
+
+(pub (struct size (pub (w f32)) (pub (h f32))))
+
+(pub (struct rect (pub (x f32)) (pub (y f32)) (pub (w f32)) (pub (h f32))))
+
+(impl pt
+  (pub (fn add ((self (& pt)) (o (& pt))) pt (pt (+ (. self x) (. o x)) (+ (. self y) (. o y)))))
+  (pub (fn sub ((self (& pt)) (o (& pt))) pt (pt (- (. self x) (. o x)) (- (. self y) (. o y))))))
+
+(impl rect
+  (pub (fn empty ((self (& rect))) bool (or (<= (. self w) 0.0f32) (<= (. self h) 0.0f32))))
+  (pub (fn right ((self (& rect))) f32 (+ (. self x) (. self w))))
+  (pub (fn bottom ((self (& rect))) f32 (+ (. self y) (. self h))))
+  (pub (fn contains ((self (& rect)) (p (& pt))) bool
+    (and (and (>= (. p x) (. self x)) (< (. p x) (rect.right self)))
+      (and (>= (. p y) (. self y)) (< (. p y) (rect.bottom self))))))
+  (pub (fn intersect ((self (& rect)) (o (& rect))) rect
+    (let x (math.max32 (. self x) (. o x)))
+    (let y (math.max32 (. self y) (. o y)))
+    (let r (math.min32 (rect.right self) (rect.right o)))
+    (let b (math.min32 (rect.bottom self) (rect.bottom o)))
+    (if (or (<= r x) (<= b y)) (ret (rect 0.0f32 0.0f32 0.0f32 0.0f32)))
+    (rect x y (- r x) (- b y))))
+  (pub (fn union ((self (& rect)) (o (& rect))) rect
+    (if (rect.empty self) (ret (rect (. o x) (. o y) (. o w) (. o h))))
+    (if (rect.empty o) (ret (rect (. self x) (. self y) (. self w) (. self h))))
+    (let x (math.min32 (. self x) (. o x)))
+    (let y (math.min32 (. self y) (. o y)))
+    (let r (math.max32 (rect.right self) (rect.right o)))
+    (let b (math.max32 (rect.bottom self) (rect.bottom o)))
+    (rect x y (- r x) (- b y)))))
+
+(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
+
+(test geom_pt
+  (let a (pt 1.0f32 2.0f32))
+  (let b (pt 3.0f32 4.0f32))
+  (let s (pt.add (& a) (& b)))
+  (assert_eq (milli (. s x)) 4000)
+  (assert_eq (milli (. s y)) 6000)
+  (let d (pt.sub (& b) (& a)))
+  (assert_eq (milli (. d x)) 2000)
+  (assert_eq (milli (. d y)) 2000)
+  (let z (size 4.0f32 5.0f32))
+  (assert_eq (milli (. z w)) 4000))
+
+(test geom_rect
+  (let r (rect 1.0f32 2.0f32 4.0f32 6.0f32))
+  (assert (not (rect.empty (& r))))
+  (assert_eq (milli (rect.right (& r))) 5000)
+  (assert_eq (milli (rect.bottom (& r))) 8000)
+  (let pin (pt 2.0f32 3.0f32))
+  (let pout (pt 5.0f32 3.0f32))
+  (assert (rect.contains (& r) (& pin)))
+  (assert (not (rect.contains (& r) (& pout))))
+  (let o (rect 3.0f32 4.0f32 4.0f32 4.0f32))
+  (let i (rect.intersect (& r) (& o)))
+  (assert_eq (milli (. i x)) 3000)
+  (assert_eq (milli (. i y)) 4000)
+  (assert_eq (milli (. i w)) 2000)
+  (assert_eq (milli (. i h)) 4000)
+  (let u (rect.union (& r) (& o)))
+  (assert_eq (milli (. u x)) 1000)
+  (assert_eq (milli (. u w)) 6000)
+  (let e (rect 0.0f32 0.0f32 0.0f32 0.0f32))
+  (assert (rect.empty (& e)))
+  (let miss (rect.intersect (& r) (& (rect 20.0f32 20.0f32 1.0f32 1.0f32))))
+  (assert (rect.empty (& miss)))
+  (let only (rect.union (& e) (& r)))
+  (assert_eq (milli (. only w)) 4000))

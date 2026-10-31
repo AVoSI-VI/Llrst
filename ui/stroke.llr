@@ -1,0 +1,187 @@
+(use std.math)
+(use std.math_trig)
+(use ui.geom)
+(use ui.path)
+(use ui.raster)
+
+(pub (struct stroke (pub (w f32)) (pub (cap i64)) (pub (join i64)) (pub (miter f32))))
+
+(fn pt_at ((v (& (vec geom.pt))) (i i64)) geom.pt (let p (vec.get v i)) (geom.pt (. p x) (. p y)))
+
+(fn unit ((a (& geom.pt)) (b (& geom.pt))) geom.pt
+  (let dx (- (. b x) (. a x)))
+  (let dy (- (. b y) (. a y)))
+  (let len (math.sqrt32 (+ (* dx dx) (* dy dy))))
+  (if (<= len 0.00001f32) (ret (geom.pt 0.0f32 0.0f32)))
+  (geom.pt (/ dx len) (/ dy len)))
+
+(fn norm ((a (& geom.pt)) (b (& geom.pt)) (hw f32)) geom.pt
+  (let u (unit a b))
+  (geom.pt (* (. u y) hw) (* (neg (. u x)) hw)))
+
+(fn addp ((p (& geom.pt)) (n (& geom.pt))) geom.pt (geom.pt.add p n))
+
+(fn subp ((p (& geom.pt)) (n (& geom.pt))) geom.pt (geom.pt.sub p n))
+
+(fn shift ((p (& geom.pt)) (x f32) (y f32) (d f32)) geom.pt
+  (geom.pt (+ (. p x) (* x d)) (+ (. p y) (* y d))))
+
+(fn tri ((out (&mut path.path)) (a (& geom.pt)) (b (& geom.pt)) (c (& geom.pt))) unit
+  (path.path.move out (geom.pt (. a x) (. a y)))
+  (path.path.line out (geom.pt (. b x) (. b y)))
+  (path.path.line out (geom.pt (. c x) (. c y)))
+  (path.path.close out))
+
+(fn quad ((out (&mut path.path)) (a (& geom.pt)) (b (& geom.pt)) (c (& geom.pt)) (d (& geom.pt))) unit
+  (path.path.move out (geom.pt (. a x) (. a y)))
+  (path.path.line out (geom.pt (. b x) (. b y)))
+  (path.path.line out (geom.pt (. c x) (. c y)))
+  (path.path.line out (geom.pt (. d x) (. d y)))
+  (path.path.close out))
+
+(fn cross2 ((ax f32) (ay f32) (bx f32) (by f32)) f32 (- (* ax by) (* ay bx)))
+
+(fn hit ((px f32) (py f32) (rx f32) (ry f32) (qx f32) (qy f32) (sx f32) (sy f32)) (opt geom.pt)
+  (let den (cross2 rx ry sx sy))
+  (if (< (math.abs32 den) 0.00001f32) (ret (opt.none)))
+  (let t (/ (cross2 (- qx px) (- qy py) sx sy) den))
+  (opt.some (geom.pt (+ px (* rx t)) (+ py (* ry t)))))
+
+(fn arc ((out (&mut path.path)) (c (& geom.pt)) (a0 f32) (d f32) (hw f32)) unit
+  (let mut prev
+    (geom.pt (+ (. c x) (* (math_trig.cos32 a0) hw)) (+ (. c y) (* (math_trig.sin32 a0) hw))))
+  (path.path.move out (geom.pt (. c x) (. c y)))
+  (path.path.line out (geom.pt (. prev x) (. prev y)))
+  (for i 1 5
+    (let ang (+ a0 (* d (/ (as f32 i) 4.0f32))))
+    (let q
+      (geom.pt (+ (. c x) (* (math_trig.cos32 ang) hw)) (+ (. c y) (* (math_trig.sin32 ang) hw))))
+    (path.path.line out (geom.pt (. q x) (. q y)))
+    (set prev q))
+  (path.path.close out))
+
+(fn sweep ((a0 f32) (a1 f32)) f32
+  (let mut d (- a1 a0))
+  (if (> d 3.14159265f32) (set d (- d 6.2831853f32)))
+  (if (< d -3.14159265f32) (set d (+ d 6.2831853f32)))
+  d)
+
+(fn round_cap ((out (&mut path.path)) (c (& geom.pt)) (outw (& geom.pt)) (side (& geom.pt)) (hw f32)) unit
+  (let a0 (math_trig.atan232 (. side y) (. side x)))
+  (let back (math_trig.atan232 (. outw y) (. outw x)))
+  (let d (sweep a0 (+ back 1.5707963f32)))
+  (arc out c a0 (if (> d 0.0f32) 3.14159265f32 -3.14159265f32) hw))
+
+(fn strip ((out (&mut path.path)) (a (& geom.pt)) (b (& geom.pt)) (hw f32) (cap0 i64) (cap1 i64)) unit
+  (let u (unit a b))
+  (let mut aa (geom.pt (. a x) (. a y)))
+  (let mut bb (geom.pt (. b x) (. b y)))
+  (if (== cap0 2) (set aa (shift a (neg (. u x)) (neg (. u y)) hw)))
+  (if (== cap1 2) (set bb (shift b (. u x) (. u y) hw)))
+  (let n (norm a b hw))
+  (let l0 (addp (& aa) (& n)))
+  (let r0 (subp (& aa) (& n)))
+  (let l1 (addp (& bb) (& n)))
+  (let r1 (subp (& bb) (& n)))
+  (quad out (& l0) (& l1) (& r1) (& r0))
+  (let back (geom.pt (neg (. u x)) (neg (. u y))))
+  (let side (geom.pt (neg (. n x)) (neg (. n y))))
+  (let fwd (geom.pt (. u x) (. u y)))
+  (if (== cap0 1) (round_cap out a (& back) (& side) hw))
+  (if (== cap1 1) (round_cap out b (& fwd) (& n) hw)))
+
+(fn join ((out (&mut path.path))
+   (a (& geom.pt))
+   (b (& geom.pt))
+   (c (& geom.pt))
+   (hw f32)
+   (kind i64)
+   (limit f32)) unit
+  (let n0 (norm a b hw))
+  (let n1 (norm b c hw))
+  (let ux (- (. b x) (. a x)))
+  (let uy (- (. b y) (. a y)))
+  (let vx (- (. c x) (. b x)))
+  (let vy (- (. c y) (. b y)))
+  (let cr (cross2 ux uy vx vy))
+  (if (== cr 0.0f32) (ret))
+  (let o0 (if (> cr 0.0f32) (addp b (& n0)) (subp b (& n0))))
+  (let o1 (if (> cr 0.0f32) (addp b (& n1)) (subp b (& n1))))
+  (if (== kind 2) (ret (tri out (& o0) b (& o1))))
+  (if (== kind 1)
+    (ret (arc out
+       b
+       (math_trig.atan232 (- (. o0 y) (. b y)) (- (. o0 x) (. b x)))
+       (sweep (math_trig.atan232 (- (. o0 y) (. b y)) (- (. o0 x) (. b x)))
+         (math_trig.atan232 (- (. o1 y) (. b y)) (- (. o1 x) (. b x))))
+       hw)))
+  (let h (hit (. o0 x) (. o0 y) ux uy (. o1 x) (. o1 y) vx vy))
+  (match h
+    ((opt.some p)
+      (do
+        (let dx (- (. p x) (. b x)))
+        (let dy (- (. p y) (. b y)))
+        (let lim (* hw limit))
+        (if (<= (+ (* dx dx) (* dy dy)) (* lim lim))
+          (tri out (& o0) (& p) (& o1))
+          (tri out (& o0) b (& o1)))))
+    ((opt.none) (tri out (& o0) b (& o1)))))
+
+(fn emit ((out (&mut path.path)) (pts (& (vec geom.pt))) (closed bool) (s (& stroke))) unit
+  (let n (vec.len pts))
+  (let hw (/ (. s w) 2.0f32))
+  (if (or (< n 2) (<= hw 0.0f32)) (ret))
+  (let segs (if closed n (- n 1)))
+  (for i 0 segs
+    (let a (pt_at pts i))
+    (let b (pt_at pts (if (== (+ i 1) n) 0 (+ i 1))))
+    (let cap0 (if (and (not closed) (== i 0)) (. s cap) -1))
+    (let cap1 (if (and (not closed) (== i (- segs 1))) (. s cap) -1))
+    (strip out (& a) (& b) hw cap0 cap1))
+  (let joins (if closed n (- n 2)))
+  (for i 0 joins
+    (let ia (if closed (if (== i 0) (- n 1) (- i 1)) i))
+    (let ib (if closed i (+ i 1)))
+    (let ic (if closed (if (== (+ i 1) n) 0 (+ i 1)) (+ i 2)))
+    (let a (pt_at pts ia))
+    (let b (pt_at pts ib))
+    (let c (pt_at pts ic))
+    (join out (& a) (& b) (& c) hw (. s join) (. s miter))))
+
+(fn flush ((out (&mut path.path)) (pts (&mut (vec geom.pt))) (closed bool) (s (& stroke))) unit
+  (emit out pts closed s)
+  (vec.clear pts))
+
+(pub (fn outline ((p (& path.path)) (s (& stroke))) path.path
+  (let flat (path.path.flatten p 0.25f32))
+  (let mut out (path.path.new))
+  (let mut pts (vec.new <geom.pt>))
+  (let mut i 0)
+  (for k 0 (vec.len (& (. flat verb)))
+    (let v (path.path.verb_at (& flat) k))
+    (if (== v 0u8)
+      (do
+        (if (> (vec.len (& pts)) 0) (flush (&mut out) (&mut pts) false s))
+        (vec.push (&mut pts) (path.path.at (& flat) i))
+        (set i (+ i 1))))
+    (if (== v 1u8) (do (vec.push (&mut pts) (path.path.at (& flat) i)) (set i (+ i 1))))
+    (if (== v 4u8) (flush (&mut out) (&mut pts) true s)))
+  (if (> (vec.len (& pts)) 0) (flush (&mut out) (&mut pts) false s))
+  out))
+
+(test stroke_line
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (geom.pt 2.0f32 4.0f32))
+  (path.path.line (&mut p) (geom.pt 10.0f32 4.0f32))
+  (let st (stroke 2.0f32 0 0 4.0f32))
+  (let o (outline (& p) (& st)))
+  (let cov (raster.coverage (& o) 16 8 0))
+  (assert_eq (@ (vec.get (& cov) (+ (* 4 16) 5))) 255u8)
+  (assert_eq (@ (vec.get (& cov) (+ (* 1 16) 5))) 0u8)
+  (let wide (stroke 2.0f32 2 1 4.0f32))
+  (drop (outline (& p) (& wide)))
+  (let round (stroke 2.0f32 1 2 4.0f32))
+  (drop (outline (& p) (& round)))
+  (let z (geom.pt 0.0f32 0.0f32))
+  (drop (unit (& z) (& z)))
+  (drop (hit 0.0f32 0.0f32 1.0f32 0.0f32 0.0f32 1.0f32 0.0f32 1.0f32)))

@@ -1,0 +1,56 @@
+(use ui.bitmap)
+
+(pub (struct color (pub (b u8)) (pub (g u8)) (pub (r u8)) (pub (a u8))))
+
+(fn scale ((c u8) (a u8)) u8 (as u8 (/ (+ (* (as i64 c) (as i64 a)) 127) 255)))
+
+(impl color
+  (pub (fn rgba ((r u8) (g u8) (b u8) (a u8)) color (color (scale b a) (scale g a) (scale r a) a)))
+  (pub (fn cover ((self (& color)) (k u8)) color
+    (color (scale (. self b) k) (scale (. self g) k) (scale (. self r) k) (scale (. self a) k)))))
+
+(fn mix ((s u8) (d u8) (sa u8)) u8
+  (let v (+ (as i64 s) (/ (+ (* (as i64 d) (- 255 (as i64 sa))) 127) 255)))
+  (if (> v 255) 255u8 (as u8 v)))
+
+(pub (fn over ((bm (&mut bitmap.bitmap)) (x i64) (y i64) (src (& color))) unit
+  (let sa (. src a))
+  (let b (mix (. src b) (bitmap.bitmap.byte bm x y 0) sa))
+  (let g (mix (. src g) (bitmap.bitmap.byte bm x y 1) sa))
+  (let r (mix (. src r) (bitmap.bitmap.byte bm x y 2) sa))
+  (let a (mix sa (bitmap.bitmap.byte bm x y 3) sa))
+  (bitmap.bitmap.set_byte bm x y 0 b)
+  (bitmap.bitmap.set_byte bm x y 1 g)
+  (bitmap.bitmap.set_byte bm x y 2 r)
+  (bitmap.bitmap.set_byte bm x y 3 a)))
+
+(pub (fn clear ((bm (&mut bitmap.bitmap)) (x i64) (y i64)) unit
+  (bitmap.bitmap.set_byte bm x y 0 0u8)
+  (bitmap.bitmap.set_byte bm x y 1 0u8)
+  (bitmap.bitmap.set_byte bm x y 2 0u8)
+  (bitmap.bitmap.set_byte bm x y 3 0u8)))
+
+(pub (fn src ((bm (&mut bitmap.bitmap)) (x i64) (y i64) (c (& color))) unit
+  (bitmap.bitmap.set_byte bm x y 0 (. c b))
+  (bitmap.bitmap.set_byte bm x y 1 (. c g))
+  (bitmap.bitmap.set_byte bm x y 2 (. c r))
+  (bitmap.bitmap.set_byte bm x y 3 (. c a))))
+
+(test blend_ops
+  (let c (color.rgba 255u8 0u8 0u8 255u8))
+  (assert_eq (. c r) 255u8)
+  (assert_eq (. c a) 255u8)
+  (let half (color.rgba 255u8 0u8 0u8 128u8))
+  (assert_eq (. half r) 128u8)
+  (let k (color.cover (& c) 255u8))
+  (assert_eq (. k r) 255u8)
+  (let mut bm (bitmap.bitmap.new 1 1))
+  (src (&mut bm) 0 0 (& c))
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 2) 255u8)
+  (let z (color 0u8 0u8 0u8 0u8))
+  (over (&mut bm) 0 0 (& z))
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 2) 255u8)
+  (clear (&mut bm) 0 0)
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 3) 0u8)
+  (drop (scale 255u8 128u8))
+  (drop (mix 255u8 0u8 255u8)))

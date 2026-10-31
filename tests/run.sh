@@ -236,6 +236,20 @@ for f in "$root"/std/*.llr; do
   fi
 done
 
+for f in "$root"/ui/*.llr; do
+  name="$(basename "$f" .llr)"
+  grep -q "^(test " "$f" || continue
+  if ! "$llrc" build "$f" --test --std std --ui ui -o "$tmp/uimod_$name" 2>"$tmp/uimod_$name.err"; then
+    echo "fail|ui-mod/$name|compile|$(head -1 "$tmp/uimod_$name.err")"; fails=$((fails+1)); continue
+  fi
+  if "$tmp/uimod_$name" >"$tmp/uimod_$name.out" 2>&1; then
+    echo "ok|ui-mod/$name"
+  else
+    echo "fail|ui-mod/$name|$(grep -E '^(fail|F)\|' "$tmp/uimod_$name.out" | head -3 | tr '\n' ' ')"
+    fails=$((fails+1))
+  fi
+done
+
 "$root/scripts/check-lines.sh" || fails=$((fails+1))
 
 pick_exe() {

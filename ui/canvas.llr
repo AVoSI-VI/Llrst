@@ -1,0 +1,215 @@
+(use std.math)
+(use std.str)
+(use ui.bitmap)
+(use ui.blend)
+(use ui.geom)
+(use ui.mat)
+(use ui.paint)
+(use ui.path)
+(use ui.raster)
+(use ui.raster_clip)
+(use ui.raster_fill)
+(use ui.stroke)
+
+(fn cur ((ms (& (vec mat.mat)))) mat.mat
+  (let m (vec.get ms (- (vec.len ms) 1)))
+  (mat.mat (. m a) (. m b) (. m c) (. m d) (. m e) (. m f)))
+
+(fn set_top ((ms (&mut (vec mat.mat))) (m mat.mat)) unit
+  (let n (- (vec.len ms) 1))
+  (vec.set ms n m))
+
+(fn apply_tf ((ms (&mut (vec mat.mat))) (t mat.mat)) unit
+  (let m (cur ms))
+  (let n (mat.mat.mul (& m) (& t)))
+  (set_top ms n))
+
+(fn do_save ((ms (&mut (vec mat.mat))) (cl (&mut raster_clip.clips))) unit
+  (let m (cur ms))
+  (vec.push ms m)
+  (raster_clip.clips.save cl))
+
+(fn do_restore ((ms (&mut (vec mat.mat))) (cl (&mut raster_clip.clips))) unit
+  (if (> (vec.len ms) 1) (drop (vec.pop ms)))
+  (raster_clip.clips.restore cl))
+
+(fn corner ((m (& mat.mat)) (x f32) (y f32)) geom.pt (let p (geom.pt x y)) (mat.mat.apply m (& p)))
+
+(fn rect_path ((r (& geom.rect)) (m (& mat.mat))) path.path
+  (let x1 (+ (. r x) (. r w)))
+  (let y1 (+ (. r y) (. r h)))
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (corner m (. r x) (. r y)))
+  (path.path.line (&mut p) (corner m x1 (. r y)))
+  (path.path.line (&mut p) (corner m x1 y1))
+  (path.path.line (&mut p) (corner m (. r x) y1))
+  (path.path.close (&mut p))
+  p)
+
+(fn paint_solid ((bm (&mut bitmap.bitmap)) (cl (& raster_clip.clips)) (cov (vec u8)) (c (& blend.color))) unit
+  (let mut cv cov)
+  (raster_clip.clips.apply cl (&mut cv))
+  (raster_fill.solid bm (& cv) c))
+
+(fn do_kind ((bm (&mut bitmap.bitmap))
+   (cl (& raster_clip.clips))
+   (m (& mat.mat))
+   (cov (vec u8))
+   (f (& paint.fill))) unit
+  (let mut cv cov)
+  (raster_clip.clips.apply cl (&mut cv))
+  (match f
+    ((paint.fill.solid c) (raster_fill.solid bm (& cv) c))
+    ((paint.fill.linear a b c0 c1)
+      (do
+        (let a2 (corner m (. a x) (. a y)))
+        (let b2 (corner m (. b x) (. b y)))
+        (raster_fill.linear bm (& cv) (& a2) (& b2) c0 c1)))
+    ((paint.fill.image im mode)
+      (match (mat.mat.invert m)
+        ((opt.some inv) (raster_fill.image bm (& cv) im (& inv) (@ mode)))
+        ((opt.none) ())))))
+
+(fn do_fill_rect ((bm (&mut bitmap.bitmap))
+   (ms (& (vec mat.mat)))
+   (cl (& raster_clip.clips))
+   (r (& geom.rect))
+   (c (& blend.color))) unit
+  (let m (cur ms))
+  (let path (rect_path r (& m)))
+  (let cov (raster.coverage (& path) (. bm w) (. bm h) 0))
+  (paint_solid bm cl cov c))
+
+(fn do_fill_path ((bm (&mut bitmap.bitmap))
+   (ms (& (vec mat.mat)))
+   (cl (& raster_clip.clips))
+   (p (& path.path))
+   (f (& paint.fill))
+   (rule i64)) unit
+  (let m (cur ms))
+  (let tp (path.path.transform p (& m)))
+  (let cov (raster.coverage (& tp) (. bm w) (. bm h) rule))
+  (do_kind bm cl (& m) cov f))
+
+(fn do_stroke ((bm (&mut bitmap.bitmap))
+   (ms (& (vec mat.mat)))
+   (cl (& raster_clip.clips))
+   (p (& path.path))
+   (st (& stroke.stroke))
+   (c (& blend.color))) unit
+  (let m (cur ms))
+  (let tp (path.path.transform p (& m)))
+  (let o (stroke.outline (& tp) st))
+  (let cov (raster.coverage (& o) (. bm w) (. bm h) 0))
+  (paint_solid bm cl cov c))
+
+(fn do_image ((bm (&mut bitmap.bitmap))
+   (ms (& (vec mat.mat)))
+   (cl (& raster_clip.clips))
+   (im (& bitmap.bitmap))
+   (r (& geom.rect))
+   (mode i64)) unit
+  (if (or (<= (. r w) 0.0f32) (<= (. r h) 0.0f32)) (ret))
+  (let m (cur ms))
+  (let path (rect_path r (& m)))
+  (let cov (raster.coverage (& path) (. bm w) (. bm h) 0))
+  (let mut cv cov)
+  (raster_clip.clips.apply cl (&mut cv))
+  (match (mat.mat.invert (& m))
+    ((opt.some inv)
+      (do
+        (let sx (/ (as f32 (. im w)) (. r w)))
+        (let sy (/ (as f32 (. im h)) (. r h)))
+        (let user (mat.mat sx 0.0f32 0.0f32 sy (* (neg (. r x)) sx) (* (neg (. r y)) sy)))
+        (let to (mat.mat.mul (& user) (& inv)))
+        (raster_fill.image bm (& cv) im (& to) mode)))
+    ((opt.none) ())))
+
+(fn do_clip_rect ((ms (& (vec mat.mat))) (cl (&mut raster_clip.clips)) (r (& geom.rect))) unit
+  (let m (cur ms))
+  (let path (rect_path r (& m)))
+  (let b (path.path.bounds (& path)))
+  (let x0 (as i64 (math.floor32 (. b x))))
+  (let y0 (as i64 (math.floor32 (. b y))))
+  (let x1 (as i64 (math.ceil32 (geom.rect.right (& b)))))
+  (let y1 (as i64 (math.ceil32 (geom.rect.bottom (& b)))))
+  (raster_clip.clips.clip_rect cl x0 y0 (- x1 x0) (- y1 y0)))
+
+(fn do_clip_path ((ms (& (vec mat.mat))) (cl (&mut raster_clip.clips)) (p (& path.path))) unit
+  (let m (cur ms))
+  (let tp (path.path.transform p (& m)))
+  (raster_clip.clips.clip_path cl (& tp)))
+
+(fn step ((bm (&mut bitmap.bitmap))
+   (ms (&mut (vec mat.mat)))
+   (cl (&mut raster_clip.clips))
+   (o (& paint.op))) unit
+  (match o
+    ((paint.op.save) (do_save ms cl))
+    ((paint.op.restore) (do_restore ms cl))
+    ((paint.op.translate x y) (apply_tf ms (mat.mat.translate (@ x) (@ y))))
+    ((paint.op.scale x y) (apply_tf ms (mat.mat.scale (@ x) (@ y))))
+    ((paint.op.rotate r) (apply_tf ms (mat.mat.rotate (@ r))))
+    ((paint.op.clip_rect r) (do_clip_rect ms cl r))
+    ((paint.op.clip_path p) (do_clip_path ms cl p))
+    ((paint.op.fill_rect r c) (do_fill_rect bm ms cl r c))
+    ((paint.op.fill_path p f rule) (do_fill_path bm ms cl p f (@ rule)))
+    ((paint.op.stroke_path p st c) (do_stroke bm ms cl p st c))
+    ((paint.op.draw_image im r mode) (do_image bm ms cl im r (@ mode)))
+    ((paint.op.draw_glyphs) ())))
+
+(pub (struct canvas (ops (vec paint.op))))
+
+(impl canvas
+  (pub (fn new () canvas (canvas (vec.new <paint.op>))))
+  (pub (fn save ((self (&mut canvas))) unit (vec.push (&mut (. self ops)) (paint.op.save))))
+  (pub (fn restore ((self (&mut canvas))) unit (vec.push (&mut (. self ops)) (paint.op.restore))))
+  (pub (fn translate ((self (&mut canvas)) (x f32) (y f32)) unit
+    (vec.push (&mut (. self ops)) (paint.op.translate x y))))
+  (pub (fn scale ((self (&mut canvas)) (x f32) (y f32)) unit
+    (vec.push (&mut (. self ops)) (paint.op.scale x y))))
+  (pub (fn rotate ((self (&mut canvas)) (rad f32)) unit
+    (vec.push (&mut (. self ops)) (paint.op.rotate rad))))
+  (pub (fn clip_rect ((self (&mut canvas)) (r geom.rect)) unit
+    (vec.push (&mut (. self ops)) (paint.op.clip_rect r))))
+  (pub (fn clip_path ((self (&mut canvas)) (p path.path)) unit
+    (vec.push (&mut (. self ops)) (paint.op.clip_path p))))
+  (pub (fn fill_rect ((self (&mut canvas)) (r geom.rect) (c blend.color)) unit
+    (vec.push (&mut (. self ops)) (paint.op.fill_rect r c))))
+  (pub (fn fill_path ((self (&mut canvas)) (p path.path) (f paint.fill) (rule i64)) unit
+    (vec.push (&mut (. self ops)) (paint.op.fill_path p f rule))))
+  (pub (fn stroke_path ((self (&mut canvas)) (p path.path) (st stroke.stroke) (c blend.color)) unit
+    (vec.push (&mut (. self ops)) (paint.op.stroke_path p st c))))
+  (pub (fn draw_image ((self (&mut canvas)) (im bitmap.bitmap) (r geom.rect) (mode i64)) unit
+    (vec.push (&mut (. self ops)) (paint.op.draw_image im r mode))))
+  (pub (fn draw_glyphs ((self (&mut canvas))) unit (vec.push (&mut (. self ops)) (paint.op.draw_glyphs))))
+  (pub (fn dump ((self (& canvas))) str
+    (let mut s (str.new))
+    (for i 0 (vec.len (& (. self ops)))
+      (if (> i 0) (str.push_byte (&mut s) 10u8))
+      (str.push (&mut s) (& (paint.line (vec.get (& (. self ops)) i)))))
+    s))
+  (pub (fn replay ((self (& canvas)) (bm (&mut bitmap.bitmap))) unit
+    (let mut ms (vec.new <mat.mat>))
+    (vec.push (&mut ms) (mat.mat.id))
+    (let mut cl (raster_clip.clips.new (. bm w) (. bm h)))
+    (for i 0 (vec.len (& (. self ops))) (step bm (&mut ms) (&mut cl) (vec.get (& (. self ops)) i))))))
+
+(test canvas_rect
+  (let mut c (canvas.new))
+  (canvas.fill_rect (&mut c)
+    (geom.rect 2.0f32 2.0f32 4.0f32 4.0f32)
+    (blend.color.rgba 255u8 0u8 0u8 255u8))
+  (canvas.draw_glyphs (&mut c))
+  (let d (canvas.dump (& c)))
+  (assert (str.starts (& d) "fill_rect|2.000|2.000|4.000|4.000|0|0|255|255"))
+  (assert (str.has (& d) "draw_glyphs"))
+  (let mut bm (bitmap.bitmap.new 8 8))
+  (canvas.replay (& c) (&mut bm))
+  (assert_eq (bitmap.bitmap.byte (& bm) 3 3 2) 255u8)
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 2) 0u8)
+  (canvas.save (&mut c))
+  (canvas.translate (&mut c) 2.0f32 0.0f32)
+  (canvas.scale (&mut c) 1.0f32 1.0f32)
+  (canvas.rotate (&mut c) 0.0f32)
+  (canvas.restore (&mut c)))

@@ -1,0 +1,171 @@
+;; sin, cos, atan2, and pow. f32 entry points round an f64 result.
+(use std.math)
+
+(const pi f64 3.141592653589793)
+
+(const tau f64 6.283185307179586)
+
+(const hpi f64 1.5707963267948966)
+
+(const qpi f64 0.7853981633974483)
+
+(const ln2 f64 0.6931471805599453)
+
+(fn nan () f64 (/ 0.0 0.0))
+
+(fn inf () f64 (/ 1.0 0.0))
+
+(fn sin_poly ((x f64)) f64
+  (let x2 (* x x))
+  (let mut t 0.0000027557319223985893)
+  (set t (+ -0.0001984126984126984 (* x2 t)))
+  (set t (+ 0.008333333333333333 (* x2 t)))
+  (set t (+ -0.16666666666666666 (* x2 t)))
+  (set t (+ 1.0 (* x2 t)))
+  (* x t))
+
+(fn cos_poly ((x f64)) f64
+  (let x2 (* x x))
+  (let mut t 0.000024801587301587302)
+  (set t (+ -0.001388888888888889 (* x2 t)))
+  (set t (+ 0.041666666666666664 (* x2 t)))
+  (set t (+ -0.5 (* x2 t)))
+  (+ 1.0 (* x2 t)))
+
+;; Angle in [-pi, pi]. Non-finite input is NaN.
+(fn reduce ((x f64)) f64
+  (if (!= x x) (ret x))
+  (if (and (!= x 0.0) (== (* x 2.0) x)) (ret (nan)))
+  (let n (math.floor (/ x tau)))
+  (let mut y (- x (* n tau)))
+  (if (< y 0.0) (set y (+ y tau)))
+  (if (>= y tau) (set y (- y tau)))
+  (if (> y pi) (- y tau) y))
+
+(pub (fn sin ((x f64)) f64
+  (let mut y (reduce x))
+  (if (!= y y) (ret y))
+  (if (> y hpi) (set y (- pi y)))
+  (if (< y (neg hpi)) (set y (- (neg pi) y)))
+  (if (> y qpi) (ret (cos_poly (- hpi y))))
+  (if (< y (neg qpi)) (ret (neg (cos_poly (+ hpi y)))))
+  (sin_poly y)))
+
+(pub (fn cos ((x f64)) f64 (sin (+ x hpi))))
+
+(fn atan_small ((x f64)) f64
+  (let x2 (* x x))
+  (let mut t (/ 1.0 15.0))
+  (set t (- (/ 1.0 13.0) (* x2 t)))
+  (set t (- (/ 1.0 11.0) (* x2 t)))
+  (set t (- (/ 1.0 9.0) (* x2 t)))
+  (set t (- (/ 1.0 7.0) (* x2 t)))
+  (set t (- (/ 1.0 5.0) (* x2 t)))
+  (set t (- (/ 1.0 3.0) (* x2 t)))
+  (* x (- 1.0 (* x2 t))))
+
+(fn atan_unit ((x f64)) f64
+  (if (> x 0.41421356237) (+ qpi (atan_small (/ (- x 1.0) (+ x 1.0)))) (atan_small x)))
+
+(pub (fn atan2 ((y f64) (x f64)) f64
+  (if (and (== x 0.0) (== y 0.0)) (ret 0.0))
+  (if (== x 0.0) (ret (if (> y 0.0) hpi (neg hpi))))
+  (let a (atan_unit (math.abs (/ y x))))
+  (if (> x 0.0) (ret (if (< y 0.0) (neg a) a)))
+  (if (>= y 0.0) (- pi a) (- a pi))))
+
+(fn ipow ((x f64) (n i64)) f64
+  (if (< n 0) (ret (/ 1.0 (ipow x (neg n)))))
+  (if (== n 0) (ret 1.0))
+  (let mut b x)
+  (let mut e n)
+  (let mut r 1.0)
+  (while (> e 0) (if (!= (% e 2) 0) (set r (* r b))) (set b (* b b)) (set e (/ e 2)))
+  r)
+
+(fn exp_small ((r f64)) f64
+  (let mut t 1.0)
+  (let mut term 1.0)
+  (for i 1 16 (set term (/ (* term r) (as f64 i))) (set t (+ t term)))
+  t)
+
+(fn pow2 ((e i64)) f64
+  (let mut r 1.0)
+  (let n (if (< e 0) (neg e) e))
+  (for i 0 n (set r (* r 2.0)))
+  (if (< e 0) (/ 1.0 r) r))
+
+(fn exp ((x f64)) f64
+  (if (!= x x) (ret x))
+  (if (> x 700.0) (ret (inf)))
+  (if (< x -700.0) (ret 0.0))
+  (let n (math.round (/ x ln2)))
+  (let r (- x (* n ln2)))
+  (* (exp_small r) (pow2 (as i64 n))))
+
+(fn ln1p ((z f64)) f64
+  (let mut t 0.0)
+  (let mut term z)
+  (for i 1 22 (set t (+ t (/ term (as f64 i)))) (set term (* term (neg z))))
+  t)
+
+(fn ln ((x f64)) f64
+  (if (<= x 0.0) (ret (nan)))
+  (if (== (* x 2.0) x) (ret x))
+  (let mut m x)
+  (let mut e 0)
+  (while (>= m 1.41421356237) (set m (/ m 2.0)) (set e (+ e 1)))
+  (while (< m 0.70710678118) (set m (* m 2.0)) (set e (- e 1)))
+  (+ (ln1p (- m 1.0)) (* (as f64 e) ln2)))
+
+;; 9e18 fits in i64. Larger magnitudes stay on the exp path.
+(fn whole ((y f64)) bool (and (== y (math.floor y)) (< (math.abs y) 9000000000000000000.0)))
+
+(pub (fn pow ((x f64) (y f64)) f64
+  (if (== y 0.0) (ret 1.0))
+  (if (!= x x) (ret x))
+  (if (!= y y) (ret y))
+  (if (== x 0.0) (ret (if (> y 0.0) 0.0 (inf))))
+  (if (< x 0.0) (if (whole y) (ret (ipow x (as i64 y))) (ret (nan))))
+  (if (whole y) (ret (ipow x (as i64 y))))
+  (exp (* y (ln x)))))
+
+(pub (fn sin32 ((x f32)) f32 (as f32 (sin (as f64 x)))))
+
+(pub (fn cos32 ((x f32)) f32 (as f32 (cos (as f64 x)))))
+
+(pub (fn atan232 ((y f32) (x f32)) f32 (as f32 (atan2 (as f64 y) (as f64 x)))))
+
+(pub (fn pow32 ((x f32) (y f32)) f32 (as f32 (pow (as f64 x) (as f64 y)))))
+
+(fn near ((g f64) (w f64)) bool (< (math.abs (- g w)) 0.000001))
+
+(test trig_known
+  (assert (near (sin 0.0) 0.0))
+  (assert (near (cos 0.0) 1.0))
+  (assert (near (sin hpi) 1.0))
+  (assert (near (atan2 1.0 0.0) hpi))
+  (assert (near (atan2 0.0 -1.0) pi))
+  (assert_eq (as i64 (pow 2.0 10.0)) 1024)
+  (assert (near (pow 9.0 0.5) 3.0))
+  (assert_eq (as i64 (pow 0.0 0.0)) 1)
+  (assert (near (as f64 (sin32 0.0f32)) 0.0))
+  (assert (near (as f64 (cos32 0.0f32)) 1.0))
+  (assert (near (as f64 (atan232 1.0f32 0.0f32)) hpi))
+  (assert_eq (as i64 (as f64 (pow32 2.0f32 10.0f32))) 1024))
+
+(test trig_parts
+  (drop (sin_poly 0.2))
+  (drop (cos_poly 0.2))
+  (drop (reduce 1.0))
+  (drop (atan_small 0.2))
+  (drop (atan_unit 0.5))
+  (drop (ipow 2.0 3))
+  (drop (exp_small 0.1))
+  (drop (pow2 -1))
+  (drop (exp 1.0))
+  (drop (ln1p 0.1))
+  (drop (ln 2.0))
+  (drop (nan))
+  (drop (inf))
+  (assert (whole 2.0)))

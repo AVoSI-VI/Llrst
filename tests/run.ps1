@@ -321,25 +321,29 @@ try {
         if ($ok) { Write-Output "ok|warn/$name" }
     }
 
-    Get-ChildItem -LiteralPath (Join-Path $root 'std') -Filter '*.llr' | ForEach-Object {
+    foreach ($dirName in @('std', 'ui')) {
+    Get-ChildItem -LiteralPath (Join-Path $root $dirName) -Filter '*.llr' | ForEach-Object {
         $text = [System.IO.File]::ReadAllText($_.FullName)
         if ($text -notmatch '(?m)^\(test ') { return }
         $name = $_.BaseName
-        $bin = Join-Path $tmp "std_$name"
-        $err = Join-Path $tmp "std_$name.err"
-        $build = Invoke-Native $llrc @('build', $_.FullName, '--test', '-o', $bin) $null $err $root
+        $tag = if ($dirName -eq 'ui') { "ui-mod/$name" } else { "std/$name" }
+        $bin = Join-Path $tmp "${dirName}_$name"
+        $err = Join-Path $tmp "${dirName}_$name.err"
+        $buildArgs = @('build', $_.FullName, '--test', '-o', $bin)
+        if ($dirName -eq 'ui') { $buildArgs = @('build', $_.FullName, '--test', '--std', 'std', '--ui', 'ui', '-o', $bin) }
+        $build = Invoke-Native $llrc $buildArgs $null $err $root
         if ($build -ne 0) {
-            Write-Output "fail|std/$name|compile|$(Head-Text $err)"
+            Write-Output "fail|$tag|compile|$(Head-Text $err)"
             $script:fails++
             return
         }
-        $out = Join-Path $tmp "std_$name.out"
-        $stderr = Join-Path $tmp "std_$name.stderr"
+        $out = Join-Path $tmp "${dirName}_$name.out"
+        $stderr = Join-Path $tmp "${dirName}_$name.stderr"
         $code = Invoke-Native (Exe-Path $bin) @() $out $stderr $root
         if ($code -eq 0) {
-            Write-Output "ok|std/$name"
+            Write-Output "ok|$tag"
         } else {
-            $both = Join-Path $tmp "std_$name.both"
+            $both = Join-Path $tmp "${dirName}_$name.both"
             $bytes = New-Object System.Collections.Generic.List[byte]
             foreach ($p in @($out, $stderr)) {
                 if (Test-Path -LiteralPath $p) {
@@ -348,9 +352,10 @@ try {
             }
             [System.IO.File]::WriteAllBytes($both, $bytes.ToArray())
             $lines = @([System.IO.File]::ReadAllLines($both) | Where-Object { $_ -match '^(fail|F)\|' } | Select-Object -First 3)
-            Write-Output "fail|std/$name|$($lines -join ' ')"
+            Write-Output "fail|$tag|$($lines -join ' ')"
             $script:fails++
         }
+    }
     }
 
     $lineFail = $false

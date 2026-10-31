@@ -72,7 +72,7 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 | path | role |
 |------|------|
 | `ui/geom.llr`, `ui/path.llr`, `ui/mat.llr` | points, rects, sizes, affine matrices, paths (move line quad cubic close), flattening |
-| `ui/bitmap.llr`, `ui/blend.llr`, `ui/raster.llr`, `ui/raster_fill.llr`, `ui/raster_clip.llr`, `ui/ppm.llr` | pixel buffer, premultiplied blend, scanline coverage rasterizer, fills, clips, PPM read/write for goldens |
+| `ui/bitmap.llr`, `ui/blend.llr`, `ui/raster.llr`, `ui/raster_fill.llr`, `ui/raster_clip.llr`, `ui/stroke.llr`, `ui/ppm.llr` | pixel buffer, premultiplied blend, scanline coverage rasterizer, fills, clips, stroke outlines, PPM read/write for goldens |
 | `ui/ttf.llr`, `ui/ttf_cmap.llr`, `ui/ttf_glyf.llr`, `ui/glyph.llr`, `ui/font.llr`, `ui/text.llr` | font parsing, glyph outlines, glyph cache, line breaking and layout |
 | `ui/paint.llr`, `ui/canvas.llr` | display list ops and the canvas that records them; replay into `raster` |
 | `ui/widget.llr`, `ui/key.llr`, `ui/element.llr`, `ui/state.llr`, `ui/ctx.llr` | the widget and element trees, keys, `stateful`/`state`, build context |
@@ -87,7 +87,7 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 | `runtime/llr_ui_win.c`, `runtime/llr_ui_x11.c`, `runtime/llr_ui_mac.m`, `runtime/llr_ui_android.c`, `runtime/llr_ui_ios.m` | platform shims, scalar-only externs |
 | `web/llr_ui.js`, `web/index.html` | browser glue and page template |
 | `self/wasm*.llr`, `self/a64*.llr`, `self/macho.llr` | new backends |
-| `std/math.llr`, `std/alloc.llr`, `std/sys_wasm.llr` | float math, an allocator for targets without libc, WASI externs |
+| `std/math.llr`, `std/math_trig.llr`, `std/alloc.llr`, `std/sys_wasm.llr` | float math, an allocator for targets without libc, WASI externs |
 | `tools/llr-ui.llr` | `serve dump shot run pack` |
 | `tests/ui/`, `tests/wasm.sh`, `tests/wasm.ps1` | goldens; the suite under `wasmtime` |
 | `docs/ui/`, `docs/canon/ui.md`, `docs/workflows/ui.md`, `docs/tools/llr-ui.md` | reference, the one right way to write a widget, the agent workflow, the tool page |
@@ -96,7 +96,7 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 ## Status
 
 ```
-plan|2026-10-31|phases=0-13|phase 0 done
+plan|2026-10-31|phases=0-13|phase 1 done
 compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
 language|no owned trait object|closures: whole-binding capture, no nesting, no coercion to fn (HANDOFF Phase 2 item 6)
 std|35 modules|no math, no allocator, no png
@@ -154,17 +154,17 @@ Files: `UIFRAME.md`, `self/load.llr`, `self/src.llr`, `compiler/src/driver.rs`, 
 5. `[x]` `README.md` rows for `ui/`, `web/`, `UIFRAME.md`; `docs/canon/program.md` gains the `ui.*` import rule.
 6. `[x]` Commit: `ui: loader knows ui.*, install copies it, tests/ui group`.
 
-### Phase 1: geometry and rasterizer `[ ]`
+### Phase 1: geometry and rasterizer `[x]`
 
-Files: `ui/geom.llr`, `ui/mat.llr`, `ui/path.llr`, `ui/bitmap.llr`, `ui/blend.llr`, `ui/raster.llr`, `ui/raster_fill.llr`, `ui/raster_clip.llr`, `ui/ppm.llr`, `ui/paint.llr`, `ui/canvas.llr`, `std/math.llr`, `tests/ui/`.
+Files: `ui/geom.llr`, `ui/mat.llr`, `ui/path.llr`, `ui/bitmap.llr`, `ui/blend.llr`, `ui/raster.llr`, `ui/raster_fill.llr`, `ui/raster_clip.llr`, `ui/stroke.llr`, `ui/ppm.llr`, `ui/paint.llr`, `ui/canvas.llr`, `std/math.llr`, `std/math_trig.llr`, `tests/ui/`.
 
-1. `[ ]` `std/math.llr`: `sqrt floor ceil round abs min max sin cos atan2 pow` for `f32` and `f64`, pure Llrst (no libm) so every target has them; tests against known values.
-2. `[ ]` `geom`: `pt size rect` with `f32`; `mat`: 2x3 affine, `mul invert apply`; `path`: `move line quad cubic close`, `transform`, flatten to polylines with a tolerance, `bounds`.
-3. `[ ]` `bitmap`: BGRA8 premultiplied `w h stride (vec u8)`; `blend`: src-over, `clear`, `src`; `ppm`: read and write P6 for goldens (alpha dropped on write; a second `.pam`-free form is not needed).
-4. `[ ]` `raster`: scanline coverage accumulation (non-zero and even-odd), fill a flattened path with a solid colour, with a linear gradient, with an image (nearest, then bilinear); `raster_clip`: a clip stack of rects and coverage masks; stroke by offsetting to a fill path (`butt round square` caps, `miter round bevel` joins).
-5. `[ ]` `paint`: display list ops `save restore translate scale rotate clip_rect clip_path fill_rect fill_path stroke_path draw_image draw_glyphs` (glyphs land in Phase 2); `canvas`: records ops; `canvas.replay` draws into a `bitmap` through `raster`.
-6. `[ ]` Goldens: `tests/ui/raster_*.llr` each draw one feature and write a `.ppm`; dumps of a display list as `op|args` lines in `.out`.
-7. `[ ]` Commit: `ui: geometry, paths, scanline rasterizer, display list, ppm goldens`.
+1. `[x]` `std/math.llr`: `sqrt floor ceil round abs min max sin cos atan2 pow` for `f32` and `f64`, pure Llrst (no libm) so every target has them; tests against known values. `sin cos atan2 pow` live in `std/math_trig.llr` so neither file crosses 400 lines. `f32` entry points are the `32` suffix and round an `f64` result.
+2. `[x]` `geom`: `pt size rect` with `f32`; `mat`: 2x3 affine, `mul invert apply`; `path`: `move line quad cubic close`, `transform`, flatten to polylines with a tolerance, `bounds`.
+3. `[x]` `bitmap`: BGRA8 premultiplied `w h stride (vec u8)`; `blend`: src-over, `clear`, `src`; `ppm`: read and write P6 for goldens (alpha dropped on write; a second `.pam`-free form is not needed).
+4. `[x]` `raster`: scanline coverage accumulation (non-zero and even-odd), fill a flattened path with a solid colour, with a linear gradient, with an image (nearest, then bilinear); `raster_clip`: a clip stack of rects and coverage masks; stroke by offsetting to a fill path (`butt round square` caps, `miter round bevel` joins). Stroke outlines are `ui/stroke.llr`.
+5. `[x]` `paint`: display list ops `save restore translate scale rotate clip_rect clip_path fill_rect fill_path stroke_path draw_image draw_glyphs` (glyphs land in Phase 2); `canvas`: records ops; `canvas.replay` draws into a `bitmap` through `raster`.
+6. `[x]` Goldens: `tests/ui/raster_*.llr` each draw one feature and write a `.ppm`; dumps of a display list as `op|args` lines in `.out`.
+7. `[x]` Commit: `ui: geometry, paths, scanline rasterizer, display list, ppm goldens`.
 
 ### Phase 2: text `[ ]`
 
@@ -315,3 +315,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 
 - 2026-10-27: plan written after eight scope questions were answered by the owner (place and name, own rasterizer, own TrueType, wasm32 in `self/` with WASI, aarch64 in `self/` with both mobile OSes, three desktop OSes, Flutter's three trees, all five extras). No code changed. Language gaps were taken from `HANDOFF.md` and `docs/spec/`; no path under `ui/`, `web/`, or the new `self/` and `std/` files exists yet.
 - 2026-10-31: Phase 0. `(use ui.NAME)` loads `ui/NAME.llr` on use in stage 0 and `self/`. `std/` stays eager. Install copies `ui/` beside `std`. `tests/ui` compares stdout and, when a `.ppm` exists, the `--shot` bytes.
+- 2026-10-31: Phase 1. `std/math.llr` and `std/math_trig.llr` are pure Llrst float math. `ui/` has geometry, paths, a fixed-point scanline rasterizer, clips, strokes, a display list, and PPM goldens under `tests/ui/raster_*`. `draw_glyphs` is recorded and not painted.
