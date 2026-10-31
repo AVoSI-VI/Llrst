@@ -139,12 +139,11 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 - `coff.llr` is the template for a second writer: `(pub (fn bytes ((o (& elf.obj))) str`,
   reads `text data rodata bss syms rels` directly, section numbers 1..4 match ELF so
   `sym.sec` passes through, symbol index shifts by one because COFF has no null symbol.
-- `cg_mod.llr`: `cg` struct lines 12-40; `new (checked darwin win be)` lines 54-87;
-  `host_name` lines 89-97 renames `open fcntl bind connect socket setrlimit` to `llr_*` on
-  Darwin and nothing else (no `_` prefix anywhere; Mach-O needs `_` on every symbol, which is
-  the writer's job); `append_fn` lines 304-310 copies `x64_buf.buf` into `.text` and converts
-  `x64_buf.rel` via `elf.add_enc`; `finish` lines 331-333 picks `coff` on `win` else `elf`;
-  `call_cc`/`a0`/`a1` lines 312-329 leak `rcx/rdi/rdx/rsi`.
+- `cg_mod.llr`: `new` takes `(checked, isa, darwin, be)`. `cg.win` is `isa.win`.
+  `elf.obj.machine` is `elf.mach_a64` when `isa.a64`, otherwise `mach_x64`. `host_name`
+  renames `open fcntl bind connect socket setrlimit` to `llr_*` on Darwin and nothing else
+  (no `_` prefix anywhere; Mach-O needs `_` on every symbol, which is the writer's job).
+  `finish` picks `coff` when `win`, `macho` when `darwin` and `isa.a64`, otherwise `elf`.
 - Stage 0 reference object for `tests/run/hello.llr` on this Mac (`llvm-objdump -h -r`):
   sections `__bss`, `__const` (string bytes), `__const` (string records with
   `ARM64_RELOC_UNSIGNED` to `_llr_sbN`), `__text`; text relocations `ARM64_RELOC_BRANCH26`
@@ -174,14 +173,17 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 - `sys.arch` is a compile-time string: `self/prog.llr` line 120 and `self/lower_call.llr`
   line 180 hard-code `"x86_64"`. Stage 0 prints `isa.triple().architecture`, which is
   `aarch64` on this Mac. `tests/mir.sh` compares MIR, so the a64 ISA must produce `"aarch64"`.
-- `self/drive.llr`: `target_ok` lines 45-48 rejects any triple without `x86_64` or with
-  `apple`; `is_darwin` lines 54-56; `build` lines 75-97 constructs `cg_mod.new` and calls
-  `link.link`. `self/llrs.llr` lines 137-138 also gate on `target_ok`. `self/load.llr`
+- `self/drive.llr`: `target_ok` accepts an empty triple, `x86_64` without `apple`, and any
+  triple containing `aarch64` or `arm64`. An empty triple takes the host ISA from
+  `link.host_a64` (`uname -m`) and Darwin from `link.host_darwin`. `build` passes that
+  `cg_isa.isa` to `cg_mod.new` and calls `link.link`. `self/llrs.llr` gates `emit-mir` on
+  `target_ok`. `self/load.llr`
   `os_name` lines 61-67 chooses `sys_windows.llr` or `sys_posix.llr`; Darwin stays on
   `sys_posix.llr` because `runtime/llr_stat.c` (under `#ifdef __APPLE__`, lines 184-304)
   translates open flags, `fcntl`, `sockaddr_in`, `setrlimit` resource 7, and `errno`.
-- `self/link.llr`: `host_darwin` lines 52-56 (`uname -s`), `host_cc` lines 74-82 omits `-pie`
-  on Darwin. Nothing else needs to change for the host link.
+- `self/link.llr`: `host_darwin` is `uname -s`. `host_a64` is `uname -m` (`arm64` or
+  `aarch64`; false on Windows). `host_cc` omits `-pie` on Darwin. A non-empty triple is
+  `clang --target=`.
 - `self/x64_abi.llr` classifies only (`classify cc cls out`); sret is prepended by callers
   (`cg_frame.classes`, `cg_term.marshal`, `cg_clos.in_cls/out_cls`). Every aggregate is a
   pointer, floats are `cls_float`, nothing else. The a64 twin keeps that shape.
@@ -204,7 +206,7 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/cg_frame.llr` | 412 | Phase 1 removed the x64 calls |
 | `self/cg_term.llr` | 390 | Phase 1 |
 | `self/elf.llr` | 450 | Phase 3 added aarch64 kinds and `elf_a64` |
-| `self/cg_mod.llr` | 349 | Phase 4 sets `isa.a64` from the Darwin flag |
+| `self/cg_mod.llr` | 351 | `e_machine` follows `isa.a64`; Mach-O when Darwin and AArch64 |
 | `self/macho.llr` | 322 | Phase 3 symbols, relocs, and tests |
 | `self/macho_out.llr` | 255 | Phase 3 load commands and layout |
 | `self/isa_x64.llr` | 311 | Phase 1 |
@@ -368,27 +370,27 @@ Files: `self/isa_a64.llr` (new; split into `isa_a64_fp.llr`, `isa_a64_frame.llr`
    `--emit-obj` and reading both with `llvm-objdump -d -r`.
 9. `[x]` Commit: `self: aarch64 codegen through cg_isa`.
 
-### Phase 5: driver, link, scripts, docs `[ ]`
+### Phase 5: driver, link, scripts, docs `[x]`
 
 Files: `self/drive.llr`, `self/llrs.llr`, `self/link.llr`, `scripts/install.sh`, `tests/cross.sh`, `tests/run.sh`, `docs/install.md`, `docs/spec/targets.md` (new), `HANDOFF.md`, `UIFRAME.md`, `README.md`.
 
-1. `[ ]` `drive.target_ok` accepts empty, `x86_64-*` without `apple`, and `aarch64-*` or
+1. `[x]` `drive.target_ok` accepts empty, `x86_64-*` without `apple`, and `aarch64-*` or
    `arm64-*` including `apple-darwin`; host ISA from `uname -m` next to `link.host_darwin`;
    `cg_mod.new` takes the `isa` record; `is_darwin` and the ISA select the writer.
-2. `[ ]` `link.llr`: Darwin host unchanged; `aarch64-unknown-linux-gnu` through
+2. `[x]` `link.llr`: Darwin host unchanged; `aarch64-unknown-linux-gnu` through
    `clang --target=` as today. `load.llr` unchanged.
-3. `[ ]` `scripts/install.sh`: remove the Darwin stage-0 branch so Darwin installs `llrs2`.
-4. `[ ]` `tests/cross.sh`: with `LLRC` set to a `self/` build, also build
+3. `[x]` `scripts/install.sh`: remove the Darwin stage-0 branch so Darwin installs `llrs2`.
+4. `[x]` `tests/cross.sh`: with `LLRC` set to a `self/` build, also build
    `aarch64-apple-darwin` (`file` says arm64) and `aarch64-unknown-linux-gnu` (freestanding
    link with Homebrew clang and `ld.lld`); skip riscv64 and s390x for `self/` with
    `skip|cross|target=...|self=x86-64 and aarch64 only`.
-5. `[ ]` Docs: `docs/spec/targets.md` lists triples per compiler (stage 0: x86-64, aarch64,
+5. `[x]` Docs: `docs/spec/targets.md` lists triples per compiler (stage 0: x86-64, aarch64,
    riscv64, s390x; `self/`: x86-64 ELF and COFF, aarch64 ELF and Mach-O); `docs/install.md`
    drops the Darwin stage-0 paragraph; `HANDOFF.md` backend decision row, Architecture pass
    table (`cg_isa`, `isa_x64`, `isa_a64`, `a64_*`, `macho`, `cg_cast`), Phase 6 item 2,
    Line budget, Progress log; `UIFRAME.md` Phase 8 boxes marked done where this plan covers
    them; `README.md` table rows for `DARWIN.md` and the new backend.
-6. `[ ]` Commit: `platform: darwin and aarch64 targets in self/, install llrs2 on a Mac`.
+6. `[x]` Commit: `platform: darwin and aarch64 targets in self/, install llrs2 on a Mac`.
 
 ### Phase 6: stage 2 on this Mac `[ ]`
 
@@ -460,3 +462,12 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   tests/run.sh` is fails=0 for run, err, panic, warn, and std. `tests/check.sh` and
   `tests/mir.sh` fails=0. `tests/run` and `std` x86-64 objects stayed byte-equal.
   `self/llrs` ELF and COFF snapshots were refreshed because the compiler text grew.
+- 2026-10-31: Phase 5. `target_ok` accepts an empty triple, `x86_64` without `apple`, and
+  `aarch64` or `arm64`. An empty triple takes the host ISA from `uname -m`.
+  `cg_mod.new` takes the `isa` record. `e_machine` follows `isa.a64`, and Mach-O is
+  selected when the target is Darwin and the ISA is AArch64. `scripts/install.sh`
+  installs `llrs2` on Darwin. `LLRC=llrs0 tests/cross.sh` links
+  `aarch64-unknown-linux-gnu`, checks `aarch64-apple-darwin`, and skips riscv64 and
+  s390x. Stage 0 `tests/cross.sh` still links all three ELF targets. `tests/run` and
+  `std` x86-64 objects stayed byte-equal. `self/llrs` ELF and COFF snapshots were
+  refreshed because the compiler text grew. `tests/check.sh` and `tests/mir.sh` fails=0.

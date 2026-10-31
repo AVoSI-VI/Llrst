@@ -15,15 +15,15 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | path | content |
 |------|---------|
 | `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
-| `DARWIN.md` | plan for an aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
+| `DARWIN.md` | plan for the aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
-| `docs/spec/` | grammar, tokens, types, memory model, error format |
+| `docs/spec/` | grammar, tokens, types, memory model, error format, targets |
 | `docs/canon/` | the one right way per task |
 | `docs/std/` | standard library reference |
 | `docs/tools/` | agent tools written in Llrst |
 | `docs/workflows/` | step lists for agents |
 | `compiler/` | stage 0 `llrc` (Rust, Cranelift); not installed |
-| `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs` |
+| `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs`, emitting x86-64 ELF and COFF and aarch64 ELF and Mach-O |
 | `std/` | standard library (Llrst) |
 | `runtime/` | C shims: `llr_stat.c` on Unix; `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` on Windows |
 | `scripts/` | `install.sh`, `install.ps1`, `self.sh`, `check-lines.sh` |

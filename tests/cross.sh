@@ -2,7 +2,8 @@
 # Builds tests/run/hello.llr with --emit-obj for each cross target and checks `file`.
 # aarch64, riscv64, and s390x are then linked freestanding with lld. apple-darwin is not.
 # Apple clang has no RISC-V or SystemZ backend. A keg-only Homebrew LLVM clang does.
-# Output: ok|cross|TARGET or fail|cross|target=...|got=...
+# A self/ compiler rejects riscv64 and s390x; those rows are skip, not fail.
+# Output: ok|cross|TARGET or fail|cross|target=...|got=... or skip|cross|target=...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 llrc="${LLRC:-$root/target/release/llrc}"
@@ -36,6 +37,10 @@ check() {
   local triple="$1" needle="$2" obj="$tmp/hello.o"
   rm -f "$obj"
   if ! "$llrc" build "$root/tests/run/hello.llr" --target "$triple" --emit-obj -o "$tmp/hello" 2>"$tmp/err"; then
+    if grep -q 'target.unsupported' "$tmp/err"; then
+      echo "skip|cross|target=$triple|self=x86-64 and aarch64 only"
+      return
+    fi
     echo "fail|cross|target=$triple|got=$(head -1 "$tmp/err")"
     fails=$((fails+1))
     return

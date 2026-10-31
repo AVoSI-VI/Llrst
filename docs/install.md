@@ -2,7 +2,8 @@
 
 Requirements: a Rust toolchain (`cargo`) for stage 0, and a C compiler used only as the linker.
 On Linux or macOS that compiler is `cc`. On Windows it is `cl`.
-Stage 0 is the Rust compiler. The installed `llrc` is stage-2 `llrs`, which emits x86-64.
+Stage 0 is the Rust compiler. The installed `llrc` is stage-2 `llrs`, which emits x86-64
+ELF or COFF and aarch64 ELF or Mach-O.
 
 ```
 scripts/install.sh            # Linux or macOS, installs to ~/.local/{bin,share/llrst}
@@ -11,13 +12,12 @@ scripts/install.ps1           # Windows, installs to %USERPROFILE%\.local
 scripts/install.ps1 PREFIX
 ```
 
-The script builds release `llrc` as stage 0. On Linux it does not install that binary.
+The script builds release `llrc` as stage 0. It does not install that binary.
 Stage 0 builds `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llrs1` and
-`llrs2` must match byte for byte. `scripts/self.sh` is that bootstrap on Unix. On Darwin,
-`self/` emits ELF and Apple `ld` reports `unknown file type`, so the script installs stage 0
-as `llrc`. That binary emits the host Mach-O. `scripts/self.ps1` is the same
+`llrs2` must match byte for byte. `scripts/self.sh` is that bootstrap on Unix, including
+Darwin. `scripts/self.ps1` is the same
 bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
-`/Brepro`. `--stage` stops after `self|stage2=equal`. On Linux and Windows the install
+`/Brepro`. `--stage` stops after `self|stage2=equal`. The install
 script then installs `llrs2` as `llrc`. It copies `std/` and `examples/` to
 `PREFIX/share/llrst/`, compiles the host runtime
 (`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
@@ -32,10 +32,13 @@ layout is whatever the host headers define. On a Mac, the same object translates
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
 in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
 Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
-`aarch64`, `riscv64`, `s390x`, and `apple-darwin` objects stay on stage 0. `tests/run.sh` and
+Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, `x86_64`
+without `apple`, and `aarch64` or `arm64`, including `apple-darwin`. `riscv64` and `s390x`
+stay on stage 0. `tests/run.sh` and
 `tests/run.ps1` check whichever `llrc` `LLRC` names; stage 0 is `target/release/llrc`. Both
 runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` against that
-stage 0 binary. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
+stage 0 binary. When `LLRC` is not stage 0, `tests/run.sh` runs `tests/cross.sh` again with
+that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
 `llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places, using the first of
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.

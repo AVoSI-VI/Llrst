@@ -55,6 +55,13 @@
   (let name (str.trim (& (. r out))))
   (str.starts (& name) "Darwin")))
 
+(pub (fn mach_a64 ((name (& str))) bool (or (str.eq name "arm64") (str.eq name "aarch64"))))
+
+(pub (fn host_a64 () bool
+  (if (== sys.os_id 2) (ret false))
+  (let r (os.capture "uname -m"))
+  (mach_a64 (& (str.trim (& (. r out)))))))
+
 (fn q ((s (& str))) str (if (== sys.os_id 2) (link_win.dq s) (sh s)))
 
 (fn add_stat ((cmd (&mut str))) unit
@@ -165,3 +172,9 @@
 (pub (fn link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str))) str
   (if (is_win target) (ret (via_win bytes out main)))
   (unix_link bytes out target main)))
+
+(test mach_a64
+  (assert_eq (mach_a64 "arm64") true)
+  (assert_eq (mach_a64 "aarch64") true)
+  (assert_eq (mach_a64 "x86_64") false)
+  (assert_eq (mach_a64 "Darwin") false))
