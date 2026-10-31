@@ -1,4 +1,4 @@
-;; IPv4 on 127.0.0.1. poll_serve reads many connections on one thread.
+;; IPv4. connect takes a dotted quad. poll_serve reads many connections on one thread.
 (use std.sys)
 
 (fn err_port ((code (& str)) (port i64)) str
@@ -13,16 +13,44 @@
   (str.push (&mut m) (& (str.from_int fd)))
   m)
 
-;; 16-byte sockaddr_in: native family 2, big-endian port, 127.0.0.1.
-(fn fill ((p (ptr u8)) (port i64)) unit
-  (for i 0 16 (ptr.write (ptr.add p i) 0u8))
+(fn err_host ((host (& str))) str
+  (let mut m (str.from "io.connect|host="))
+  (str.push (&mut m) host)
+  m)
+
+(fn octet ((s (& str))) (opt i64)
+  (if (== (str.len s) 0) (ret (opt.none)))
+  (let n (str.to_int s))
+  (if (opt.is_none (& n)) (ret (opt.none)))
+  (let v (opt.unwrap n))
+  (if (or (< v 0) (> v 255)) (ret (opt.none)))
+  (opt.some v))
+
+(fn parse_ip ((host (& str)) (p (ptr u8))) bool
+  (let parts (str.split host 46u8))
+  (if (!= (vec.len (& parts)) 4) (ret false))
+  (for i 0 4
+    (let o (octet (vec.get (& parts) i)))
+    (if (opt.is_none (& o)) (ret false))
+    (ptr.write (ptr.add p (+ 4 i)) (as u8 (opt.unwrap o))))
+  true)
+
+(fn zero16 ((p (ptr u8))) unit (for i 0 16 (ptr.write (ptr.add p i) 0u8)))
+
+(fn fill_port ((p (ptr u8)) (port i64)) unit
+  (zero16 p)
   (ptr.write (as (ptr i16) p) 2i16)
   (ptr.write (ptr.add p 2) (as u8 (shr (band port 65535) 8)))
-  (ptr.write (ptr.add p 3) (as u8 (band port 255)))
+  (ptr.write (ptr.add p 3) (as u8 (band port 255))))
+
+(fn fill_local ((p (ptr u8)) (port i64)) unit
+  (fill_port p port)
   (ptr.write (ptr.add p 4) 127u8)
   (ptr.write (ptr.add p 7) 1u8))
 
-(fn addr ((port i64)) (ptr u8) (let p (sys.alloc 16)) (fill p port) p)
+(fn fill_host ((p (ptr u8)) (host (& str)) (port i64)) bool (fill_port p port) (parse_ip host p))
+
+(fn addr ((port i64)) (ptr u8) (let p (sys.alloc 16)) (fill_local p port) p)
 
 (pub (fn listen ((port i64)) (res i64 str)
   (let fd (sys.socket 2i32 1i32 0i32))
@@ -31,7 +59,8 @@
   (let b (sys.bind fd p 16u32))
   (sys.free p)
   (if (< b 0i32) (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
-  (if (< (sys.listen fd 128i32) 0i32) (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
+  (if (< (sys.listen fd 128i32) 0i32)
+    (do (sys.close fd) (ret (res.err (err_port "io.listen" port)))))
   (res.ok (as i64 fd))))
 
 (pub (fn local_port ((fd i64)) (res i64 str)
@@ -52,10 +81,11 @@
   (if (< c 0i32) (ret (res.err (err_fd "io.accept" fd))))
   (res.ok (as i64 c))))
 
-(pub (fn connect ((port i64)) (res i64 str)
+(pub (fn connect ((host (& str)) (port i64)) (res i64 str)
+  (let p (sys.alloc 16))
+  (if (not (fill_host p host port)) (do (sys.free p) (ret (res.err (err_host host)))))
   (let fd (sys.socket 2i32 1i32 0i32))
-  (if (< fd 0i32) (ret (res.err (err_port "io.connect" port))))
-  (let p (addr port))
+  (if (< fd 0i32) (do (sys.free p) (ret (res.err (err_port "io.connect" port)))))
   (let c (sys.connect fd p 16u32))
   (sys.free p)
   (if (< c 0i32) (do (sys.close fd) (ret (res.err (err_port "io.connect" port)))))
@@ -98,6 +128,8 @@
 (fn ready ((base (ptr u8)) (i i64)) bool
   (!= (ptr.read (as (ptr i16) (ptr.add (ptr.add base (* i 8)) 6))) 0i16))
 
+(fn under_cap ((len i64) (cap i64)) bool (if (< cap 0) true (< len cap)))
+
 (fn take_clients ((lfd i32) (clients (&mut (vec i64))) (cap i64)) bool
   (loop
     (let mut n 16u32)
@@ -106,34 +138,36 @@
     (let err (errno))
     (sys.free p)
     (if (< c 0i32) (do (if (== err 11i32) (ret true)) (if (== err 4i32) (cont)) (ret false)))
-    (if (>= (vec.len clients) cap) (do (sys.close c) (cont)))
+    (if (not (under_cap (vec.len clients) cap)) (do (sys.close c) (cont)))
     (if (not (set_nonblock c)) (do (sys.close c) (ret false)))
     (vec.push clients (as i64 c))))
 
-(fn read_one ((fd i64) (each (fn (i64 (& str) (ptr u8)) bool)) (ctx (ptr u8)) (reads (ptr i64))) i64
+(struct chunk (kind i64) (fd i64) (data str))
+
+(fn read_fd ((fd i64)) chunk
   (let p (sys.alloc 256))
   (let r (sys.recv (as i32 fd) p (as u64 256) 0i32))
   (let err (errno))
-  (if (< r 0) (do (sys.free p) (if (or (== err 11i32) (== err 4i32)) (ret 0)) (ret -1)))
-  (if (== r 0) (do (sys.free p) (close fd) (ret 2)))
+  (if (< r 0)
+    (do
+      (sys.free p)
+      (if (or (== err 11i32) (== err 4i32)) (ret (chunk 2 fd (str.new))))
+      (ret (chunk -1 fd (str.new)))))
+  (if (== r 0) (do (sys.free p) (close fd) (ret (chunk 1 fd (str.new)))))
   (let s (str.from_raw p r))
   (sys.free p)
-  (ptr.write reads (+ (ptr.read reads) 1))
-  (if (call each fd (& s) ctx) 0 1))
+  (chunk 0 fd s))
 
-(fn sweep ((base (ptr u8))
-   (clients (&mut (vec i64)))
-   (each (fn (i64 (& str) (ptr u8)) bool))
-   (ctx (ptr u8))
-   (reads (ptr i64))) i64
+(fn sweep ((base (ptr u8)) (clients (&mut (vec i64))) (out (&mut (vec chunk)))) i64
   (let mut i (- (vec.len clients) 1))
   (while (>= i 0)
     (if (ready base (+ i 1))
       (do
         (let fd (@ (vec.get clients i)))
-        (let k (read_one fd each ctx reads))
-        (if (== k 2) (vec.remove clients i))
-        (if (and (!= k 0) (!= k 2)) (ret k))))
+        (let c (read_fd fd))
+        (if (== (. c kind) 1) (drop (vec.remove clients i)))
+        (if (== (. c kind) -1) (ret -1))
+        (if (== (. c kind) 0) (vec.push out c))))
     (set i (- i 1)))
   0)
 
@@ -150,30 +184,39 @@
   (if (< pr 0i32) (ret (res.err (err_fd "io.poll" listen_fd))))
   (res.ok pr))
 
-(pub (fn poll_serve ((listen_fd i64) (max i64) (each (fn (i64 (& str) (ptr u8)) bool)) (ctx (ptr u8))) (res i64 str)
+(fn await_hits ((lfd i32) (clients (&mut (vec i64))) (max i64) (listen_fd i64)) (res (vec chunk) str)
+  (let base (build_set lfd clients))
+  (let n (+ (vec.len clients) 1))
+  (let pr (poll_set base n listen_fd))
+  (if (res.is_err (& pr)) (do (sys.free base) (ret (res.err (res.unwrap_err pr)))))
+  (if (ready base 0)
+    (if (not (take_clients lfd clients max))
+      (do (sys.free base) (ret (res.err (err_fd "io.accept" listen_fd))))))
+  (let mut hits (vec.new <chunk>))
+  (let k (sweep base clients (&mut hits)))
+  (sys.free base)
+  (if (== k -1) (ret (res.err (err_fd "io.recv" listen_fd))))
+  (res.ok hits))
+
+(pub (fn poll_serve ((listen_fd i64) (max i64) (each (clos (i64 (& str)) bool))) (res i64 str)
   (let lfd (as i32 listen_fd))
   (if (not (set_nonblock lfd)) (ret (res.err (err_fd "io.poll" listen_fd))))
   (if (< (sys.listen lfd 128i32) 0i32) (ret (res.err (err_fd "io.poll" listen_fd))))
-  (let mut cap max)
-  (if (> cap 4095) (set cap 4095))
-  (if (< cap 0) (set cap 0))
   (let mut clients (vec.new <i64>))
   (let mut reads 0)
   (loop
-    (let base (build_set lfd (& clients)))
-    (let n (+ (vec.len (& clients)) 1))
-    (let pr (poll_set base n listen_fd))
-    (if (res.is_err (& pr)) (do (sys.free base) (ret (res.err (res.unwrap_err pr)))))
-    (if (ready base 0)
-      (if (not (take_clients lfd (&mut clients) cap))
-        (do (sys.free base) (ret (res.err (err_fd "io.accept" listen_fd))))))
-    (let k (sweep base (&mut clients) each ctx (as (ptr i64) (&mut reads))))
-    (sys.free base)
-    (if (== k -1) (ret (res.err (err_fd "io.recv" listen_fd))))
-    (if (== k 1) (ret (res.ok reads))))))
+    (let got (await_hits lfd (&mut clients) max listen_fd))
+    (if (res.is_err (& got)) (ret (res.err (res.unwrap_err got))))
+    (let hits (res.unwrap got))
+    (let mut i 0)
+    (while (< i (vec.len (& hits)))
+      (let h (vec.get (& hits) i))
+      (set reads (+ reads 1))
+      (if (not (call each (. (@ h) fd) (& (. (@ h) data)))) (ret (res.ok reads)))
+      (set i (+ i 1))))))
 
 (fn client ((port i64)) i32
-  (let c (res.unwrap (connect port)))
+  (let c (res.unwrap (connect "127.0.0.1" port)))
   (res.unwrap (send c "ping"))
   (let got (res.unwrap (recv c 8)))
   (close c)
@@ -195,15 +238,14 @@
   (assert_eq (as i64 (band st 127i32)) 0)
   (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
 
-(fn on_x ((fd i64) (data (& str)) (ctx (ptr u8))) bool
+(fn on_count ((fd i64) (data (& str)) (p (ptr i64))) bool
   (if (or (< fd 0) (== (str.len data) 0)) (ret false))
-  (let p (as (ptr i64) ctx))
   (let n (+ (ptr.read p) 1))
   (ptr.write p n)
   (< n 64))
 
 (fn many ((port i64)) i32
-  (for i 0 64 (let c (res.unwrap (connect port))) (res.unwrap (send c "x")) (close c))
+  (for i 0 64 (let c (res.unwrap (connect "127.0.0.1" port))) (res.unwrap (send c "x")) (close c))
   (ret 0))
 
 (test net_poll
@@ -211,9 +253,11 @@
   (let port (res.unwrap (local_port l)))
   (let pid (sys.llr_call_child many port))
   (let mut count 0)
-  (let n (res.unwrap (poll_serve l 64 on_x (as (ptr u8) (&mut count)))))
+  (let slot (as (ptr i64) (&mut count)))
+  (let n
+    (res.unwrap (poll_serve l 64 (clos ((fd i64) (data (& str))) bool (on_count fd data slot)))))
   (assert_eq n 64)
-  (assert_eq count 64)
+  (assert_eq (ptr.read slot) 64)
   (close l)
   (let mut st 0i32)
   (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
@@ -223,20 +267,31 @@
 (test net_helpers
   (assert_eq (& (err_port "io.listen" 1)) "io.listen|port=1")
   (assert_eq (& (err_fd "io.recv" 3)) "io.recv|fd=3")
+  (assert_eq (& (err_host "nope")) "io.connect|host=nope")
+  (assert_eq (& (res.unwrap_err (connect "nope" 9))) "io.connect|host=nope")
+  (assert (under_cap 5000 -1))
+  (assert (not (under_cap 3 3)))
   (let p (addr 80))
-  (fill p 81)
+  (fill_local p 81)
+  (assert (fill_host p "10.0.0.2" 80))
+  (assert (not (parse_ip "10.0.0" p)))
   (sys.free p)
   (drop (errno))
   (assert (not (set_nonblock (neg 1))))
   (let base (sys.alloc 8))
   (put_fd base 0 1i32)
   (assert (not (ready base 0)))
+  (zero16 base)
   (let mut clients (vec.new <i64>))
   (let built (build_set 1i32 (& clients)))
   (sys.free built)
-  (sys.free base)
   (let mut reads 0)
+  (let mut hits (vec.new <chunk>))
   (if false (take_clients 0i32 (&mut clients) 1))
-  (if false (read_one 0 on_x (ptr.null <u8>) (as (ptr i64) (&mut reads))))
-  (if false (sweep base (&mut clients) on_x (ptr.null <u8>) (as (ptr i64) (&mut reads))))
-  (if false (drop (poll_set base 1 0))))
+  (if false (drop (read_fd 0)))
+  (if false (sweep base (&mut clients) (&mut hits)))
+  (if false (drop (await_hits 0i32 (&mut clients) 1 0)))
+  (if false (drop (poll_set base 1 0)))
+  (drop reads)
+  (sys.free base)
+  (drop (octet "1")))

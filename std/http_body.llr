@@ -1,0 +1,175 @@
+;; HTTP/1.1 bodies. Content-Length, or chunked transfer with trailers.
+(fn eshort ((want i64) (got i64)) str
+  (let mut m (str.from "http.short|want="))
+  (str.push (&mut m) (& (str.from_int want)))
+  (str.push (&mut m) "|got=")
+  (str.push (&mut m) (& (str.from_int got)))
+  m)
+
+(fn hname ((line (& str))) str
+  (match (str.find line ":")
+    ((opt.some i) (str.lower (& (str.trim (& (str.slice line 0 i))))))
+    ((opt.none) (str.new))))
+
+(fn hval ((line (& str))) str
+  (match (str.find line ":")
+    ((opt.some i) (str.trim (& (str.slice line (+ i 1) (str.len line)))))
+    ((opt.none) (str.new))))
+
+(fn header ((hs (& (vec str))) (name (& str))) (opt str)
+  (let want (str.lower name))
+  (let mut found (opt.none))
+  (for i 0 (vec.len hs)
+    (let line (vec.get hs i))
+    (if (str.eq (& (hname line)) (& want)) (set found (opt.some (hval line)))))
+  found)
+
+(fn hex_val ((b u8)) (opt i64)
+  (if (and (>= b 48u8) (<= b 57u8)) (ret (opt.some (as i64 (- b 48u8)))))
+  (if (and (>= b 97u8) (<= b 102u8)) (ret (opt.some (+ 10 (as i64 (- b 97u8))))))
+  (if (and (>= b 65u8) (<= b 70u8)) (ret (opt.some (+ 10 (as i64 (- b 65u8))))))
+  (opt.none))
+
+(fn hex_int ((s (& str))) (opt i64)
+  (if (== (str.len s) 0) (ret (opt.none)))
+  (let mut v 0)
+  (for i 0 (str.len s)
+    (let d (hex_val (str.at s i)))
+    (if (opt.is_none (& d)) (ret (opt.none)))
+    (set v (+ (* v 16) (opt.unwrap d))))
+  (opt.some v))
+
+(fn size_of ((line (& str))) (opt i64)
+  (let cut (match (str.find line ";") ((opt.some i) i) ((opt.none) (str.len line))))
+  (hex_int (& (str.trim (& (str.slice line 0 cut))))))
+
+(fn crlf ((text (& str)) (i i64)) bool
+  (and (< (+ i 1) (str.len text)) (and (== (str.at text i) 13u8) (== (str.at text (+ i 1)) 10u8))))
+
+(fn one_chunk ((text (& str)) (i (&mut i64)) (out (&mut str))) (res i64 str)
+  (let nl (str.find_from text "\r\n" (@ i)))
+  (if (opt.is_none (& nl)) (ret (res.err (eshort (+ (str.len text) 2) (str.len text)))))
+  (let n (opt.unwrap nl))
+  (let sz (size_of (& (str.slice text (@ i) n))))
+  (if (opt.is_none (& sz)) (ret (res.err (str.from "http.chunk"))))
+  (let size (opt.unwrap sz))
+  (set (@ i) (+ n 2))
+  (if (> (+ (str.len out) size) 1048576) (ret (res.err (str.from "http.chunk"))))
+  (if (== size 0) (ret (res.ok 0)))
+  (if (> (+ (+ (@ i) size) 2) (str.len text))
+    (ret (res.err (eshort (+ (+ (@ i) size) 2) (str.len text)))))
+  (str.push out (& (str.slice text (@ i) (+ (@ i) size))))
+  (set (@ i) (+ (@ i) size))
+  (if (not (crlf text (@ i))) (ret (res.err (str.from "http.chunk"))))
+  (set (@ i) (+ (@ i) 2))
+  (res.ok size))
+
+(fn trailers ((text (& str)) (i (&mut i64)) (hs (&mut (vec str)))) (res unit str)
+  (loop
+    (let nl (str.find_from text "\r\n" (@ i)))
+    (if (opt.is_none (& nl)) (ret (res.err (eshort (+ (str.len text) 2) (str.len text)))))
+    (let n (opt.unwrap nl))
+    (if (== n (@ i)) (do (set (@ i) (+ n 2)) (ret (res.ok ()))))
+    (let line (str.trim (& (str.slice text (@ i) n))))
+    (if (opt.is_none (& (str.find (& line) ":"))) (ret (res.err (str.from "http.chunk"))))
+    (vec.push hs line)
+    (set (@ i) (+ n 2))))
+
+(fn drop_name ((hs (&mut (vec str))) (name (& str))) unit
+  (let mut i 0)
+  (while (< i (vec.len hs))
+    (if (str.eq (& (hname (vec.get hs i))) name) (drop (vec.remove hs i)) (set i (+ i 1)))))
+
+(fn rewrite ((hs (&mut (vec str))) (n i64)) unit
+  (drop_name hs "transfer-encoding")
+  (drop_name hs "content-length")
+  (let mut cl (str.from "Content-Length: "))
+  (str.push (&mut cl) (& (str.from_int n)))
+  (vec.push hs cl))
+
+(fn take_chunks ((text (& str)) (at i64) (hs (&mut (vec str)))) (res str str)
+  (let mut i at)
+  (let mut out (str.new))
+  (loop
+    (let sz (try (one_chunk text (&mut i) (&mut out))))
+    (if (== sz 0)
+      (do (try (trailers text (&mut i) hs)) (rewrite hs (str.len (& out))) (ret (res.ok out))))))
+
+(fn take_len ((text (& str)) (at i64) (hs (& (vec str)))) (res str str)
+  (match (header hs "content-length")
+    ((opt.none) (res.ok (str.new)))
+    ((opt.some v)
+      (match (str.to_int (& (str.trim (& v))))
+        ((opt.none) (res.err (str.from "http.header")))
+        ((opt.some n)
+          (do
+            (let got (- (str.len text) at))
+            (if (< got n) (ret (res.err (eshort n got))))
+            (res.ok (str.slice text at (+ at n)))))))))
+
+(fn is_chunked ((hs (& (vec str)))) bool
+  (match (header hs "transfer-encoding")
+    ((opt.none) false)
+    ((opt.some v) (str.has (& (str.lower (& v))) "chunked"))))
+
+(pub (fn take ((text (& str)) (at i64) (hs (&mut (vec str)))) (res str str)
+  (if (is_chunked hs) (ret (take_chunks text at hs)))
+  (take_len text at hs)))
+
+(fn hex_digit ((n i64)) u8 (if (< n 10) (as u8 (+ 48 n)) (as u8 (+ 87 n))))
+
+(fn push_hex ((out (&mut str)) (n i64)) unit
+  (if (< n 16) (do (str.push_byte out (hex_digit n)) (ret)))
+  (push_hex out (/ n 16))
+  (str.push_byte out (hex_digit (% n 16))))
+
+(fn push_chunk ((out (&mut str)) (body (& str))) unit
+  (push_hex out (str.len body))
+  (str.push out "\r\n")
+  (str.push out body)
+  (str.push out "\r\n"))
+
+(pub (fn write_chunked ((body (& str)) (trailers (& (vec str)))) str
+  (let mut out (str.new))
+  (if (> (str.len body) 0) (push_chunk (&mut out) body))
+  (str.push (&mut out) "0\r\n")
+  (for i 0 (vec.len trailers)
+    (str.push (&mut out) (vec.get trailers i))
+    (str.push (&mut out) "\r\n"))
+  (str.push (&mut out) "\r\n")
+  out))
+
+(test http_body_len
+  (let text (str.from "abc"))
+  (let mut hs (vec.new <str>))
+  (vec.push (&mut hs) (str.from "Content-Length: 3"))
+  (assert_eq (& (res.unwrap (take (& text) 0 (&mut hs)))) "abc")
+  (assert_eq (& (res.unwrap_err (take "ab" 0 (&mut hs)))) "http.short|want=3|got=2"))
+
+(test http_body_chunk
+  (let raw (write_chunked "hi" (& (vec.new <str>))))
+  (let mut msg (str.from "HEAD\r\n\r\n"))
+  (str.push (&mut msg) (& raw))
+  (let mut hs (vec.new <str>))
+  (vec.push (&mut hs) (str.from "Transfer-Encoding: chunked"))
+  (let body (res.unwrap (take (& msg) 8 (&mut hs))))
+  (assert_eq (& body) "hi")
+  (assert_eq (& (opt.unwrap (header (& hs) "content-length"))) "2")
+  (assert (opt.is_none (& (header (& hs) "transfer-encoding"))))
+  (let mut trail (vec.new <str>))
+  (vec.push (&mut trail) (str.from "X-T: 1"))
+  (let packed (write_chunked "Z;ext" (& trail)))
+  (let mut hs2 (vec.new <str>))
+  (vec.push (&mut hs2) (str.from "Transfer-Encoding: gzip, chunked"))
+  (let body2 (res.unwrap (take (& packed) 0 (&mut hs2))))
+  (assert_eq (& body2) "Z;ext")
+  (assert_eq (& (opt.unwrap (header (& hs2) "x-t"))) "1")
+  (let mut bad (vec.new <str>))
+  (vec.push (&mut bad) (str.from "Transfer-Encoding: chunked"))
+  (assert_eq (& (res.unwrap_err (take "zz\r\n" 0 (&mut bad)))) "http.chunk")
+  (let mut hs3 (vec.new <str>))
+  (vec.push (&mut hs3) (str.from "Transfer-Encoding: chunked"))
+  (assert_eq (& (res.unwrap (take "5;foo=1\r\nhello\r\n0\r\n\r\n" 0 (&mut hs3)))) "hello")
+  (drop (hex_val 48u8))
+  (drop (size_of "0"))
+  (assert (not (crlf "a" 0))))

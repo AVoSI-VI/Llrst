@@ -1,0 +1,148 @@
+;; WebSocket frames. Lengths of 7, 16, and 64 bits. Messages may span continuations.
+(fn eshort ((want i64) (got i64)) str
+  (let mut m (str.from "http.short|want="))
+  (str.push (&mut m) (& (str.from_int want)))
+  (str.push (&mut m) "|got=")
+  (str.push (&mut m) (& (str.from_int got)))
+  m)
+
+(fn need ((buf (& str)) (n i64)) (res unit str)
+  (if (< (str.len buf) n) (ret (res.err (eshort n (str.len buf)))))
+  (res.ok ()))
+
+(fn be ((buf (& str)) (i i64) (n i64)) i64
+  (let mut v 0)
+  (for k 0 n (set v (+ (* v 256) (as i64 (str.at buf (+ i k))))))
+  v)
+
+(fn head_len ((len7 i64) (mask bool)) i64
+  (let ext (if (== len7 126) 2 (if (== len7 127) 8 0)))
+  (+ 2 (+ ext (if mask 4 0))))
+
+(fn plen ((buf (& str)) (len7 i64)) (res i64 str)
+  (if (< len7 126) (ret (res.ok len7)))
+  (if (== len7 126) (do (try (need buf 4)) (ret (res.ok (be buf 2 2)))))
+  (try (need buf 10))
+  (for k 0 5 (if (!= (str.at buf (+ 2 k)) 0u8) (ret (res.err (str.from "http.frame")))))
+  (let n (be buf 7 3))
+  (if (> n 1048576) (ret (res.err (str.from "http.frame"))))
+  (res.ok n))
+
+(fn unmask ((buf (& str)) (at i64) (n i64) (mask i64)) str
+  (let mut o (str.new))
+  (for i 0 n
+    (let b (str.at buf (+ at i)))
+    (let m (str.at buf (+ mask (% i 4))))
+    (str.push_byte (&mut o) (bxor b m)))
+  o)
+
+(pub (struct frame (pub (fin bool)) (pub (op u8)) (pub (payload str)) (pub (next i64))))
+
+(pub (fn next ((buf (& str))) (res frame str)
+  (try (need buf 2))
+  (let b0 (str.at buf 0))
+  (let b1 (str.at buf 1))
+  (if (!= (band b0 112u8) 0u8) (ret (res.err (str.from "http.frame"))))
+  (let fin (!= (band b0 128u8) 0u8))
+  (let op (band b0 15u8))
+  (let mask (!= (band b1 128u8) 0u8))
+  (let len7 (as i64 (band b1 127u8)))
+  (let h (head_len len7 mask))
+  (try (need buf h))
+  (let n (try (plen buf len7)))
+  (if (> n 1048576) (ret (res.err (str.from "http.frame"))))
+  (let total (+ h n))
+  (try (need buf total))
+  (if (and (>= op 8u8) (or (not fin) (> n 125))) (ret (res.err (str.from "http.frame"))))
+  (let payload (if mask (unmask buf h n (- h 4)) (str.slice buf h total)))
+  (res.ok (frame fin op payload total))))
+
+(pub (struct piece (pub (op u8)) (pub (done bool)) (pub (data str))))
+
+(fn control ((op u8) (payload (& str))) (res piece str) (res.ok (piece op true (str.from payload))))
+
+(fn follow ((acc (&mut str)) (op0 (&mut u8)) (fin bool) (payload (& str))) (res piece str)
+  (if (== (str.len acc) 0) (ret (res.err (str.from "http.frame"))))
+  (str.push acc payload)
+  (if (not fin) (ret (res.ok (piece 0u8 false (str.new)))))
+  (let data (str.from acc))
+  (let kind (@ op0))
+  (set (@ acc) (str.new))
+  (set (@ op0) 0u8)
+  (res.ok (piece kind true data)))
+
+(fn start ((acc (&mut str)) (_op0 (&mut u8)) (fin bool) (op u8) (payload (& str))) (res piece str)
+  (if (> (str.len acc) 0) (ret (res.err (str.from "http.frame"))))
+  (if (and (!= op 1u8) (!= op 2u8)) (ret (res.err (str.from "http.frame"))))
+  (if fin (ret (res.ok (piece op true (str.from payload)))))
+  (set (@ _op0) op)
+  (str.push acc payload)
+  (res.ok (piece op false (str.new))))
+
+(pub (fn feed ((acc (&mut str)) (op0 (&mut u8)) (fin bool) (op u8) (payload (& str))) (res piece str)
+  (if (>= op 8u8) (ret (control op payload)))
+  (if (== op 0u8) (ret (follow acc op0 fin payload)))
+  (start acc op0 fin op payload)))
+
+(fn push_be ((out (&mut str)) (n i64) (bytes i64)) unit
+  (let mut shift (* (- bytes 1) 8))
+  (while (>= shift 0) (str.push_byte out (as u8 (band (shr n shift) 255))) (set shift (- shift 8))))
+
+(pub (fn encode ((op u8) (payload (& str))) str
+  (let n (str.len payload))
+  (let mut s (str.new))
+  (str.push_byte (&mut s) (bor 128u8 op))
+  (if (< n 126)
+    (str.push_byte (&mut s) (as u8 n))
+    (if (< n 65536)
+      (do (str.push_byte (&mut s) 126u8) (push_be (&mut s) n 2))
+      (do (str.push_byte (&mut s) 127u8) (push_be (&mut s) n 8))))
+  (str.push (&mut s) payload)
+  s))
+
+(fn hello () str
+  (let mut s (str.new))
+  (str.push_byte (&mut s) 129u8)
+  (str.push_byte (&mut s) 133u8)
+  (str.push_byte (&mut s) 1u8)
+  (str.push_byte (&mut s) 2u8)
+  (str.push_byte (&mut s) 3u8)
+  (str.push_byte (&mut s) 4u8)
+  (str.push_byte (&mut s) 105u8)
+  (str.push_byte (&mut s) 103u8)
+  (str.push_byte (&mut s) 111u8)
+  (str.push_byte (&mut s) 104u8)
+  (str.push_byte (&mut s) 110u8)
+  s)
+
+(test http_ws_frame
+  (let f (res.unwrap (next (& (hello)))))
+  (assert (. f fin))
+  (assert_eq (. f op) 1u8)
+  (assert_eq (& (. f payload)) "hello")
+  (let back (encode 1u8 "hello"))
+  (let g (res.unwrap (next (& back))))
+  (assert_eq (& (. g payload)) "hello")
+  (let mut long (str.new))
+  (for i 0 200 (str.push_byte (&mut long) 97u8))
+  (let wide (encode 2u8 (& long)))
+  (let w (res.unwrap (next (& wide))))
+  (assert_eq (str.len (& (. w payload))) 200)
+  (assert_eq (& (res.unwrap_err (next "A"))) "http.short|want=2|got=1")
+  (drop (be "ab" 0 2))
+  (drop (head_len 127 true))
+  (drop (unmask "abcdWXYZ" 4 4 0)))
+
+(test http_ws_feed
+  (let mut acc (str.new))
+  (let mut op 0u8)
+  (let a (res.unwrap (feed (&mut acc) (&mut op) false 1u8 "hel")))
+  (assert (not (. a done)))
+  (let b (res.unwrap (feed (&mut acc) (&mut op) true 0u8 "lo")))
+  (assert (. b done))
+  (assert_eq (. b op) 1u8)
+  (assert_eq (& (. b data)) "hello")
+  (let p (res.unwrap (feed (&mut acc) (&mut op) true 9u8 "z")))
+  (assert_eq (. p op) 9u8)
+  (assert (res.is_err (& (feed (&mut acc) (&mut op) true 0u8 "x"))))
+  (assert (res.is_err (& (feed (&mut acc) (&mut op) true 3u8 "x")))))

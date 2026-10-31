@@ -99,7 +99,7 @@ int pthread_create(void *thread, void *attr, llr_start_fn start, void *arg) {
     }
     pack->fn = start;
     pack->arg = arg;
-    HANDLE handle = CreateThread(NULL, 4u * 1024u * 1024u, start_main, pack, 0, NULL);
+    HANDLE handle = CreateThread(NULL, 8u * 1024u * 1024u, start_main, pack, 0, NULL);
     if (handle == NULL) {
         free(pack);
         return 1;

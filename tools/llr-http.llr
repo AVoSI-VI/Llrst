@@ -12,7 +12,7 @@
 (fn health ((_ (& http.req)) (_ (ptr u8))) http.resp (http.respond 200 "ok" "text/plain" "ok"))
 
 (fn graphql ((r (& http.req)) (_ (ptr u8))) http.resp
-  (http.respond 200 "ok" "application/json" (& (gql.exec (& (. r body))))))
+  (http.respond 200 "ok" "application/json" (& (gql.answer (& (. r headers)) (& (. r body))))))
 
 (fn soap_post ((r (& http.req)) (_ (ptr u8))) http.resp
   (http.respond 200 "ok" "text/xml" (& (soap.exec (& (. r body))))))

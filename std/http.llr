@@ -1,12 +1,20 @@
-;; One HTTP/1.1 request or response, and a file server on one poll loop.
+;; HTTP/1.1 messages, chunked bodies, route templates, and a WebSocket poll server.
 (use std.fs)
+(use std.http_body)
+(use std.http_route)
+(use std.http_ws)
 (use std.net)
 (use std.path)
 (use std.sha)
 (use std.str)
 (use std.sys)
 
-(pub (struct req (pub (method str)) (pub (path str)) (pub (headers (vec str))) (pub (body str))))
+(pub (struct req
+  (pub (method str))
+  (pub (path str))
+  (pub (headers (vec str)))
+  (pub (body str))
+  (pub (params (vec str)))))
 
 (pub (struct resp (pub (code i64)) (pub (reason str)) (pub (headers (vec str))) (pub (body str))))
 
@@ -35,9 +43,18 @@
 
 (pub (fn header ((hs (& (vec str))) (name (& str))) (opt str)
   (let want (str.lower name))
+  (let mut found (opt.none))
   (for i 0 (vec.len hs)
     (let line (vec.get hs i))
-    (if (str.eq (& (hname line)) (& want)) (ret (opt.some (hval line)))))
+    (if (str.eq (& (hname line)) (& want)) (set found (opt.some (hval line)))))
+  found))
+
+(pub (fn param ((hs (& (vec str))) (name (& str))) (opt str)
+  (let mut key (str.from name))
+  (str.push (&mut key) "=")
+  (for i 0 (vec.len hs)
+    (let row (vec.get hs i))
+    (if (str.starts row (& key)) (ret (opt.some (str.slice row (str.len (& key)) (str.len row))))))
   (opt.none)))
 
 (fn take_headers ((text (& str)) (from i64) (blank i64) (out (&mut (vec str)))) (res unit str)
@@ -52,24 +69,16 @@
     (set i (+ n 2)))
   (res.ok ()))
 
-(fn body_of ((text (& str)) (at i64) (hs (& (vec str)))) (res str str)
-  (match (header hs "content-length")
-    ((opt.none) (res.ok (str.new)))
-    ((opt.some v)
-      (match (str.to_int (& (str.trim (& v))))
-        ((opt.none) (res.err (str.from "http.header")))
-        ((opt.some n)
-          (do
-            (let got (- (str.len text) at))
-            (if (< got n) (ret (res.err (eshort n got))))
-            (res.ok (str.slice text at (+ at n)))))))))
-
 (fn req_line ((line (& str))) (res req str)
   (let parts (str.split line 32u8))
   (if (!= (vec.len (& parts)) 3) (ret (res.err (str.from "http.request"))))
   (if (not (str.eq (vec.get (& parts) 2) "HTTP/1.1"))
     (ret (res.err (ever "http.version" (vec.get (& parts) 2)))))
-  (res.ok (req (str.from (vec.get (& parts) 0)) (str.from (vec.get (& parts) 1)) (vec.new <str>) (str.new))))
+  (res.ok (req (str.from (vec.get (& parts) 0))
+     (str.from (vec.get (& parts) 1))
+     (vec.new <str>)
+     (str.new)
+     (vec.new <str>))))
 
 (pub (fn parse_req ((text (& str))) (res req str)
   (let blank (str.find text "\r\n\r\n"))
@@ -83,7 +92,7 @@
   (let mut msg (res.unwrap lined))
   (let he (take_headers text (+ n 2) b (&mut (. msg headers))))
   (if (res.is_err (& he)) (ret (res.err (res.unwrap_err he))))
-  (let body (body_of text (+ b 4) (& (. msg headers))))
+  (let body (http_body.take text (+ b 4) (&mut (. msg headers))))
   (if (res.is_err (& body)) (ret (res.err (res.unwrap_err body))))
   (set (. msg body) (res.unwrap body))
   (res.ok msg)))
@@ -117,7 +126,7 @@
   (let mut msg (res.unwrap lined))
   (let he (take_headers text (+ n 2) b (&mut (. msg headers))))
   (if (res.is_err (& he)) (ret (res.err (res.unwrap_err he))))
-  (let body (body_of text (+ b 4) (& (. msg headers))))
+  (let body (http_body.take text (+ b 4) (&mut (. msg headers))))
   (if (res.is_err (& body)) (ret (res.err (res.unwrap_err body))))
   (set (. msg body) (res.unwrap body))
   (res.ok msg)))
@@ -164,6 +173,12 @@
   (assert_eq (str.len (& (. r body))) 0)
   (let p (res.unwrap (parse_req "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc")))
   (assert_eq (& (. p body)) "abc")
+  (let ch
+    (str.from "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\nX-T: z\r\n\r\n"))
+  (let c (res.unwrap (parse_req (& ch))))
+  (assert_eq (& (. c body)) "abc")
+  (assert_eq (& (opt.unwrap (header (& (. c headers)) "x-t"))) "z")
+  (assert_eq (& (opt.unwrap (header (& (. c headers)) "content-length"))) "3")
   (let e (res.unwrap_err (parse_req "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nab")))
   (assert_eq (& e) "http.short|want=3|got=2")
   (let v (res.unwrap_err (parse_req "GET / HTTP/1.0\r\n\r\n")))
@@ -179,7 +194,7 @@
 
 (pub (struct route (pub (method str)) (pub (path str)) (pub (work (fn ((& req) (ptr u8)) resp)))))
 
-(struct conn (fd i64) (buf str) (mode i64))
+(struct conn (fd i64) (buf str) (mode i64) (wop u8) (acc str))
 
 (struct svc (root str) (routes (ptr u8)) (conns (vec conn)) (done i64) (stop i64))
 
@@ -196,11 +211,13 @@
         ((res.ok b) (respond 200 "ok" "text/plain" (& b)))
         ((res.err _) (respond 404 "not found" "text/plain" "not found"))))))
 
-(fn dispatch ((s (ptr svc)) (r (& req))) resp
+(fn dispatch ((s (ptr svc)) (r (&mut req))) resp
   (let routes (as (ptr (vec route)) (. (@ s) routes)))
   (for i 0 (vec.len (& (@ routes)))
     (let rt (vec.get (& (@ routes)) i))
-    (if (and (str.eq (& (. rt method)) (& (. r method))) (str.eq (& (. rt path)) (& (. r path))))
+    (vec.clear (&mut (. r params)))
+    (if (and (str.eq (& (. rt method)) (& (. r method)))
+       (http_route.hit (& (. rt path)) (& (. r path)) (&mut (. r params))))
       (ret (call (. rt work) r (as (ptr u8) s)))))
   (file_body (& (. (@ s) root)) (& (. r path))))
 
@@ -212,7 +229,7 @@
 (fn ensure ((s (ptr svc)) (fd i64)) i64
   (let i (conn_index s fd))
   (if (>= i 0) (ret i))
-  (vec.push (&mut (. (@ s) conns)) (conn fd (str.new) 0))
+  (vec.push (&mut (. (@ s) conns)) (conn fd (str.new) 0 0u8 (str.new)))
   (- (vec.len (& (. (@ s) conns))) 1))
 
 (fn add_bytes ((s (ptr svc)) (fd i64) (data (& str))) unit
@@ -269,59 +286,43 @@
   (if (== (. (@ s) stop) 0) (ret true))
   (< (. (@ s) done) (. (@ s) stop)))
 
-(fn frame_end ((buf (& str))) i64
-  (let n (str.len buf))
-  (if (< n 2) (ret -1))
-  (let ln (as i64 (band (str.at buf 1) 127u8)))
-  (let mask (if (== (band (str.at buf 1) 128u8) 0u8) 0 4))
-  (if (< ln 126) (ret (if (< n (+ 2 (+ mask ln))) -1 (+ 2 (+ mask ln)))))
-  (if (== ln 126)
-    (do
-      (if (< n (+ 4 mask)) (ret -1))
-      (let ext (+ (* (as i64 (str.at buf 2)) 256) (as i64 (str.at buf 3))))
-      (let need (+ 4 (+ mask ext)))
-      (ret (if (< n need) -1 need))))
-  (if (< n 10) -1 -2))
-
-(fn unmask ((buf (& str))) str
-  (let ln (as i64 (band (str.at buf 1) 127u8)))
-  (let mut o (str.new))
-  (for i 0 ln
-    (let b (str.at buf (+ 6 i)))
-    (let m (str.at buf (+ 2 (% i 4))))
-    (str.push_byte (&mut o) (bxor b m)))
-  o)
-
-(fn ws_send ((fd i64) (op u8) (payload (& str))) unit
-  (let mut s (str.new))
-  (str.push_byte (&mut s) (bor 128u8 op))
-  (str.push_byte (&mut s) (as u8 (str.len payload)))
-  (str.push (&mut s) payload)
-  (net.send fd (& s))
+(fn ws_out ((fd i64) (op u8) (payload (& str))) unit
+  (let bytes (http_ws.encode op payload))
+  (net.send fd (& bytes))
   ())
 
-(fn drop_frame ((s (ptr svc)) (fd i64) (n i64)) unit
-  (let i (conn_index s fd))
-  (let buf (& (. (vec.get (& (. (@ s) conns)) i) buf)))
-  (set (. (vec.get_mut (&mut (. (@ s) conns)) i) buf) (str.slice buf n (str.len buf))))
+(fn apply_ws ((c (&mut conn)) (fd i64)) (res i64 str)
+  (let fr (http_ws.next (& (. c buf))))
+  (if (res.is_err (& fr)) (ret (res.err (res.unwrap_err fr))))
+  (let f (res.unwrap fr))
+  (let at (. f next))
+  (let fin (. f fin))
+  (let op (. f op))
+  (let payload (str.from (& (. f payload))))
+  (let rest (str.slice (& (. c buf)) at (str.len (& (. c buf)))))
+  (set (. c buf) rest)
+  (let piece (http_ws.feed (&mut (. c acc)) (&mut (. c wop)) fin op (& payload)))
+  (if (res.is_err (& piece)) (ret (res.err (res.unwrap_err piece))))
+  (let got (res.unwrap piece))
+  (if (not (. got done)) (ret (res.ok 2)))
+  (if (== (. got op) 9u8) (do (ws_out fd 10u8 (& (. got data))) (ret (res.ok 2))))
+  (if (== (. got op) 10u8) (ret (res.ok 2)))
+  (if (== (. got op) 8u8) (do (ws_out fd 8u8 "") (ret (res.ok 2))))
+  (ws_out fd (. got op) (& (. got data)))
+  (res.ok 1))
 
 (fn on_ws ((s (ptr svc)) (fd i64)) bool
   (loop
     (let i (conn_index s fd))
-    (let buf (& (. (vec.get (& (. (@ s) conns)) i) buf)))
-    (let n (frame_end buf))
-    (if (== n -2) (do (clear_buf s fd) (ret true)))
-    (if (< n 0) (ret true))
-    (let op (band (str.at buf 0) 15u8))
-    (let fin (== (band (str.at buf 0) 128u8) 128u8))
-    (let masked (== (band (str.at buf 1) 128u8) 128u8))
-    (let short (< (band (str.at buf 1) 127u8) 126u8))
-    (if (and (and fin masked) (and short (== op 1u8)))
-      (do (ws_send fd 1u8 (& (unmask buf))) (drop_frame s fd n) (ret (bump s))))
-    (if (and (and fin masked) (and short (== op 8u8)))
-      (do (ws_send fd 8u8 "") (drop_frame s fd n) (ret true)))
-    (if (== n -2) (do (clear_buf s fd) (ret true)))
-    (drop_frame s fd n)))
+    (let step (apply_ws (vec.get_mut (&mut (. (@ s) conns)) i) fd))
+    (if (res.is_err (& step))
+      (do
+        (let e (res.unwrap_err step))
+        (if (str.starts (& e) "http.short") (ret true))
+        (clear_buf s fd)
+        (ret true)))
+    (let code (res.unwrap step))
+    (if (and (== code 1) (not (bump s))) (ret false))))
 
 (fn open_ws ((s (ptr svc)) (fd i64) (r (& req))) bool
   (if (not (hdr_is r "sec-websocket-version" "13"))
@@ -357,20 +358,25 @@
         (if (str.starts (& e) "http.short") (ret true))
         (send_resp fd (respond 400 "bad request" "text/plain" "bad request"))))
     ((res.ok r)
-      (do (if (wants_ws (& r)) (ret (open_ws s fd (& r)))) (send_resp fd (dispatch s (& r))))))
+      (do
+        (let mut msg r)
+        (if (wants_ws (& msg)) (ret (open_ws s fd (& msg))))
+        (send_resp fd (dispatch s (&mut msg))))))
   (clear_buf s fd)
   (bump s))
 
 (pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
   (let mut s (svc (str.from root) (as (ptr u8) routes) (vec.new <conn>) 0 stop_after))
-  (let ran (net.poll_serve fd 4095 on_http (as (ptr u8) (&mut s))))
+  (let sp (as (ptr svc) (&mut s)))
+  (let ran
+    (net.poll_serve fd -1 (clos ((fd i64) (data (& str))) bool (on_http fd data (as (ptr u8) sp)))))
   (if (res.is_err (& ran)) (ret (res.err (res.unwrap_err ran))))
-  (res.ok (. s done))))
+  (res.ok (. (@ sp) done))))
 
 (fn health ((_ (& req)) (_ (ptr u8))) resp (respond 200 "ok" "text/plain" "ok"))
 
 (fn file_client ((port i64)) i32
-  (let c (res.unwrap (net.connect port)))
+  (let c (res.unwrap (net.connect "127.0.0.1" port)))
   (res.unwrap (net.send c "GET /hello.txt HTTP/1.1\r\nHost: x\r\n\r\n"))
   (let body (res.unwrap (net.recv c 512)))
   (net.close c)
@@ -386,8 +392,10 @@
 
 (fn dial ((port i64)) i64
   (let mut tries 0)
-  (let mut c (net.connect port))
-  (while (and (res.is_err (& c)) (< tries 1000)) (set tries (+ tries 1)) (set c (net.connect port)))
+  (let mut c (net.connect "127.0.0.1" port))
+  (while (and (res.is_err (& c)) (< tries 1000))
+    (set tries (+ tries 1))
+    (set c (net.connect "127.0.0.1" port)))
   (res.unwrap c))
 
 (fn many_clients ((port i64)) i32
@@ -446,7 +454,7 @@
   s)
 
 (fn ws_client ((port i64)) i32
-  (let c (res.unwrap (net.connect port)))
+  (let c (res.unwrap (net.connect "127.0.0.1" port)))
   (res.unwrap (net.send c
      "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
   (let resp (res.unwrap (net.recv c 256)))
@@ -472,12 +480,19 @@
   (assert_eq (& (eshort 4 1)) "http.short|want=4|got=1")
   (assert_eq (& (hname "Host: x")) "host")
   (assert_eq (& (hval "Host: x")) "x")
-  (match (req_line "GET / HTTP/1.1") ((res.ok r) (assert_eq (& (. r method)) "GET")) ((res.err _) (assert false)))
-  (match (status_line "HTTP/1.1 200 OK") ((res.ok r) (assert_eq (. r code) 200)) ((res.err _) (assert false)))
+  (match (req_line "GET / HTTP/1.1")
+    ((res.ok r) (assert_eq (& (. r method)) "GET"))
+    ((res.err _) (assert false)))
+  (match (status_line "HTTP/1.1 200 OK")
+    ((res.ok r) (assert_eq (. r code) 200))
+    ((res.err _) (assert false)))
   (let text (str.from "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
   (let mut hs (vec.new <str>))
   (res.unwrap (take_headers (& text) 16 24 (&mut hs)))
-  (assert_eq (& (res.unwrap (body_of (& text) 26 (& hs)))) "")
+  (assert_eq (& (res.unwrap (http_body.take (& text) 26 (&mut hs)))) "")
+  (let mut params (vec.new <str>))
+  (vec.push (&mut params) (str.from "id=9"))
+  (assert_eq (& (opt.unwrap (param (& params) "id"))) "9")
   (let mut shown (str.new))
   (write_headers (&mut shown) (& hs))
   (let req (res.unwrap (parse_req (& text))))

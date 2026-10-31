@@ -38,18 +38,18 @@
 | listen | `(net.listen port)` returns `(res i64 str)`, the listening fd. Port 0 is any port. Backlog 1 |
 | local port | `(net.local_port fd)` returns `(res i64 str)` |
 | accept | `(net.accept fd)` blocks and returns `(res i64 str)` |
-| connect | `(net.connect port)` returns `(res i64 str)` to 127.0.0.1 |
+| connect | `(net.connect host port)` returns `(res i64 str)`. `host` is a dotted IPv4 |
 | recv | `(net.recv fd n)` returns `(res str str)`. An empty string is end of stream |
 | send | `(net.send fd (& data))` returns `(res unit str)` and writes every byte |
 | close socket | `(net.close fd)` |
-| poll serve | `(net.poll_serve fd max each ctx)` returns `(res i64 str)`, the number of reads. `each` is `(fn (i64 (& str) (ptr u8)) bool)` |
+| poll serve | `(net.poll_serve fd max each)` returns `(res i64 str)`, the number of reads. `each` is `(clos (i64 (& str)) bool)`. `max < 0` does not cap clients |
 
 ## Threads
 
 | task | form |
 |------|------|
 | start pool | `(thread.start n)` returns `(res pool str)`. `n < 1` is `thread.start\|n=` |
-| submit | `(thread.submit (&mut p) work ctx)`. `work` is `(fn ((ptr u8)) unit)` |
+| submit | `(thread.submit (&mut p) work)`. `work` is `(clos () unit)` and can capture a binding. The pool grows when the queue is longer than the worker count |
 | stop | `(thread.stop (&mut p))` joins. Drop does this too |
 
 ## HTTP
@@ -61,12 +61,13 @@
 | render | `(http.show_req (& r))` and `(http.show_resp (& r))` |
 | respond | `(http.respond code reason ty body)` sets `Content-Type` and `Content-Length` |
 | header | `(http.header (& headers) name)` returns `(opt str)`, name compared in lower case |
-| serve | `(http.serve fd root (& routes) stop_after)` returns `(res i64 str)`. `0` runs until killed. A route is method, path, and `(fn ((& req) (ptr u8)) resp)` |
-| websocket | `Upgrade: websocket` and `Sec-WebSocket-Version: 13` answers `101`. A masked text frame under 126 bytes is echoed |
-| graphql | `POST /graphql` body is the query text. `(gql.exec (& q))` returns JSON |
-| soap | `POST /soap` body is one XML envelope. `(soap.exec (& q))` returns XML |
-| grpc | `(grpc.serve fd)` accepts one connection and answers one unary call |
-| mqtt | `(mqtt.serve fd)` accepts one connection. Connect, subscribe, and QoS 0 publish |
+| serve | `(http.serve fd root (& routes) stop_after)` returns `(res i64 str)`. `0` runs until killed. A route is method, path, and `(fn ((& req) (ptr u8)) resp)`. A path ending in `*` is a prefix. `{name}` captures one segment |
+| chunked body | `(http_body.write_chunked body trailers)` builds a chunked body. `parse_req` decodes chunked requests and trailers |
+| websocket | `Upgrade: websocket` and `Sec-WebSocket-Version: 13` answers `101`. Text, binary, ping, and close are framed messages |
+| graphql | `POST /graphql` body is the query text, or JSON when `Content-Type` is `application/json`. `(gql.exec schema q vars)` returns JSON |
+| soap | `POST /soap` body is one SOAP 1.1 envelope. `(soap.exec (& q))` returns XML |
+| grpc | `(grpc.serve fd)` answers unary protobuf calls on many HTTP/2 streams |
+| mqtt | `(mqtt.serve fd user pass stop_after)` is an MQTT 3.1.1 broker |
 
 Program output destined for a model is one record per line, `|` separated, as in
 [../spec/errors.md](../spec/errors.md). Diagnostics go to stderr, data to stdout.

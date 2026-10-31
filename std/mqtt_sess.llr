@@ -1,0 +1,26 @@
+;; MQTT topic filters. + is one level. # is the rest and only at the end.
+(fn parts ((s (& str))) (vec str) (str.split s 47u8))
+
+(pub (fn fits ((filter (& str)) (topic (& str))) bool
+  (let fs (parts filter))
+  (let ts (parts topic))
+  (let mut i 0)
+  (let mut j 0)
+  (while (< i (vec.len (& fs)))
+    (let f (vec.get (& fs) i))
+    (if (str.eq f "#") (ret (== (+ i 1) (vec.len (& fs)))))
+    (if (>= j (vec.len (& ts))) (ret false))
+    (if (not (or (str.eq f "+") (str.eq f (vec.get (& ts) j)))) (ret false))
+    (set i (+ i 1))
+    (set j (+ j 1)))
+  (== j (vec.len (& ts)))))
+
+(pub (fn keep ((ticks i64) (k i64)) bool (or (<= k 0) (<= ticks (/ (* k 3) 2)))))
+
+(test mqtt_match
+  (assert (fits "a/+/c" "a/b/c"))
+  (assert (not (fits "a/+/c" "a/b/d")))
+  (assert (fits "a/#" "a/b/c"))
+  (assert (not (fits "a/#/c" "a/b/c")))
+  (assert (keep 1 10))
+  (assert (not (keep 20 10))))

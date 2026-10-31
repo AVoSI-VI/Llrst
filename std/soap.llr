@@ -1,72 +1,128 @@
-;; One SOAP envelope in, one XML envelope out. One operation.
+;; SOAP 1.1. One operation, a header, nested parameters, and Fault.
 (use std.http)
 (use std.net)
+(use std.str)
 (use std.sys)
 (use std.xml)
 
-(fn fault ((msg (& str))) str
-  (xml.tag "Envelope" (& (xml.tag "Body" (& (xml.tag "Fault" (& (xml.escape msg))))))))
+(fn soap_ns () (& str) "http://schemas.xmlsoap.org/soap/envelope/")
+
+(fn named ((d (& xml.doc)) (n i64) (want (& str))) bool
+  (and (== (xml.kind d n) 0u8)
+    (and (str.eq (& (xml.local d n)) want)
+      (or (== (str.len (xml.ns d n)) 0) (str.eq (xml.ns d n) (soap_ns))))))
+
+(fn env ((inner (& str))) str
+  (let mut s (str.from "<Envelope xmlns=\""))
+  (str.push (&mut s) (soap_ns))
+  (str.push (&mut s) "\"><Body>")
+  (str.push (&mut s) inner)
+  (str.push (&mut s) "</Body></Envelope>")
+  s)
+
+(fn fault ((code (& str)) (msg (& str))) str
+  (let mut inner (str.from "<Fault><faultcode>"))
+  (str.push (&mut inner) code)
+  (str.push (&mut inner) "</faultcode><faultstring>")
+  (str.push (&mut inner) (& (xml.escape msg)))
+  (str.push (&mut inner) "</faultstring></Fault>")
+  (env (& inner)))
 
 (fn answer ((op (& str)) (value (& str))) str
-  (let inner (xml.tag "result" (& (xml.escape value))))
-  (xml.tag "Envelope" (& (xml.tag "Body" (& (xml.tag op (& inner)))))))
+  (let mut inner (str.from "<"))
+  (str.push (&mut inner) op)
+  (str.push (&mut inner) "><result>")
+  (str.push (&mut inner) (& (xml.escape value)))
+  (str.push (&mut inner) "</result></")
+  (str.push (&mut inner) op)
+  (str.push (&mut inner) ">")
+  (env (& inner)))
 
-(fn arg_int ((d (& xml.doc)) (n i64)) (opt i64)
-  (if (!= (xml.count d n) 1) (ret (opt.none)))
-  (let c (xml.child d n 0))
-  (if (!= (xml.kind d c) 1u8) (ret (opt.none)))
-  (str.to_int (xml.text d c)))
+(fn first_int ((d (& xml.doc)) (n i64)) (opt i64)
+  (if (== (xml.kind d n) 1u8) (ret (str.to_int (xml.text d n))))
+  (if (!= (xml.kind d n) 0u8) (ret (opt.none)))
+  (for i 0 (xml.count d n) (let v (first_int d (xml.child d n i))) (if (opt.is_some (& v)) (ret v)))
+  (opt.none))
 
-(fn sum_args ((d (& xml.doc)) (op i64)) (res i64 str)
-  (let mut a 0)
-  (let mut b 0)
-  (for i 0 (xml.count d op)
-    (let c (xml.child d op i))
-    (if (!= (xml.kind d c) 0u8) (ret (res.err (str.from "soap.parse"))))
-    (let v (arg_int d c))
-    (if (opt.is_none (& v)) (ret (res.err (str.from "soap.parse"))))
-    (let n (opt.unwrap v))
-    (if (str.eq (xml.text d c) "a") (set a n))
-    (if (str.eq (xml.text d c) "b") (set b n)))
-  (res.ok (+ a b)))
+(fn take_nums ((d (& xml.doc)) (n i64) (a (&mut i64)) (b (&mut i64))) unit
+  (if (!= (xml.kind d n) 0u8) (ret))
+  (let local (xml.local d n))
+  (if (or (str.eq (& local) "a") (str.eq (& local) "b"))
+    (do
+      (match (first_int d n)
+        ((opt.some v) (if (str.eq (& local) "a") (set (@ a) v) (set (@ b) v)))
+        ((opt.none) ()))
+      (ret)))
+  (for i 0 (xml.count d n) (take_nums d (xml.child d n i) a b)))
 
-(fn add_answer ((d (& xml.doc)) (op i64)) str
-  (let s (sum_args d op))
-  (if (res.is_err (& s)) (ret (fault "soap.parse")))
-  (answer "add" (& (str.from_int (res.unwrap s)))))
+(fn attr_is ((d (& xml.doc)) (n i64) (name (& str)) (want (& str))) bool
+  (for i 0 (xml.attr_count d n)
+    (let raw (xml.attr_name d n i))
+    (let local
+      (match (str.find raw ":")
+        ((opt.some k) (str.slice raw (+ k 1) (str.len raw)))
+        ((opt.none) (str.from raw))))
+    (if (and (str.eq (& local) name) (str.eq (xml.attr_value d n i) want)) (ret true)))
+  false)
+
+(fn header_ok ((d (& xml.doc)) (env_n i64)) (res unit str)
+  (for i 0 (xml.count d env_n)
+    (let h (xml.child d env_n i))
+    (if (named d h "Header")
+      (for k 0 (xml.count d h)
+        (let block (xml.child d h k))
+        (if (or (attr_is d block "mustUnderstand" "1") (attr_is d block "mustUnderstand" "true"))
+          (ret (res.err (str.from "MustUnderstand")))))))
+  (res.ok ()))
+
+(fn find_child ((d (& xml.doc)) (n i64) (want (& str))) i64
+  (for i 0 (xml.count d n) (let c (xml.child d n i)) (if (named d c want) (ret c)))
+  -1)
 
 (fn operation ((d (& xml.doc))) (res i64 str)
   (let r (. d root))
-  (if (not (str.eq (xml.text d r) "Envelope")) (ret (res.err (str.from "soap.parse"))))
-  (if (!= (xml.count d r) 1) (ret (res.err (str.from "soap.parse"))))
-  (let b (xml.child d r 0))
-  (if (!= (xml.kind d b) 0u8) (ret (res.err (str.from "soap.parse"))))
-  (if (not (str.eq (xml.text d b) "Body")) (ret (res.err (str.from "soap.parse"))))
-  (if (!= (xml.count d b) 1) (ret (res.err (str.from "soap.parse"))))
-  (let op (xml.child d b 0))
-  (if (!= (xml.kind d op) 0u8) (ret (res.err (str.from "soap.parse"))))
+  (if (not (named d r "Envelope")) (ret (res.err (str.from "soap.parse"))))
+  (try (header_ok d r))
+  (let b (find_child d r "Body"))
+  (if (< b 0) (ret (res.err (str.from "soap.parse"))))
+  (let mut op -1)
+  (let mut seen 0)
+  (for i 0 (xml.count d b)
+    (let c (xml.child d b i))
+    (if (== (xml.kind d c) 0u8) (do (set seen (+ seen 1)) (set op c))))
+  (if (!= seen 1) (ret (res.err (str.from "soap.parse"))))
   (res.ok op))
+
+(fn add_answer ((d (& xml.doc)) (op i64)) str
+  (let mut a 0)
+  (let mut b 0)
+  (take_nums d op (&mut a) (&mut b))
+  (answer "add" (& (str.from_int (+ a b)))))
 
 (pub (fn exec ((q (& str))) str
   (let parsed (xml.read q))
-  (if (res.is_err (& parsed)) (ret (fault "soap.parse")))
+  (if (res.is_err (& parsed)) (ret (fault "soap:Client" "soap.parse")))
   (let d (res.unwrap parsed))
   (let found (operation (& d)))
-  (if (res.is_err (& found)) (ret (fault "soap.parse")))
+  (if (res.is_err (& found))
+    (do
+      (let e (res.unwrap_err found))
+      (if (str.eq (& e) "MustUnderstand") (ret (fault "soap:MustUnderstand" "MustUnderstand")))
+      (ret (fault "soap:Client" "soap.parse"))))
   (let op (res.unwrap found))
-  (let name (str.clone (xml.text (& d) op)))
+  (let name (xml.local (& d) op))
   (if (str.eq (& name) "hello") (ret (answer "hello" "world")))
   (if (str.eq (& name) "ping") (ret (answer "ping" "pong")))
   (if (str.eq (& name) "add") (ret (add_answer (& d) op)))
   (let mut m (str.from "soap.op|name="))
   (str.push (&mut m) (& name))
-  (fault (& m))))
+  (fault "soap:Client" (& m))))
 
 (fn soap ((r (& http.req)) (_ (ptr u8))) http.resp
   (http.respond 200 "ok" "text/xml" (& (exec (& (. r body))))))
 
 (fn soap_client ((port i64)) i32
-  (let c (res.unwrap (net.connect port)))
+  (let c (res.unwrap (net.connect "127.0.0.1" port)))
   (res.unwrap (net.send c
      "POST /soap HTTP/1.1\r\nHost: x\r\nContent-Length: 49\r\n\r\n<Envelope><Body><hello></hello></Body></Envelope>"))
   (let body (res.unwrap (net.recv c 512)))
@@ -75,21 +131,37 @@
   (ret 1))
 
 (test soap_fields
-  (assert_eq (& (exec "<Envelope><Body><hello></hello></Body></Envelope>"))
-    "<Envelope><Body><hello><result>world</result></hello></Body></Envelope>")
-  (assert_eq (& (exec "<Envelope><Body><add><a>2</a><b>3</b></add></Body></Envelope>"))
-    "<Envelope><Body><add><result>5</result></add></Body></Envelope>")
-  (assert_eq (& (exec "<no>")) "<Envelope><Body><Fault>soap.parse</Fault></Body></Envelope>")
-  (assert_eq (& (exec "<Envelope><Body><no></no></Body></Envelope>"))
-    "<Envelope><Body><Fault>soap.op|name=no</Fault></Body></Envelope>"))
+  (let hello (exec "<Envelope><Body><hello></hello></Body></Envelope>"))
+  (assert (str.has (& hello) "http://schemas.xmlsoap.org/soap/envelope/"))
+  (assert (str.has (& hello) "<result>world</result>"))
+  (let add (exec "<Envelope><Body><add><a><n>2</n></a><b>3</b></add></Body></Envelope>"))
+  (assert (str.has (& add) "<result>5</result>"))
+  (let pref
+    (exec "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><s:ping/></s:Body></s:Envelope>"))
+  (assert (str.has (& pref) "<result>pong</result>"))
+  (let bad (exec "<Envelope><Body><no></no></Body></Envelope>"))
+  (assert (str.has (& bad) "soap.op|name=no"))
+  (assert (str.has (& bad) "faultcode"))
+  (let mu
+    (exec "<Envelope><Header><x mustUnderstand=\"1\"/></Header><Body><hello/></Body></Envelope>"))
+  (assert (str.has (& mu) "MustUnderstand")))
 
 (test soap_ops
   (let d (res.unwrap (xml.read "<Envelope><Body><add><a>2</a><b>3</b></add></Body></Envelope>")))
   (let op (res.unwrap (operation (& d))))
-  (assert_eq (res.unwrap (sum_args (& d) op)) 5)
-  (match (arg_int (& d) (xml.child (& d) op 0)) ((opt.some n) (assert_eq n 2)) ((opt.none) (assert false)))
-  (assert (str.has (& (add_answer (& d) op)) "5"))
-  (assert (str.has (& (answer "ping" "pong")) "pong")))
+  (assert (named (& d) op "add"))
+  (assert (str.has (& (answer "ping" "pong")) "pong"))
+  (assert (str.has (& (fault "soap:Client" "soap.parse")) "soap.parse"))
+  (drop (soap_ns))
+  (drop (env "x"))
+  (assert (not (attr_is (& d) op "mustUnderstand" "1")))
+  (assert (>= (find_child (& d) (. d root) "Body") 0))
+  (let mut a 0)
+  (let mut b 0)
+  (take_nums (& d) op (&mut a) (&mut b))
+  (assert_eq (+ a b) 5)
+  (assert (res.is_ok (& (header_ok (& d) (. d root)))))
+  (drop (first_int (& d) op)))
 
 (test soap_http
   (let l (res.unwrap (net.listen 0)))

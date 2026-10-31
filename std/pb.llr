@@ -1,0 +1,85 @@
+;; Protobuf wire types 0, 1, 2, and 5. Unknown fields are skipped.
+(fn push_var ((out (&mut str)) (n i64)) unit
+  (let mut v n)
+  (loop
+    (let b (band v 127))
+    (set v (shr v 7))
+    (if (> v 0) (str.push_byte out (as u8 (bor b 128))) (do (str.push_byte out (as u8 b)) (ret)))))
+
+(fn read_var ((buf (& str)) (i (&mut i64))) (res i64 str)
+  (let mut v 0)
+  (let mut shift 0)
+  (loop
+    (if (>= (@ i) (str.len buf)) (ret (res.err (str.from "pb.trunc"))))
+    (let b (as i64 (str.at buf (@ i))))
+    (set (@ i) (+ (@ i) 1))
+    (set v (+ v (shl (band b 127) shift)))
+    (if (== (band b 128) 0) (ret (res.ok v)))
+    (set shift (+ shift 7))
+    (if (> shift 63) (ret (res.err (str.from "pb.trunc"))))))
+
+(fn key ((field i64) (wt i64)) i64 (bor (shl field 3) wt))
+
+(pub (fn put_int ((out (&mut str)) (field i64) (n i64)) unit
+  (push_var out (key field 0))
+  (push_var out n)))
+
+(pub (fn put_str ((out (&mut str)) (field i64) (s (& str))) unit
+  (push_var out (key field 2))
+  (push_var out (str.len s))
+  (str.push out s)))
+
+(fn skip ((buf (& str)) (i (&mut i64)) (wt i64)) (res unit str)
+  (if (== wt 0) (do (drop (try (read_var buf i))) (ret (res.ok ()))))
+  (if (== wt 1) (do (set (@ i) (+ (@ i) 8)) (ret (res.ok ()))))
+  (if (== wt 5) (do (set (@ i) (+ (@ i) 4)) (ret (res.ok ()))))
+  (if (!= wt 2) (ret (res.err (str.from "pb.trunc"))))
+  (let n (try (read_var buf i)))
+  (set (@ i) (+ (@ i) n))
+  (if (> (@ i) (str.len buf)) (ret (res.err (str.from "pb.trunc"))))
+  (res.ok ()))
+
+(pub (fn get_int ((buf (& str)) (field i64)) (res i64 str)
+  (let mut i 0)
+  (let mut found 0)
+  (let mut val 0)
+  (loop
+    (if (>= i (str.len buf)) (brk))
+    (let k (try (read_var buf (&mut i))))
+    (if (== k (key field 0))
+      (do (set val (try (read_var buf (&mut i)))) (set found 1))
+      (try (skip buf (&mut i) (band k 7)))))
+  (if (== found 0) (ret (res.ok 0)))
+  (res.ok val)))
+
+(pub (fn get_str ((buf (& str)) (field i64)) (res str str)
+  (let mut i 0)
+  (let mut out (str.new))
+  (loop
+    (if (>= i (str.len buf)) (brk))
+    (let k (try (read_var buf (&mut i))))
+    (if (== k (key field 2))
+      (do
+        (let n (try (read_var buf (&mut i))))
+        (if (> (+ i n) (str.len buf)) (ret (res.err (str.from "pb.trunc"))))
+        (set out (str.slice buf i (+ i n)))
+        (set i (+ i n)))
+      (try (skip buf (&mut i) (band k 7)))))
+  (res.ok out)))
+
+(test pb_round
+  (let mut a (str.new))
+  (put_int (&mut a) 1 2)
+  (put_int (&mut a) 2 3)
+  (assert_eq (res.unwrap (get_int (& a) 1)) 2)
+  (assert_eq (res.unwrap (get_int (& a) 2)) 3)
+  (assert_eq (res.unwrap (get_int (& a) 9)) 0)
+  (let mut b (str.new))
+  (put_str (&mut b) 1 "world")
+  (assert_eq (& (res.unwrap (get_str (& b) 1))) "world")
+  (let mut c (str.new))
+  (str.push_byte (&mut c) 13u8)
+  (str.push (&mut c) "abcd")
+  (str.push_byte (&mut c) 8u8)
+  (str.push_byte (&mut c) 4u8)
+  (assert_eq (res.unwrap (get_int (& c) 1)) 4))

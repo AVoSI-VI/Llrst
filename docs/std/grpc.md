@@ -1,6 +1,6 @@
 # std.grpc
 
-One unary gRPC call on a small HTTP/2 subset. The message is plain text inside one length-prefixed frame. There is no protobuf compiler.
+Unary gRPC on HTTP/2. Many streams may be open. Header blocks are HPACK, including a dynamic table and Huffman strings. The message is protobuf: `/hello` and `/ping` reply with a string field, `/add` sums two `int32` fields. Status is a trailing HEADERS frame. A frame over 1 MiB is `h2.frame`.
 
 The client starts with the 24-byte preface `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`, then one empty SETTINGS frame (type 4, stream 0). The server writes an empty SETTINGS and a SETTINGS ACK.
 
@@ -18,10 +18,13 @@ Source: `std/grpc.llr`. Import with `(use std.grpc)` for module functions; types
 
 | name | params | returns |
 |------|--------|---------|
-| `grpc.pack` | `((msg (& str)))` | `str` |
 | `grpc.exec` | `((path (& str)) (msg (& str)))` | `(res str str)` |
+| `grpc.pack` | `((msg (& str)))` | `str` |
+| `grpc.unpack` | `((payload (& str)))` | `(res str str)` |
+| `grpc.step` | `((buf (& str)) (at (&mut i64)) (c (&mut cx)))` | `(res str str)` |
+| `grpc.drive` | `((buf (& str)))` | `(res str str)` |
 | `grpc.serve` | `((fd i64))` | `(res i64 str)` |
 
 ## Tests
 
-`grpc_fields`, `grpc_http`
+`grpc_fields`, `grpc_streams`, `grpc_http`

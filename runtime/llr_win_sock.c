@@ -167,8 +167,9 @@ struct wsa_poll {
 
 int poll(void *base, uint64_t n, int timeout) {
     ensure_init();
-    if (n > 4096) {
-        n = 4096;
+    if (n > FD_MAX) {
+        set_errno(22);
+        return -1;
     }
     struct lpoll *in = (struct lpoll *)base;
     struct wsa_poll *wsa = (struct wsa_poll *)calloc((size_t)n, sizeof(struct wsa_poll));

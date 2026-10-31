@@ -40,6 +40,30 @@ void map_wsa(void) {
         set_errno(11);
     } else if (err == 10004) {
         set_errno(4);
+    } else if (err == 10013) {
+        set_errno(13);
+    } else if (err == 10053) {
+        set_errno(32);
+    } else if (err == 10048) {
+        set_errno(98);
+    } else if (err == 10051) {
+        set_errno(101);
+    } else if (err == 10054) {
+        set_errno(104);
+    } else if (err == 10056) {
+        set_errno(106);
+    } else if (err == 10057) {
+        set_errno(107);
+    } else if (err == 10060) {
+        set_errno(110);
+    } else if (err == 10061) {
+        set_errno(111);
+    } else if (err == 10065) {
+        set_errno(113);
+    } else if (err == 10037) {
+        set_errno(114);
+    } else if (err == 10036) {
+        set_errno(115);
     } else if (err > 0 && err < 256) {
         set_errno(err);
     } else {

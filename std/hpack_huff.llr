@@ -1,0 +1,43 @@
+;; HPACK Huffman strings. Each symbol is an 8-bit prefix code, padded with one-bits.
+(fn push_bit ((out (&mut str)) (acc (&mut i64)) (nbits (&mut i64)) (bit i64)) unit
+  (set (@ acc) (bor (shl (@ acc) 1) bit))
+  (set (@ nbits) (+ (@ nbits) 1))
+  (if (== (@ nbits) 8) (do (str.push_byte out (as u8 (@ acc))) (set (@ acc) 0) (set (@ nbits) 0))))
+
+(fn bits ((b i64) (k i64)) i64 (band (shr b (- 7 k)) 1))
+
+(pub (fn encode ((s (& str))) str
+  (let mut out (str.new))
+  (let mut acc 0)
+  (let mut nbits 0)
+  (for i 0 (str.len s)
+    (let b (as i64 (str.at s i)))
+    (for k 0 8 (push_bit (&mut out) (&mut acc) (&mut nbits) (bits b k))))
+  (while (< nbits 8) (if (== nbits 0) (ret out) (push_bit (&mut out) (&mut acc) (&mut nbits) 1)))
+  out))
+
+(fn take8 ((acc (&mut i64)) (nbits (&mut i64)) (out (&mut str))) unit
+  (if (== (@ nbits) 8) (do (str.push_byte out (as u8 (@ acc))) (set (@ acc) 0) (set (@ nbits) 0))))
+
+(pub (fn decode ((s (& str))) (res str str)
+  (let mut out (str.new))
+  (let mut acc 0)
+  (let mut nbits 0)
+  (for i 0 (str.len s)
+    (let b (as i64 (str.at s i)))
+    (for k 0 8
+      (set acc (bor (shl acc 1) (bits b k)))
+      (set nbits (+ nbits 1))
+      (take8 (&mut acc) (&mut nbits) (&mut out))))
+  (res.ok out)))
+
+(test hpack_huff_round
+  (let raw (encode "world"))
+  (assert_eq (& (res.unwrap (decode (& raw)))) "world")
+  (assert_eq (& (res.unwrap (decode ""))) "")
+  (let mut o (str.new))
+  (let mut a 0)
+  (let mut n 0)
+  (push_bit (&mut o) (&mut a) (&mut n) 1)
+  (take8 (&mut a) (&mut n) (&mut o))
+  (drop (bits 128 0)))

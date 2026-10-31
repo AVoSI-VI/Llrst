@@ -1,0 +1,101 @@
+;; GraphQL schema. type, fields, arguments, and Int, String, Boolean, or an object type.
+(pub (struct arg (pub (name str)) (pub (ty str))))
+
+(pub (struct field (pub (name str)) (pub (ty str)) (pub (args (vec arg)))))
+
+(pub (struct ty (pub (name str)) (pub (fields (vec field)))))
+
+(pub (struct schema (pub (query str)) (pub (types (vec ty)))))
+
+(struct rd (src str) (i i64))
+
+(fn peek ((r (& rd))) u8
+  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+
+(fn skip ((r (&mut rd))) unit
+  (while (or (== (peek r) 32u8)
+      (or (== (peek r) 10u8) (or (== (peek r) 9u8) (or (== (peek r) 13u8) (== (peek r) 44u8)))))
+    (set (. r i) (+ (. r i) 1))))
+
+(fn is_name ((b u8)) bool
+  (or (and (>= b 65u8) (<= b 90u8))
+    (or (and (>= b 97u8) (<= b 122u8)) (or (== b 95u8) (and (>= b 48u8) (<= b 57u8))))))
+
+(fn read_name ((r (&mut rd))) str
+  (skip r)
+  (let start (. r i))
+  (if (not (is_name (peek r))) (ret (str.new)))
+  (while (is_name (peek r)) (set (. r i) (+ (. r i) 1)))
+  (str.slice (& (. r src)) start (. r i)))
+
+(fn ty_name ((r (&mut rd))) str
+  (let name (read_name r))
+  (skip r)
+  (if (== (peek r) 33u8) (set (. r i) (+ (. r i) 1)))
+  name)
+
+(fn parse_args ((r (&mut rd))) (res (vec arg) str)
+  (set (. r i) (+ (. r i) 1))
+  (let mut args (vec.new <arg>))
+  (loop
+    (skip r)
+    (if (== (peek r) 41u8) (do (set (. r i) (+ (. r i) 1)) (ret (res.ok args))))
+    (let name (read_name r))
+    (skip r)
+    (if (!= (peek r) 58u8) (ret (res.err (str.from "gql.parse"))))
+    (set (. r i) (+ (. r i) 1))
+    (vec.push (&mut args) (arg name (ty_name r)))))
+
+(fn parse_fields ((r (&mut rd))) (res (vec field) str)
+  (let mut fields (vec.new <field>))
+  (loop
+    (skip r)
+    (if (== (peek r) 125u8) (do (set (. r i) (+ (. r i) 1)) (ret (res.ok fields))))
+    (let name (read_name r))
+    (if (== (str.len (& name)) 0) (ret (res.err (str.from "gql.parse"))))
+    (skip r)
+    (let mut args (vec.new <arg>))
+    (if (== (peek r) 40u8) (set args (try (parse_args r))))
+    (skip r)
+    (if (!= (peek r) 58u8) (ret (res.err (str.from "gql.parse"))))
+    (set (. r i) (+ (. r i) 1))
+    (vec.push (&mut fields) (field name (ty_name r) args))))
+
+(pub (fn read ((src (& str))) (res schema str)
+  (let mut r (rd (str.from src) 0))
+  (let mut types (vec.new <ty>))
+  (let mut query (str.from "Query"))
+  (loop
+    (skip (&mut r))
+    (if (== (peek (& r)) 0u8) (brk))
+    (let kw (read_name (&mut r)))
+    (if (not (str.eq (& kw) "type")) (ret (res.err (str.from "gql.parse"))))
+    (let name (read_name (&mut r)))
+    (skip (&mut r))
+    (if (!= (peek (& r)) 123u8) (ret (res.err (str.from "gql.parse"))))
+    (set (. r i) (+ (. r i) 1))
+    (let fields (try (parse_fields (&mut r))))
+    (if (str.eq (& name) "Query") (set query (str.from "Query")))
+    (vec.push (&mut types) (ty name fields)))
+  (res.ok (schema query types))))
+
+(pub (fn builtin () schema
+  (res.unwrap (read "type Query { hello: String ping: String add(a: Int, b: Int): Int pair(a: Int, b: Int): Pair } type Pair { a: Int b: Int }"))))
+
+(pub (fn find_ty ((s (& schema)) (name (& str))) (opt i64)
+  (for i 0 (vec.len (& (. s types)))
+    (if (str.eq (& (. (vec.get (& (. s types)) i) name)) name) (ret (opt.some i))))
+  (opt.none)))
+
+(pub (fn find_field ((t (& ty)) (name (& str))) (opt i64)
+  (for i 0 (vec.len (& (. t fields)))
+    (if (str.eq (& (. (vec.get (& (. t fields)) i) name)) name) (ret (opt.some i))))
+  (opt.none)))
+
+(test gql_schema_builtin
+  (let s (builtin))
+  (let q (opt.unwrap (find_ty (& s) "Query")))
+  (let pair (opt.unwrap (find_field (vec.get (& (. s types)) q) "pair")))
+  (assert_eq (& (. (vec.get (& (. (vec.get (& (. s types)) q) fields)) pair) ty)) "Pair")
+  (assert (opt.is_some (& (find_ty (& s) "Pair"))))
+  (assert (res.is_err (& (read "nope")))))

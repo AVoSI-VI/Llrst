@@ -1,9 +1,9 @@
-;; Fixed pthread pool. A job is a function pointer plus a context pointer.
+;; A pthread pool that grows. A job is a closure and can capture a binding.
 (use std.sys)
 
-(struct job (work (fn ((ptr u8)) unit)) (ctx (ptr u8)))
+(struct job (work (clos () unit)))
 
-(struct taken (go i64) (work (fn ((ptr u8)) unit)) (ctx (ptr u8)))
+(struct taken (go i64) (work (clos () unit)))
 
 (struct shared
   (stop i64)
@@ -15,8 +15,6 @@
   (jobs (vec job)))
 
 (pub (struct pool (inner (ptr shared))))
-
-(fn idle ((_ (ptr u8))) unit ())
 
 (fn err ((n i64)) str
   (let mut m (str.from "thread.start|n="))
@@ -32,21 +30,34 @@
   (while (and (== (vec.len (& (. (@ inn) jobs))) 0) (== (. (@ inn) stop) 0))
     (sys.pthread_cond_wait (. (@ inn) cv) (. (@ inn) lock))
     ())
-  (if (== (vec.len (& (. (@ inn) jobs))) 0) (do (unlock inn) (ret (taken 0 idle (ptr.null <u8>)))))
+  (if (== (vec.len (& (. (@ inn) jobs))) 0) (do (unlock inn) (ret (taken 0 (clos () unit ())))))
   (let j (opt.unwrap (vec.pop (&mut (. (@ inn) jobs)))))
   (unlock inn)
-  (taken 1 (. j work) (. j ctx)))
+  (taken 1 (. j work)))
 
 (fn worker ((arg (ptr u8))) (ptr u8)
   (let inn (as (ptr shared) arg))
-  (loop
-    (let t (pop_job inn))
-    (if (== (. t go) 0) (ret (ptr.null <u8>)))
-    (call (. t work) (. t ctx))))
+  (loop (let t (pop_job inn)) (if (== (. t go) 0) (ret (ptr.null <u8>))) (call (. t work))))
 
 (fn spawn ((inn (ptr shared)) (i i64)) bool
   (let tp (ptr.add (as (ptr u64) (. (@ inn) threads)) i))
   (== (sys.pthread_create (as (ptr u8) tp) (ptr.null <u8>) worker (as (ptr u8) inn)) 0i32))
+
+(fn copy_ids ((dst (ptr u8)) (src (ptr u8)) (n i64)) unit
+  (for i 0 n (ptr.write (ptr.add (as (ptr u64) dst) i) (ptr.read (ptr.add (as (ptr u64) src) i)))))
+
+(fn grow ((inn (ptr shared))) unit
+  (lock inn)
+  (if (== (. (@ inn) stop) 1) (do (unlock inn) (ret)))
+  (let n (. (@ inn) n))
+  (let mem (sys.alloc (* (+ n 1) 8)))
+  (if (ptr.eq mem (ptr.null <u8>)) (do (unlock inn) (ret)))
+  (copy_ids mem (. (@ inn) threads) n)
+  (sys.free (. (@ inn) threads))
+  (set (. (@ inn) threads) mem)
+  (set (. (@ inn) n) (+ n 1))
+  (unlock inn)
+  (if (not (spawn inn n)) (do (lock inn) (set (. (@ inn) n) n) (unlock inn))))
 
 (fn stop_inner ((inn (ptr shared))) unit
   (if (== (. (@ inn) joined) 1) (ret))
@@ -89,14 +100,20 @@
     (set i (+ i 1)))
   (res.ok (pool inn))))
 
-(pub (fn submit ((self (&mut pool)) (work (fn ((ptr u8)) unit)) (ctx (ptr u8))) unit
+(pub (fn submit ((self (&mut pool)) (work (clos () unit))) unit
   (let inn (. self inner))
   (lock inn)
-  (if (== (. (@ inn) stop) 0)
-    (do
-      (vec.push (&mut (. (@ inn) jobs)) (job work ctx))
-      (sys.pthread_cond_broadcast (. (@ inn) cv))))
-  (unlock inn)))
+  (if (!= (. (@ inn) stop) 0) (do (unlock inn) (ret)))
+  (vec.push (&mut (. (@ inn) jobs)) (job work))
+  (let need (> (vec.len (& (. (@ inn) jobs))) (. (@ inn) n)))
+  (sys.pthread_cond_broadcast (. (@ inn) cv))
+  (unlock inn)
+  (if need (grow inn))))
+
+(pub (fn workers ((self (& pool))) i64
+  (let inn (. self inner))
+  (if (ptr.eq inn (ptr.null <shared>)) (ret 0))
+  (. (@ inn) n)))
 
 (pub (fn stop ((self (&mut pool))) unit
   (let inn (. self inner))
@@ -111,19 +128,39 @@
     (free_inner inn)
     (set (. self inner) (ptr.null <shared>))))
 
-(fn add1 ((ctx (ptr u8))) unit (let p (as (ptr i64) ctx)) (ptr.write p (+ (ptr.read p) 1)))
+(fn add1 ((p (ptr i64))) unit (ptr.write p (+ (ptr.read p) 1)))
 
 (test thread_pool
   (let mut xs (vec.new <i64>))
   (for i 0 8 (vec.push (&mut xs) 0))
   (let mut p (res.unwrap (start 2)))
-  (for i 0 8 (submit (&mut p) add1 (as (ptr u8) (vec.get_mut (&mut xs) i))))
+  (for i 0 8
+    (let slot (as (ptr i64) (vec.get_mut (&mut xs) i)))
+    (submit (&mut p) (clos () unit (add1 slot))))
   (stop (&mut p))
-  (for i 0 8 (assert_eq (@ (vec.get (& xs) i)) 1)))
+  (for i 0 8 (assert_eq (@ (vec.get (& xs) i)) 1))
+  (assert (>= (workers (& p)) 2)))
+
+(test thread_grow
+  (let mut gate 0)
+  (let mut started 0)
+  (let gp (as (ptr i64) (&mut gate)))
+  (let sp (as (ptr i64) (&mut started)))
+  (let mut p (res.unwrap (start 1)))
+  (submit (&mut p)
+    (clos ()
+      unit
+      (ptr.write sp (+ (ptr.read sp) 1))
+      (while (== (ptr.read gp) 0) (drop (sys.poll (ptr.null <u8>) 0u64 1i32)))))
+  (while (== (ptr.read sp) 0) (drop (sys.poll (ptr.null <u8>) 0u64 1i32)))
+  (submit (&mut p) (clos () unit ()))
+  (submit (&mut p) (clos () unit ()))
+  (assert (> (workers (& p)) 1))
+  (ptr.write gp 1)
+  (stop (&mut p)))
 
 (test thread_names
   (assert (str.has (& (err 0)) "n="))
-  (idle (ptr.null <u8>))
   (if false (lock (ptr.null <shared>)))
   (if false (unlock (ptr.null <shared>)))
   (if false (drop (pop_job (ptr.null <shared>))))
@@ -131,4 +168,6 @@
   (if false (spawn (ptr.null <shared>) 0))
   (if false (stop_inner (ptr.null <shared>)))
   (if false (free_inner (ptr.null <shared>)))
+  (if false (grow (ptr.null <shared>)))
+  (if false (copy_ids (ptr.null <u8>) (ptr.null <u8>) 0))
   (if false (drop (pool (ptr.null <shared>)))))

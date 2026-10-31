@@ -1,14 +1,6 @@
 # std.gql
 
-A fixed GraphQL subset. The query text is the input. The result is JSON. There is no schema, no variables, no fragments, no aliases, and no nested selection set.
-
-```
-query := '{' field* '}'
-field := name | name '(' arg (',' arg)* ')'
-arg   := name ':' integer
-```
-
-Whitespace is skipped. `hello` is `"world"`. `ping` is `"pong"`. `add` sums integers `a` and `b`; a missing argument is 0. A good query is `{"data":{...}}`. A bad query is `{"errors":[{"message":"gql.parse"}]}`. An unknown field is `{"errors":[{"message":"gql.field|name="}]}`.
+GraphQL execution against a schema. One operation, nested selections, aliases, fragments, and variables. `(gql.exec schema query vars)` runs `query`. `vars` is a GraphQL input object or empty. The builtin schema answers `hello`, `ping`, `add`, and `pair`. A missing variable is `gql.var|name=`. Subscriptions, directives, and introspection are `gql.parse`. `POST /graphql` with `Content-Type: application/json` reads `{"query","variables"}`. Any other body is the query text.
 
 Source: `std/gql.llr`. Import with `(use std.gql)` for module functions; types and methods need no import.
 
@@ -16,8 +8,9 @@ Source: `std/gql.llr`. Import with `(use std.gql)` for module functions; types a
 
 | name | params | returns |
 |------|--------|---------|
-| `gql.exec` | `((q (& str)))` | `str` |
+| `gql.exec` | `((sc (& gql_schema.schema)) (q (& str)) (vars (& str)))` | `str` |
+| `gql.answer` | `((hs (& (vec str))) (body (& str)))` | `str` |
 
 ## Tests
 
-`gql_fields`, `gql_scan`, `gql_http`
+`gql_fields`, `gql_answer`, `gql_http`

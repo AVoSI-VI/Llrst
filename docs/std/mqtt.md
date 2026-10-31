@@ -1,8 +1,6 @@
 # std.mqtt
 
-One MQTT 3.1.1 connection. Connect, subscribe, and publish at QoS 0. A matching publish is written back to that connection.
-
-A packet is a type byte, one remaining-length byte under 128, and that many bytes. A short buffer waits. A length of 128 or more, or a bad flag, is `mqtt.frame`.
+An MQTT 3.1.1 broker. Remaining length is the 1-to-4-byte integer. Subscribe filters may use `+` and `#`. Publish is QoS 0, 1, or 2. Username and password are checked when `serve` is given a user. A will is published when the client drops without DISCONNECT. `(mqtt.serve fd user pass stop_after)` accepts connections until that many publishes have been delivered. `stop_after` 0 runs until the listen socket fails.
 
 CONNECT is `0x10`. The protocol is `MQTT` at level 4. Flags are clean session only (`0x02`). The client id is a non-empty string. Anything else is `mqtt.connect`. The answer is CONNACK `20 02 00 00`. CONNECT must be the first packet.
 
@@ -18,7 +16,7 @@ Source: `std/mqtt.llr`. Import with `(use std.mqtt)` for module functions; types
 
 | name | params | returns |
 |------|--------|---------|
-| `mqtt.serve` | `((fd i64))` | `(res i64 str)` |
+| `mqtt.serve` | `((fd i64) (user (& str)) (pass (& str)) (stop_after i64))` | `(res i64 str)` |
 
 ## Tests
 

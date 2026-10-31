@@ -1,6 +1,6 @@
 # std.thread
 
-A fixed pthread pool. The thread count is chosen at `start` and does not grow. A job is a function pointer plus a context pointer. The pointer cannot capture a binding. `stop` joins the threads. Drop calls `stop`. A second `stop` does nothing.
+A pthread pool. `start` creates `n` workers. `submit` takes a closure, so a job can capture a binding. When the queue is longer than the worker count, the pool grows by one. `stop` joins the workers. Drop calls `stop`. A second `stop` does nothing.
 
 Source: `std/thread.llr`. Import with `(use std.thread)` for module functions; types and methods need no import.
 
@@ -13,9 +13,10 @@ Source: `std/thread.llr`. Import with `(use std.thread)` for module functions; t
 | name | params | returns |
 |------|--------|---------|
 | `thread.start` | `((n i64))` | `(res pool str)` |
-| `thread.submit` | `((self (&mut pool)) (work (fn ((ptr u8)) unit)) (ctx (ptr u8)))` | `unit` |
+| `thread.submit` | `((self (&mut pool)) (work (clos () unit)))` | `unit` |
+| `thread.workers` | `((self (& pool)))` | `i64` |
 | `thread.stop` | `((self (&mut pool)))` | `unit` |
 
 ## Tests
 
-`thread_pool`, `thread_names`
+`thread_pool`, `thread_grow`, `thread_names`

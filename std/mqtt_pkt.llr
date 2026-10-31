@@ -1,0 +1,55 @@
+;; MQTT 3.1.1 remaining length and strings.
+(fn push16 ((out (&mut str)) (n i64)) unit
+  (let u (as u32 n))
+  (str.push_byte out (as u8 (shr u 8u32)))
+  (str.push_byte out (as u8 u)))
+
+(pub (fn put_str ((out (&mut str)) (s (& str))) unit (push16 out (str.len s)) (str.push out s)))
+
+(pub (fn put_rem ((out (&mut str)) (n i64)) unit
+  (let mut v n)
+  (loop
+    (let b (band v 127))
+    (set v (/ v 128))
+    (if (> v 0) (str.push_byte out (as u8 (bor b 128))) (do (str.push_byte out (as u8 b)) (ret))))))
+
+(pub (fn read_rem ((buf (& str)) (i (&mut i64))) (res i64 str)
+  (let mut v 0)
+  (let mut mul 1)
+  (let mut n 0)
+  (loop
+    (if (>= (@ i) (str.len buf)) (ret (res.err (str.from "mqtt.frame"))))
+    (if (== n 4) (ret (res.err (str.from "mqtt.frame"))))
+    (let b (as i64 (str.at buf (@ i))))
+    (set (@ i) (+ (@ i) 1))
+    (set v (+ v (* (band b 127) mul)))
+    (set n (+ n 1))
+    (if (== (band b 128) 0) (ret (res.ok v)))
+    (set mul (* mul 128)))))
+
+(pub (fn u16 ((buf (& str)) (i i64)) i64
+  (+ (* (as i64 (str.at buf i)) 256) (as i64 (str.at buf (+ i 1))))))
+
+(pub (fn read_str ((buf (& str)) (i (&mut i64)) (end i64)) (res str str)
+  (if (< (- end (@ i)) 2) (ret (res.err (str.from "mqtt.frame"))))
+  (let ln (u16 buf (@ i)))
+  (set (@ i) (+ (@ i) 2))
+  (if (> (+ (@ i) ln) end) (ret (res.err (str.from "mqtt.frame"))))
+  (let text (str.slice buf (@ i) (+ (@ i) ln)))
+  (set (@ i) (+ (@ i) ln))
+  (res.ok text)))
+
+(test mqtt_rem
+  (let mut out (str.new))
+  (put_rem (&mut out) 128)
+  (assert_eq (str.at (& out) 0) 128u8)
+  (assert_eq (str.at (& out) 1) 1u8)
+  (let mut i 0)
+  (assert_eq (res.unwrap (read_rem (& out) (&mut i))) 128)
+  (let mut bad (str.new))
+  (for k 0 4 (str.push_byte (&mut bad) 128u8))
+  (str.push_byte (&mut bad) 1u8)
+  (let mut j 0)
+  (assert_eq (& (res.unwrap_err (read_rem (& bad) (&mut j)))) "mqtt.frame")
+  (put_str (&mut out) "ab")
+  (assert_eq (u16 (& out) i) 2))

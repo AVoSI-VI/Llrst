@@ -1,9 +1,21 @@
-;; One XML document. Elements and text. No attributes, namespaces, or comments.
-(struct node (kind u8) (text str) (lo i64) (hi i64))
+;; One XML tree. Attributes, namespaces, comments, CDATA, and a declaration.
+(struct attr (name str) (value str))
 
-(pub (struct doc (nodes (vec node)) (kids (vec i64)) (pub (root i64))))
+(struct node (kind u8) (text str) (ns str) (lo i64) (hi i64) (alo i64) (ahi i64))
+
+(pub (struct doc
+  (nodes (vec node))
+  (kids (vec i64))
+  (attrs (vec attr))
+  (pub (root i64))
+  (pub (version str))
+  (pub (encoding str))
+  (pub (standalone str))))
 
 (struct rd (src str) (i i64))
+
+(fn blank () doc
+  (doc (vec.new <node>) (vec.new <i64>) (vec.new <attr>) -1 (str.new) (str.new) (str.new)))
 
 (fn peek ((r (& rd))) u8
   (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
@@ -13,9 +25,16 @@
 (fn is_name_start ((b u8)) bool
   (or (and (>= b 65u8) (<= b 90u8)) (or (and (>= b 97u8) (<= b 122u8)) (== b 95u8))))
 
-(fn is_name ((b u8)) bool (or (is_name_start b) (and (>= b 48u8) (<= b 57u8))))
+(fn is_name ((b u8)) bool
+  (or (is_name_start b)
+    (or (and (>= b 48u8) (<= b 57u8)) (or (== b 58u8) (or (== b 45u8) (== b 46u8))))))
 
 (fn skip ((r (&mut rd))) unit (while (is_space (peek r)) (set (. r i) (+ (. r i) 1))))
+
+(fn eat ((r (&mut rd)) (s (& str))) bool
+  (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) s)
+    (do (set (. r i) (+ (. r i) (str.len s))) true)
+    false))
 
 (fn read_name ((r (&mut rd))) str
   (let start (. r i))
@@ -28,8 +47,38 @@
   (vec.push (&mut (. d nodes)) n)
   (- (vec.len (& (. d nodes))) 1))
 
+(fn hex_dig ((b u8)) (opt i64)
+  (if (and (>= b 48u8) (<= b 57u8)) (ret (opt.some (as i64 (- b 48u8)))))
+  (if (and (>= b 97u8) (<= b 102u8)) (ret (opt.some (+ 10 (as i64 (- b 97u8))))))
+  (if (and (>= b 65u8) (<= b 70u8)) (ret (opt.some (+ 10 (as i64 (- b 65u8))))))
+  (opt.none))
+
+(fn ref_num ((r (&mut rd)) (hex bool)) (res u8 str)
+  (let mut v 0)
+  (let mut any false)
+  (loop
+    (let b (peek r))
+    (if (== b 59u8) (brk))
+    (let d
+      (if hex
+        (hex_dig b)
+        (if (and (>= b 48u8) (<= b 57u8)) (opt.some (as i64 (- b 48u8))) (opt.none))))
+    (if (opt.is_none (& d)) (ret (res.err (str.from "xml.parse"))))
+    (set any true)
+    (set v (+ (* v (if hex 16 10)) (opt.unwrap d)))
+    (set (. r i) (+ (. r i) 1)))
+  (if (or (not any) (> v 255)) (ret (res.err (str.from "xml.parse"))))
+  (set (. r i) (+ (. r i) 1))
+  (res.ok (as u8 v)))
+
 (fn entity ((r (&mut rd))) (res u8 str)
   (set (. r i) (+ (. r i) 1))
+  (if (== (peek r) 35u8)
+    (do
+      (set (. r i) (+ (. r i) 1))
+      (let hex (== (peek r) 120u8))
+      (if hex (set (. r i) (+ (. r i) 1)))
+      (ret (ref_num r hex))))
   (let start (. r i))
   (while (and (!= (peek r) 59u8) (and (!= (peek r) 0u8) (!= (peek r) 60u8)))
     (set (. r i) (+ (. r i) 1)))
@@ -39,6 +88,8 @@
   (if (str.eq (& name) "lt") (ret (res.ok 60u8)))
   (if (str.eq (& name) "gt") (ret (res.ok 62u8)))
   (if (str.eq (& name) "amp") (ret (res.ok 38u8)))
+  (if (str.eq (& name) "quot") (ret (res.ok 34u8)))
+  (if (str.eq (& name) "apos") (ret (res.ok 39u8)))
   (res.err (str.from "xml.parse")))
 
 (fn read_text ((r (&mut rd))) (res str str)
@@ -53,6 +104,60 @@
       (do (str.push_byte (&mut out) b) (set (. r i) (+ (. r i) 1)))))
   (if any (res.ok out) (res.ok (str.new))))
 
+(fn read_quoted ((r (&mut rd))) (res str str)
+  (let q (peek r))
+  (if (and (!= q 34u8) (!= q 39u8)) (ret (res.err (str.from "xml.parse"))))
+  (set (. r i) (+ (. r i) 1))
+  (let mut out (str.new))
+  (loop
+    (let b (peek r))
+    (if (or (== b 0u8) (== b 60u8)) (ret (res.err (str.from "xml.parse"))))
+    (if (== b q) (do (set (. r i) (+ (. r i) 1)) (ret (res.ok out))))
+    (if (== b 38u8)
+      (match (entity r) ((res.err e) (ret (res.err e))) ((res.ok c) (str.push_byte (&mut out) c)))
+      (do (str.push_byte (&mut out) b) (set (. r i) (+ (. r i) 1))))))
+
+(fn lookup ((ns (& (vec str))) (prefix (& str))) (opt str)
+  (let mut i (- (vec.len ns) 2))
+  (while (>= i 0)
+    (if (str.eq (vec.get ns i) prefix) (ret (opt.some (str.from (vec.get ns (+ i 1))))))
+    (set i (- i 2)))
+  (opt.none))
+
+(fn bind_attr ((ns (&mut (vec str))) (name (& str)) (value (& str))) unit
+  (if (str.eq name "xmlns") (do (vec.push ns (str.new)) (vec.push ns (str.from value)) (ret)))
+  (if (str.starts name "xmlns:")
+    (do (vec.push ns (str.slice name 6 (str.len name))) (vec.push ns (str.from value)))))
+
+(fn read_attrs ((r (&mut rd)) (d (&mut doc)) (ns (&mut (vec str)))) (res i64 str)
+  (let mut added 0)
+  (loop
+    (skip r)
+    (let b (peek r))
+    (if (or (== b 62u8) (== b 47u8) (== b 0u8)) (brk))
+    (let name (read_name r))
+    (if (== (str.len (& name)) 0) (ret (res.err (str.from "xml.parse"))))
+    (skip r)
+    (if (!= (peek r) 61u8) (ret (res.err (str.from "xml.parse"))))
+    (set (. r i) (+ (. r i) 1))
+    (skip r)
+    (let value (try (read_quoted r)))
+    (bind_attr ns (& name) (& value))
+    (if (or (str.eq (& name) "xmlns") (str.starts (& name) "xmlns:")) (set added (+ added 1)))
+    (vec.push (&mut (. d attrs)) (attr name value)))
+  (res.ok added))
+
+(fn prefix_of ((name (& str))) str
+  (match (str.find name ":") ((opt.some i) (str.slice name 0 i)) ((opt.none) (str.new))))
+
+(fn uri_of ((ns (& (vec str))) (name (& str))) (res str str)
+  (let pre (prefix_of name))
+  (if (== (str.len (& pre)) 0)
+    (match (lookup ns "") ((opt.some u) (ret (res.ok u))) ((opt.none) (ret (res.ok (str.new))))))
+  (match (lookup ns (& pre))
+    ((opt.some u) (res.ok u))
+    ((opt.none) (res.err (str.from "xml.parse")))))
+
 (fn end_tag ((r (&mut rd)) (name (& str))) (res bool str)
   (if (!= (peek r) 60u8) (ret (res.ok false)))
   (if (or (>= (+ (. r i) 1) (str.len (& (. r src)))) (!= (str.at (& (. r src)) (+ (. r i) 1)) 47u8))
@@ -60,42 +165,136 @@
   (set (. r i) (+ (. r i) 2))
   (let n (read_name r))
   (if (not (str.eq (& n) name)) (ret (res.err (str.from "xml.parse"))))
+  (skip r)
   (if (!= (peek r) 62u8) (ret (res.err (str.from "xml.parse"))))
   (set (. r i) (+ (. r i) 1))
   (res.ok true))
 
-(fn close ((d (&mut doc)) (name str) (items (& (vec i64)))) i64
+(fn close ((d (&mut doc)) (name str) (uri str) (items (& (vec i64))) (alo i64) (ahi i64)) i64
   (let lo (vec.len (& (. d kids))))
   (for k 0 (vec.len items) (vec.push (&mut (. d kids)) (@ (vec.get items k))))
-  (push_node d (node 0u8 name lo (vec.len (& (. d kids))))))
+  (push_node d (node 0u8 name uri lo (vec.len (& (. d kids))) alo ahi)))
 
-(fn elem ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn pop_ns ((ns (&mut (vec str))) (n i64)) unit (for i 0 n (drop (vec.pop ns)) (drop (vec.pop ns))))
+
+(fn comment ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+  (if (not (eat r "<!--")) (ret (res.err (str.from "xml.parse"))))
+  (let start (. r i))
+  (while (not (eat r "-->"))
+    (if (== (peek r) 0u8) (ret (res.err (str.from "xml.parse"))))
+    (set (. r i) (+ (. r i) 1)))
+  (res.ok (push_node d (node 2u8 (str.slice (& (. r src)) start (- (. r i) 3)) (str.new) 0 0 0 0))))
+
+(fn cdata ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+  (if (not (eat r "<![CDATA[")) (ret (res.err (str.from "xml.parse"))))
+  (let start (. r i))
+  (while (not (eat r "]]>"))
+    (if (== (peek r) 0u8) (ret (res.err (str.from "xml.parse"))))
+    (set (. r i) (+ (. r i) 1)))
+  (res.ok (push_node d (node 3u8 (str.slice (& (. r src)) start (- (. r i) 3)) (str.new) 0 0 0 0))))
+
+(fn pi ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+  (if (not (eat r "<?")) (ret (res.err (str.from "xml.parse"))))
+  (let target (read_name r))
+  (skip r)
+  (let start (. r i))
+  (while (not (eat r "?>"))
+    (if (== (peek r) 0u8) (ret (res.err (str.from "xml.parse"))))
+    (set (. r i) (+ (. r i) 1)))
+  (let data (str.trim (& (str.slice (& (. r src)) start (- (. r i) 2)))))
+  (res.ok (push_node d (node 4u8 target data 0 0 0 0))))
+
+(fn special ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+  (if (eat r "<!DOCTYPE") (ret (res.err (str.from "xml.parse"))))
+  (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) "<!--")
+    (ret (comment r d)))
+  (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) "<![CDATA[")
+    (ret (cdata r d)))
+  (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) "<?")
+    (ret (pi r d)))
+  (res.err (str.from "xml.parse")))
+
+(fn elem ((r (&mut rd)) (d (&mut doc)) (ns (&mut (vec str)))) (res i64 str)
   (if (!= (peek r) 60u8) (ret (res.err (str.from "xml.parse"))))
+  (if (== (str.at (& (. r src)) (+ (. r i) 1)) 33u8) (ret (res.err (str.from "xml.parse"))))
   (set (. r i) (+ (. r i) 1))
   (let name (read_name r))
   (if (== (str.len (& name)) 0) (ret (res.err (str.from "xml.parse"))))
+  (let alo (vec.len (& (. d attrs))))
+  (let added (try (read_attrs r d ns)))
+  (let ahi (vec.len (& (. d attrs))))
+  (let uri (try (uri_of ns (& name))))
+  (skip r)
   (if (== (peek r) 47u8)
     (do
       (set (. r i) (+ (. r i) 1))
       (if (!= (peek r) 62u8) (ret (res.err (str.from "xml.parse"))))
       (set (. r i) (+ (. r i) 1))
-      (ret (res.ok (push_node d (node 0u8 name 0 0))))))
+      (pop_ns ns added)
+      (ret (res.ok (close d name uri (& (vec.new <i64>)) alo ahi)))))
   (if (!= (peek r) 62u8) (ret (res.err (str.from "xml.parse"))))
   (set (. r i) (+ (. r i) 1))
+  (let body (inner r d ns (& name)))
+  (pop_ns ns added)
+  (if (res.is_err (& body)) (ret (res.err (res.unwrap_err body))))
+  (res.ok (close d name uri (& (res.unwrap body)) alo ahi)))
+
+(fn inner ((r (&mut rd)) (d (&mut doc)) (ns (&mut (vec str))) (name (& str))) (res (vec i64) str)
   (let mut items (vec.new <i64>))
   (loop
     (let tx (try (read_text r)))
-    (if (> (str.len (& tx)) 0) (vec.push (&mut items) (push_node d (node 1u8 tx 0 0))))
-    (if (try (end_tag r (& name))) (brk))
-    (vec.push (&mut items) (try (elem r d))))
-  (res.ok (close d name (& items))))
+    (if (> (str.len (& tx)) 0)
+      (vec.push (&mut items) (push_node d (node 1u8 tx (str.new) 0 0 0 0))))
+    (if (try (end_tag r name)) (ret (res.ok items)))
+    (if (== (peek r) 60u8)
+      (if (== (str.at (& (. r src)) (+ (. r i) 1)) 33u8)
+        (vec.push (&mut items) (try (special r d)))
+        (if (== (str.at (& (. r src)) (+ (. r i) 1)) 63u8)
+          (vec.push (&mut items) (try (pi r d)))
+          (vec.push (&mut items) (try (elem r d ns)))))
+      (ret (res.err (str.from "xml.parse"))))))
+
+(fn decl_val ((_r (&mut rd)) (d (&mut doc)) (name (& str)) (value (& str))) unit
+  (if (str.eq name "version") (set (. d version) (str.from value)))
+  (if (str.eq name "encoding") (set (. d encoding) (str.from value)))
+  (if (str.eq name "standalone") (set (. d standalone) (str.from value))))
+
+(fn declaration ((r (&mut rd)) (d (&mut doc))) (res unit str)
+  (if (not (eat r "<?xml")) (ret (res.ok ())))
+  (loop
+    (skip r)
+    (if (eat r "?>") (ret (res.ok ())))
+    (let name (read_name r))
+    (if (== (str.len (& name)) 0) (ret (res.err (str.from "xml.parse"))))
+    (skip r)
+    (if (!= (peek r) 61u8) (ret (res.err (str.from "xml.parse"))))
+    (set (. r i) (+ (. r i) 1))
+    (skip r)
+    (let value (try (read_quoted r)))
+    (decl_val r d (& name) (& value))))
+
+(fn prologue ((r (&mut rd)) (d (&mut doc)) (_ns (&mut (vec str)))) (res unit str)
+  (skip r)
+  (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) "<?xml")
+    (try (declaration r d)))
+  (loop
+    (skip r)
+    (if (!= (peek r) 60u8) (ret (res.ok ())))
+    (let n (str.at (& (. r src)) (+ (. r i) 1)))
+    (if (== n 33u8) (drop (try (special r d))))
+    (if (== n 63u8) (drop (try (pi r d))))
+    (if (and (!= n 33u8) (!= n 63u8)) (ret (res.ok ())))))
 
 (pub (fn read ((src (& str))) (res doc str)
   (let mut r (rd (str.from src) 0))
-  (let mut d (doc (vec.new <node>) (vec.new <i64>) -1))
+  (let mut d (blank))
+  (let mut ns (vec.new <str>))
+  (vec.push (&mut ns) (str.from "xml"))
+  (vec.push (&mut ns) (str.from "http://www.w3.org/XML/1998/namespace"))
+  (try (prologue (&mut r) (&mut d) (&mut ns)))
   (skip (&mut r))
   (if (!= (peek (& r)) 60u8) (ret (res.err (str.from "xml.parse"))))
-  (let root (try (elem (&mut r) (&mut d))))
+  (let root (try (elem (&mut r) (&mut d) (&mut ns))))
   (skip (&mut r))
   (if (!= (peek (& r)) 0u8) (ret (res.err (str.from "xml.parse"))))
   (set (. d root) root)
@@ -105,11 +304,31 @@
 
 (pub (fn text ((d (& doc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) text))))
 
+(pub (fn ns ((d (& doc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) ns))))
+
+(pub (fn local ((d (& doc)) (n i64)) str
+  (let raw (text d n))
+  (match (str.find raw ":")
+    ((opt.some i) (str.slice raw (+ i 1) (str.len raw)))
+    ((opt.none) (str.from raw)))))
+
 (pub (fn count ((d (& doc)) (n i64)) i64 (let nd (vec.get (& (. d nodes)) n)) (- (. nd hi) (. nd lo))))
 
 (pub (fn child ((d (& doc)) (n i64) (k i64)) i64
   (let nd (vec.get (& (. d nodes)) n))
   (@ (vec.get (& (. d kids)) (+ (. nd lo) k)))))
+
+(pub (fn attr_count ((d (& doc)) (n i64)) i64
+  (let nd (vec.get (& (. d nodes)) n))
+  (- (. nd ahi) (. nd alo))))
+
+(pub (fn attr_name ((d (& doc)) (n i64) (k i64)) (& str)
+  (let nd (vec.get (& (. d nodes)) n))
+  (& (. (vec.get (& (. d attrs)) (+ (. nd alo) k)) name))))
+
+(pub (fn attr_value ((d (& doc)) (n i64) (k i64)) (& str)
+  (let nd (vec.get (& (. d nodes)) n))
+  (& (. (vec.get (& (. d attrs)) (+ (. nd alo) k)) value))))
 
 (pub (fn escape ((s (& str))) str
   (let mut out (str.new))
@@ -119,7 +338,9 @@
       (str.push (&mut out) "&lt;")
       (if (== b 62u8)
         (str.push (&mut out) "&gt;")
-        (if (== b 38u8) (str.push (&mut out) "&amp;") (str.push_byte (&mut out) b)))))
+        (if (== b 38u8)
+          (str.push (&mut out) "&amp;")
+          (if (== b 34u8) (str.push (&mut out) "&quot;") (str.push_byte (&mut out) b))))))
   out))
 
 (pub (fn tag ((name (& str)) (inner (& str))) str
@@ -147,8 +368,23 @@
   (assert_eq (text (& d) b) "b")
   (assert_eq (text (& d) (child (& d) b 0)) "x")
   (let z (res.unwrap (read (& (empty "z")))))
-  (assert_eq (text (& z) (. z root)) "z")
-  (assert_eq (count (& z) (. z root)) 0))
+  (assert_eq (count (& z) (. z root)) 0)
+  (let a (res.unwrap (read "<a b=\"c\">&quot;&#65;<![CDATA[Z]]></a>")))
+  (assert_eq (attr_count (& a) (. a root)) 1)
+  (assert_eq (attr_name (& a) (. a root) 0) "b")
+  (assert_eq (attr_value (& a) (. a root) 0) "c")
+  (assert_eq (text (& a) (child (& a) (. a root) 0)) "\"A")
+  (assert_eq (kind (& a) (child (& a) (. a root) 1)) 3u8))
+
+(test xml_ns
+  (let d (res.unwrap (read "<?xml version=\"1.0\"?><p:a xmlns:p=\"urn:p\"><p:b/></p:a>")))
+  (assert_eq (& (. d version)) "1.0")
+  (assert_eq (& (local (& d) (. d root))) "a")
+  (assert_eq (ns (& d) (. d root)) "urn:p")
+  (assert_eq (ns (& d) (child (& d) (. d root) 0)) "urn:p")
+  (assert (res.is_err (& (read "<a:b/>"))))
+  (assert (res.is_err (& (read "<!DOCTYPE a><a/>"))))
+  (assert (res.is_err (& (read "<a>&nope;</a>")))))
 
 (test xml_escape
   (let raw (tag "a" (& (escape "<>&"))))
@@ -158,27 +394,16 @@
 (test xml_parse
   (assert (res.is_err (& (read "<a>"))))
   (assert (res.is_err (& (read "<a></b>"))))
-  (assert (res.is_err (& (read "<a b=\"c\"/>"))))
-  (assert (res.is_err (& (read "<a/><b/>"))))
-  (assert (res.is_err (& (read "<a>&nope;</a>")))))
+  (assert (res.is_err (& (read "<a b=c/>"))))
+  (assert (res.is_err (& (read "<a/><b/>")))))
 
 (test xml_scan
   (assert (is_space 32u8))
   (assert (is_name_start 97u8))
-  (assert (is_name 49u8))
+  (assert (is_name 58u8))
   (let mut r (rd (str.from " ab&lt;") 0))
-  (assert_eq (peek (& r)) 32u8)
   (skip (&mut r))
   (assert_eq (& (read_name (&mut r))) "ab")
   (match (entity (&mut r)) ((res.ok b) (assert_eq b 60u8)) ((res.err _) (assert false)))
-  (let mut d (doc (vec.new <node>) (vec.new <i64>) 0))
-  (let n (push_node (&mut d) (node 1u8 (str.from "t") 0 0)))
-  (assert_eq n 0)
-  (let mut tr (rd (str.from "hi<") 0))
-  (match (read_text (&mut tr)) ((res.ok s) (assert_eq (& s) "hi")) ((res.err _) (assert false)))
-  (let mut er (rd (str.from "</ab>") 0))
-  (match (end_tag (&mut er) "ab") ((res.ok v) (assert v)) ((res.err _) (assert false)))
-  (let items (vec.new <i64>))
-  (assert (>= (close (&mut d) (str.from "e") (& items)) 0))
-  (let mut el (rd (str.from "<z/>") 0))
-  (match (elem (&mut el) (&mut d)) ((res.ok _) ()) ((res.err _) (assert false))))
+  (drop (blank))
+  (drop (hex_dig 48u8)))

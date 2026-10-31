@@ -1,0 +1,65 @@
+;; HTTP/2 frames. Preface, settings, ping, window update, headers, data, reset, and goaway.
+(fn push24 ((out (&mut str)) (n i64)) unit
+  (let u (as u32 n))
+  (str.push_byte out (as u8 (shr u 16u32)))
+  (str.push_byte out (as u8 (shr u 8u32)))
+  (str.push_byte out (as u8 u)))
+
+(fn push32 ((out (&mut str)) (n i64)) unit
+  (let u (as u32 n))
+  (str.push_byte out (as u8 (shr u 24u32)))
+  (str.push_byte out (as u8 (shr u 16u32)))
+  (str.push_byte out (as u8 (shr u 8u32)))
+  (str.push_byte out (as u8 u)))
+
+(fn be24 ((s (& str)) (i i64)) i64
+  (as i64
+    (bor (shl (as u32 (str.at s i)) 16u32)
+      (bor (shl (as u32 (str.at s (+ i 1))) 8u32) (as u32 (str.at s (+ i 2)))))))
+
+(fn be32 ((s (& str)) (i i64)) i64
+  (as i64
+    (bor (shl (as u32 (str.at s i)) 24u32)
+      (bor (shl (as u32 (str.at s (+ i 1))) 16u32)
+        (bor (shl (as u32 (str.at s (+ i 2))) 8u32) (as u32 (str.at s (+ i 3))))))))
+
+(pub (fn frame ((ty u8) (flags u8) (stream i64) (payload (& str))) str
+  (let mut out (str.new))
+  (push24 (&mut out) (str.len payload))
+  (str.push_byte (&mut out) ty)
+  (str.push_byte (&mut out) flags)
+  (push32 (&mut out) stream)
+  (str.push (&mut out) payload)
+  out))
+
+(pub (struct fr (pub (ty u8)) (pub (flags u8)) (pub (stream i64)) (pub (payload str)) (pub (next i64))))
+
+(pub (fn next ((buf (& str)) (at i64) (max i64)) (res fr str)
+  (if (< (- (str.len buf) at) 9) (ret (res.err (str.from "h2.short"))))
+  (let ln (be24 buf at))
+  (if (or (< ln 0) (> ln max)) (ret (res.err (str.from "h2.frame"))))
+  (let end (+ (+ at 9) ln))
+  (if (> end (str.len buf)) (ret (res.err (str.from "h2.short"))))
+  (if (>= (str.at buf (+ at 5)) 128u8) (ret (res.err (str.from "h2.frame"))))
+  (res.ok (fr (str.at buf (+ at 3))
+     (str.at buf (+ at 4))
+     (be32 buf (+ at 5))
+     (str.slice buf (+ at 9) end)
+     end))))
+
+(pub (fn preface () str (str.from "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")))
+
+(pub (fn settings_ack () str (frame 4u8 1u8 0 "")))
+
+(pub (fn ping_ack ((payload (& str))) str (frame 6u8 1u8 0 payload)))
+
+(test h2_frame
+  (let f (frame 0u8 1u8 1 "hi"))
+  (let g (res.unwrap (next (& f) 0 16384)))
+  (assert_eq (. g ty) 0u8)
+  (assert_eq (. g stream) 1)
+  (assert_eq (& (. g payload)) "hi")
+  (assert_eq (& (res.unwrap_err (next "xx" 0 16384))) "h2.short")
+  (assert_eq (str.len (& (preface))) 24)
+  (drop (settings_ack))
+  (drop (ping_ack "12345678")))

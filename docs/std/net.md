@@ -1,6 +1,6 @@
 # std.net
 
-IPv4 on 127.0.0.1. `listen` uses backlog 1 and blocks in `accept`. `poll_serve` sets that fd nonblocking, raises the backlog to 128, and reads many connections on the calling thread. The poll table holds 4096 fds. The ready callback is a function pointer plus a context pointer. `recv` returns one read; an empty string is end of stream. `send` writes every byte. Errors are `res.err` strings like `io.listen|port=` and `io.poll|fd=`.
+IPv4. `listen` binds 127.0.0.1. `connect` takes a dotted quad and a port; a bad host is `io.connect|host=`. `poll_serve` reads many connections on the calling thread. `max < 0` does not cap the client table. The ready callback is a closure and can capture a binding. `recv` returns one read; an empty string is end of stream. `send` writes every byte.
 
 Source: `std/net.llr`. Import with `(use std.net)` for module functions; types and methods need no import.
 
@@ -11,11 +11,11 @@ Source: `std/net.llr`. Import with `(use std.net)` for module functions; types a
 | `net.listen` | `((port i64))` | `(res i64 str)` |
 | `net.local_port` | `((fd i64))` | `(res i64 str)` |
 | `net.accept` | `((fd i64))` | `(res i64 str)` |
-| `net.connect` | `((port i64))` | `(res i64 str)` |
+| `net.connect` | `((host (& str)) (port i64))` | `(res i64 str)` |
 | `net.recv` | `((fd i64) (n i64))` | `(res str str)` |
 | `net.send` | `((fd i64) (data (& str)))` | `(res unit str)` |
 | `net.close` | `((fd i64))` | `unit` |
-| `net.poll_serve` | `((listen_fd i64) (max i64) (each (fn (i64 (& str) (ptr u8)) bool)) (ctx (ptr u8)))` | `(res i64 str)` |
+| `net.poll_serve` | `((listen_fd i64) (max i64) (each (clos (i64 (& str)) bool)))` | `(res i64 str)` |
 
 ## Tests
 

@@ -1,0 +1,155 @@
+;; HPACK. Static table, dynamic table, Huffman strings, and size updates.
+(use std.hpack_huff)
+
+(fn rows () str
+  (str.from ":authority\n\n:method\nGET\n:method\nPOST\n:path\n/\n:path\n/index.html\n:scheme\nhttp\n:scheme\nhttps\n:status\n200\n:status\n204\n:status\n206\n:status\n304\n:status\n400\n:status\n404\n:status\n500\naccept-charset\n\naccept-encoding\ngzip, deflate\naccept-language\n\naccept-ranges\n\naccept\n\naccess-control-allow-origin\n\nage\n\nallow\n\nauthorization\n\ncache-control\n\ncontent-disposition\n\ncontent-encoding\n\ncontent-language\n\ncontent-length\n\ncontent-location\n\ncontent-range\n\ncontent-type\n\ncookie\n\ndate\n\netag\n\nexpect\n\nexpires\n\nfrom\n\nhost\n\nif-match\n\nif-modified-since\n\nif-none-match\n\nif-range\n\nif-unmodified-since\n\nlast-modified\n\nlink\n\nlocation\n\nmax-forwards\n\nproxy-authenticate\n\nproxy-authorization\n\nrange\n\nreferer\n\nrefresh\n\nretry-after\n\nserver\n\nset-cookie\n\nstrict-transport-security\n\ntransfer-encoding\n\nuser-agent\n\nvary\n\nvia\n\nwww-authenticate\n"))
+
+(fn static_at ((idx i64) (name (&mut str)) (value (&mut str))) bool
+  (if (or (< idx 1) (> idx 61)) (ret false))
+  (let parts (str.split (& (rows)) 10u8))
+  (let i (* (- idx 1) 2))
+  (set (@ name) (str.from (vec.get (& parts) i)))
+  (set (@ value) (str.from (vec.get (& parts) (+ i 1))))
+  true)
+
+(pub (struct dyn (names (vec str)) (values (vec str)) (cap i64) (size i64)))
+
+(pub (fn empty () dyn (dyn (vec.new <str>) (vec.new <str>) 4096 0)))
+
+(fn entry_size ((name (& str)) (value (& str))) i64 (+ 32 (+ (str.len name) (str.len value))))
+
+(fn evict ((t (&mut dyn))) unit
+  (while (and (> (. t size) (. t cap)) (> (vec.len (& (. t names))) 0))
+    (let i (- (vec.len (& (. t names))) 1))
+    (let n (vec.remove (&mut (. t names)) i))
+    (let v (vec.remove (&mut (. t values)) i))
+    (set (. t size) (- (. t size) (entry_size (& n) (& v))))))
+
+(fn insert ((t (&mut dyn)) (name str) (value str)) unit
+  (let sz (entry_size (& name) (& value)))
+  (if (> sz (. t cap))
+    (do
+      (set (. t size) 0)
+      (drop (vec.take (&mut (. t names))))
+      (drop (vec.take (&mut (. t values))))
+      (ret)))
+  (vec.insert (&mut (. t names)) 0 name)
+  (vec.insert (&mut (. t values)) 0 value)
+  (set (. t size) (+ (. t size) sz))
+  (evict t))
+
+(fn lookup ((t (& dyn)) (idx i64) (name (&mut str)) (value (&mut str))) bool
+  (if (<= idx 61) (ret (static_at idx name value)))
+  (let di (- idx 62))
+  (if (>= di (vec.len (& (. t names)))) (ret false))
+  (set (@ name) (str.from (vec.get (& (. t names)) di)))
+  (set (@ value) (str.from (vec.get (& (. t values)) di)))
+  true)
+
+(fn iread ((buf (& str)) (i (&mut i64)) (bits i64)) (res i64 str)
+  (if (>= (@ i) (str.len buf)) (ret (res.err (str.from "h2.headers"))))
+  (let b (as i64 (str.at buf (@ i))))
+  (set (@ i) (+ (@ i) 1))
+  (let mask (- (shl 1 bits) 1))
+  (let mut v (band b mask))
+  (if (< v mask) (ret (res.ok v)))
+  (let mut m 0)
+  (loop
+    (if (>= (@ i) (str.len buf)) (ret (res.err (str.from "h2.headers"))))
+    (let x (as i64 (str.at buf (@ i))))
+    (set (@ i) (+ (@ i) 1))
+    (set v (+ v (shl (band x 127) m)))
+    (if (== (band x 128) 0) (ret (res.ok v)))
+    (set m (+ m 7))))
+
+(fn sread ((buf (& str)) (i (&mut i64))) (res str str)
+  (if (>= (@ i) (str.len buf)) (ret (res.err (str.from "h2.headers"))))
+  (let huff (!= (band (str.at buf (@ i)) 128u8) 0u8))
+  (let n (try (iread buf i 7)))
+  (if (> (+ (@ i) n) (str.len buf)) (ret (res.err (str.from "h2.headers"))))
+  (let raw (str.slice buf (@ i) (+ (@ i) n)))
+  (set (@ i) (+ (@ i) n))
+  (if huff (ret (hpack_huff.decode (& raw))))
+  (res.ok raw))
+
+(fn name_of ((buf (& str)) (i (&mut i64)) (t (& dyn)) (idx i64)) (res str str)
+  (if (== idx 0) (ret (sread buf i)))
+  (let mut name (str.new))
+  (let mut value (str.new))
+  (if (not (lookup t idx (&mut name) (&mut value))) (ret (res.err (str.from "h2.headers"))))
+  (res.ok name))
+
+(fn add_pair ((outn (&mut (vec str))) (outv (&mut (vec str))) (name str) (value str)) unit
+  (vec.push outn name)
+  (vec.push outv value))
+
+(pub (struct hdrs (pub (names (vec str))) (pub (values (vec str)))))
+
+(fn one ((buf (& str)) (i (&mut i64)) (t (&mut dyn)) (hs (&mut hdrs))) (res unit str)
+  (let b (str.at buf (@ i)))
+  (if (!= (band b 128u8) 0u8)
+    (do
+      (let idx (try (iread buf i 7)))
+      (let mut name (str.new))
+      (let mut value (str.new))
+      (if (not (lookup t idx (&mut name) (&mut value))) (ret (res.err (str.from "h2.headers"))))
+      (add_pair (&mut (. hs names)) (&mut (. hs values)) name value)
+      (ret (res.ok ()))))
+  (if (!= (band b 64u8) 0u8)
+    (do
+      (let idx (try (iread buf i 6)))
+      (let name (try (name_of buf i t idx)))
+      (let value (try (sread buf i)))
+      (insert t (str.from (& name)) (str.from (& value)))
+      (add_pair (&mut (. hs names)) (&mut (. hs values)) name value)
+      (ret (res.ok ()))))
+  (if (!= (band b 32u8) 0u8)
+    (do (let sz (try (iread buf i 5))) (set (. t cap) sz) (evict t) (ret (res.ok ()))))
+  (let idx (try (iread buf i 4)))
+  (let name (try (name_of buf i t idx)))
+  (let value (try (sread buf i)))
+  (add_pair (&mut (. hs names)) (&mut (. hs values)) name value)
+  (res.ok ()))
+
+(pub (fn decode ((buf (& str)) (t (&mut dyn))) (res hdrs str)
+  (let mut i 0)
+  (let mut hs (hdrs (vec.new <str>) (vec.new <str>)))
+  (while (< i (str.len buf)) (try (one buf (&mut i) t (&mut hs))))
+  (res.ok hs)))
+
+(fn put_raw ((out (&mut str)) (s (& str)) (huff bool)) unit
+  (let bytes (if huff (hpack_huff.encode s) (str.from s)))
+  (let n (str.len (& bytes)))
+  (let flag (if huff 128u8 0u8))
+  (str.push_byte out (bor flag (as u8 n)))
+  (str.push out (& bytes)))
+
+(pub (fn lit ((out (&mut str)) (name (& str)) (value (& str)) (huff bool)) unit
+  (str.push_byte out 0u8)
+  (put_raw out name huff)
+  (put_raw out value huff)))
+
+(test hpack_block
+  (let mut t (empty))
+  (let mut idx (str.new))
+  (str.push_byte (&mut idx) 131u8)
+  (let hs (res.unwrap (decode (& idx) (&mut t))))
+  (assert_eq (vec.get (& (. hs names)) 0) ":method")
+  (assert_eq (vec.get (& (. hs values)) 0) "POST")
+  (let mut block (str.new))
+  (lit (&mut block) ":path" "/hello" false)
+  (lit (&mut block) "grpc-status" "0" true)
+  (let got (res.unwrap (decode (& block) (&mut t))))
+  (assert_eq (vec.get (& (. got values)) 0) "/hello")
+  (assert_eq (vec.get (& (. got values)) 1) "0")
+  (let mut inc (str.new))
+  (str.push_byte (&mut inc) 64u8)
+  (put_raw (&mut inc) "x-a" false)
+  (put_raw (&mut inc) "z" false)
+  (drop (decode (& inc) (&mut t)))
+  (let mut again (str.new))
+  (str.push_byte (&mut again) 190u8)
+  (let back (res.unwrap (decode (& again) (&mut t))))
+  (assert_eq (vec.get (& (. back values)) 0) "z")
+  (drop (rows))
+  (drop (entry_size "a" "b")))

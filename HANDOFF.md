@@ -52,7 +52,7 @@ install them, document them, write agent workflows.
 | warnings | A warning exits 0. `--deny CODE` may be repeated; each named warning is printed as `E` and the process exits 1. `use.unused` and `fn.unused` are not emitted for `std`. `fn.unused` is not emitted for `pub`, `extern`, or `main`. |
 
 Out of scope: a garbage collector, a second syntax or precedence grammar, Unicode-aware
-regex, growing the thread pool, and any change that exists only to make `self/` smaller.
+regex, and any change that exists only to make `self/` smaller.
 
 ## Architecture
 
@@ -235,7 +235,7 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | `compiler/src/resolve.rs` | 487 | Stage 0 |
 | `compiler/src/codegen/func.rs` | 486 | Trace push/pop lives in `codegen/trace.rs` |
 | `std/check.llr` | 480 | Backs `llr-check` only (Phase 4). `check_more.llr` holds impl shape and bounds |
-| `std/http.llr` | 468 | Phase 7 chunked bodies need a split first |
+| `std/http.llr` | 499 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
 | `self/collect.llr` | 461 | Trait impl shape and generic bounds |
 | `self/elf.llr` | 450 | aarch64 relocation kinds and `e_machine` |
 | `self/isa_a64.llr` | 443 | integer, branch, and memory seam; fp, frame, and overflow are split out |
@@ -349,18 +349,18 @@ Files: `self/drive.llr`, `self/load.llr`, `self/link.llr`, `self/link_win.llr`, 
 7. `[x]` Scripts: no `scripts/self.ps1`, so the Windows bootstrap runs only inside `install.ps1`; `install.ps1` has no `SOURCE_DATE_EPOCH` (relies on `/Brepro`); the `os_id` expected-output hook exists only in `tests/run.ps1` lines 96-99; neither runner invokes `tests/mir`, `tests/check`, `tests/cross`, or `tests/self`; no installer installs `examples/hello.llr` (both compile a temp hello). `docs/install.md` says "`tests/run.sh` is the check for stage 0" while the suite is also the check for the installed compiler.
 8. `[x]` Commit: `platform: one bootstrap script per host, runners call the differentials`.
 
-### Phase 7: net, thread, and protocol subsets `[ ]`
+### Phase 7: net, thread, and protocol subsets `[x]`
 
 Files: `std/net.llr`, `std/thread.llr`, `std/http.llr`, `std/gql.llr`, `std/xml.llr`, `std/soap.llr`, `std/grpc.llr`, `std/mqtt.llr`, `tools/llr-http.llr`, `runtime/llr_win_sock.c`, `runtime/llr_win_proc.c`.
 
-1. `[ ]` `net.connect` is 127.0.0.1 only; `poll_serve` holds up to 4096 fds on one thread and the ready callback is a function pointer plus a context pointer that cannot capture a binding; `runtime/llr_win_sock.c` `poll` translates the 8-byte pollfd, and `map_wsa` in `runtime/llr_win.c` maps errno 11 and 4.
-2. `[ ]` `thread`: a pool of `n` pthreads created at `start`; the count does not grow; a job is `(fn ((ptr u8)) unit)` plus a context pointer and cannot capture a binding; `runtime/llr_win_proc.c` maps the pthread names onto Win32.
-3. `[ ]` `http`: chunked transfer and trailers are not parsed and chunked bodies are rejected; a route path is exact; the poll table holds at most 4095 clients; a WebSocket payload must be one text frame under 126 bytes. `std/http.llr` is 468 lines; split first.
-4. `[ ]` `gql`: `POST /graphql` answers `hello`, `ping`, `add`; no schema, no variables, no nested selection sets.
-5. `[ ]` `xml` and `soap`: one element document of elements and text; no attributes, namespaces, comments, or declarations; entities `&lt; &gt; &amp;` only; a SOAP body is one operation.
-6. `[ ]` `grpc`: one HTTP/2 unary call, length-prefixed text for `/hello /ping /add`; no Huffman, no HPACK dynamic table, no protobuf; one stream and one message.
-7. `[ ]` `mqtt`: one connection, connect, subscribe, QoS 0 publish; exact topics, one-byte remaining length, no wildcards or auth.
-8. `[ ]` Commit: `net: chunked http, growing pool, protocol subsets widened`.
+1. `[x]` `net.connect` takes a dotted IPv4. `poll_serve` does not cap the client table. The ready callback is a closure. `runtime/llr_win_sock.c` `poll` follows the caller's count up to `FD_MAX`. `map_wsa` maps the socket errno values `net` can see.
+2. `[x]` `thread`: `start` creates `n` workers and `submit` grows the pool by one when the queue is longer. A job is `(clos () unit)`. `CreateThread` uses an 8 MiB stack.
+3. `[x]` `http`: chunked bodies and trailers are decoded. A route path may be exact, end in `*`, or use `{name}`. WebSocket messages reassemble continuation frames at every length form. The client table is not capped. Body parsing is `http_body.llr`. Frames are `http_ws.llr`.
+4. `[x]` `gql`: a schema, variables, nested selections, aliases, and fragments. `POST /graphql` accepts a JSON body.
+5. `[x]` `xml` reads attributes, namespaces, comments, CDATA, a declaration, and the predefined entities. `soap` is a SOAP 1.1 envelope with a header and Fault.
+6. `[x]` `grpc`: HPACK with Huffman and a dynamic table, many unary streams, and protobuf messages for `/hello /ping /add`.
+7. `[x]` `mqtt`: a 3.1.1 broker. Variable remaining length, `+` and `#`, username and password, and QoS 0, 1, and 2.
+8. `[x]` Commit: `net: chunked http, growing pool, protocol subsets widened`.
 
 ## How to verify each phase
 
@@ -402,3 +402,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-30: Darwin phase 0. Cast emitters moved to `self/cg_cast.llr`; `cg_op.eval_cast` calls it. `tests/x64_ref.sh` snapshots x86-64 ELF and COFF. `tests/run` and `std` objects stayed byte-equal. The `self/llrs` object grew by the forwarder; each moved function body is the same bytes, and that snapshot was refreshed. `tests/check.sh` and `tests/mir.sh` fails=0.
 - 2026-10-30: Darwin. Stage 0 is the installed `llrc`: `scripts/self.sh` stops at `llrs1` with `ld: unknown file type` because `self/` emits ELF. Goldens, std tests, `tests/check.sh`, and `tests/mir.sh` fails=0. `tests/self.sh` fails=33 because `llr-check` does not emit borrow errors or `--deny`. `tests/cross.sh` links aarch64; riscv64 and s390x need a clang with those backends (Homebrew `llvm` is keg-only at `/opt/homebrew/opt/llvm/bin/clang`). The plan to self-host on this Mac is `DARWIN.md`.
 - 2026-10-31: Darwin phase 5. `self/` accepts an empty triple, `x86_64` without `apple`, and `aarch64` or `arm64`, including Mach-O on a Darwin triple and ELF for `aarch64-unknown-linux-gnu`. riscv64 and s390x stay on stage 0. `scripts/install.sh` installs `llrs2` on Darwin. `tests/check.sh` and `tests/mir.sh` fails=0. `tests/x64_ref.sh` is byte-equal after refreshing the `self/llrs` snapshots. `LLRC=llrs0 tests/cross.sh` fails=0.
+- 2026-10-31: Phase 7. `connect` takes a dotted IPv4. Poll and thread callbacks are closures, and both pools grow. HTTP decodes chunked bodies and reassembles WebSocket messages. GraphQL runs a schema with variables and nested selections. XML reads attributes and namespaces. SOAP 1.1, unary gRPC with HPACK and protobuf, and an MQTT 3.1.1 broker are in std. Windows `poll` is not clamped at 4096. `LLRC=llrc tests/run.sh`: goldens, std tests, lines, `tests/check.sh`, `tests/mir.sh`, and `tests/cross.sh` fails=0. `tests/self.sh` stops at `llrs0` with `use.unused|name=opt` in `self/drive.llr`, and stage 0 still cannot build `llr-check` (`type.mismatch` in `std/check.llr`).

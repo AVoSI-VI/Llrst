@@ -1,0 +1,45 @@
+;; Route paths. An exact path, a trailing star, or {name} segments.
+(fn query_cut ((path (& str))) str
+  (match (str.find path "?") ((opt.some i) (str.slice path 0 i)) ((opt.none) (str.from path))))
+
+(fn brace ((seg (& str))) (opt str)
+  (if (or (< (str.len seg) 3) (!= (str.at seg 0) 123u8)) (ret (opt.none)))
+  (if (!= (str.at seg (- (str.len seg) 1)) 125u8) (ret (opt.none)))
+  (opt.some (str.slice seg 1 (- (str.len seg) 1))))
+
+(fn match_segs ((pat (& str)) (path (& str)) (out (&mut (vec str)))) bool
+  (let ps (str.split pat 47u8))
+  (let xs (str.split path 47u8))
+  (let mut i 0)
+  (let mut j 0)
+  (while (< i (vec.len (& ps)))
+    (let p (vec.get (& ps) i))
+    (if (str.eq p "*") (ret (== (+ i 1) (vec.len (& ps)))))
+    (if (>= j (vec.len (& xs))) (ret false))
+    (let name (brace p))
+    (if (opt.is_none (& name))
+      (if (not (str.eq p (vec.get (& xs) j))) (ret false))
+      (do
+        (let mut row (opt.unwrap name))
+        (str.push (&mut row) "=")
+        (str.push (&mut row) (vec.get (& xs) j))
+        (vec.push out row)))
+    (set i (+ i 1))
+    (set j (+ j 1)))
+  (== j (vec.len (& xs))))
+
+(pub (fn hit ((pat (& str)) (path (& str)) (out (&mut (vec str)))) bool
+  (if (str.has pat "{") (ret (match_segs pat (& (query_cut path)) out)))
+  (if (str.ends pat "*")
+    (ret (str.starts (& (query_cut path)) (& (str.slice pat 0 (- (str.len pat) 1))))))
+  (str.eq pat path)))
+
+(test http_route_hit
+  (let mut params (vec.new <str>))
+  (assert (hit "/a/{id}" "/a/9?x=1" (&mut params)))
+  (assert_eq (vec.get (& params) 0) "id=9")
+  (assert (hit "/f/*" "/f/a/b" (&mut params)))
+  (assert (not (hit "/only" "/other" (&mut params))))
+  (assert (hit "/exact?x=1" "/exact?x=1" (&mut params)))
+  (drop (query_cut "/a"))
+  (drop (brace "ab")))
