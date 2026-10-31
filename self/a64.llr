@@ -1,0 +1,326 @@
+;; Byte strings for the aarch64 encoder. One buffer per form, hex with no separators.
+(use proj.a64_buf)
+(use proj.a64_int)
+(use proj.a64_mem)
+(use std.str)
+(use std.vec)
+
+(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
+
+(fn hex_byte ((s (&mut str)) (x u8)) unit
+  (str.push_byte s (nib (shr x 4u8)))
+  (str.push_byte s (nib (band x 15u8))))
+
+(fn hex ((b (& a64_buf.buf))) str
+  (let mut s (str.new))
+  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
+  s)
+
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+
+(fn rel_at ((b (& a64_buf.buf)) (i i64)) i64 (. (vec.get (& (. b rels)) i) at))
+
+(fn rel_kind ((b (& a64_buf.buf)) (i i64)) i64 (. (vec.get (& (. b rels)) i) kind))
+
+(fn rel_sym ((b (& a64_buf.buf)) (i i64)) i64 (. (vec.get (& (. b rels)) i) sym))
+
+(fn fresh () a64_buf.buf (a64_buf.new))
+
+(test mov_ri
+  (let mut b (fresh))
+  (a64_int.mov_ri (&mut b) a64_buf.x0 0)
+  (a64_int.mov_ri (&mut b) a64_buf.x0 4)
+  (a64_int.mov_ri (&mut b) a64_buf.x0 (neg 1))
+  (a64_int.mov_ri (&mut b) a64_buf.x0 0x12345)
+  (a64_int.mov_ri (&mut b) a64_buf.x0 (neg 65536))
+  (eq (& b) "000080d2800080d200008092a06884d22000a0f2e0ff9f92"))
+
+(test add_ri
+  (let mut b (fresh))
+  (a64_int.add_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 4)
+  (a64_int.add_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 4096)
+  (a64_int.add_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 (neg 4))
+  (a64_int.add_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 0x12345)
+  (a64_int.add_ri (&mut b) 4 a64_buf.x0 a64_buf.x1 4)
+  (eq (& b) "2010009120044091201000d1af6884d22f00a0f220000f8b20100011"))
+
+(test sub_ri
+  (let mut b (fresh))
+  (a64_int.sub_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 4)
+  (a64_int.sub_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 (neg 4))
+  (a64_int.sub_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 4096)
+  (a64_int.sub_ri (&mut b) 8 a64_buf.x0 a64_buf.x1 0x12345)
+  (eq (& b) "201000d120100091200440d1af6884d22f00a0f220000fcb"))
+
+(test add_rr
+  (let mut b (fresh))
+  (a64_int.add_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.add_rr (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2000028b2000020b"))
+
+(test sub_rr
+  (let mut b (fresh))
+  (a64_int.sub_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.sub_rr (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200002cb2000024b"))
+
+(test adds
+  (let mut b (fresh))
+  (a64_int.adds (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200002ab"))
+
+(test subs
+  (let mut b (fresh))
+  (a64_int.subs (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200002eb"))
+
+(test cmp_rr
+  (let mut b (fresh))
+  (a64_int.cmp_rr (&mut b) 8 a64_buf.x0 a64_buf.x1)
+  (a64_int.cmp_rr (&mut b) 4 a64_buf.x0 a64_buf.x1)
+  (eq (& b) "1f0001eb1f00016b"))
+
+(test cmp_ri
+  (let mut b (fresh))
+  (a64_int.cmp_ri (&mut b) 8 a64_buf.x0 1)
+  (a64_int.cmp_ri (&mut b) 8 a64_buf.x0 (neg 1))
+  (a64_int.cmp_ri (&mut b) 4 a64_buf.x0 1)
+  (a64_int.cmp_ri (&mut b) 8 a64_buf.x0 0x12345)
+  (eq (& b) "1f0400f11f0400b11f040071af6884d22f00a0f21f000feb"))
+
+(test and_rr
+  (let mut b (fresh))
+  (a64_int.and_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.and_rr (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2000028a2000020a"))
+
+(test ands
+  (let mut b (fresh))
+  (a64_int.ands (&mut b) 8 a64_buf.xzr a64_buf.x9 a64_buf.x10)
+  (eq (& b) "3f010aea"))
+
+(test orr_rr
+  (let mut b (fresh))
+  (a64_int.orr_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200002aa"))
+
+(test eor_rr
+  (let mut b (fresh))
+  (a64_int.eor_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200002ca"))
+
+(test lslv
+  (let mut b (fresh))
+  (a64_int.lslv (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.lslv (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2020c29a2020c21a"))
+
+(test lsrv
+  (let mut b (fresh))
+  (a64_int.lsrv (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2024c29a"))
+
+(test asrv
+  (let mut b (fresh))
+  (a64_int.asrv (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2028c29a"))
+
+(test mul
+  (let mut b (fresh))
+  (a64_int.mul (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.mul (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "207c029b207c021b"))
+
+(test madd
+  (let mut b (fresh))
+  (a64_int.madd (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2 a64_buf.x3)
+  (eq (& b) "200c029b"))
+
+(test msub
+  (let mut b (fresh))
+  (a64_int.msub (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2 a64_buf.x3)
+  (eq (& b) "208c029b"))
+
+(test sdiv
+  (let mut b (fresh))
+  (a64_int.sdiv (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (a64_int.sdiv (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "200cc29a200cc21a"))
+
+(test udiv
+  (let mut b (fresh))
+  (a64_int.udiv (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "2008c29a"))
+
+(test smulh
+  (let mut b (fresh))
+  (a64_int.smulh (&mut b) a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "207c429b"))
+
+(test umulh
+  (let mut b (fresh))
+  (a64_int.umulh (&mut b) a64_buf.x0 a64_buf.x1 a64_buf.x2)
+  (eq (& b) "207cc29b"))
+
+(test neg (let mut b (fresh)) (a64_int.neg (&mut b) 8 a64_buf.x0 a64_buf.x1) (eq (& b) "e00301cb"))
+
+(test mvn (let mut b (fresh)) (a64_int.mvn (&mut b) 8 a64_buf.x0 a64_buf.x1) (eq (& b) "e00321aa"))
+
+(test sxtb (let mut b (fresh)) (a64_int.sxtb (&mut b) a64_buf.x0 a64_buf.x1) (eq (& b) "201c4093"))
+
+(test sxth (let mut b (fresh)) (a64_int.sxth (&mut b) a64_buf.x0 a64_buf.x1) (eq (& b) "203c4093"))
+
+(test sxtw (let mut b (fresh)) (a64_int.sxtw (&mut b) a64_buf.x0 a64_buf.x1) (eq (& b) "207c4093"))
+
+(test uxtb (let mut b (fresh)) (a64_int.uxtb (&mut b) a64_buf.x0 a64_buf.x1) (eq (& b) "201c40d3"))
+
+(test uxth (let mut b (fresh)) (a64_int.uxth (&mut b) a64_buf.x0 a64_buf.x1) (eq (& b) "203c40d3"))
+
+(test clz
+  (let mut b (fresh))
+  (a64_int.clz (&mut b) 8 a64_buf.x0 a64_buf.x1)
+  (a64_int.clz (&mut b) 4 a64_buf.x0 a64_buf.x1)
+  (eq (& b) "2010c0da2010c05a"))
+
+(test csel
+  (let mut b (fresh))
+  (a64_int.csel (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2 a64_buf.eq)
+  (a64_int.csel (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2 a64_buf.eq)
+  (a64_int.csel (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2 a64_buf.lt)
+  (eq (& b) "2000829a2000821a20b0829a"))
+
+(test cset
+  (let mut b (fresh))
+  (a64_int.cset (&mut b) a64_buf.x0 a64_buf.eq)
+  (a64_int.cset (&mut b) a64_buf.x0 a64_buf.ne)
+  (eq (& b) "e0179f9ae0079f9a"))
+
+(test brk (let mut b (fresh)) (a64_int.brk (&mut b)) (eq (& b) "000020d4"))
+
+(test b
+  (let mut f (fresh))
+  (let lf (a64_buf.label (&mut f)))
+  (a64_int.b (&mut f) lf)
+  (a64_buf.bind (&mut f) lf)
+  (a64_int.ret (&mut f))
+  (assert_eq (a64_buf.finish (&mut f)) true)
+  (eq (& f) "01000014c0035fd6")
+  (let mut k (fresh))
+  (let lk (a64_buf.label (&mut k)))
+  (a64_buf.bind (&mut k) lk)
+  (a64_int.ret (&mut k))
+  (a64_int.b (&mut k) lk)
+  (assert_eq (a64_buf.finish (&mut k)) true)
+  (eq (& k) "c0035fd6ffffff17"))
+
+(test b_cond
+  (let mut f (fresh))
+  (let lf (a64_buf.label (&mut f)))
+  (a64_int.b_cond (&mut f) a64_buf.ne lf)
+  (a64_buf.bind (&mut f) lf)
+  (a64_int.ret (&mut f))
+  (assert_eq (a64_buf.finish (&mut f)) true)
+  (eq (& f) "21000054c0035fd6")
+  (let mut k (fresh))
+  (let lk (a64_buf.label (&mut k)))
+  (a64_buf.bind (&mut k) lk)
+  (a64_int.ret (&mut k))
+  (a64_int.b_cond (&mut k) a64_buf.eq lk)
+  (assert_eq (a64_buf.finish (&mut k)) true)
+  (eq (& k) "c0035fd6e0ffff54"))
+
+(test unbound
+  (let mut b (fresh))
+  (let l (a64_buf.label (&mut b)))
+  (a64_int.b (&mut b) l)
+  (assert_eq (a64_buf.finish (&mut b)) false))
+
+(test bl (let mut b (fresh)) (a64_int.bl (&mut b) 7) (eq (& b) "00000094"))
+
+(test blr (let mut b (fresh)) (a64_int.blr (&mut b) a64_buf.x0) (eq (& b) "00003fd6"))
+
+(test br (let mut b (fresh)) (a64_int.br (&mut b) a64_buf.x0) (eq (& b) "00001fd6"))
+
+(test ret (let mut b (fresh)) (a64_int.ret (&mut b)) (eq (& b) "c0035fd6"))
+
+(test adrp (let mut b (fresh)) (a64_int.adrp (&mut b) a64_buf.x0 8) (eq (& b) "00000090"))
+
+(test add_lo12
+  (let mut b (fresh))
+  (a64_int.add_lo12 (&mut b) a64_buf.x0 a64_buf.x0 8)
+  (eq (& b) "00000091"))
+
+(test to_sp (let mut b (fresh)) (a64_int.to_sp (&mut b) a64_buf.x29) (eq (& b) "bf030091"))
+
+(test from_sp (let mut b (fresh)) (a64_int.from_sp (&mut b) a64_buf.x29) (eq (& b) "fd030091"))
+
+(test reloc
+  (let mut b (fresh))
+  (a64_int.bl (&mut b) 7)
+  (a64_int.adrp (&mut b) a64_buf.x0 8)
+  (a64_int.add_lo12 (&mut b) a64_buf.x0 a64_buf.x0 8)
+  (a64_buf.reloc_abs (&mut b) 9)
+  (eq (& b) "0000009400000090000000910000000000000000")
+  (assert_eq (vec.len (& (. b rels))) 4)
+  (assert_eq (rel_at (& b) 0) 0)
+  (assert_eq (rel_kind (& b) 0) a64_buf.branch26)
+  (assert_eq (rel_sym (& b) 0) 7)
+  (assert_eq (rel_at (& b) 1) 4)
+  (assert_eq (rel_kind (& b) 1) a64_buf.page21)
+  (assert_eq (rel_sym (& b) 1) 8)
+  (assert_eq (rel_at (& b) 2) 8)
+  (assert_eq (rel_kind (& b) 2) a64_buf.pageoff12)
+  (assert_eq (rel_sym (& b) 2) 8)
+  (assert_eq (rel_at (& b) 3) 12)
+  (assert_eq (rel_kind (& b) 3) a64_buf.abs64)
+  (assert_eq (rel_sym (& b) 3) 9))
+
+(test ldr
+  (let mut b (fresh))
+  (a64_mem.ldr (&mut b) 8 a64_buf.x0 a64_buf.x1 8)
+  (a64_mem.ldr (&mut b) 4 a64_buf.x0 a64_buf.x1 4)
+  (a64_mem.ldr (&mut b) 1 a64_buf.x0 a64_buf.x1 1)
+  (a64_mem.ldr (&mut b) 2 a64_buf.x0 a64_buf.x1 2)
+  (a64_mem.ldr (&mut b) 8 a64_buf.x0 a64_buf.x1 (neg 8))
+  (a64_mem.ldr (&mut b) 8 a64_buf.x0 a64_buf.x1 32768)
+  (eq (& b) "200440f9200440b9200440392004407920805ff82e204091c00140f9"))
+
+(test str
+  (let mut b (fresh))
+  (a64_mem.str (&mut b) 8 a64_buf.x0 a64_buf.x1 8)
+  (a64_mem.str (&mut b) 4 a64_buf.x0 a64_buf.x1 4)
+  (a64_mem.str (&mut b) 1 a64_buf.x0 a64_buf.x1 1)
+  (a64_mem.str (&mut b) 2 a64_buf.x0 a64_buf.x1 2)
+  (a64_mem.str (&mut b) 8 a64_buf.x0 a64_buf.x1 (neg 8))
+  (a64_mem.str (&mut b) 1 a64_buf.x0 a64_buf.x1 (neg 1))
+  (eq (& b) "200400f9200400b9200400392004007920801ff820f01f38"))
+
+(test ldrsb
+  (let mut b (fresh))
+  (a64_mem.ldrsb (&mut b) a64_buf.x0 a64_buf.x1 1)
+  (a64_mem.ldrsb (&mut b) a64_buf.x0 a64_buf.x1 (neg 1))
+  (eq (& b) "2004803920f09f38"))
+
+(test ldrsh
+  (let mut b (fresh))
+  (a64_mem.ldrsh (&mut b) a64_buf.x0 a64_buf.x1 2)
+  (a64_mem.ldrsh (&mut b) a64_buf.x0 a64_buf.x1 (neg 2))
+  (eq (& b) "2004807920e09f78"))
+
+(test ldrsw
+  (let mut b (fresh))
+  (a64_mem.ldrsw (&mut b) a64_buf.x0 a64_buf.x1 4)
+  (a64_mem.ldrsw (&mut b) a64_buf.x0 a64_buf.x1 (neg 4))
+  (eq (& b) "200480b920c09fb8"))
+
+(test stp_pre
+  (let mut b (fresh))
+  (a64_mem.stp_pre (&mut b) a64_buf.fp a64_buf.lr a64_buf.sp (neg 16))
+  (a64_mem.stp_pre (&mut b) a64_buf.x0 a64_buf.x1 a64_buf.x2 16)
+  (eq (& b) "fd7bbfa9400481a9"))
+
+(test ldp_post
+  (let mut b (fresh))
+  (a64_mem.ldp_post (&mut b) a64_buf.fp a64_buf.lr a64_buf.sp 16)
+  (a64_mem.ldp_post (&mut b) a64_buf.x0 a64_buf.x1 a64_buf.x2 16)
+  (eq (& b) "fd7bc1a84004c1a8"))

@@ -1,0 +1,217 @@
+;; Casts. Integers land in acc, floats in fp0.
+(use proj.cg_frame)
+(use proj.cg_isa)
+(use proj.cg_lay)
+(use proj.cg_mod)
+(use proj.cg_op)
+(use proj.cg_ovf)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (fn cast ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (and (cg_lay.is_float from) (cg_lay.is_float to)) (ret (fcvt fx from to)))
+  (if (and (cg_lay.is_float from) (== (. to kind) 0u8)) (ret (ftoi g p fx from to)))
+  (if (and (== (. from kind) 0u8) (cg_lay.is_float to)) (ret (itof g p fx from to)))
+  (if (and (== (. from kind) 3u8) (== (. to kind) 0u8)) (ret (cg_op.ext fx from)))
+  (if (and (== (. from kind) 0u8) (== (. to kind) 0u8)) (icast g p fx from to))))
+
+(pub (fn eval_cast ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))) ty.sty
+  (let from (cg_op.eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (cast g p fx (& from) (& (. r ty)))
+  (ty.clone (& (. r ty)))))
+
+(fn fcvt ((fx (&mut cg_frame.fncx)) (from (& ty.sty)) (to (& ty.sty))) unit
+  (cg_isa.f2f (&mut (. fx buf)) (& (. fx isa)) (!= (. from kind) 1u8) cg_isa.fp0 cg_isa.fp0)
+  (let _ to))
+
+(fn icast ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (. g checked) (cast_chk g p fx from to))
+  (cg_op.ext fx from))
+
+(fn cast_chk ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (let sb (cg_lay.width from))
+  (let db (cg_lay.width to))
+  (if (and (== (cg_lay.signed from) (cg_lay.signed to)) (>= db sb)) (ret))
+  (if (and (not (cg_lay.signed from)) (and (cg_lay.signed to) (> db sb))) (ret))
+  (cg_op.ext fx from)
+  (if (and (cg_lay.signed from) (not (cg_lay.signed to))) (ret (cast_su g p fx sb db)))
+  (if (cg_lay.signed to) (cast_to_s g p fx from sb db) (cast_hi g p fx db)))
+
+(fn cast_su ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (sb i64) (db i64)) unit
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 0)
+  (cg_ovf.trap g p fx cg_isa.lt "cast.overflow")
+  (if (< db sb) (cast_hi g p fx db)))
+
+(fn cast_hi ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (db i64)) unit
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (shl 1 (* db 8)))
+  (cg_ovf.trap g p fx cg_isa.uge "cast.overflow"))
+
+(fn cast_to_s ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (sb i64)
+   (db i64)) unit
+  (if (not (cg_lay.signed from))
+    (if (== db sb)
+      (do
+        (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) sb cg_isa.acc 0)
+        (cg_ovf.trap g p fx cg_isa.lt "cast.overflow"))
+      (do
+        (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (- (shl 1 (- (* db 8) 1)) 1))
+        (cg_ovf.trap g p fx cg_isa.ugt "cast.overflow")))
+    (do
+      (let bits (- (* db 8) 1))
+      (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (- (shl 1 bits) 1))
+      (cg_ovf.trap g p fx cg_isa.gt "cast.overflow")
+      (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (neg (shl 1 bits)))
+      (cg_ovf.trap g p fx cg_isa.lt "cast.overflow"))))
+
+(fn itof ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (cg_op.ext fx from)
+  (if (. g checked) (exact g p fx from to))
+  (let w (if (> (cg_lay.width from) 4) 8 4))
+  (if (and (not (cg_lay.signed from)) (== w 8)) (ret (utof fx to)))
+  (cg_isa.i2f (&mut (. fx buf)) (& (. fx isa)) (== (. to kind) 1u8) cg_isa.fp0 cg_isa.acc w))
+
+(fn utof ((fx (&mut cg_frame.fncx)) (to (& ty.sty))) unit
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp cg_isa.acc)
+  (cg_isa.shr_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 1)
+  (cg_isa.i2f (&mut (. fx buf)) (& (. fx isa)) false cg_isa.fp0 cg_isa.acc 8)
+  (cg_isa.fadd (&mut (. fx buf)) (& (. fx isa)) false cg_isa.fp0 cg_isa.fp0)
+  (cg_isa.and_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp 1)
+  (cg_isa.i2f (&mut (. fx buf)) (& (. fx isa)) false cg_isa.fp1 cg_isa.tmp 8)
+  (cg_isa.fadd (&mut (. fx buf)) (& (. fx isa)) false cg_isa.fp0 cg_isa.fp1)
+  (if (== (. to kind) 1u8) (cg_isa.f2f (&mut (. fx buf)) (& (. fx isa)) true cg_isa.fp0 cg_isa.fp0)))
+
+(fn exact ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (let prec (if (== (. to kind) 1u8) 24 53))
+  (cg_isa.test_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.acc)
+  (let ok (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.eq ok)
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst cg_isa.acc)
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp cg_isa.acc)
+  (if (cg_lay.signed from) (abs_tmp fx))
+  (cg_isa.exact_bits (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.tmp)
+  (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 1)
+  (cg_isa.sub_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc prec)
+  (let fit (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 0)
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.le fit)
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.hi cg_isa.tmp)
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp cg_isa.acc)
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 1)
+  (cg_isa.shl (&mut (. fx buf)) (& (. fx isa)) 8)
+  (cg_isa.sub_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 1)
+  (cg_isa.and_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.hi)
+  (cg_isa.test_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.acc)
+  (cg_ovf.trap g p fx cg_isa.ne "cast.overflow")
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) fit)
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.dst)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) ok))
+
+(fn abs_tmp ((fx (&mut cg_frame.fncx))) unit
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp 0)
+  (let pos (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.ge pos)
+  (cg_isa.neg (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) pos))
+
+(fn ftoi ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (let single (== (. from kind) 1u8))
+  (let bits (* (cg_lay.width to) 8))
+  (let nan (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (let lo (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (let hi (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (let cv (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (let done (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (cg_isa.fcmp (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp0)
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.unord nan)
+  (trunc_f fx single)
+  (fbound fx single (fmin to bits))
+  (cg_isa.fcmp (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp1)
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.ult lo)
+  (fbound fx single (fmax to bits))
+  (cg_isa.fcmp (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp1)
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.uge hi)
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) cv)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) nan)
+  (cg_isa.zero (&mut (. fx buf)) (& (. fx isa)) cg_isa.acc)
+  (chk_f g p fx)
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) done)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) lo)
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (imin to bits))
+  (chk_f g p fx)
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) done)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) hi)
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc (imax to bits))
+  (chk_f g p fx)
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) done)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) cv)
+  (cg_isa.f2i (&mut (. fx buf)) (& (. fx isa)) single cg_isa.acc cg_isa.fp0 (if (== bits 64) 8 4))
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) done))
+
+(fn trunc_f ((fx (&mut cg_frame.fncx)) (single bool)) unit
+  (let keep (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+  (cg_isa.f2i (&mut (. fx buf)) (& (. fx isa)) single cg_isa.acc cg_isa.fp0 8)
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp (shl 1 63))
+  (cg_isa.cmp_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.tmp)
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cg_isa.eq keep)
+  (cg_isa.i2f (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.acc 8)
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) keep))
+
+(fn chk_f ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx))) unit
+  (if (. g checked) (cg_ovf.abort g p fx "cast.overflow")))
+
+(fn fmin ((to (& ty.sty)) (bits i64)) i64
+  (if (not (cg_lay.signed to)) (ret 0))
+  (bor (fpow (- bits 1) false) (shl 1 63)))
+
+(fn fmax ((to (& ty.sty)) (bits i64)) i64 (fpow (if (cg_lay.signed to) (- bits 1) bits) false))
+
+(fn fpow ((e i64) (single bool)) i64 (let _ single) (shl (+ 1023 e) 52))
+
+(fn fbound ((fx (&mut cg_frame.fncx)) (single bool) (bits i64)) unit
+  (let d (cg_frame.tmp fx 8 8))
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp bits)
+  (cg_frame.st fx 8 cg_isa.fp d cg_isa.tmp)
+  (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) false cg_isa.fp1 cg_isa.fp d)
+  (if single (cg_isa.f2f (&mut (. fx buf)) (& (. fx isa)) true cg_isa.fp1 cg_isa.fp1)))
+
+(fn imin ((to (& ty.sty)) (bits i64)) i64
+  (if (not (cg_lay.signed to)) (ret 0))
+  (neg (shl 1 (- bits 1))))
+
+(fn imax ((to (& ty.sty)) (bits i64)) i64
+  (if (and (not (cg_lay.signed to)) (== bits 64)) (ret (neg 1)))
+  (if (cg_lay.signed to) (- (shl 1 (- bits 1)) 1) (- (shl 1 bits) 1)))

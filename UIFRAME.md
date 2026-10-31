@@ -97,7 +97,7 @@ Planned layout. None of these paths exist yet; create them in the phase that nam
 
 ```
 plan|2026-10-27|phases=0-13|none started
-compiler|self/ emits x86-64 ELF64 and COFF only|no wasm, no aarch64 (HANDOFF Phase 6 item 2)
+compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
 language|no owned trait object|closures: whole-binding capture, no nesting, no coercion to fn (HANDOFF Phase 2 item 6)
 std|35 modules|no math, no allocator, no png
 ```
@@ -118,10 +118,10 @@ Language and std facts that shape every phase. Each is verified against `docs/sp
 - Externs take and return scalars only; aggregates are passed as pointers (HANDOFF
   "ABI and data"). Every shim call is `(ptr u8)` plus lengths. The pixel buffer is handed to
   the shim as pointer, width, height, stride.
-- `self/` codegen keeps every local in a stack slot and emits x86-64 through `x64*.llr` into
-  `elf.llr` or `coff.llr` (`HANDOFF.md` pass table). wasm has no registers and no stack
-  pointer, so the wasm backend lowers MIR to a shadow stack in linear memory held in a
-  global; aarch64 reuses the slot model with AAPCS64.
+- `self/` codegen keeps every local in a stack slot. x86-64 goes through `isa_x64` into ELF
+  or COFF. aarch64 goes through `isa_a64` into ELF or Mach-O (`docs/spec/targets.md`). wasm
+  has no registers and no stack pointer, so the wasm backend lowers MIR to a shadow stack in
+  linear memory held in a global; aarch64 reuses the slot model with AAPCS64.
 - Stage 0 (Cranelift) already emits aarch64 ELF and apple-darwin objects (`tests/cross.sh`).
   It is the reference for the `self/` aarch64 backend. Cranelift does not emit wasm; the
   wasm backend has no stage 0 twin, so its reference is `tests/run` goldens under `wasmtime`.
@@ -240,11 +240,11 @@ Files: `web/llr_ui.js`, `web/index.html`, `ui/host_web.llr`, `tools/llr-ui.llr`,
 
 Files: `self/a64.llr`, `self/a64_int.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`, `self/a64_buf.llr`, `self/cg_isa.llr`, `self/cg_*.llr`, `self/elf.llr`, `self/macho.llr`, `self/link.llr`, `self/link_mac.llr`, `self/drive.llr`, `tests/cross.sh`, `docs/spec/targets.md`.
 
-1. `[ ]` Split the ISA out of `cg_*`: `cg_isa.llr` is the interface the `cg_*` passes call (`load store op call branch prologue epilogue`), `x64*` and `a64*` implement it. `cg_op.llr` is at 497 lines and must be split before this (HANDOFF line budget).
-2. `[ ]` `a64*`: encoder for the subset MIR needs (loads/stores with offsets, add/sub/mul/sdiv/udiv, logical, shifts, compares and branches, fp ops, conversions, `blr`), AAPCS64 with the Apple variant for stack-passed args, every local a slot, `--checked` via flags.
-3. `[ ]` Objects: `elf.llr` aarch64 relocations (`R_AARCH64_CALL26`, `ADR_PREL_PG_HI21`, `ADD_ABS_LO12_NC`, `ABS64`); `macho.llr` arm64 (`ARM64_RELOC_BRANCH26`, `PAGE21`, `PAGEOFF12`, `UNSIGNED`), symbol table, `__TEXT __DATA`, no code signing in the writer.
-4. `[ ]` Link: Linux `cc`/`clang --target=aarch64-linux-gnu`; `link_mac.llr` uses `xcrun clang` with `-target arm64-apple-macos` / `arm64-apple-ios` and `-isysroot` from `xcrun --show-sdk-path`; Android uses the NDK clang from `$ANDROID_NDK` to a shared library. HANDOFF Phase 6 items 2 to 5 are closed by this work.
-5. `[ ]` Verify: `tests/cross.sh` runs the `self/` build too; `tests/run` goldens on an aarch64 host or under `qemu-aarch64` when present (`fail|setup|qemu=missing` otherwise); Darwin objects checked by `file` and by a hello link on a Mac.
+1. `[x]` Split the ISA out of `cg_*`: `cg_isa.llr` is the interface the `cg_*` passes call (`load store op call branch prologue epilogue`), `x64*` and `a64*` implement it. `cg_op.llr` casts live in `cg_cast.llr`.
+2. `[x]` `a64*`: encoder for the subset MIR needs (loads/stores with offsets, add/sub/mul/sdiv/udiv, logical, shifts, compares and branches, fp ops, conversions, `blr`), AAPCS64, every local a slot, `--checked` via flags. Stack arguments are 8-byte slots. The Apple packed-stack variant does not apply: externs are scalar and never exceed eight arguments (`DARWIN.md`).
+3. `[x]` Objects: `elf.llr` aarch64 relocations (`R_AARCH64_CALL26`, `ADR_PREL_PG_HI21`, `ADD_ABS_LO12_NC`, `ABS64`); `macho.llr` arm64 (`ARM64_RELOC_BRANCH26`, `PAGE21`, `PAGEOFF12`, `UNSIGNED`), symbol table, `__TEXT __DATA`, no code signing in the writer.
+4. `[ ]` Link: a non-empty Unix triple, including `aarch64-unknown-linux-gnu`, links with `clang --target=` (`link.llr`). Still open: `link_mac.llr` uses `xcrun clang` with `-target arm64-apple-macos` / `arm64-apple-ios` and `-isysroot` from `xcrun --show-sdk-path`; Android uses the NDK clang from `$ANDROID_NDK` to a shared library.
+5. `[ ]` Verify: `tests/cross.sh` runs a `self/` compiler when `LLRC` names one, and a Darwin arm64 object is checked with `file`. Still open: `tests/run` goldens under `qemu-aarch64` when the host is not aarch64 (`fail|setup|qemu=missing` otherwise).
 6. `[ ]` Commit: `self: aarch64 backend, mach-o, isa split`.
 
 ### Phase 9: mobile hosts and packaging `[ ]`

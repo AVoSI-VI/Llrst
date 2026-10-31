@@ -213,6 +213,12 @@ else
   fi
   LLRC="$stage0" "$root/tests/self.sh" || fails=$((fails+1))
   LLRC="$stage0" "$root/tests/cross.sh" || fails=$((fails+1))
+  if [ "$llrc" != "$stage0" ]; then
+    LLRC="$llrc" "$root/tests/cross.sh" || fails=$((fails+1))
+  fi
+  if [ -d "$root/target/self/x64_ref" ]; then
+    ( unset LLRC; "$root/tests/x64_ref.sh" ) || fails=$((fails+1))
+  fi
 fi
 echo "done|fails=$fails"
 [ "$fails" -eq 0 ]

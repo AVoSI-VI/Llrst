@@ -1,6 +1,9 @@
 ;; ELF64 relocatable writer: text, data, rodata, bss, symtab, strtab.
 ;; PC32, PLT32, and 64 are RELA. new inserts the null symbol, so the first
 ;; add_sym index is 1. Encoder disp32 slots are zeros, so PC32 and PLT32 addends are -4.
+;; e_machine is 62 or 183. AArch64 encoder kinds share numbers with x86-64, so the
+;; machine selects the relocation type and forces addend 0.
+(use proj.a64_buf)
 (use proj.elf_out)
 (use proj.x64_buf)
 (use proj.x64_int)
@@ -36,6 +39,18 @@
 
 (pub (const plt32 i64 4))
 
+(pub (const mach_x64 i64 62))
+
+(pub (const mach_a64 i64 183))
+
+(pub (const a64_abs i64 257))
+
+(pub (const a64_page i64 275))
+
+(pub (const a64_lo12 i64 277))
+
+(pub (const a64_call i64 283))
+
 (pub (struct sym
   (pub (name str))
   (pub (bind i64))
@@ -44,12 +59,7 @@
   (pub (value i64))
   (pub (size i64))))
 
-(pub (struct rela
-  (pub (sec i64))
-  (pub (at i64))
-  (pub (kind i64))
-  (pub (sym i64))
-  (pub (addend i64))))
+(pub (struct rela (pub (sec i64)) (pub (at i64)) (pub (kind i64)) (pub (sym i64)) (pub (addend i64))))
 
 (pub (struct obj
   (pub (text (vec u8)))
@@ -57,10 +67,12 @@
   (pub (rodata (vec u8)))
   (pub (bss i64))
   (pub (syms (vec sym)))
-  (pub (rels (vec rela)))))
+  (pub (rels (vec rela)))
+  (pub (machine i64))))
 
 (pub (fn new () obj
-  (let mut o (obj (vec.new <u8>) (vec.new <u8>) (vec.new <u8>) 0 (vec.new <sym>) (vec.new <rela>)))
+  (let mut o
+    (obj (vec.new <u8>) (vec.new <u8>) (vec.new <u8>) 0 (vec.new <sym>) (vec.new <rela>) mach_x64))
   (add_sym (&mut o) "" local st_none sec_undef 0 0)
   o))
 
@@ -76,16 +88,27 @@
 (pub (fn add_rel ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64) (addend i64)) unit
   (vec.push (&mut (. o rels)) (rela sec at kind sym addend))))
 
-(pub (fn enc_kind ((k i64)) i64
+(fn enc_a64 ((k i64)) i64
+  (if (== k a64_buf.branch26) (ret a64_call))
+  (if (== k a64_buf.page21) (ret a64_page))
+  (if (== k a64_buf.pageoff12) (ret a64_lo12))
+  (if (== k a64_buf.abs64) (ret a64_abs))
+  0)
+
+(pub (fn enc_kind ((k i64) (mach i64)) i64
+  (if (== mach mach_a64) (ret (enc_a64 k)))
   (if (== k x64_buf.abs64) (ret abs64))
   (if (== k x64_buf.pc32) (ret pc32))
   (if (== k x64_buf.plt32) (ret plt32))
   0))
 
-(pub (fn enc_addend ((k i64)) i64 (if (== k x64_buf.abs64) 0 (neg 4))))
+(pub (fn enc_addend ((k i64) (mach i64)) i64
+  (if (== mach mach_a64) (ret 0))
+  (if (== k x64_buf.abs64) 0 (neg 4))))
 
 (pub (fn add_enc ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64)) unit
-  (add_rel o sec at (enc_kind kind) sym (enc_addend kind))))
+  (let mach (. o machine))
+  (add_rel o sec at (enc_kind kind mach) sym (enc_addend kind mach))))
 
 ;; Locals stay before globals. Reloc symbol indexes are rewritten to match.
 (fn push_bind ((o (& obj)) (ord (&mut (vec i64))) (map (&mut (vec i64))) (want i64)) unit
@@ -152,7 +175,8 @@
       rt
       rd
       rr
-      info))
+      info
+      (. o machine)))
   (elf_out.assemble (& p))))
 
 ;; Entered with rsp 8 mod 16. The call needs rsp 0 mod 16.
@@ -283,7 +307,7 @@
   (assert_eq (str.at (& img) 4) 2u8)
   (assert_eq (str.at (& img) 5) 1u8)
   (assert_eq (u_at (& img) 16 2) 1)
-  (assert_eq (u_at (& img) 18 2) 62)
+  (assert_eq (u_at (& img) 18 2) mach_x64)
   (assert_eq (u_at (& img) 32 8) 0)
   (assert_eq (u_at (& img) 52 2) 64)
   (assert_eq (u_at (& img) 56 2) 0)
@@ -310,11 +334,11 @@
   (assert_eq (u_at (& img) (sym_at (& img) 0) 4) 0))
 
 (test elf_hello
-  (assert_eq (enc_kind x64_buf.pc32) pc32)
-  (assert_eq (enc_kind x64_buf.plt32) plt32)
-  (assert_eq (enc_kind x64_buf.abs64) abs64)
-  (assert_eq (enc_addend x64_buf.pc32) (neg 4))
-  (assert_eq (enc_addend x64_buf.abs64) 0)
+  (assert_eq (enc_kind x64_buf.pc32 mach_x64) pc32)
+  (assert_eq (enc_kind x64_buf.plt32 mach_x64) plt32)
+  (assert_eq (enc_kind x64_buf.abs64 mach_x64) abs64)
+  (assert_eq (enc_addend x64_buf.pc32 mach_x64) (neg 4))
+  (assert_eq (enc_addend x64_buf.abs64 mach_x64) 0)
   (let img (hello))
   (assert (sec_eq (& img) ".text" (hello_bytes)))
   (assert (sec_eq (& img) ".rodata" "ok\n"))
@@ -394,3 +418,33 @@
   (rm (& out))
   (assert_eq (. ran code) 0)
   (assert_eq (& (. ran out)) "ok\n"))
+
+(fn a64_obj () str
+  (let mut o (new))
+  (set (. o machine) mach_a64)
+  (let s (add_sym (&mut o) "s" global st_none sec_undef 0 0))
+  (add_enc (&mut o) sec_text 0 a64_buf.branch26 s)
+  (add_enc (&mut o) sec_text 4 a64_buf.page21 s)
+  (add_enc (&mut o) sec_text 8 a64_buf.pageoff12 s)
+  (add_enc (&mut o) sec_data 0 a64_buf.abs64 s)
+  (bytes (& o)))
+
+(test elf_a64
+  (assert_eq (enc_kind a64_buf.branch26 mach_a64) a64_call)
+  (assert_eq (enc_kind a64_buf.page21 mach_a64) a64_page)
+  (assert_eq (enc_kind a64_buf.pageoff12 mach_a64) a64_lo12)
+  (assert_eq (enc_kind a64_buf.abs64 mach_a64) a64_abs)
+  (assert_eq (enc_addend a64_buf.page21 mach_a64) 0)
+  (assert_eq (enc_addend a64_buf.branch26 mach_a64) 0)
+  (let img (a64_obj))
+  (assert_eq (u_at (& img) 18 2) mach_a64)
+  (let rt (find_sec (& img) ".rela.text"))
+  (assert_eq (band (rela_u (& img) rt 0 8 8) 4294967295) a64_call)
+  (assert_eq (rela_u (& img) rt 0 16 8) 0)
+  (assert_eq (band (rela_u (& img) rt 1 8 8) 4294967295) a64_page)
+  (assert_eq (rela_u (& img) rt 1 16 8) 0)
+  (assert_eq (band (rela_u (& img) rt 2 8 8) 4294967295) a64_lo12)
+  (assert_eq (rela_u (& img) rt 2 16 8) 0)
+  (let rd (find_sec (& img) ".rela.data"))
+  (assert_eq (band (rela_u (& img) rd 0 8 8) 4294967295) a64_abs)
+  (assert_eq (rela_u (& img) rd 0 16 8) 0))

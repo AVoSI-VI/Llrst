@@ -39,8 +39,11 @@ for dir in err warn; do
       flags=($(tr -d '\r' <"$root/tests/$dir/$name.flags"))
     fi
     rel="tests/$dir/$name.llr"
+    # bash 3.2 (macOS) errors on an empty "${flags[@]}" under set -u.
+    set +u
     ( cd "$root" && "$llrc" check "$rel" "${flags[@]}" >"$tmp/want.out" 2>"$tmp/want" || true )
     ( cd "$root" && "$stage" check "$rel" "${flags[@]}" >"$tmp/got.out" 2>"$tmp/got" || true )
+    set -u
     tr -d '\r' <"$tmp/want" >"$tmp/want.n"
     tr -d '\r' <"$tmp/got" >"$tmp/got.n"
     if cmp -s "$tmp/want.n" "$tmp/got.n"; then

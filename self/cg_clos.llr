@@ -1,6 +1,6 @@
 ;; Closure trampoline, env drop, and the value built by rvalue kind 18.
-(use std.str)
 (use proj.cg_frame)
+(use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
 (use proj.cg_op)
@@ -10,10 +10,7 @@
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
-(use proj.x64_abi)
-(use proj.x64_buf)
-(use proj.x64_int)
-(use proj.x64_sse)
+(use std.str)
 
 (pub (fn prepare ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body))) unit
   (for i 0 (vec.len (& (. b clos))) (one g p fx b i))))
@@ -30,61 +27,62 @@
   (let mut tn (str.clone name))
   (str.push (&mut tn) "_tramp")
   (let sym (elf.add_sym (&mut (. g obj)) (& tn) elf.local elf.st_func elf.sec_text 0 0))
-  (let mut b (x64_buf.new))
-  (x64_int.push_r (&mut b) x64_buf.rbp)
-  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
-  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp 512)
+  (let mut b (cg_isa.new_code))
+  (cg_isa.prologue (&mut b) (& (. g isa)))
+  (cg_isa.sub_ri (&mut b) (& (. g isa)) 8 cg_isa.sp 512)
   (let incoming (in_cls c))
-  (stash (&mut b) (& incoming) (. g win))
+  (stash (&mut b) (& (. g isa)) (& incoming))
   (emit_call g p (&mut b) c inner)
-  (x64_int.mov_rr (&mut b) 8 x64_buf.rsp x64_buf.rbp)
-  (x64_int.pop_r (&mut b) x64_buf.rbp)
-  (x64_int.ret (&mut b))
-  (let _ (x64_buf.finish (&mut b)))
+  (cg_isa.epilogue (&mut b) (& (. g isa)))
+  (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
   (cg_mod.append_fn g sym (& b))
   sym)
 
 (fn in_cls ((c (& mir.clbody))) (vec i64)
   (let mut o (vec.new <i64>))
-  (if (cg_lay.is_agg (& (. c ret))) (vec.push (&mut o) x64_abi.cls_int))
-  (vec.push (&mut o) x64_abi.cls_int)
+  (if (cg_lay.is_agg (& (. c ret))) (vec.push (&mut o) cg_isa.cls_int))
+  (vec.push (&mut o) cg_isa.cls_int)
   (for i 0 (vec.len (& (. c user))) (vec.push (&mut o) (cls (vec.get (& (. c user)) i))))
   o)
 
-(fn cls ((t (& ty.sty))) i64 (if (cg_lay.is_float t) x64_abi.cls_float x64_abi.cls_int))
+(fn cls ((t (& ty.sty))) i64 (if (cg_lay.is_float t) cg_isa.cls_float cg_isa.cls_int))
 
-(fn stash ((b (&mut x64_buf.buf)) (cls (& (vec i64))) (win bool)) unit
-  (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify (if win x64_abi.win64 x64_abi.sysv) cls (&mut args))
-  (for i 0 (vec.len (& args)) (stash_one b (vec.get (& args) i) i)))
+(fn stash ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (cls (& (vec i64)))) unit
+  (let mut args (vec.new <cg_isa.arg>))
+  (cg_isa.classify hw cls (&mut args))
+  (for i 0 (vec.len (& args)) (stash_one b hw (vec.get (& args) i) i)))
 
-(fn emit_call ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (c (& mir.clbody)) (inner i64)) unit
+(fn emit_call ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (c (& mir.clbody)) (inner i64)) unit
+  (let hw (& (. g isa)))
   (let env_i (if (cg_lay.is_agg (& (. c ret))) 1 0))
-  (load_slot b x64_buf.r11 env_i)
-  (cg_frame.bstore b 8 x64_buf.rbp (neg 400) x64_buf.r11)
+  (load_slot b hw cg_isa.addr env_i)
+  (cg_frame.bstore b hw 8 cg_isa.fp (neg 400) cg_isa.addr)
   (let cls (out_cls c))
-  (let mut args (vec.new <x64_abi.arg>))
-  (x64_abi.classify (if (. g win) x64_abi.win64 x64_abi.sysv) (& cls) (&mut args))
+  (let mut args (vec.new <cg_isa.arg>))
+  (cg_isa.classify hw (& cls) (&mut args))
   (let mut ai 0)
-  (if (cg_lay.is_agg (& (. c ret))) (do (pass_slot b (vec.get (& args) 0) 0) (set ai 1)))
+  (if (cg_lay.is_agg (& (. c ret))) (do (pass_slot b hw (vec.get (& args) 0) 0) (set ai 1)))
   (let mut ls (cg_lay.new))
-  (let s (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
   (for i 0 (vec.len (& (. c caps)))
     (if (not (ty.is_unit (vec.get (& (. c caps)) i)))
       (do
-        (pass_cap b (vec.get (& args) ai) (vec.get (& (. c caps)) i) (@ (vec.get (& (. s offs)) i)))
+        (pass_cap b
+          hw
+          (vec.get (& args) ai)
+          (vec.get (& (. c caps)) i)
+          (@ (vec.get (& (. seq offs)) i)))
         (set ai (+ ai 1)))))
   (for j 0 (vec.len (& (. c user)))
     (if (not (ty.is_unit (vec.get (& (. c user)) j)))
       (do
-        (pass_user b (vec.get (& args) ai) (+ (+ env_i 1) j) (vec.get (& (. c user)) j))
+        (pass_user b hw (vec.get (& args) ai) (+ (+ env_i 1) j) (vec.get (& (. c user)) j))
         (set ai (+ ai 1)))))
-  (x64_int.call_sym b inner)
-  (let _ g))
+  (cg_isa.call_sym b hw inner))
 
 (fn out_cls ((c (& mir.clbody))) (vec i64)
   (let mut o (vec.new <i64>))
-  (if (cg_lay.is_agg (& (. c ret))) (vec.push (&mut o) x64_abi.cls_int))
+  (if (cg_lay.is_agg (& (. c ret))) (vec.push (&mut o) cg_isa.cls_int))
   (for i 0 (vec.len (& (. c caps))) (push_cls (&mut o) (vec.get (& (. c caps)) i)))
   (for i 0 (vec.len (& (. c user))) (push_cls (&mut o) (vec.get (& (. c user)) i)))
   o)
@@ -92,94 +90,92 @@
 (fn push_cls ((o (&mut (vec i64))) (t (& ty.sty))) unit
   (if (not (ty.is_unit t)) (vec.push o (cls t))))
 
-(fn pass_slot ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (slot i64)) unit
-  (load_slot b x64_buf.rax slot)
-  (place b a))
+(fn pass_slot ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (slot i64)) unit
+  (load_slot b hw cg_isa.acc slot)
+  (place b hw a))
 
-(fn pass_cap ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (t (& ty.sty)) (off i64)) unit
-  (cg_frame.bload b 8 x64_buf.r11 x64_buf.rbp (neg 400))
-  (if (cg_lay.is_float t) (ret (pass_float b a x64_buf.r11 off (cg_lay.width t))))
+(fn pass_cap ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (t (& ty.sty)) (off i64)) unit
+  (cg_frame.bload b hw 8 cg_isa.addr cg_isa.fp (neg 400))
+  (if (cg_lay.is_float t) (ret (pass_float b hw a cg_isa.addr off (cg_lay.width t))))
   (if (cg_lay.is_agg t)
-    (cg_frame.blea b x64_buf.rax x64_buf.r11 off)
-    (do (cg_frame.bload b (cg_lay.width t) x64_buf.rax x64_buf.r11 off) (widen b t)))
-  (place b a))
+    (cg_frame.blea b hw cg_isa.acc cg_isa.addr off)
+    (do (cg_frame.bload b hw (cg_lay.width t) cg_isa.acc cg_isa.addr off) (widen b hw t)))
+  (place b hw a))
 
-(fn pass_user ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (slot i64) (t (& ty.sty))) unit
+(fn pass_user ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (slot i64) (t (& ty.sty))) unit
   (if (cg_lay.is_float t)
-    (ret (pass_float b a x64_buf.rbp (neg (* (+ slot 1) 8)) (cg_lay.width t))))
-  (load_slot b x64_buf.rax slot)
-  (if (not (cg_lay.is_agg t)) (widen b t))
-  (place b a))
+    (ret (pass_float b hw a cg_isa.fp (neg (* (+ slot 1) 8)) (cg_lay.width t))))
+  (load_slot b hw cg_isa.acc slot)
+  (if (not (cg_lay.is_agg t)) (widen b hw t))
+  (place b hw a))
 
-(fn pass_float ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (base i64) (disp i64) (w i64)) unit
-  (if (>= (. a reg) 0) (ret (load_xmm b (. a reg) base disp w)))
-  (load_xmm b 0 base disp w)
-  (store_xmm b x64_buf.rbp (home a) w))
+(fn pass_float ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (base i64) (disp i64) (w i64)) unit
+  (if (>= (. a reg) 0) (ret (load_xmm b hw (. a reg) base disp w)))
+  (load_xmm b hw cg_isa.fp0 base disp w)
+  (store_xmm b hw cg_isa.fp (home hw a) w))
 
-(fn load_xmm ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64) (w i64)) unit
-  (if (== w 4) (cg_frame.bssld b dst base disp) (cg_frame.bsdld b dst base disp)))
+(fn load_xmm ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (dst i64) (base i64) (disp i64) (w i64)) unit
+  (cg_isa.fld b hw (== w 4) dst base disp))
 
-(fn store_xmm ((b (&mut x64_buf.buf)) (base i64) (disp i64) (w i64)) unit
-  (if (== w 4) (cg_frame.bssst b base disp 0) (cg_frame.bsdst b base disp 0)))
+(fn store_xmm ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (base i64) (disp i64) (w i64)) unit
+  (cg_isa.fst b hw (== w 4) base disp cg_isa.fp0))
 
-(fn widen ((b (&mut x64_buf.buf)) (t (& ty.sty))) unit
+(fn widen ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (t (& ty.sty))) unit
   (let w (cg_lay.width t))
   (if (>= w 8) (ret))
-  (if (cg_lay.signed t)
-    (x64_int.movsx b 8 w x64_buf.rax x64_buf.rax)
-    (x64_int.movzx b 8 w x64_buf.rax x64_buf.rax)))
+  (cg_isa.widen b hw cg_isa.acc cg_isa.acc 8 w (cg_lay.signed t)))
 
-(fn place ((b (&mut x64_buf.buf)) (a (& x64_abi.arg))) unit
-  (if (>= (. a reg) 0) (ret (x64_int.mov_rr b 8 (. a reg) x64_buf.rax)))
-  (cg_frame.bstore b 8 x64_buf.rbp (home a) x64_buf.rax))
+(fn home ((hw (& cg_isa.isa)) (a (& cg_isa.arg))) i64
+  (if (. hw a64) (ret (- (neg 512) (. a off))))
+  (- (- (. a off) 8) 512))
 
-(fn home ((a (& x64_abi.arg))) i64 (- (- (. a off) 8) 512))
+(fn place ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg))) unit
+  (if (>= (. a reg) 0) (ret (cg_isa.mov_rr b hw 8 (. a reg) cg_isa.acc)))
+  (cg_frame.bstore b hw 8 cg_isa.fp (home hw a) cg_isa.acc))
 
-(fn stash_one ((b (&mut x64_buf.buf)) (a (& x64_abi.arg)) (i i64)) unit
+(fn stash_one ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (i i64)) unit
   (let disp (neg (* (+ i 1) 8)))
-  (if (>= (. a reg) 0)
-    (ret (do
-       (if (. a xmm)
-         (cg_frame.bsdst b x64_buf.rbp disp (. a reg))
-         (cg_frame.bstore b 8 x64_buf.rbp disp (. a reg))))))
-  (cg_frame.bload b 8 x64_buf.rax x64_buf.rbp (+ (. a off) 8))
-  (cg_frame.bstore b 8 x64_buf.rbp disp x64_buf.rax))
+  (if (>= (. a reg) 0) (ret (stash_reg b hw a disp)))
+  (cg_frame.bload b hw 8 cg_isa.acc cg_isa.fp (if (. hw a64) (+ 16 (. a off)) (+ (. a off) 8)))
+  (cg_frame.bstore b hw 8 cg_isa.fp disp cg_isa.acc))
 
-(fn load_slot ((b (&mut x64_buf.buf)) (reg i64) (i i64)) unit
-  (cg_frame.bload b 8 reg x64_buf.rbp (neg (* (+ i 1) 8))))
+(fn stash_reg ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (a (& cg_isa.arg)) (disp i64)) unit
+  (if (. a xmm)
+    (cg_isa.fst b hw false cg_isa.fp disp (. a reg))
+    (cg_frame.bstore b hw 8 cg_isa.fp disp (. a reg))))
+
+(fn load_slot ((b (&mut cg_isa.code)) (hw (& cg_isa.isa)) (reg i64) (i i64)) unit
+  (cg_frame.bload b hw 8 reg cg_isa.fp (neg (* (+ i 1) 8))))
 
 (fn env_drop ((g (&mut cg_mod.cg)) (p (& prog.prog)) (c (& mir.clbody)) (inner (& str))) i64
   (let mut name (str.clone inner))
   (str.push (&mut name) "_envdrop")
   (let sym (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_func elf.sec_text 0 0))
-  (let mut b (x64_buf.new))
-  (x64_int.push_r (&mut b) x64_buf.rbp)
-  (x64_int.mov_rr (&mut b) 8 x64_buf.rbp x64_buf.rsp)
-  (x64_int.sub_ri (&mut b) 8 x64_buf.rsp (if (. g win) 48 16))
-  (cg_frame.bstore (&mut b) 8 x64_buf.rbp (neg 8) (cg_mod.a0 g))
+  (let mut b (cg_isa.new_code))
+  (cg_isa.prologue (&mut b) (& (. g isa)))
+  (cg_isa.sub_ri (&mut b) (& (. g isa)) 8 cg_isa.sp (if (. g win) 48 16))
+  (cg_frame.bstore (&mut b) (& (. g isa)) 8 cg_isa.fp (neg 8) (cg_isa.arg_i 0))
   (drop_caps g p (&mut b) c)
   (let free (cg_mod.extern_sym g p (prog.std_fn p "sys" "free")))
-  (cg_frame.bload (&mut b) 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
-  (x64_int.call_sym (&mut b) free)
-  (x64_int.mov_rr (&mut b) 8 x64_buf.rsp x64_buf.rbp)
-  (x64_int.pop_r (&mut b) x64_buf.rbp)
-  (x64_int.ret (&mut b))
-  (let _ (x64_buf.finish (&mut b)))
+  (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (cg_isa.call_sym (&mut b) (& (. g isa)) free)
+  (cg_isa.epilogue (&mut b) (& (. g isa)))
+  (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
   (cg_mod.append_fn g sym (& b))
   sym)
 
-(fn drop_caps ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut x64_buf.buf)) (c (& mir.clbody))) unit
+(fn drop_caps ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (c (& mir.clbody))) unit
   (let mut ls (cg_lay.new))
-  (let s (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
   (for i 0 (vec.len (& (. c caps)))
     (if (prog.needs_drop p (vec.get (& (. c caps)) i))
-      (drop_cap g b (vec.get (& (. c caps)) i) (@ (vec.get (& (. s offs)) i))))))
+      (drop_cap g b (vec.get (& (. c caps)) i) (@ (vec.get (& (. seq offs)) i))))))
 
-(fn drop_cap ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (t (& ty.sty)) (off i64)) unit
+(fn drop_cap ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (t (& ty.sty)) (off i64)) unit
   (let sym (cg_mod.drop_sym g t))
-  (cg_frame.bload b 8 (cg_mod.a0 g) x64_buf.rbp (neg 8))
-  (x64_int.add_ri b 8 (cg_mod.a0 g) off)
-  (x64_int.call_sym b sym))
+  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (cg_isa.add_ri b (& (. g isa)) 8 (cg_isa.arg_i 0) off)
+  (cg_isa.call_sym b (& (. g isa)) sym))
 
 (pub (fn fill ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -192,50 +188,56 @@
    (pi (& (vec i64)))) unit
   (let c (vec.get (& (. b clos)) (. r op)))
   (let mut ls (cg_lay.new))
-  (let s (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
-  (let n (if (<= (. s size) 0) 1 (. s size)))
+  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let n (if (<= (. seq size) 0) 1 (. seq size)))
   (let alloc (cg_mod.func_sym g p (prog.std_fn p "sys" "alloc") (vec.new <ty.sty>)))
-  (x64_int.mov_ri (&mut (. fx buf)) 8 (cg_mod.a0 g) n)
-  (x64_int.call_sym (&mut (. fx buf)) alloc)
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 (cg_isa.arg_i 0) n)
+  (cg_isa.call_sym (&mut (. fx buf)) (& (. fx isa)) alloc)
   (let env (cg_frame.tmp fx 8 8))
-  (cg_frame.st fx 8 x64_buf.rbp env x64_buf.rax)
-  (store_caps g p fx locs r (& s) env)
+  (cg_frame.st fx 8 cg_isa.fp env cg_isa.acc)
+  (store_caps g p fx locs r (& seq) env)
   (let _ (cg_frame.place g p fx locs local pk pi))
-  (x64_int.mov_rr (&mut (. fx buf)) 8 x64_buf.r10 x64_buf.r11)
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rax (@ (vec.get (& (. fx tramp)) (. r op))))
-  (cg_frame.st fx 8 x64_buf.r10 0 x64_buf.rax)
-  (x64_int.lea_rip (&mut (. fx buf)) x64_buf.rax (@ (vec.get (& (. fx cdrop)) (. r op))))
-  (cg_frame.st fx 8 x64_buf.r10 8 x64_buf.rax)
-  (cg_frame.ld fx 8 x64_buf.rax x64_buf.rbp env)
-  (cg_frame.st fx 8 x64_buf.r10 16 x64_buf.rax)))
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst cg_isa.addr)
+  (cg_isa.sym_addr (&mut (. fx buf))
+    (& (. fx isa))
+    cg_isa.acc
+    (@ (vec.get (& (. fx tramp)) (. r op))))
+  (cg_frame.st fx 8 cg_isa.dst 0 cg_isa.acc)
+  (cg_isa.sym_addr (&mut (. fx buf))
+    (& (. fx isa))
+    cg_isa.acc
+    (@ (vec.get (& (. fx cdrop)) (. r op))))
+  (cg_frame.st fx 8 cg_isa.dst 8 cg_isa.acc)
+  (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp env)
+  (cg_frame.st fx 8 cg_isa.dst 16 cg_isa.acc)))
 
 (fn store_caps ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut cg_frame.fncx))
    (locs (& (vec thir.loc)))
    (r (& mir.rv))
-   (s (& cg_lay.seqr))
+   (seq (& cg_lay.seqr))
    (env i64)) unit
-  (for i 0 (vec.len (& (. r ops))) (store_cap g p fx locs r s env i)))
+  (for i 0 (vec.len (& (. r ops))) (store_cap g p fx locs r seq env i)))
 
 (fn store_cap ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut cg_frame.fncx))
    (locs (& (vec thir.loc)))
    (r (& mir.rv))
-   (s (& cg_lay.seqr))
+   (seq (& cg_lay.seqr))
    (env i64)
    (i i64)) unit
   (let ty (cg_op.eval_op g p fx locs (vec.get (& (. r ops)) i)))
   (let hold (cg_frame.tmp fx 8 8))
   (if (cg_lay.is_agg (& ty))
-    (cg_frame.st fx 8 x64_buf.rbp hold x64_buf.r11)
-    (cg_frame.st fx 8 x64_buf.rbp hold x64_buf.rax))
-  (cg_frame.ld fx 8 x64_buf.r10 x64_buf.rbp env)
-  (x64_int.add_ri (&mut (. fx buf)) 8 x64_buf.r10 (@ (vec.get (& (. s offs)) i)))
+    (cg_frame.st fx 8 cg_isa.fp hold cg_isa.addr)
+    (cg_frame.st fx 8 cg_isa.fp hold cg_isa.acc))
+  (cg_frame.ld fx 8 cg_isa.dst cg_isa.fp env)
+  (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst (@ (vec.get (& (. seq offs)) i)))
   (if (cg_lay.is_agg (& ty))
     (do
-      (cg_frame.ld fx 8 x64_buf.r11 x64_buf.rbp hold)
+      (cg_frame.ld fx 8 cg_isa.addr cg_isa.fp hold)
       (let n (cg_lay.size (&mut (. g lays)) p (& ty)))
       (cg_frame.copy g p fx n))
-    (do (cg_frame.ld fx 8 x64_buf.rax x64_buf.rbp hold) (cg_frame.store_s fx (& ty)))))
+    (do (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp hold) (cg_frame.store_s fx (& ty)))))

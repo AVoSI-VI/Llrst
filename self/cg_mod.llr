@@ -1,13 +1,15 @@
 ;; ELF object, symbols, and the 24-byte static str record.
-(use std.str)
+(use proj.a64_buf)
 (use proj.cg_bits)
+(use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
+(use proj.macho)
 (use proj.prog)
 (use proj.ty)
-(use proj.x64_abi)
 (use proj.x64_buf)
+(use std.str)
 
 (pub (struct cg
   (pub (obj elf.obj))
@@ -16,6 +18,7 @@
   (pub (darwin bool))
   (pub (win bool))
   (pub (be bool))
+  (pub (isa cg_isa.isa))
   (pub (chkstk i64))
   (pub (argc i64))
   (pub (argv i64))
@@ -51,7 +54,9 @@
   (push_zeros (&mut (. (. g obj) data)) 8)
   (elf.add_sym (&mut (. g obj)) name bind elf.st_object elf.sec_data at 8))
 
-(pub (fn new ((checked bool) (darwin bool) (win bool) (be bool)) cg
+(pub (fn new ((checked bool) (s cg_isa.isa) (darwin bool) (be bool)) cg
+  (let a64 (. s a64))
+  (let win (. s win))
   (let mut g
     (cg (elf.new)
       (cg_lay.new)
@@ -59,6 +64,7 @@
       darwin
       win
       be
+      s
       (neg 1)
       0
       0
@@ -81,6 +87,7 @@
       (vec.new <i64>)
       (neg 1)
       (neg 1)))
+  (if a64 (set (. (. g obj) machine) elf.mach_a64))
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
@@ -226,7 +233,7 @@
   (push_zeros (&mut rec) 24)
   (let mut rat (ro_bytes g (& rec) 8))
   (put_u64 (&mut (. (. g obj) rodata)) (+ rat 8) (str.len s) (. g be))
-  (elf.add_rel (&mut (. g obj)) elf.sec_rodata rat elf.abs64 bsym 0)
+  (elf.add_rel (&mut (. g obj)) elf.sec_rodata rat (ptr_kind g) bsym 0)
   (let mut ns (str.from "llr_ss"))
   (str.push (&mut ns) (& (str.from_int n)))
   (let sym (ro_sym g (& ns) rat 24))
@@ -301,15 +308,29 @@
   (let at (ro_bytes g bytes align))
   (ro_sym g name at (vec.len bytes))))
 
-(pub (fn append_fn ((g (&mut cg)) (sym i64) (b (& x64_buf.buf))) unit
+(pub (fn ptr_kind ((g (& cg))) i64 (if (. (. g isa) a64) elf.a64_abs elf.abs64)))
+
+(fn append_x ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (let b (& (. c x)))
   (let base (vec.len (& (. (. g obj) text))))
   (for i 0 (x64_buf.len b) (vec.push (&mut (. (. g obj) text)) (x64_buf.at b i)))
   (for i 0 (vec.len (& (. b rels)))
     (let r (vec.get (& (. b rels)) i))
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
-  (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b))))
+  (elf.set_sym (&mut (. g obj)) sym base (x64_buf.len b)))
 
-(pub (fn call_cc ((g (& cg))) i64 (if (. g win) x64_abi.win64 x64_abi.sysv)))
+(fn append_a ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (let b (& (. c a)))
+  (let base (vec.len (& (. (. g obj) text))))
+  (for i 0 (a64_buf.len b) (vec.push (&mut (. (. g obj) text)) (a64_buf.at b i)))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
+  (elf.set_sym (&mut (. g obj)) sym base (a64_buf.len b)))
+
+(pub (fn append_fn ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (if (. (. g isa) a64) (ret (append_a g sym c)))
+  (append_x g sym c)))
 
 (fn undef ((g (&mut cg)) (name (& str))) i64
   (elf.add_sym (&mut (. g obj)) name elf.global elf.st_none elf.sec_undef 0 0))
@@ -324,10 +345,7 @@
   (set (. g tpop) (undef g "llr_trace_pop"))
   (. g tpop)))
 
-(pub (fn a0 ((g (& cg))) i64 (if (. g win) x64_buf.rcx x64_buf.rdi)))
-
-(pub (fn a1 ((g (& cg))) i64 (if (. g win) x64_buf.rdx x64_buf.rsi)))
-
 (pub (fn finish ((g (& cg))) str
   (if (. g win) (ret (coff.bytes (& (. g obj)))))
+  (if (and (. g darwin) (. (. g isa) a64)) (ret (macho.bytes (& (. g obj)))))
   (elf.bytes (& (. g obj)))))

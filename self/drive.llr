@@ -8,6 +8,7 @@
 (use proj.borrow)
 (use proj.cg_drop)
 (use proj.cg_entry)
+(use proj.cg_isa)
 (use proj.cg_mod)
 (use proj.cg_term)
 (use proj.check)
@@ -44,8 +45,8 @@
 
 (pub (fn target_ok ((t (& str))) bool
   (if (== (str.len t) 0) (ret true))
-  (if (not (str.has t "x86_64")) (ret false))
-  (not (str.has t "apple"))))
+  (if (and (str.has t "x86_64") (not (str.has t "apple"))) (ret true))
+  (or (str.has t "aarch64") (str.has t "arm64"))))
 
 (pub (fn reject_target ((file (& str)) (got (& str))) i64 (bad file "target.unsupported" got)))
 
@@ -54,6 +55,10 @@
 (fn is_darwin ((t (& str))) bool
   (if (> (str.len t) 0) (ret (or (str.has t "apple") (str.has t "darwin"))))
   (link.host_darwin))
+
+(fn is_a64 ((t (& str))) bool
+  (if (> (str.len t) 0) (ret (or (str.has t "aarch64") (str.has t "arm64"))))
+  (link.host_a64))
 
 (fn big_end ((t (& str))) bool (str.has t "s390x"))
 
@@ -79,11 +84,9 @@
   (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
+  (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target)))))
   (let mut g
-    (cg_mod.new (. o checked)
-      (is_darwin (& (. o target)))
-      (is_win (& (. o target)))
-      (big_end (& (. o target)))))
+    (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (pump (&mut g) (& p) (&mut ds))
@@ -239,3 +242,14 @@
           (let sym (sym_at g i))
           (cg_mod.mark_drop g i)
           (cg_drop.glue g p (& ty) sym))))))
+
+(test target_ok
+  (assert_eq (target_ok "") true)
+  (assert_eq (target_ok "x86_64-unknown-linux-gnu") true)
+  (assert_eq (target_ok "x86_64-pc-windows-gnu") true)
+  (assert_eq (target_ok "x86_64-apple-darwin") false)
+  (assert_eq (target_ok "aarch64-unknown-linux-gnu") true)
+  (assert_eq (target_ok "aarch64-apple-darwin") true)
+  (assert_eq (target_ok "arm64-apple-darwin") true)
+  (assert_eq (target_ok "riscv64gc-unknown-linux-gnu") false)
+  (assert_eq (target_ok "s390x-unknown-linux-gnu") false))

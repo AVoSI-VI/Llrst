@@ -1,0 +1,255 @@
+;; Mach-O 64 arm64 relocatable container. One empty-named segment holds four
+;; sections. sizeofcmds is seg_cmd + build 24 + symtab 24 + dysymtab 80.
+(use proj.elf_out)
+(use std.str)
+(use std.vec)
+
+(const mh_magic i64 0xFEEDFACF)
+
+(const cpu_arm64 i64 0x0100000C)
+
+(const mh_object i64 1)
+
+(const mh_subsects i64 0x2000)
+
+(const lc_segment i64 0x19)
+
+(const lc_symtab i64 0x2)
+
+(const lc_dysymtab i64 0xB)
+
+(const lc_build i64 0x32)
+
+(const seg_cmd i64 392)
+
+(const cmd_bytes i64 520)
+
+(const hdr_bytes i64 32)
+
+(const text_flags i64 0x80000400)
+
+(const bss_flags i64 1)
+
+(const minos i64 0x000B0000)
+
+(const prot i64 7)
+
+(pub (struct vma (pub (text i64)) (pub (data i64)) (pub (ro i64)) (pub (bss i64)) (pub (end i64))))
+
+(pub (struct parts
+  (pub (text (vec u8)))
+  (pub (data (vec u8)))
+  (pub (rodata (vec u8)))
+  (pub (bss i64))
+  (pub (syms (vec u8)))
+  (pub (strs (vec u8)))
+  (pub (rel_text (vec u8)))
+  (pub (rel_data (vec u8)))
+  (pub (rel_rodata (vec u8)))
+  (pub (nlocal i64))
+  (pub (nextdef i64))
+  (pub (nundef i64))
+  (pub (text_vm i64))
+  (pub (data_vm i64))
+  (pub (ro_vm i64))
+  (pub (bss_vm i64))
+  (pub (vmsize i64))))
+
+(struct lay
+  (text i64)
+  (data i64)
+  (ro i64)
+  (rt i64)
+  (rd i64)
+  (rr i64)
+  (sym i64)
+  (str i64)
+  (fileoff i64)
+  (filesize i64))
+
+(fn align_up ((n i64) (a i64)) i64 (let m (% n a)) (if (== m 0) n (+ n (- a m))))
+
+(pub (fn vmas ((text i64) (data i64) (ro i64) (bss i64)) vma
+  (let d (align_up text 8))
+  (let r (align_up (+ d data) 8))
+  (let b (align_up (+ r ro) 8))
+  (vma 0 d r b (+ b bss))))
+
+(fn place ((off (&mut i64)) (n i64) (align i64)) i64
+  (if (== n 0) (ret 0))
+  (set (@ off) (align_up (@ off) align))
+  (let at (@ off))
+  (set (@ off) (+ at n))
+  at)
+
+(fn first_off ((a i64) (b i64) (c i64)) i64 (if (!= a 0) (ret a)) (if (!= b 0) (ret b)) c)
+
+(fn span ((start i64) (end i64)) i64 (if (== start 0) 0 (- end start)))
+
+(fn layout ((p (& parts))) lay
+  (let mut off (+ hdr_bytes cmd_bytes))
+  (let text (place (&mut off) (vec.len (& (. p text))) 16))
+  (let data (place (&mut off) (vec.len (& (. p data))) 8))
+  (let ro (place (&mut off) (vec.len (& (. p rodata))) 8))
+  (let end off)
+  (let rt (place (&mut off) (vec.len (& (. p rel_text))) 4))
+  (let rd (place (&mut off) (vec.len (& (. p rel_data))) 4))
+  (let rr (place (&mut off) (vec.len (& (. p rel_rodata))) 4))
+  (let sym (place (&mut off) (vec.len (& (. p syms))) 8))
+  (let start (first_off text data ro))
+  (lay text data ro rt rd rr sym off start (span start end)))
+
+(fn put_pad ((b (&mut (vec u8))) (name (& str))) unit
+  (let n (str.len name))
+  (for i 0 n (vec.push b (str.at name i)))
+  (for i n 16 (vec.push b 0u8)))
+
+(fn put_sec ((b (&mut (vec u8)))
+   (sect (& str))
+   (seg (& str))
+   (addr i64)
+   (size i64)
+   (off i64)
+   (align i64)
+   (reloff i64)
+   (nreloc i64)
+   (flags i64)) unit
+  (put_pad b sect)
+  (put_pad b seg)
+  (elf_out.push_n b addr 8)
+  (elf_out.push_n b size 8)
+  (elf_out.push_n b off 4)
+  (elf_out.push_n b align 4)
+  (elf_out.push_n b reloff 4)
+  (elf_out.push_n b nreloc 4)
+  (elf_out.push_n b flags 4)
+  (elf_out.push_n b 0 12))
+
+(fn put_hdr ((b (&mut (vec u8)))) unit
+  (elf_out.push_n b mh_magic 4)
+  (elf_out.push_n b cpu_arm64 4)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b mh_object 4)
+  (elf_out.push_n b 4 4)
+  (elf_out.push_n b cmd_bytes 4)
+  (elf_out.push_n b mh_subsects 4)
+  (elf_out.push_n b 0 4))
+
+(fn put_seg ((b (&mut (vec u8))) (fileoff i64) (filesize i64) (vmsize i64)) unit
+  (elf_out.push_n b lc_segment 4)
+  (elf_out.push_n b seg_cmd 4)
+  (put_pad b "")
+  (elf_out.push_n b 0 8)
+  (elf_out.push_n b vmsize 8)
+  (elf_out.push_n b fileoff 8)
+  (elf_out.push_n b filesize 8)
+  (elf_out.push_n b prot 4)
+  (elf_out.push_n b prot 4)
+  (elf_out.push_n b 4 4)
+  (elf_out.push_n b 0 4))
+
+(fn put_build ((b (&mut (vec u8)))) unit
+  (elf_out.push_n b lc_build 4)
+  (elf_out.push_n b 24 4)
+  (elf_out.push_n b 1 4)
+  (elf_out.push_n b minos 4)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b 0 4))
+
+(fn put_symtab ((b (&mut (vec u8))) (nsym i64) (symoff i64) (stroff i64) (strsize i64)) unit
+  (elf_out.push_n b lc_symtab 4)
+  (elf_out.push_n b 24 4)
+  (elf_out.push_n b symoff 4)
+  (elf_out.push_n b nsym 4)
+  (elf_out.push_n b stroff 4)
+  (elf_out.push_n b strsize 4))
+
+(fn put_dysym ((b (&mut (vec u8))) (nlocal i64) (nextdef i64) (nundef i64)) unit
+  (elf_out.push_n b lc_dysymtab 4)
+  (elf_out.push_n b 80 4)
+  (elf_out.push_n b 0 4)
+  (elf_out.push_n b nlocal 4)
+  (elf_out.push_n b nlocal 4)
+  (elf_out.push_n b nextdef 4)
+  (elf_out.push_n b (+ nlocal nextdef) 4)
+  (elf_out.push_n b nundef 4)
+  (for i 0 12 (elf_out.push_n b 0 4)))
+
+(fn nrel ((rels (& (vec u8)))) i64 (/ (vec.len rels) 8))
+
+(fn put_text ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (put_sec b
+    "__text"
+    "__TEXT"
+    (. p text_vm)
+    (vec.len (& (. p text)))
+    (. lay text)
+    4
+    (. lay rt)
+    (nrel (& (. p rel_text)))
+    text_flags))
+
+(fn put_data ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (put_sec b
+    "__data"
+    "__DATA"
+    (. p data_vm)
+    (vec.len (& (. p data)))
+    (. lay data)
+    3
+    (. lay rd)
+    (nrel (& (. p rel_data)))
+    0))
+
+(fn put_ro ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (put_sec b
+    "__const"
+    "__DATA"
+    (. p ro_vm)
+    (vec.len (& (. p rodata)))
+    (. lay ro)
+    3
+    (. lay rr)
+    (nrel (& (. p rel_rodata)))
+    0))
+
+(fn put_bss ((b (&mut (vec u8))) (p (& parts))) unit
+  (put_sec b "__bss" "__DATA" (. p bss_vm) (. p bss) 0 3 0 0 bss_flags))
+
+(fn put_cmds ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (put_seg b (. lay fileoff) (. lay filesize) (. p vmsize))
+  (put_text b p lay)
+  (put_data b p lay)
+  (put_ro b p lay)
+  (put_bss b p)
+  (put_build b)
+  (put_symtab b (/ (vec.len (& (. p syms))) 16) (. lay sym) (. lay str) (vec.len (& (. p strs))))
+  (put_dysym b (. p nlocal) (. p nextdef) (. p nundef)))
+
+(fn emit_at ((b (&mut (vec u8))) (off i64) (src (& (vec u8)))) unit
+  (if (== (vec.len src) 0) (ret))
+  (while (< (vec.len b) off) (vec.push b 0u8))
+  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+
+(fn put_body ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (emit_at b (. lay text) (& (. p text)))
+  (emit_at b (. lay data) (& (. p data)))
+  (emit_at b (. lay ro) (& (. p rodata)))
+  (emit_at b (. lay rt) (& (. p rel_text)))
+  (emit_at b (. lay rd) (& (. p rel_data)))
+  (emit_at b (. lay rr) (& (. p rel_rodata)))
+  (emit_at b (. lay sym) (& (. p syms)))
+  (emit_at b (. lay str) (& (. p strs))))
+
+(fn to_str ((b (& (vec u8)))) str
+  (let mut s (str.new))
+  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
+  s)
+
+(pub (fn assemble ((p (& parts))) str
+  (let lay (layout p))
+  (let mut b (vec.new <u8>))
+  (put_hdr (&mut b))
+  (put_cmds (&mut b) p (& lay))
+  (put_body (&mut b) p (& lay))
+  (to_str (& b))))

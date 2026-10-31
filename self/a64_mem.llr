@@ -1,0 +1,75 @@
+;; Loads and stores. x14 holds the address when the offset misses imm12 and imm9.
+;; That add_ri may also clobber x15.
+(use proj.a64_buf)
+(use proj.a64_int)
+
+(pub (struct off (pub (base i64)) (pub (disp i64)) (pub (unscaled bool))))
+
+(fn scaled ((disp i64) (size i64)) bool
+  (and (>= disp 0) (and (== (% disp size) 0) (<= (/ disp size) 4095))))
+
+(fn fits9 ((disp i64)) bool (and (>= disp (neg 256)) (<= disp 255)))
+
+(pub (fn resolve ((b (&mut a64_buf.buf)) (base i64) (disp i64) (size i64)) off
+  (if (scaled disp size) (ret (off base disp false)))
+  (if (fits9 disp) (ret (off base disp true)))
+  (a64_int.add_ri b 8 a64_buf.x14 base disp)
+  (off a64_buf.x14 0 false)))
+
+(pub (fn emit ((b (&mut a64_buf.buf)) (op i64) (rt i64) (rn i64) (disp i64) (unscaled bool) (scale i64)) unit
+  (if unscaled
+    (a64_buf.push_w b (a64_buf.mem9 op rt rn disp))
+    (a64_buf.push_w b (a64_buf.mem12 op rt rn (/ disp scale))))))
+
+(fn load ((b (&mut a64_buf.buf)) (size i64) (dst i64) (base i64) (disp i64) (op_u i64) (op_9 i64)) unit
+  (let o (resolve b base disp size))
+  (let op (if (. o unscaled) op_9 op_u))
+  (emit b op dst (. o base) (. o disp) (. o unscaled) size))
+
+(fn ldr_u ((w i64)) i64
+  (if (== w 1) (ret 0x39400000))
+  (if (== w 2) (ret 0x79400000))
+  (if (== w 4) (ret 0xB9400000))
+  0xF9400000)
+
+(fn ldr_9 ((w i64)) i64
+  (if (== w 1) (ret 0x38400000))
+  (if (== w 2) (ret 0x78400000))
+  (if (== w 4) (ret 0xB8400000))
+  0xF8400000)
+
+(fn str_u ((w i64)) i64
+  (if (== w 1) (ret 0x39000000))
+  (if (== w 2) (ret 0x79000000))
+  (if (== w 4) (ret 0xB9000000))
+  0xF9000000)
+
+(fn str_9 ((w i64)) i64
+  (if (== w 1) (ret 0x38000000))
+  (if (== w 2) (ret 0x78000000))
+  (if (== w 4) (ret 0xB8000000))
+  0xF8000000)
+
+(pub (fn ldr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (base i64) (disp i64)) unit
+  (load b w dst base disp (ldr_u w) (ldr_9 w))))
+
+(pub (fn str ((b (&mut a64_buf.buf)) (w i64) (src i64) (base i64) (disp i64)) unit
+  (load b w src base disp (str_u w) (str_9 w))))
+
+(pub (fn ldrsb ((b (&mut a64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
+  (load b 1 dst base disp 0x39800000 0x38800000)))
+
+(pub (fn ldrsh ((b (&mut a64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
+  (load b 2 dst base disp 0x79800000 0x78800000)))
+
+(pub (fn ldrsw ((b (&mut a64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
+  (load b 4 dst base disp 0xB9800000 0xB8800000)))
+
+(fn pair_at ((b (&mut a64_buf.buf)) (op i64) (rt i64) (rt2 i64) (rn i64) (imm i64)) unit
+  (a64_buf.push_w b (a64_buf.pair op rt rt2 rn (/ imm 8))))
+
+(pub (fn stp_pre ((b (&mut a64_buf.buf)) (rt i64) (rt2 i64) (rn i64) (imm i64)) unit
+  (pair_at b 0xA9800000 rt rt2 rn imm)))
+
+(pub (fn ldp_post ((b (&mut a64_buf.buf)) (rt i64) (rt2 i64) (rn i64) (imm i64)) unit
+  (pair_at b 0xA8C00000 rt rt2 rn imm)))

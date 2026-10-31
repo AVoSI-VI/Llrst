@@ -217,6 +217,16 @@
   (set (. d len) len)
   (diag.render (& d)))
 
+(fn host_darwin () bool
+  (if (== sys.os_id 2) (ret false))
+  (let r (os.capture "uname -s"))
+  (str.starts (& (str.trim (& (. r out)))) "Darwin"))
+
+(fn arch_of ((target (& str))) str
+  (if (or (str.has target "aarch64") (str.has target "arm64")) (ret (str.from "aarch64")))
+  (if (and (== (str.len target) 0) (host_darwin)) (ret (str.from "aarch64")))
+  (str.from "x86_64"))
+
 (pub (fn load_at ((file (& str)) (dir (& str)) (target (& str))) (res prog.prog str)
   (let root (if (> (str.len dir) 0) (slash dir) (try (std_dir file))))
   (let mut srcs (vec.new <src.loaded>))
@@ -228,4 +238,4 @@
   (try (load_projs (&mut srcs) (&mut paths) (& mainp)))
   (match (collect.collect srcs)
     ((res.err e) (res.err (lift (& mainp) (& e))))
-    ((res.ok p) (res.ok p)))))
+    ((res.ok p) (do (let mut q p) (set (. q arch) (arch_of target)) (res.ok q))))))

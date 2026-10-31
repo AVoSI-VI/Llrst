@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds stage-0 llrc, installs llrs2 as llrc, compiles every tool, verifies.
+# Builds stage-0 llrc, bootstraps llrs2, installs that compiler, compiles every tool, verifies.
 # Usage: scripts/install.sh [PREFIX]   (default ~/.local)
 # Output: one pipe record per step. Exit 1 on failure.
 set -u
@@ -26,7 +26,7 @@ rm -rf "$share/std" && cp -r "$root/std" "$share/std" || die "install|copy=std"
 rm -rf "$share/examples" && cp -r "$root/examples" "$share/examples" || die "install|copy=examples"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
 say "ok|runtime|$share/llr_stat.o"
-LLRC="$llrc" "$root/scripts/self.sh" --stage || exit 1
+LLRC="$llrc" bash "$root/scripts/self.sh" --stage || exit 1
 stage="$root/target/self/llrs2"
 [ -f "$stage" ] || stage="$root/target/self/llrs2.exe"
 [ -f "$stage" ] || die "install|llrs2=missing|path=$root/target/self/llrs2"

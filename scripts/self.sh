@@ -2,15 +2,19 @@
 # Stage bootstrap. llrc builds llrs0, llrs0 builds llrs1, llrs1 builds llrs2.
 # Every stage is linked as the same path and then copied, so the output file
 # name is not part of the image. cmp must be byte-equal, then the run suite uses llrs2.
-# Usage: scripts/self.sh [--stage]
+# Usage: scripts/self.sh [--stage|--llrs0]
 # --stage stops after self|stage2=equal and does not run the suite.
+# --llrs0 stops after llrs0. Later stages need a linker that accepts ELF.
 # Output: one pipe record per step. Exit 1 on failure.
 set -u
 stage_only=0
+llrs0_only=0
 if [ "${1:-}" = "--stage" ]; then
   stage_only=1
+elif [ "${1:-}" = "--llrs0" ]; then
+  llrs0_only=1
 elif [ -n "${1:-}" ]; then
-  echo "fail|setup|arg=$1|fix=scripts/self.sh [--stage]"
+  echo "fail|setup|arg=$1|fix=scripts/self.sh [--stage|--llrs0]"
   exit 1
 fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,7 +63,11 @@ mkdir -p "$work" || {
   echo "fail|setup|mkdir=$work"
   exit 1
 }
-rm -f "$out/llrs0" "$out/llrs0.exe" "$out/llrs1" "$out/llrs1.exe" "$out/llrs2" "$out/llrs2.exe"
+if [ "$llrs0_only" -eq 1 ]; then
+  rm -f "$out/llrs0" "$out/llrs0.exe"
+else
+  rm -f "$out/llrs0" "$out/llrs0.exe" "$out/llrs1" "$out/llrs1.exe" "$out/llrs2" "$out/llrs2.exe"
+fi
 
 stage() {
   name="$1"
@@ -87,6 +95,9 @@ stage() {
 }
 
 stage llrs0 "$llrc" || exit 1
+if [ "$llrs0_only" -eq 1 ]; then
+  exit 0
+fi
 stage llrs1 "$out/llrs0" || exit 1
 stage llrs2 "$out/llrs1" || exit 1
 
