@@ -120,7 +120,7 @@
   (if (== b 5) (ret (mem_replace p w e dest)))
   (if (== b 6) (ret (set_kind w dest 13u8)))
   (if (== b 7) (ret (set_kind w dest 14u8)))
-  (if (== b 8) (ret (arch w dest (& (. e ty)))))
+  (if (== b 8) (ret (arch p w dest (& (. e ty)))))
   (if (== b 9) (ret (do_drop p w e)))
   (do_forget p w e))
 
@@ -176,8 +176,9 @@
   (lower.push w (mir.sassign (mir.ploc t) (mir.ruse o)))
   (lower.push w (mir.sforget t)))
 
-(fn arch ((w (&mut lower.low)) (dest mir.place) (t (& ty.sty))) unit
-  (lower.push w (mir.sassign dest (mir.ruse (mir.oconst 3u8 0 0 (str.from "x86_64") (ty.clone t))))))
+(fn arch ((p (& prog.prog)) (w (&mut lower.low)) (dest mir.place) (t (& ty.sty))) unit
+  (lower.push w
+    (mir.sassign dest (mir.ruse (mir.oconst 3u8 0 0 (str.clone (& (. p arch))) (ty.clone t))))))
 
 (pub (fn into_try ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let inner (vec.get (& (. e kids)) 0))

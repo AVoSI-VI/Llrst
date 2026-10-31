@@ -1,0 +1,101 @@
+;; Checked integer overflow and the bsr-equivalent bit index.
+(use proj.a64_buf)
+(use proj.a64_int)
+(use proj.cg_isa)
+(use proj.isa_a64)
+(use std.str)
+
+(fn refit ((b (&mut a64_buf.buf)) (w i64) (signed bool)) unit
+  (if signed
+    (if (== w 1) (a64_int.sxtb b a64_buf.x15 a64_buf.x9) (a64_int.sxth b a64_buf.x15 a64_buf.x9))
+    (if (== w 1) (a64_int.uxtb b a64_buf.x15 a64_buf.x9) (a64_int.uxth b a64_buf.x15 a64_buf.x9)))
+  (a64_int.cmp_rr b 8 a64_buf.x9 a64_buf.x15))
+
+(fn add_small ((b (&mut a64_buf.buf)) (w i64) (signed bool) (sub bool)) unit
+  (isa_a64.ext1 b a64_buf.x9 w signed)
+  (isa_a64.ext1 b a64_buf.x10 w signed)
+  (if sub
+    (a64_int.sub_rr b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+    (a64_int.add_rr b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10))
+  (refit b w signed))
+
+(pub (fn add_ovf ((b (&mut a64_buf.buf)) (w i64) (signed bool)) i64
+  (if (< w 4) (add_small b w signed false) (a64_int.adds b w a64_buf.x9 a64_buf.x9 a64_buf.x10))
+  (if (< w 4) (ret cg_isa.ne))
+  (if signed cg_isa.ovf cg_isa.carry)))
+
+(pub (fn sub_ovf ((b (&mut a64_buf.buf)) (w i64) (signed bool)) i64
+  (if (< w 4) (add_small b w signed true) (a64_int.subs b w a64_buf.x9 a64_buf.x9 a64_buf.x10))
+  (if (< w 4) (ret cg_isa.ne))
+  (if signed cg_isa.ovf cg_isa.ult)))
+
+(fn mul64 ((b (&mut a64_buf.buf)) (signed bool)) unit
+  (if signed
+    (a64_int.smulh b a64_buf.x11 a64_buf.x9 a64_buf.x10)
+    (a64_int.umulh b a64_buf.x11 a64_buf.x9 a64_buf.x10))
+  (a64_int.mul b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (if signed
+    (do
+      (a64_int.mov_ri b a64_buf.x14 63)
+      (a64_int.asrv b 8 a64_buf.x15 a64_buf.x9 a64_buf.x14)
+      (ret (a64_int.cmp_rr b 8 a64_buf.x11 a64_buf.x15))))
+  (a64_int.cmp_ri b 8 a64_buf.x11 0))
+
+(fn mul32 ((b (&mut a64_buf.buf)) (signed bool)) unit
+  (if signed (a64_int.sxtw b a64_buf.x9 a64_buf.x9) (isa_a64.zext32 b a64_buf.x9 a64_buf.x9))
+  (if signed (a64_int.sxtw b a64_buf.x10 a64_buf.x10) (isa_a64.zext32 b a64_buf.x10 a64_buf.x10))
+  (a64_int.mul b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (if signed (a64_int.sxtw b a64_buf.x15 a64_buf.x9) (isa_a64.zext32 b a64_buf.x15 a64_buf.x9))
+  (a64_int.cmp_rr b 8 a64_buf.x9 a64_buf.x15))
+
+(pub (fn mul_ovf ((b (&mut a64_buf.buf)) (w i64) (signed bool)) i64
+  (if (== w 8) (mul64 b signed))
+  (if (== w 4) (mul32 b signed))
+  (if (< w 4)
+    (do
+      (isa_a64.ext1 b a64_buf.x9 w signed)
+      (isa_a64.ext1 b a64_buf.x10 w signed)
+      (a64_int.mul b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+      (refit b w signed)))
+  cg_isa.ne))
+
+(pub (fn exact_bits ((b (&mut a64_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (let d (isa_a64.gpr dst))
+  (a64_int.clz b w d (isa_a64.gpr src))
+  (a64_int.mov_ri b a64_buf.x15 (- (* w 8) 1))
+  (a64_int.sub_rr b w d a64_buf.x15 d)))
+
+(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
+
+(fn hex_byte ((s (&mut str)) (x u8)) unit
+  (str.push_byte s (nib (shr x 4u8)))
+  (str.push_byte s (nib (band x 15u8))))
+
+(fn hex ((b (& a64_buf.buf))) str
+  (let mut s (str.new))
+  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
+  s)
+
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+
+(fn fresh () a64_buf.buf (a64_buf.new))
+
+(test add_ovf
+  (let mut b (fresh))
+  (assert_eq (add_ovf (&mut b) 8 true) cg_isa.ovf)
+  (eq (& b) "29010aab"))
+
+(test sub_ovf
+  (let mut b (fresh))
+  (assert_eq (sub_ovf (&mut b) 8 false) cg_isa.ult)
+  (eq (& b) "29010aeb"))
+
+(test mul_ovf
+  (let mut b (fresh))
+  (assert_eq (mul_ovf (&mut b) 8 true) cg_isa.ne)
+  (eq (& b) "2b7d4a9b297d0a9bee0780d22f29ce9a7f010feb"))
+
+(test exact_bits
+  (let mut b (fresh))
+  (exact_bits (&mut b) 8 cg_isa.acc cg_isa.tmp)
+  (eq (& b) "4911c0daef0780d2e90109cb"))

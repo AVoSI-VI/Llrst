@@ -204,19 +204,23 @@ Census of x86-64 coupling in `self/` (textual occurrences, 2026-10-30):
 | `self/cg_frame.llr` | 412 | Phase 1 removed the x64 calls |
 | `self/cg_term.llr` | 390 | Phase 1 |
 | `self/elf.llr` | 450 | Phase 3 added aarch64 kinds and `elf_a64` |
-| `self/cg_mod.llr` | 332 | Phase 3 routes Darwin finish to Mach-O |
+| `self/cg_mod.llr` | 349 | Phase 4 sets `isa.a64` from the Darwin flag |
 | `self/macho.llr` | 322 | Phase 3 symbols, relocs, and tests |
 | `self/macho_out.llr` | 255 | Phase 3 load commands and layout |
 | `self/isa_x64.llr` | 311 | Phase 1 |
-| `self/cg_isa.llr` | 270 | Phase 1; Phase 4 fills the aarch64 arm |
+| `self/cg_isa.llr` | 381 | Phase 4 dispatches into an `x64_buf` or `a64_buf` |
 | `self/a64.llr` | 321 | Phase 2 integer, branch, and memory tests |
 | `self/a64_buf.llr` | 276 | Phase 2 |
 | `self/a64_fp.llr` | 203 | Phase 2; float tests live here |
-| `self/a64_int.llr` | 197 | Phase 2 |
+| `self/a64_int.llr` | 200 | Phase 4 added `ands` |
 | `self/a64_abi.llr` | 107 | Phase 2; classify test lives here |
 | `self/a64_mem.llr` | 75 | Phase 2 load/store split out of `a64_int` |
+| `self/isa_a64.llr` | 443 | Phase 4 integer, branch, and memory seam |
+| `self/isa_a64_frame.llr` | 182 | Phase 4 prologue, probe, and arguments |
+| `self/isa_a64_ovf.llr` | 101 | Phase 4 overflow and `exact_bits` |
+| `self/isa_a64_fp.llr` | 89 | Phase 4 floating point |
 
-Totals: `self/` 15097 lines in 67 files; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
+Totals: `self/` grew by the aarch64 seam; `std/sys.llr` 63, `sys_posix.llr` 122, `sys_windows.llr` 122.
 
 ## Phases
 
@@ -330,39 +334,39 @@ Files: `self/macho.llr` (new; `self/macho_out.llr` if over 500), `self/elf.llr`,
    `/opt/homebrew/opt/llvm/bin/llvm-objdump -h -r -t` prints the expected table.
 6. `[x]` Commit: `self: mach-o arm64 writer, aarch64 elf relocations`.
 
-### Phase 4: aarch64 side of the seam `[ ]`
+### Phase 4: aarch64 side of the seam `[x]`
 
 Files: `self/isa_a64.llr` (new; split into `isa_a64_fp.llr`, `isa_a64_frame.llr` as needed), `self/cg_isa.llr`, `self/cg_frame.llr`, `self/cg_clos.llr`, `self/cg_entry.llr`, `self/cg_mod.llr`, `self/prog.llr`, `self/lower_call.llr`.
 
-1. `[ ]` Frame: prologue `stp x29, x30, [sp, #-16]!; mov x29, sp; sub sp, sp, #frame`
+1. `[x]` Frame: prologue `stp x29, x30, [sp, #-16]!; mov x29, sp; sub sp, sp, #frame`
    (via `x15` when over 4095); when `frame > 16384` a probe loop stores `xzr` every 16 KiB
    down to the new `sp`; epilogue `mov sp, x29; ldp x29, x30, [sp], #16; ret`. Slot access
    `[x29 - off]` through the offset helper. `frame` stays 16-aligned.
-2. `[ ]` Arguments: `save_args` stores `x0..x7`/`d0..d7` into their slots and copies stack
+2. `[x]` Arguments: `save_args` stores `x0..x7`/`d0..d7` into their slots and copies stack
    arguments from `[x29 + 16 + off]`; `pass_reg`/`pass_mem` fill `x0..x7`/`d0..d7` and
    `[sp, #8k]` inside the 256-byte out area; `to_ret` is `mov x0, x9` or `fmov d0, d16`;
    `from_ret` the reverse. `cg_entry` stores `w0`/`x1` into `llr_argc`/`llr_argv`.
-3. `[ ]` Operations: compares are `cmp` then `b.cond` or `cset`; `--checked` add/sub use
+3. `[x]` Operations: compares are `cmp` then `b.cond` or `cset`; `--checked` add/sub use
    `adds/subs` with `vs` (signed) or `cs` (unsigned carry), mul overflow compares
    `smulh`/`umulh` against the sign-extension of the low half; `srem/urem` are `sdiv/udiv`
    then `msub`; shift counts are already masked in MIR; `trap` is `brk #0`; `sym_addr` is
    `adrp` + `add lo12` with a `page21` and a `pageoff12` relocation; `call_sym` is `bl` with
    `branch26`; `call_r` is `blr`.
-4. `[ ]` Casts in `cg_cast.llr` keep every range and exactness check so the
+4. `[x]` Casts in `cg_cast.llr` keep every range and exactness check so the
    `tests/panic/cast_*`, `int_overflow`, and `shift_*` goldens match stage 0 text; only the
    primitives change. `exact_bits` uses `clz`.
-5. `[ ]` `sys.arch` yields `"aarch64"` when `isa.a64` (`prog.llr` line 120,
+5. `[x]` `sys.arch` yields `"aarch64"` when `isa.a64` (`prog.llr` line 120,
    `lower_call.llr` line 180 take the string from the driver).
-6. `[ ]` Closures: `cg_clos.tramp` stashes `x0..x7`/`d0..d7` in its frame, reloads the
+6. `[x]` Closures: `cg_clos.tramp` stashes `x0..x7`/`d0..d7` in its frame, reloads the
    environment pointer, re-marshals through the seam; `env_drop`, drop glue, vtables, string
    records are unchanged above the seam.
-7. `[ ]` `cg_mod.append_fn` and the buffer type behind `cg_frame.fncx` go through `cg_isa`
+7. `[x]` `cg_mod.append_fn` and the buffer type behind `cg_frame.fncx` go through `cg_isa`
    so a function body is an `x64_buf.buf` or an `a64_buf.buf` by flag.
-8. `[ ]` Gate: with `llrs0` built by stage 0, `LLRC=target/self/llrs0 tests/run.sh` on this
+8. `[x]` Gate: with `llrs0` built by stage 0, `LLRC=target/self/llrs0 tests/run.sh` on this
    Mac is `fails=0` for `run/`, `err/`, `panic/`, `warn/`, and every `std/*.llr --test`;
    `tests/x64_ref.sh` byte-equal. Debug by building the same source with stage 0
    `--emit-obj` and reading both with `llvm-objdump -d -r`.
-9. `[ ]` Commit: `self: aarch64 codegen through cg_isa`.
+9. `[x]` Commit: `self: aarch64 codegen through cg_isa`.
 
 ### Phase 5: driver, link, scripts, docs `[ ]`
 
@@ -448,3 +452,11 @@ CARGO_TARGET_DIR` or read `cargo metadata --format-version 1` before looking for
   `self/llrs` ELF and COFF snapshots were refreshed because the writer is linked into
   the compiler. `tests/check.sh` and `tests/mir.sh` fails=0. `elf_link` still fails on
   this Mac: Apple ld rejects the ELF object. That test is unchanged.
+- 2026-10-31: Phase 4. `cg_isa.code` holds an x86-64 buffer or an AArch64 buffer.
+  Darwin host builds set `isa.a64` and `EM_AARCH64`; phase 5 still owns the triple
+  matrix. `sys.arch` is `prog.arch`, set from the target or from Darwin when the
+  target is empty. Overflow is `isa_a64_ovf.llr` so `isa_a64.llr` stays under 500
+  lines. A frame that misses imm12 adjusts `sp` through `x14`/`x15`. `LLRC=llrs0
+  tests/run.sh` is fails=0 for run, err, panic, warn, and std. `tests/check.sh` and
+  `tests/mir.sh` fails=0. `tests/run` and `std` x86-64 objects stayed byte-equal.
+  `self/llrs` ELF and COFF snapshots were refreshed because the compiler text grew.

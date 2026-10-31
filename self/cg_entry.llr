@@ -3,10 +3,9 @@
 (use proj.cg_isa)
 (use proj.cg_mod)
 (use proj.elf)
-(use proj.x64_buf)
 (use std.str)
 
-(fn epilogue ((b (&mut x64_buf.buf)) (s (& cg_isa.isa))) unit
+(fn epilogue ((b (&mut cg_isa.code)) (s (& cg_isa.isa))) unit
   (cg_isa.zero b s cg_isa.acc)
   (cg_isa.to_ret b s)
   (cg_isa.pop_fp b s)
@@ -14,7 +13,7 @@
 
 (pub (fn emit_main ((g (&mut cg_mod.cg)) (entry i64)) unit
   (let sym (elf.add_sym (&mut (. g obj)) "main" elf.global elf.st_func elf.sec_text 0 0))
-  (let mut b (x64_buf.new))
+  (let mut b (cg_isa.new_code))
   (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
   (cg_isa.prologue (&mut b) (& hw))
   (if (. g win) (cg_isa.sub_ri (&mut b) (& hw) 8 cg_isa.sp 32))
@@ -26,12 +25,12 @@
   (cg_isa.call_sym (&mut b) (& hw) entry)
   (if (. g win) (cg_isa.mov_rr (&mut b) (& hw) 8 cg_isa.sp cg_isa.fp))
   (epilogue (&mut b) (& hw))
-  (let _ (x64_buf.finish (&mut b)))
+  (let _ (cg_isa.finish_code (&mut b) (& hw)))
   (cg_mod.append_fn g sym (& b))))
 
 (pub (fn emit_tests ((g (&mut cg_mod.cg)) (names (& (vec str))) (fns (& (vec i64))) (run i64) (done i64)) i64
   (let sym (elf.add_sym (&mut (. g obj)) "llr_test_entry" elf.local elf.st_func elf.sec_text 0 0))
-  (let mut b (x64_buf.new))
+  (let mut b (cg_isa.new_code))
   (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
   (cg_isa.prologue (&mut b) (& hw))
   (cg_isa.sub_ri (&mut b) (& hw) 8 cg_isa.sp (if (. g win) 48 16))
@@ -42,11 +41,11 @@
   (cg_isa.call_sym (&mut b) (& hw) done)
   (cg_isa.mov_rr (&mut b) (& hw) 8 cg_isa.sp cg_isa.fp)
   (epilogue (&mut b) (& hw))
-  (let _ (x64_buf.finish (&mut b)))
+  (let _ (cg_isa.finish_code (&mut b) (& hw)))
   (cg_mod.append_fn g sym (& b))
   sym))
 
-(fn one_test ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (name (& str)) (fnsym i64) (run i64)) unit
+(fn one_test ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (name (& str)) (fnsym i64) (run i64)) unit
   (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
   (cg_isa.sym_addr b (& hw) (cg_isa.arg_i 0) (cg_mod.str_sym g name))
   (cg_isa.sym_addr b (& hw) (cg_isa.arg_i 1) fnsym)

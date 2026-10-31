@@ -94,6 +94,11 @@
   (a64_int.and_rr (&mut b) 4 a64_buf.x0 a64_buf.x1 a64_buf.x2)
   (eq (& b) "2000028a2000020a"))
 
+(test ands
+  (let mut b (fresh))
+  (a64_int.ands (&mut b) 8 a64_buf.xzr a64_buf.x9 a64_buf.x10)
+  (eq (& b) "3f010aea"))
+
 (test orr_rr
   (let mut b (fresh))
   (a64_int.orr_rr (&mut b) 8 a64_buf.x0 a64_buf.x1 a64_buf.x2)

@@ -9,13 +9,12 @@
 (use proj.mir)
 (use proj.prog)
 (use proj.ty)
-(use proj.x64_buf)
 
 (pub (fn compile ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body)) (sym i64) (trace bool)) unit
   (let mut fx (cg_frame.open g p b 256 trace))
   (cg_clos.prepare g p (&mut fx) b)
   (for i 0 (vec.len (& (. b blocks))) (block g p (&mut fx) b i))
-  (let _ (x64_buf.finish (&mut (. fx buf))))
+  (let _ (cg_isa.finish_code (&mut (. fx buf)) (& (. fx isa))))
   (cg_mod.append_fn g sym (& (. fx buf)))))
 
 (fn block ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (i i64)) unit

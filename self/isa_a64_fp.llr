@@ -1,0 +1,89 @@
+;; AArch64 scalar floating point. fp0 is d16 and fp1 is d17.
+(use proj.a64_buf)
+(use proj.a64_fp)
+(use proj.cg_isa)
+(use proj.isa_a64)
+(use std.str)
+
+(fn f ((r i64)) i64 (isa_a64.fpr r))
+
+(fn g ((r i64)) i64 (isa_a64.gpr r))
+
+(pub (fn fmov ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_fp.fmov b single (f dst) (f src))))
+
+(pub (fn fld ((b (&mut a64_buf.buf)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (a64_fp.fld b single (f dst) (g base) disp)))
+
+(pub (fn fst ((b (&mut a64_buf.buf)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (a64_fp.fst b single (g base) disp (f src))))
+
+(pub (fn fadd ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (let d (f dst))
+  (a64_fp.fadd b single d d (f src))))
+
+(pub (fn fsub ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (let d (f dst))
+  (a64_fp.fsub b single d d (f src))))
+
+(pub (fn fmul ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (let d (f dst))
+  (a64_fp.fmul b single d d (f src))))
+
+(pub (fn fdiv ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (let d (f dst))
+  (a64_fp.fdiv b single d d (f src))))
+
+(pub (fn fneg ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_fp.fneg b single (f dst) (f src))))
+
+(pub (fn fcmp ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (a64_fp.fcmp b single (f dst) (f src))))
+
+(pub (fn i2f ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_fp.scvtf b single (f dst) (g src) w)))
+
+(pub (fn f2i ((b (&mut a64_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (a64_fp.fcvtzs b single (g dst) (f src) w)))
+
+(pub (fn f2f ((b (&mut a64_buf.buf)) (to_single bool) (dst i64) (src i64)) unit
+  (a64_fp.fcvt b to_single (f dst) (f src))))
+
+(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
+
+(fn hex_byte ((s (&mut str)) (x u8)) unit
+  (str.push_byte s (nib (shr x 4u8)))
+  (str.push_byte s (nib (band x 15u8))))
+
+(fn hex ((b (& a64_buf.buf))) str
+  (let mut s (str.new))
+  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
+  s)
+
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+
+(fn fresh () a64_buf.buf (a64_buf.new))
+
+(test fmov (let mut b (fresh)) (fmov (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "3042601e"))
+
+(test fld (let mut b (fresh)) (fld (&mut b) false cg_isa.fp0 cg_isa.fp 16) (eq (& b) "b00b40fd"))
+
+(test fst (let mut b (fresh)) (fst (&mut b) false cg_isa.fp 16 cg_isa.fp0) (eq (& b) "b00b00fd"))
+
+(test fadd (let mut b (fresh)) (fadd (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "102a711e"))
+
+(test fsub (let mut b (fresh)) (fsub (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "103a711e"))
+
+(test fmul (let mut b (fresh)) (fmul (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "100a711e"))
+
+(test fdiv (let mut b (fresh)) (fdiv (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "101a711e"))
+
+(test fneg (let mut b (fresh)) (fneg (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "3042611e"))
+
+(test fcmp (let mut b (fresh)) (fcmp (&mut b) false cg_isa.fp0 cg_isa.fp1) (eq (& b) "0022711e"))
+
+(test i2f (let mut b (fresh)) (i2f (&mut b) false cg_isa.fp0 cg_isa.acc 8) (eq (& b) "3001629e"))
+
+(test f2i (let mut b (fresh)) (f2i (&mut b) false cg_isa.acc cg_isa.fp0 8) (eq (& b) "0902789e"))
+
+(test f2f (let mut b (fresh)) (f2f (&mut b) true cg_isa.fp0 cg_isa.fp0) (eq (& b) "1042621e"))

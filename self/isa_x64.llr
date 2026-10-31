@@ -224,8 +224,7 @@
 
 (pub (fn probe ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (frame i64) (sym i64)) unit
   (mov_ri b s 8 cg_isa.acc frame)
-  (x64_int.call_sym b sym)
-  (cg_isa.from_ret b s)))
+  (x64_int.call_sym b sym)))
 
 (fn save_reg ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (a (& cg_isa.arg)) (w i64) (disp i64) (xmm bool)) unit
   (if xmm (ret (isa_x64_fp.fst b s (== w 4) cg_isa.fp disp (. a reg))))
@@ -272,13 +271,11 @@
   (sym_addr b s cg_isa.dst name)
   (st b s 8 cg_isa.dst cg_isa.fp (+ disp 8))
   (lea b s (cg_isa.arg_i 0) cg_isa.fp disp)
-  (x64_int.call_sym b sym)
-  (cg_isa.from_ret b s)))
+  (x64_int.call_sym b sym)))
 
 (pub (fn trace_pop ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (disp i64) (sym i64)) unit
   (lea b s (cg_isa.arg_i 0) cg_isa.fp disp)
-  (x64_int.call_sym b sym)
-  (cg_isa.from_ret b s)))
+  (x64_int.call_sym b sym)))
 
 (fn sysv_n ((r i64)) i64
   (if (== r x64_buf.rdi) (ret 0))

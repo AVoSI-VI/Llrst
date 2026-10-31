@@ -7,10 +7,9 @@
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
-(use proj.x64_buf)
 
 (pub (struct fncx
-  (pub (buf x64_buf.buf))
+  (pub (buf cg_isa.code))
   (pub (off (vec i64)))
   (pub (z (vec bool)))
   (pub (flag (vec i64)))
@@ -41,25 +40,25 @@
 (pub (fn lea ((fx (&mut fncx)) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.lea (&mut (. fx buf)) (& (. fx isa)) dst base disp)))
 
-(pub (fn bload ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (dst i64) (base i64) (disp i64)) unit
+(pub (fn bload ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (w i64) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.ld b s w dst base disp)))
 
-(pub (fn bstore ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (base i64) (disp i64) (src i64)) unit
+(pub (fn bstore ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (w i64) (base i64) (disp i64) (src i64)) unit
   (cg_isa.st b s w src base disp)))
 
-(pub (fn bsdld ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+(pub (fn bsdld ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.fld b s false dst base disp)))
 
-(pub (fn bsdst ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
+(pub (fn bsdst ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
   (cg_isa.fst b s false base disp src)))
 
-(pub (fn bssld ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+(pub (fn bssld ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.fld b s true dst base disp)))
 
-(pub (fn bssst ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
+(pub (fn bssst ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (base i64) (disp i64) (src i64)) unit
   (cg_isa.fst b s true base disp src)))
 
-(pub (fn blea ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
+(pub (fn blea ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.lea b s dst base disp)))
 
 (pub (fn reset ((fx (&mut fncx))) unit (set (. fx used) 0)))
@@ -78,7 +77,7 @@
   (neg (@ cur)))
 
 (fn blank ((b (& mir.body)) (hw cg_isa.isa)) fncx
-  (fncx (x64_buf.new)
+  (fncx (cg_isa.new_code)
     (vec.new <i64>)
     (vec.new <bool>)
     (vec.new <i64>)
@@ -186,6 +185,10 @@
   fx))
 
 (fn probe ((g (&mut cg_mod.cg)) (fx (&mut fncx))) unit
+  (if (. (. g isa) a64)
+    (do
+      (if (> (. fx frame) 16384) (cg_isa.probe (&mut (. fx buf)) (& (. fx isa)) (. fx frame) 0))
+      (ret)))
   (if (not (. g win)) (ret))
   (if (< (. fx frame) 4096) (ret))
   (if (< (. g chkstk) 0)
@@ -339,12 +342,12 @@
 (fn pop_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64)) unit
   (cg_isa.trace_pop (&mut (. fx buf)) (& (. fx isa)) disp (cg_mod.trace_pop g)))
 
-(pub (fn bpush ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64) (name (& str))) unit
+(pub (fn bpush ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (disp i64) (name (& str))) unit
   (let ns (cg_mod.cstr_sym g name))
   (let sym (cg_mod.trace_push g))
   (cg_isa.trace_push b (& (. g isa)) disp ns sym)))
 
-(pub (fn bpop ((g (&mut cg_mod.cg)) (b (&mut x64_buf.buf)) (disp i64)) unit
+(pub (fn bpop ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (disp i64)) unit
   (let sym (cg_mod.trace_pop g))
   (cg_isa.trace_pop b (& (. g isa)) disp sym)))
 

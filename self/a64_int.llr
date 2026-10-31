@@ -62,6 +62,9 @@
 (pub (fn and_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
   (dp b w 0x0A000000 dst rn rm)))
 
+(pub (fn ands ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
+  (dp b w 0x6A000000 dst rn rm)))
+
 (pub (fn orr_rr ((b (&mut a64_buf.buf)) (w i64) (dst i64) (rn i64) (rm i64)) unit
   (dp b w 0x2A000000 dst rn rm)))
 
