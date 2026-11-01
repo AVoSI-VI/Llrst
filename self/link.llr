@@ -1,10 +1,12 @@
-;; Host link. Unix is cc or clang --target. Windows probes clang, gcc, cc, then cl.
+;; Host link. Unix is cc, clang --target, xcrun for Apple, or the NDK for Android.
+;; Windows probes clang, gcc, cc, then cl.
 (use std.fs)
 (use std.os)
 (use std.path)
 (use std.str)
 (use std.sys)
 (use proj.diag)
+(use proj.link_mac)
 (use proj.link_win)
 (use proj.load)
 
@@ -92,9 +94,77 @@
   (str.push (&mut cmd) " -pthread")
   cmd)
 
+(fn prebuilt ((darwin bool) (a64 bool)) str
+  (if darwin (ret (if a64 (str.from "darwin-arm64") (str.from "darwin-x86_64"))))
+  (if a64 (ret (str.from "linux-aarch64")))
+  (str.from "linux-x86_64"))
+
+(fn alt_prebuilt ((tag (& str))) str
+  (if (str.eq tag "darwin-arm64") (ret (str.from "darwin-x86_64")))
+  (str.new))
+
+(fn ndk_tag () str
+  (if (== sys.os_id 2) (ret (str.from "windows-x86_64")))
+  (let s (os.capture "uname -s"))
+  (let m (os.capture "uname -m"))
+  (let darwin (str.starts (& (str.trim (& (. s out)))) "Darwin"))
+  (prebuilt darwin (mach_a64 (& (str.trim (& (. m out)))))))
+
+(fn ndk_bin ((root (& str)) (host (& str))) str
+  (let pre (path.join root "toolchains/llvm/prebuilt"))
+  (let bin (path.join (& pre) host))
+  (path.join (& bin) "bin/aarch64-linux-android21-clang"))
+
+(fn ndk_root () str
+  (match (os.env "ANDROID_NDK")
+    ((opt.some d) (slash (& d)))
+    ((opt.none) (str.new))))
+
+(fn ndk_clang () str
+  (let root (ndk_root))
+  (if (== (str.len (& root)) 0) (ret (str.new)))
+  (let tag (ndk_tag))
+  (let mut c (vec.new <str>))
+  (push_cand (&mut c) (ndk_bin (& root) (& tag)))
+  (let alt (alt_prebuilt (& tag)))
+  (if (> (str.len (& alt)) 0) (push_cand (&mut c) (ndk_bin (& root) (& alt))))
+  (first (& c)))
+
+(fn and_cmd ((cc (& str)) (obj (& str)) (out (& str))) str
+  (let mut cmd (q cc))
+  (str.push (&mut cmd) " -shared ")
+  (str.push (&mut cmd) (& (q obj)))
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& (q out)))
+  (add_stat (&mut cmd))
+  cmd)
+
+(fn android_cmd ((obj (& str)) (out (& str))) str
+  (let cc (ndk_clang))
+  (if (== (str.len (& cc)) 0) (ret (str.new)))
+  (and_cmd (& cc) obj out))
+
+(fn apple_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+  (let ios (link_mac.ios target))
+  (let sdk (link_mac.sdk_path ios))
+  (if (== (str.len (& sdk)) 0) (ret (str.new)))
+  (let mut cmd (link_mac.cmd obj out ios (& sdk)))
+  (add_stat (&mut cmd))
+  cmd)
+
 (fn cc_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+  (if (link_mac.apple target) (ret (apple_cmd obj out target)))
+  (if (str.has target "android") (ret (android_cmd obj out)))
   (if (> (str.len target) 0) (ret (clang_cmd obj out target)))
   (host_cc obj out))
+
+(fn miss_got ((t (& str))) str
+  (if (str.has t "android") (ret (str.from "ANDROID_NDK missing")))
+  (str.from "sdk missing"))
+
+(fn miss_cmd ((t (& str))) str
+  (if (str.has t "android") (ret (str.from "clang")))
+  (str.from "xcrun"))
 
 (pub (fn host_exe ((out (& str)) (win bool)) str (if win (link_win.exe_of out) (str.clone out))))
 
@@ -229,6 +299,7 @@
   (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
   (let mut cmd (cc_cmd (& obj) out target))
+  (if (== (str.len (& cmd)) 0) (do (rm (& obj)) (ret (fail main (& (miss_cmd target)) (& (miss_got target))))))
   (if (wants_ui bytes)
     (do
       (let err (add_ui (&mut cmd) false (target_dar target) ".o"))
@@ -256,3 +327,19 @@
   (assert_eq (mach_a64 "aarch64") true)
   (assert_eq (mach_a64 "x86_64") false)
   (assert_eq (mach_a64 "Darwin") false))
+
+(test and_shared
+  (let c (and_cmd "ndk-clang" "a.o" "a.so"))
+  (assert (str.has (& c) "ndk-clang"))
+  (assert (str.has (& c) "-shared"))
+  (assert (str.has (& c) "a.o"))
+  (assert (str.has (& c) "a.so"))
+  (assert (not (str.has (& c) "-pie")))
+  (assert_eq (& (prebuilt true true)) "darwin-arm64")
+  (assert_eq (& (prebuilt true false)) "darwin-x86_64")
+  (assert_eq (& (prebuilt false true)) "linux-aarch64")
+  (assert_eq (& (prebuilt false false)) "linux-x86_64")
+  (assert_eq (& (alt_prebuilt "darwin-arm64")) "darwin-x86_64")
+  (assert_eq (& (alt_prebuilt "linux-x86_64")) "")
+  (assert_eq (& (miss_got "aarch64-linux-android")) "ANDROID_NDK missing")
+  (assert_eq (& (miss_got "aarch64-apple-darwin")) "sdk missing"))

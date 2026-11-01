@@ -32,10 +32,22 @@ prints `skip|cross|target=...|self=x86-64 and aarch64 only` for those two when `
 | `x86_64-pc-windows-gnu` | x86-64 | COFF |
 | `aarch64-unknown-linux-gnu` | AArch64 | ELF, `e_machine` 183 |
 | `aarch64-apple-darwin`, `arm64-apple-darwin` | AArch64 | Mach-O arm64 |
+| `aarch64-apple-ios`, `arm64-apple-ios` | AArch64 | Mach-O arm64 |
+| `aarch64-linux-android` | AArch64 | ELF shared library, `e_machine` 183 |
 | `x86_64-apple-darwin` | | rejected |
 
 An empty triple links with host `cc`. A Darwin host omits `-pie`. A non-empty Unix triple
-links with `clang --target=<triple>`. Windows uses the probed linker in `link_win.llr`.
+links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`. An Apple
+triple links with `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` and
+`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos
+--show-sdk-path`. An Android triple links with
+`$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android21-clang -shared`.
+A missing SDK or NDK is `link.failed`. Windows uses the probed linker in `link_win.llr`.
+
+`tests/a64.sh` builds each `tests/run` golden with `--target aarch64-unknown-linux-gnu`,
+links it freestanding, and runs it. A Linux aarch64 host runs the binary. Any other host
+uses `qemu-aarch64`. A missing emulator prints `fail|setup|qemu=missing`. The script is
+not part of `tests/run.sh`.
 
 ## wasm32
 

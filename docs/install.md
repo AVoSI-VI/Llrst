@@ -32,6 +32,9 @@ layout is whatever the host headers define. On a Mac, the same object translates
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
 in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
 Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
+An Apple triple uses `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` with
+`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos --show-sdk-path`.
+An Android triple uses `$ANDROID_NDK`'s `aarch64-linux-android21-clang` with `-shared`.
 Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, `x86_64`
 without `apple`, and `aarch64` or `arm64`, including `apple-darwin`. `riscv64` and `s390x`
 stay on stage 0. `tests/run.sh` and

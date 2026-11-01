@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-11-01|phases=0-13|phase 7 done
+plan|2026-11-01|phases=0-13|phase 8 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -237,16 +237,16 @@ Files: `web/llr_ui.js`, `web/index.html`, `ui/host_web.llr`, `tools/llr-ui.llr`,
 4. `[x]` `examples/counter.llr` runs in a browser unchanged; `docs/tools/llr-ui.md` and the `docs/tools/README.md` row.
 5. `[x]` Commit: `ui: web host on canvas, llr-ui serve`.
 
-### Phase 8: aarch64 backend `[ ]`
+### Phase 8: aarch64 backend `[x]`
 
-Files: `self/a64.llr`, `self/a64_int.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`, `self/a64_buf.llr`, `self/cg_isa.llr`, `self/cg_*.llr`, `self/elf.llr`, `self/macho.llr`, `self/link.llr`, `self/link_mac.llr`, `self/drive.llr`, `tests/cross.sh`, `docs/spec/targets.md`.
+Files: `self/a64.llr`, `self/a64_int.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`, `self/a64_buf.llr`, `self/cg_isa.llr`, `self/cg_*.llr`, `self/elf.llr`, `self/macho.llr`, `self/link.llr`, `self/link_mac.llr`, `self/drive.llr`, `tests/cross.sh`, `tests/a64.sh`, `tests/a64_stub.c`, `docs/spec/targets.md`.
 
 1. `[x]` Split the ISA out of `cg_*`: `cg_isa.llr` is the interface the `cg_*` passes call (`load store op call branch prologue epilogue`), `x64*` and `a64*` implement it. `cg_op.llr` casts live in `cg_cast.llr`.
 2. `[x]` `a64*`: encoder for the subset MIR needs (loads/stores with offsets, add/sub/mul/sdiv/udiv, logical, shifts, compares and branches, fp ops, conversions, `blr`), AAPCS64, every local a slot, `--checked` via flags. Stack arguments are 8-byte slots. The Apple packed-stack variant does not apply: externs are scalar and never exceed eight arguments (`DARWIN.md`).
 3. `[x]` Objects: `elf.llr` aarch64 relocations (`R_AARCH64_CALL26`, `ADR_PREL_PG_HI21`, `ADD_ABS_LO12_NC`, `ABS64`); `macho.llr` arm64 (`ARM64_RELOC_BRANCH26`, `PAGE21`, `PAGEOFF12`, `UNSIGNED`), symbol table, `__TEXT __DATA`, no code signing in the writer.
-4. `[ ]` Link: a non-empty Unix triple, including `aarch64-unknown-linux-gnu`, links with `clang --target=` (`link.llr`). Still open: `link_mac.llr` uses `xcrun clang` with `-target arm64-apple-macos` / `arm64-apple-ios` and `-isysroot` from `xcrun --show-sdk-path`; Android uses the NDK clang from `$ANDROID_NDK` to a shared library.
-5. `[ ]` Verify: `tests/cross.sh` runs a `self/` compiler when `LLRC` names one, and a Darwin arm64 object is checked with `file`. Still open: `tests/run` goldens under `qemu-aarch64` when the host is not aarch64 (`fail|setup|qemu=missing` otherwise).
-6. `[ ]` Commit: `self: aarch64 backend, mach-o, isa split`.
+4. `[x]` Link: a non-empty Unix triple, including `aarch64-unknown-linux-gnu`, links with `clang --target=` (`link.llr`). `link_mac.llr` uses `xcrun clang` with `-target arm64-apple-macos` / `arm64-apple-ios` and `-isysroot` from `xcrun --sdk macosx|iphoneos --show-sdk-path`. Android uses the NDK clang from `$ANDROID_NDK` (`aarch64-linux-android21-clang -shared`).
+5. `[x]` Verify: `tests/cross.sh` runs a `self/` compiler when `LLRC` names one, and a Darwin arm64 object is checked with `file`. `tests/a64.sh` runs `tests/run` goldens as `aarch64-unknown-linux-gnu`. A Linux aarch64 host runs the binary; any other host uses `qemu-aarch64` (`fail|setup|qemu=missing` when it is absent).
+6. `[ ]` Commit: `self: link aarch64 macOS, iOS, and Android; qemu goldens`.
 
 ### Phase 9: mobile hosts and packaging `[ ]`
 
@@ -308,6 +308,7 @@ tests/wasm.sh                                          # Phase 6: run/panic gold
 <llrc> build FILE --target wasm32-wasi --std std -o /tmp/a.wasm && wasmtime /tmp/a.wasm
 llr-ui serve examples/counter.llr                      # Phase 7: open the printed url
 tests/cross.sh                                         # Phase 8: self/ aarch64 objects and links
+tests/a64.sh                                           # Phase 8: tests/run goldens under qemu-aarch64
 llr-ui pack --target aarch64-linux-android examples/counter.llr   # Phase 9
 llr-ui dump examples/todo.llr; llr-ui shot examples/todo.llr /tmp/t.ppm   # Phase 13
 scripts/check-lines.sh                                 # ui/ web/ runtime/*.m included after Phase 0
@@ -324,3 +325,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-31: Phase 5. Win32, X11, and Cocoa present the BGRA buffer and pull a 64-byte event record. One `llr_ui_*` ABI, so `host_pick` can name every host and the link line adds only this operating system's shim when the object references `llr_ui_open`. `.m` shims are compiled with `clang -fobjc-arc` on Darwin only. The suite stays headless. Manual checks are in `docs/ui/hosts.md`.
 - 2026-10-31: Phase 6. `self/` emits one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3. `tests/wasm.sh` runs the run and panic goldens under `wasmtime`. Net, threads, shell, and directory listing are `target.unsupported`.
 - 2026-11-01: Phase 7. `host_web` presents on a canvas. `wasm32-unknown-unknown` keeps the WASI import names and adds the canvas imports; `_start` returns and `llr_frame` is the animation callback. `examples/counter.llr` uses `host_web` when `sys.os_id` is 3 and `host_null` otherwise. `llr-ui serve` builds that module, writes the page, and rebuilds when the source mtime changes. File responses pick a content type from the suffix.
+- 2026-11-01: Phase 8. Apple triples link with `xcrun clang` and an SDK. Android links a shared library with the NDK clang at API 21. `tests/a64.sh` runs the `tests/run` goldens as a freestanding aarch64 Linux ELF, under `qemu-aarch64` when the host cannot execute that ELF.
