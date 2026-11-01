@@ -25,7 +25,10 @@ mkdir -p "$bin" "$share" || die "install|mkdir=$prefix"
 rm -rf "$share/std" && cp -r "$root/std" "$share/std" || die "install|copy=std"
 rm -rf "$share/ui" && cp -r "$root/ui" "$share/ui" || die "install|copy=ui"
 rm -rf "$share/examples" && cp -r "$root/examples" "$share/examples" || die "install|copy=examples"
+rm -rf "$share/web" && cp -r "$root/web" "$share/web" || die "install|copy=web"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
+cc -c -fPIC "$root/runtime/llr_now.c" -o "$share/llr_now.o" || die "build-runtime|cc llr_now.c"
+cc -c -fPIC "$root/runtime/llr_ui_web.c" -o "$share/llr_ui_web.o" || die "build-runtime|cc llr_ui_web.c"
 say "ok|runtime|$share/llr_stat.o"
 os_name="$(uname -s)"
 if [ "$os_name" = "Darwin" ]; then
@@ -45,6 +48,7 @@ cp "$stage" "$bin/llrc" || die "install|copy=llrs2"
 say "ok|llrs2|$bin/llrc"
 say "ok|std|$share/std"
 say "ok|ui|$share/ui"
+say "ok|web|$share/web"
 
 export LLRST_STD="$share/std"
 for src in "$root"/tools/llr-*.llr; do

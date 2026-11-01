@@ -168,7 +168,7 @@
   (wasm_abi.i64c fx (wasm_mod.str_addr g (& loc)))
   (wasm_abi.i64c fx (wasm_mod.str_addr g msg))
   (let ord (wasm_mod.func_sym g p (prog.std_fn p "sys" "abort") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord))
   (wasm_abi.trap fx)))
 
 (fn loc_str ((fx (& wasm_abi.fx))) str

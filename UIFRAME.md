@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-10-31|phases=0-13|phase 6 done
+plan|2026-11-01|phases=0-13|phase 7 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -227,15 +227,15 @@ Files: `self/wasm.llr`, `self/wasm_mod.llr`, `self/wasm_fn.llr`, `self/wasm_op.l
 7. `[x]` `docs/spec/targets.md`: triples, what each lacks, how `sys` picks externs.
 8. `[x]` Commit: `self: wasm32 backend, wasi externs, allocator, suite under wasmtime`.
 
-### Phase 7: web host `[ ]`
+### Phase 7: web host `[x]`
 
 Files: `web/llr_ui.js`, `web/index.html`, `ui/host_web.llr`, `tools/llr-ui.llr`, `docs/tools/llr-ui.md`, `docs/tools/README.md`.
 
-1. `[ ]` Browser imports (module `llr`): `present(ptr w h)` copies the buffer into an `ImageData` and `putImageData` on the `<canvas>`; `size scale now_ms request_frame poll_event(ptr) set_cursor clipboard_get clipboard_set text_input quit`; `llr_ui.js` queues DOM events (pointer, wheel, key, input, resize, visibility) into one record format shared with the C shims.
-2. `[ ]` `host_web`: `request_frame` drives `requestAnimationFrame`; the frame callback is an exported wasm function; `devicePixelRatio` resizes the canvas backing store. Text input uses a hidden `<input>` placed at the caret rect for IME and mobile keyboards.
-3. `[ ]` `llr-ui serve FILE`: builds `FILE` with `--target wasm32-unknown-unknown`, writes `index.html app.wasm llr_ui.js` to an out dir, serves it with `std/http.llr` (`application/wasm` and `text/html` types are needed; HANDOFF Phase 5 item 5 notes it serves everything as `text/plain`), rebuilds on change with `fs.mtime` polling. Records: `serve|url=`, `build|ok|ms=`, `build|fail|...`.
-4. `[ ]` `examples/counter.llr` runs in a browser unchanged; `docs/tools/llr-ui.md` and the `docs/tools/README.md` row.
-5. `[ ]` Commit: `ui: web host on canvas, llr-ui serve`.
+1. `[x]` Browser imports (module `llr`): `present(ptr w h)` copies the buffer into an `ImageData` and `putImageData` on the `<canvas>`; `size scale now_ms request_frame poll_event(ptr) set_cursor clipboard_get clipboard_set text_input quit`; `llr_ui.js` queues DOM events (pointer, wheel, key, input, resize, visibility) into one record format shared with the C shims.
+2. `[x]` `host_web`: `request_frame` drives `requestAnimationFrame`; the frame callback is an exported wasm function; `devicePixelRatio` resizes the canvas backing store. Text input uses a hidden `<input>` placed at the caret rect for IME and mobile keyboards.
+3. `[x]` `llr-ui serve FILE`: builds `FILE` with `--target wasm32-unknown-unknown`, writes `index.html app.wasm llr_ui.js` to an out dir, serves it with `std/http.llr` (`application/wasm` and `text/html` types are needed; HANDOFF Phase 5 item 5 notes it serves everything as `text/plain`), rebuilds on change with `fs.mtime` polling. Records: `serve|url=`, `build|ok|ms=`, `build|fail|...`.
+4. `[x]` `examples/counter.llr` runs in a browser unchanged; `docs/tools/llr-ui.md` and the `docs/tools/README.md` row.
+5. `[x]` Commit: `ui: web host on canvas, llr-ui serve`.
 
 ### Phase 8: aarch64 backend `[ ]`
 
@@ -323,3 +323,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-31: Phase 4. Widget, element, and render arenas, the basic widgets, and the null host. `examples/counter.llr` runs headless. Custom render objects are leaves. `ctx.theme` is a background and foreground pair until phase 11. A trait in another module is `module.Trait`. `(&mut box)` passed to a method is the fat pointer. Goldens: `tests/ui/host_null`, `box`, `flex`, `stack`, `text`, `image`, `fx`, `counter`, `gesture`, `counter_tap`, `focus`.
 - 2026-10-31: Phase 5. Win32, X11, and Cocoa present the BGRA buffer and pull a 64-byte event record. One `llr_ui_*` ABI, so `host_pick` can name every host and the link line adds only this operating system's shim when the object references `llr_ui_open`. `.m` shims are compiled with `clang -fobjc-arc` on Darwin only. The suite stays headless. Manual checks are in `docs/ui/hosts.md`.
 - 2026-10-31: Phase 6. `self/` emits one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3. `tests/wasm.sh` runs the run and panic goldens under `wasmtime`. Net, threads, shell, and directory listing are `target.unsupported`.
+- 2026-11-01: Phase 7. `host_web` presents on a canvas. `wasm32-unknown-unknown` keeps the WASI import names and adds the canvas imports; `_start` returns and `llr_frame` is the animation callback. `examples/counter.llr` uses `host_web` when `sys.os_id` is 3 and `host_null` otherwise. `llr-ui serve` builds that module, writes the page, and rebuilds when the source mtime changes. File responses pick a content type from the suffix.

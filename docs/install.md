@@ -18,15 +18,15 @@ Stage 0 builds `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llr
 Darwin. `scripts/self.ps1` is the same
 bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
 `/Brepro`. `--stage` stops after `self|stage2=equal`. The install
-script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, and `examples/` to
+script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, `web/`, and `examples/` to
 `PREFIX/share/llrst/`, compiles the host runtime
-(`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
-and `runtime/llr_win_proc.c` on Windows, plus the desktop UI shim for this host), compiles every `tools/llr-*.llr`, and verifies with
+(`runtime/llr_stat.c`, `runtime/llr_now.c`, and `runtime/llr_ui_web.c` on Unix; `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
+`runtime/llr_win_proc.c`, `runtime/llr_now.c`, and `runtime/llr_ui_web.c` on Windows, plus the desktop UI shim for this host), compiles every `tools/llr-*.llr`, and verifies with
 `examples/hello.llr`. Output is pipe records; the last line is `done|prefix=...|tools=N`.
 The installed compiler links those prebuilt objects. It does not compile the C files when
 the object is missing or older.
 
-`fs.mtime` and `fs.size` link that object. The C uses `st_mtime` and `st_size`, so the
+`fs.mtime` and `fs.size` link `llr_stat`. `fs.now_ms` links `llr_now`. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`, and the compiler renames
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
@@ -40,9 +40,9 @@ runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` ag
 stage 0 binary. When `LLRC` is not stage 0, `tests/run.sh` runs `tests/cross.sh` again with
 that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
-`llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places, using the first of
+`llr_win`, `llr_win_sock`, `llr_win_proc`, and `llr_now` from those same places, using the first of
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
-A program that calls `llr_ui_open` also links the UI shim from that search: `llr_ui_win`
+A program that calls `llr_ui_open` also links the UI shim from that search. A program that calls `llr_web_present` also links `llr_ui_web`. The desktop shim is: `llr_ui_win`
 and `llr_ui_win_in` with `user32 gdi32 imm32 shell32` on Windows, `llr_ui_mac` and
 `llr_ui_mac_in` with `-framework Cocoa` on Darwin, and `llr_ui_x11` and `llr_ui_x11_in`
 with `-lX11` elsewhere. Darwin compiles the `.m` files with `clang -fobjc-arc`. Linux

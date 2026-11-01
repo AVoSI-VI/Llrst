@@ -33,7 +33,8 @@
   (pub (caddr (vec i64)))
   (pub (vkey (vec str)))
   (pub (vaddr (vec i64)))
-  (pub (imps (vec i64)))))
+  (pub (imps (vec i64)))
+  (pub (imp_n i64))))
 
 (fn z64 () (vec u8) (let mut v (vec.new <u8>)) (for i 0 64 (vec.push (&mut v) 0u8)) v)
 
@@ -62,20 +63,26 @@
     (vec.new <i64>)
     (vec.new <str>)
     (vec.new <i64>)
-    (vec.new <i64>)))
+    (vec.new <i64>)
+    (wasm_imp.nimp wasi)))
 
 (pub (fn new ((checked bool) (wasi bool)) wm (let mut g (blank checked wasi)) (prep_imp (&mut g)) g))
 
 (fn prep_imp ((g (&mut wm))) unit
-  (let n (wasm_imp.nimp))
+  (let n (. g imp_n))
   (let mut i 0)
   (while (< i n) (do (let ty (imp_ty g i)) (vec.push (&mut (. g imps)) ty) (set i (+ i 1)))))
+
+(fn arg_byte ((k i64)) u8 (if (== k 1) (ret 126u8)) (if (== k 2) (ret 125u8)) 127u8)
+
+(fn ret_byte ((k i64)) u8 (if (== k 1) (ret 126u8)) (if (== k 3) (ret 125u8)) 127u8)
 
 (fn imp_ty ((g (&mut wm)) (i i64)) i64
   (let mut ps (vec.new <u8>))
   (let mut rs (vec.new <u8>))
-  (for n 0 (wasm_imp.argc i) (vec.push (&mut ps) (if (== (wasm_imp.arg_kind i n) 1) 126u8 127u8)))
-  (if (!= (wasm_imp.ret_kind i) 2) (vec.push (&mut rs) 127u8))
+  (let rk (wasm_imp.ret_kind i))
+  (for n 0 (wasm_imp.argc i) (vec.push (&mut ps) (arg_byte (wasm_imp.arg_kind i n))))
+  (if (and (!= rk 2) (!= rk 4)) (vec.push (&mut rs) (ret_byte rk)))
   (intern g (& ps) (& rs)))
 
 (pub (fn intern ((g (&mut wm)) (ps (& (vec u8))) (rs (& (vec u8)))) i64
@@ -112,7 +119,12 @@
 
 (pub (fn set_code ((g (&mut wm)) (ord i64) (code (vec u8))) unit (vec.set (&mut (. g codes)) ord code)))
 
-(pub (fn call_of ((ord i64)) i64 (+ (wasm_imp.nimp) ord)))
+(pub (fn call_of ((g (& wm)) (ord i64)) i64 (+ (. g imp_n) ord)))
+
+(pub (fn find_name ((g (& wm)) (part (& str))) i64
+  (for i 0 (vec.len (& (. g names)))
+    (if (str.has (vec.get (& (. g names)) i) part) (ret i)))
+  (neg 1)))
 
 (fn align_data ((g (&mut wm)) (a i64)) unit
   (if (<= a 1) (ret))

@@ -20,7 +20,7 @@
   (let bytes (if (<= n 0) 1 n))
   (wasm_abi.i64c fx bytes)
   (let alloc (wasm_mod.func_sym g p (prog.std_fn p "sys" "alloc") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of alloc))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g alloc))
   (wasm_abi.set_acc fx)
   (let heap (wasm_abi.hold_acc fx))
   (put g p fx (& ty) hold heap n)

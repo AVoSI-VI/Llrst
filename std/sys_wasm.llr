@@ -258,6 +258,8 @@
   (let _ out)
   (as i64 (fail_i "llr_stat_size"))))
 
+(pub (fn llr_now_ms () i64 0))
+
 (pub (fn unlink ((path (ptr u8))) i32 (let _ path) (fail_i "unlink")))
 
 (pub (fn mkdir ((path (ptr u8)) (mode i32)) i32 (let _ path) (let _ mode) (fail_i "mkdir")))

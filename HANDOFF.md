@@ -334,7 +334,7 @@ Files: `tools/llr-write.llr`, `tools/llr-ls.llr`, `tools/llr-rm.llr`, `tools/llr
 2. `[x]` `llr-ls` lists one directory and does not recurse.
 3. `[x]` `llr-rm` deletes a file and does not remove a directory.
 4. `[x]` `llr-fmt`: `--width N` (default 100), `--blank N` (default 1) between top-level forms; consecutive `use` forms and a form after a comment get no blank line; a comment inside a form forces multi-line.
-5. `[x]` `llr-http` serves every file as `200 text/plain`; `docs/tools/llr-http.md` says "one exact route" and then lists `/health /graphql /soap /ws`.
+5. `[x]` `llr-http` serves a file as `200` with a suffix type (`.html` `text/html`, `.wasm` `application/wasm`, `.js` `text/javascript`, otherwise `text/plain`). `docs/tools/llr-http.md` lists `/health /graphql /soap /ws`.
 6. `[x]` `docs/tools/README.md` says every list tool accepts `--max N` and every record starts with a tag: `llr-diff` and `llr-test` have no `--max`; `llr-read`, `llr-find`, `llr-grep`, `llr-ls` records have no tag; `more|` payloads differ per tool (`more|N`, `more|limit reached`, `more|NEXT|TOTAL`); `docs/workflows/README.md` tag list omits `usage file status log`. `llr-test.md` describes a forked child only (Windows re-execs). `fmtlint.llr` is named only here, not in `llr-fmt.md`.
 7. `[x]` `docs/workflows/new-tool.md` step 7 adds a row to `docs/tools/README.md` but not to `README.md`; step 8 names `install.sh` only.
 8. `[x]` Commit: `tools: write makes directories, ls recurses, rm removes directories`.

@@ -1,7 +1,8 @@
 # Desktop hosts
 
 Win32, X11, and Cocoa present the same BGRA8 buffer and pull events into one 64-byte
-record. The suite stays headless. `examples/counter.llr` keeps `host_null`. A window is:
+record. The suite stays headless. `examples/counter.llr` uses `host_null` when `sys.os_id`
+is not 3, and `host_web` when it is. A window is:
 
 ```
 (use ui.app)
@@ -53,3 +54,15 @@ Run a windowed counter on each desktop. The golden suite does not open a window.
 - Press Tab. The key code is 9. Shift is modifier bit 0.
 - With text input on, commit an IME string. It arrives as one `text` event.
 - `set_cursor` switches arrow, text, hand, and cross.
+
+## Web
+
+`host_web` is the same trait over a canvas. `llr-ui serve` builds
+`wasm32-unknown-unknown` and the page in `web/` instantiates it. `_start` returns after
+the first frame. `requestAnimationFrame` calls the export `llr_frame`. The buffer is
+BGRA8 premultiplied; the page swizzles it to straight RGBA for `putImageData`. `size`
+is CSS pixels. `scale` is `devicePixelRatio`, and the canvas backing store is device
+pixels. Wheel `w` is the opposite of `deltaY`. Text input is a hidden `<input>` at the
+caret rect. Clipboard reads are synchronous, so the page keeps the last copy and paste.
+A native link of a program that references `llr_web_present` adds `llr_ui_web.o`, which
+does nothing. The counter's headless path never calls it.

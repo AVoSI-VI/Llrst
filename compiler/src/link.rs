@@ -78,6 +78,11 @@ fn wants_ui(obj: &[u8]) -> bool {
     obj.windows(needle.len()).any(|w| w == needle)
 }
 
+fn wants_web(obj: &[u8]) -> bool {
+    let needle = b"llr_web_present";
+    obj.windows(needle.len()).any(|w| w == needle)
+}
+
 fn ui_missing() -> Diag {
     Diag::error(Span::default(), "link.failed").kv("cmd", "cc").kv("got", "llr_ui_*.o missing")
 }
@@ -117,6 +122,9 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
     if let Some(shim) = find_named("llr_stat.o") {
         cmd.arg(shim);
     }
+    if let Some(now) = find_named("llr_now.o") {
+        cmd.arg(now);
+    }
     if target.is_none() {
         // Apple clang rejects `-pie` as unused; PIE is already the default.
         #[cfg(not(target_os = "macos"))]
@@ -126,6 +134,9 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
     if wants_ui(obj) {
         add_ui_unix(&mut cmd, target)?;
     }
+    if wants_web(obj) {
+        cmd.arg(find_named("llr_ui_web.o").ok_or_else(ui_missing)?);
+    }
     finish_link(&mut cmd, &obj_path)
 }
 
@@ -134,6 +145,7 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
     let tool = cc_tool()?;
     let shim = ensure_shim(&tool)?;
     let ui = if wants_ui(obj) { ensure_ui(&tool)? } else { Vec::new() };
+    let web = if wants_web(obj) { ensure_named(&tool, &["llr_ui_web.c"], "llr_ui_web.c")? } else { Vec::new() };
     let obj_path = out.with_extension(if tool.msvc { "obj" } else { "o" });
     write_obj(&obj_path, obj)?;
     let mut cmd = Command::new(tool.name);
@@ -148,6 +160,9 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
         for part in &ui {
             cmd.arg(part);
         }
+        for part in &web {
+            cmd.arg(part);
+        }
         if !ui.is_empty() {
             cmd.arg("user32.lib").arg("gdi32.lib").arg("imm32.lib").arg("shell32.lib");
         }
@@ -158,6 +173,9 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
             cmd.arg(part);
         }
         for part in &ui {
+            cmd.arg(part);
+        }
+        for part in &web {
             cmd.arg(part);
         }
         cmd.arg("-o").arg(&out).arg("-lws2_32");
@@ -271,7 +289,7 @@ fn ensure_ui(tool: &Tool) -> PResult<Vec<PathBuf>> {
 }
 
 fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
-    ensure_named(tool, &["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c"], "llr_win.c")
+    ensure_named(tool, &["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c", "llr_now.c"], "llr_win.c")
 }
 
 fn ensure_named(tool: &Tool, names: &[&str], anchor: &str) -> PResult<Vec<PathBuf>> {

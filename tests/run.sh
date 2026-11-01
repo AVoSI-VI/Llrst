@@ -20,6 +20,14 @@ cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
   echo "fail|setup|cc=llr_stat.c"
   exit 1
 }
+cc -c -fPIC "$root/runtime/llr_now.c" -o "$root/runtime/llr_now.o" || {
+  echo "fail|setup|cc=llr_now.c"
+  exit 1
+}
+cc -c -fPIC "$root/runtime/llr_ui_web.c" -o "$root/runtime/llr_ui_web.o" || {
+  echo "fail|setup|cc=llr_ui_web.c"
+  exit 1
+}
 os_name="$(uname -s)"
 if [ "$os_name" = "Darwin" ]; then
   clang -fobjc-arc -c "$root/runtime/llr_ui_mac.m" -o "$root/runtime/llr_ui_mac.o" || {

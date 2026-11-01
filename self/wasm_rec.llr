@@ -87,10 +87,10 @@
   (wasm_abi.get_acc fx)
   (wasm_abi.set_tmp fx)
   (if (== k 2u8) (ret (copy_back g p fx s d i variant)))
-  (if (== k 1u8)
-    (wasm_abi.ld_fp_sp fx d false)
-    (do (wasm_abi.reload_acc fx d) (wasm_abi.get_acc fx) (wasm_abi.set_acc fx)))
   (let ft (field_ty p s i variant))
+  (if (== k 1u8)
+    (wasm_abi.ld_fp_sp fx d (== (. ft kind) 1u8))
+    (do (wasm_abi.reload_acc fx d) (wasm_abi.get_acc fx) (wasm_abi.set_acc fx)))
   (wasm_abi.store_s fx (& ft)))
 
 (fn copy_back ((g (&mut wasm_mod.wm))

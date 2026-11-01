@@ -71,6 +71,7 @@
     (res.ok (font bytes info cmap (glyph.cache.new 262144)))))
   (pub (fn open ((path (& str))) (res font str) (let bytes (try (fs.read path))) (font.from_bytes bytes)))
   (pub (fn bundled () (res font str)
+    (if (== sys.os_id 3) (ret (font.open "ui/fonts/LiberationSans-Regular.ttf")))
     (let dir (ui_dir))
     (if (== (str.len (& dir)) 0) (ret (res.err (str.from "font.bad"))))
     (font.open (& (join_path (& dir) "fonts/LiberationSans-Regular.ttf")))))

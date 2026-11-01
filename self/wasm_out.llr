@@ -17,7 +17,7 @@
   (wasm.section (&mut o) 4 (& (table_sec g)))
   (wasm.section (&mut o) 5 (& (mem_sec pages)))
   (wasm.section (&mut o) 6 (& (global_sec heap)))
-  (wasm.section (&mut o) 7 (& (export_sec start)))
+  (wasm.section (&mut o) 7 (& (export_sec g start)))
   (wasm.section (&mut o) 9 (& (elem_sec g)))
   (wasm.section (&mut o) 10 (& (code_sec g)))
   (wasm.section (&mut o) 11 (& (data_sec g)))
@@ -35,8 +35,9 @@
 (fn import_sec ((g (& wasm_mod.wm))) (vec u8)
   (let mut b (vec.new <u8>))
   (let modn (wasm_imp.wasi (. g wasi)))
-  (wasm.vec_len (&mut b) (wasm_imp.nimp))
-  (for i 0 (wasm_imp.nimp) (one_imp (&mut b) (& modn) i (@ (vec.get (& (. g imps)) i))))
+  (let n (. g imp_n))
+  (wasm.vec_len (&mut b) n)
+  (for i 0 n (one_imp (&mut b) (& modn) i (@ (vec.get (& (. g imps)) i))))
   b)
 
 (fn one_imp ((b (&mut (vec u8))) (modn (& str)) (i i64) (ty i64)) unit
@@ -76,16 +77,23 @@
   (wasm.end (&mut b))
   b)
 
-(fn export_sec ((start i64)) (vec u8)
+(fn export_sec ((g (& wasm_mod.wm)) (start i64)) (vec u8)
+  (let frame (wasm_mod.find_name g "host_web_llr_frame"))
   (let mut b (vec.new <u8>))
-  (wasm.vec_len (&mut b) 2)
+  (wasm.vec_len (&mut b) (if (>= frame 0) 3 2))
   (wasm.name (&mut b) "_start")
   (wasm.byte (&mut b) 0)
-  (wasm.uleb (&mut b) (wasm_mod.call_of start))
+  (wasm.uleb (&mut b) (wasm_mod.call_of g start))
+  (if (>= frame 0) (export_frame (&mut b) g frame))
   (wasm.name (&mut b) "memory")
   (wasm.byte (&mut b) 2)
   (wasm.uleb (&mut b) 0)
   b)
+
+(fn export_frame ((b (&mut (vec u8))) (g (& wasm_mod.wm)) (ord i64)) unit
+  (wasm.name b "llr_frame")
+  (wasm.byte b 0)
+  (wasm.uleb b (wasm_mod.call_of g ord)))
 
 (fn elem_sec ((g (& wasm_mod.wm))) (vec u8)
   (let mut b (vec.new <u8>))
@@ -94,7 +102,7 @@
   (wasm.i32_const (&mut b) 0)
   (wasm.end (&mut b))
   (wasm.vec_len (&mut b) (vec.len (& (. g names))))
-  (for i 0 (vec.len (& (. g names))) (wasm.uleb (&mut b) (wasm_mod.call_of i)))
+  (for i 0 (vec.len (& (. g names))) (wasm.uleb (&mut b) (wasm_mod.call_of g i)))
   b)
 
 (fn code_sec ((g (& wasm_mod.wm))) (vec u8)
@@ -138,7 +146,7 @@
   (let mut b (vec.new <u8>))
   (wasm.vec_len (&mut b) (vec.len (& (. g names))))
   (for i 0 (vec.len (& (. g names)))
-    (do (wasm.uleb (&mut b) (wasm_mod.call_of i)) (wasm.name (&mut b) (vec.get (& (. g names)) i))))
+    (do (wasm.uleb (&mut b) (wasm_mod.call_of g i)) (wasm.name (&mut b) (vec.get (& (. g names)) i))))
   b)
 
 (fn to_str ((v (& (vec u8)))) str

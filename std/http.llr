@@ -1,14 +1,13 @@
-;; HTTP/1.1 messages, chunked bodies, route templates, and a WebSocket poll server.
 (use std.fs)
 (use std.http_body)
 (use std.http_route)
+(use std.http_type)
 (use std.http_ws)
 (use std.net)
 (use std.path)
 (use std.sha)
 (use std.str)
 (use std.sys)
-
 (pub (struct req
   (pub (method str))
   (pub (path str))
@@ -201,6 +200,7 @@
 (fn file_path ((root (& str)) (path (& str))) (opt str)
   (if (str.has path "..") (ret (opt.none)))
   (let rest (if (str.starts path "/") (str.slice path 1 (str.len path)) (str.from path)))
+  (if (== (str.len (& rest)) 0) (ret (opt.some (path.join root "index.html"))))
   (opt.some (path.join root (& rest))))
 
 (fn file_body ((root (& str)) (path (& str))) resp
@@ -208,7 +208,7 @@
     ((opt.none) (respond 400 "bad path" "text/plain" "bad path"))
     ((opt.some p)
       (match (fs.read (& p))
-        ((res.ok b) (respond 200 "ok" "text/plain" (& b)))
+        ((res.ok b) (respond 200 "ok" (& (http_type.mime (& p))) (& b)))
         ((res.err _) (respond 404 "not found" "text/plain" "not found"))))))
 
 (fn dispatch ((s (ptr svc)) (r (&mut req))) resp
@@ -365,14 +365,14 @@
   (clear_buf s fd)
   (bump s))
 
-(pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
+(pub (fn serve_wait ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64) (wait i32) (tick (clos () bool))) (res i64 str)
   (let mut s (svc (str.from root) (as (ptr u8) routes) (vec.new <conn>) 0 stop_after))
   (let sp (as (ptr svc) (&mut s)))
-  (let ran
-    (net.poll_serve fd -1 (clos ((fd i64) (data (& str))) bool (on_http fd data (as (ptr u8) sp)))))
+  (let ran (net.poll_serve_wait fd -1 wait (clos ((fd i64) (data (& str))) bool (on_http fd data (as (ptr u8) sp))) tick))
   (if (res.is_err (& ran)) (ret (res.err (res.unwrap_err ran))))
   (res.ok (. (@ sp) done))))
-
+(pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
+  (serve_wait fd root routes stop_after -1i32 (clos () bool true))))
 (fn health ((_ (& req)) (_ (ptr u8))) resp (respond 200 "ok" "text/plain" "ok"))
 
 (fn file_client ((port i64)) i32

@@ -159,14 +159,14 @@
   (wasm_abi.lea fx slot)
   (wasm_abi.get_acc fx)
   (let ord (wasm_mod.func_sym g p (prog.std_fn p "sys" "llr_trace_push") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn pop_trace ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx))) unit
   (if (not (. fx do_trace)) (ret))
   (wasm_abi.lea fx (. fx trace))
   (wasm_abi.get_acc fx)
   (let ord (wasm_mod.func_sym g p (prog.std_fn p "sys" "llr_trace_pop") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn cfg ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (& mir.body))) unit
   (let n (vec.len (& (. b blocks))))
@@ -204,7 +204,7 @@
   (wasm_abi.lea fx slot)
   (wasm_abi.get_acc fx)
   (let ord (wasm_mod.func_sym g p (prog.std_fn p "sys" "llr_trace_pop") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn assign ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (& mir.body)) (s (& mir.st))) unit
   (let k (. (. s rv) kind))
@@ -360,13 +360,16 @@
   (let ty (wasm_mod.intern g (& ps) (& rs)))
   (let ord (wasm_mod.add_fn g (str.from "_start") ty))
   (let mut fx (wasm_abi.fresh (str.from "_start") 0))
-  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of boot))
-  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of entry))
-  (wasm_abi.i32c (&mut fx) 0)
-  (wasm_abi.call_ix (&mut fx) 5)
-  (wasm_abi.trap (&mut fx))
+  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of g boot))
+  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of g entry))
+  (if (. g wasi) (exit_wasi (&mut fx)) (wasm_abi.retn (&mut fx)))
   (wasm_mod.set_code g ord (wasm_abi.finish (& fx)))
   ord)
+
+(fn exit_wasi ((fx (&mut wasm_abi.fx))) unit
+  (wasm_abi.i32c fx 0)
+  (wasm_abi.call_ix fx 5)
+  (wasm_abi.trap fx))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
   (let mut o (vec.new <ty.sty>))

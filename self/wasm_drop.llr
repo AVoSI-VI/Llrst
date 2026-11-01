@@ -24,7 +24,7 @@
   (let ord (wasm_mod.drop_sym g (& ty)))
   (if (and (== (vec.len pk) 0) (@ (vec.get (& (. fx fon)) local))) (ret (guarded g p fx local ord)))
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord))))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord))))
 
 (fn guarded ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (local i64) (ord i64)) unit
   (wasm_abi.load_sp fx (@ (vec.get (& (. fx flag)) local)) 1 false)
@@ -35,7 +35,7 @@
   (wasm_abi.op_else fx)
   (wasm_abi.addr_local fx local)
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord))
   (wasm_flag.set_flag fx local false)
   (wasm_abi.end fx)
   (let _ g)
@@ -75,7 +75,7 @@
   (wasm_abi.addr_local fx local)
   (wasm_abi.add_acc fx (@ (vec.get (& (. l fields)) i)))
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord))
   (wasm_flag.set_field fx local i false)
   (wasm_abi.end fx))
 
@@ -115,7 +115,7 @@
   (wasm_abi.reload_acc fx data)
   (wasm_abi.get_acc fx)
   (let free (wasm_mod.func_sym g p (prog.std_fn p "sys" "free") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of free)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g free)))
 
 (fn glue_clos ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx))) unit
   (wasm_abi.get fx 0)
@@ -141,7 +141,7 @@
 (fn call_meth ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (id i64) (args (& (vec ty.sty)))) unit
   (let ord (wasm_mod.func_sym g p id (clone_tys args)))
   (wasm_abi.get fx 0)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn glue_struct ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (t (& ty.sty)) (d (& prog.def))) unit
   (let l (cg_lay.of (&mut (. g lays)) p t))
@@ -155,7 +155,7 @@
   (wasm_abi.set_acc fx)
   (wasm_abi.add_acc fx off)
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn glue_enum ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (t (& ty.sty)) (d (& prog.def))) unit
   (let l (cg_lay.of (&mut (. g lays)) p t))
@@ -190,13 +190,13 @@
   (wasm_abi.store_sp fx 8 8)
   (wasm_abi.lea fx 0)
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn untrace ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx))) unit
   (let ord (wasm_mod.func_sym g p (prog.std_fn p "sys" "llr_trace_pop") (vec.new <ty.sty>)))
   (wasm_abi.lea fx 0)
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))

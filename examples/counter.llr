@@ -1,8 +1,10 @@
 ;; Flutter counter. A tap sends message 1 and the text key is the count.
+(use std.sys)
 (use ui.app)
 (use ui.blend)
 (use ui.ctx)
 (use ui.host_null)
+(use ui.host_web)
 (use ui.key)
 (use ui.state)
 (use ui.w_box)
@@ -32,6 +34,7 @@
 (fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (model 0)))
 
 (fn main () unit
+  (if (== sys.os_id 3) (ret (host_web.run (root))))
   (let mut h (host_null.host_null.from_args))
   (let n (host_null.host_null.frames (& h)))
   (app.run h (root) n))

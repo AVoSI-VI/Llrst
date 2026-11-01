@@ -112,6 +112,27 @@ for f in "$root"/tests/panic/*.llr; do
   run_one panic "$name" "$tmp/panic_$name.wasm"
 done
 
+"$llrc" build "$root/examples/counter.llr" --std std --ui ui --target wasm32-unknown-unknown -o "$tmp/counter.wasm" 2>"$tmp/counter.cerr"
+if [ $? -ne 0 ]; then
+  echo "fail|web/counter|compile|$(head -1 "$tmp/counter.cerr")"
+  fails=$((fails+1))
+elif ! grep -a -q present "$tmp/counter.wasm" || ! grep -a -q llr_frame "$tmp/counter.wasm"; then
+  echo "fail|web/counter|import=present|export=llr_frame"
+  fails=$((fails+1))
+else
+  echo "ok|web/counter"
+fi
+"$llrc" build "$root/examples/hello.llr" --std std --target wasm32-wasi -o "$tmp/hello_wasi.wasm" 2>"$tmp/hello_wasi.cerr"
+if [ $? -ne 0 ]; then
+  echo "fail|web/hello|compile|$(head -1 "$tmp/hello_wasi.cerr")"
+  fails=$((fails+1))
+elif grep -a -q present "$tmp/hello_wasi.wasm"; then
+  echo "fail|web/hello|import=present"
+  fails=$((fails+1))
+else
+  echo "ok|web/hello"
+fi
+
 echo "skip|net|reason=target.unsupported"
 echo "skip|thread|reason=target.unsupported"
 echo "skip|os.shell|reason=target.unsupported"

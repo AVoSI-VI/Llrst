@@ -1,0 +1,17 @@
+;; llr-ui serve FILE [--out DIR] [--port N]
+(use proj.serve)
+(use std.cli)
+(use std.io)
+(use std.os)
+(use std.str)
+
+(fn main () unit
+  (let mut c (cli.new "llr-ui" "build a wasm ui and serve it"))
+  (cli.pos (&mut c) "cmd")
+  (cli.pos (&mut c) "file")
+  (cli.opt (&mut c) "out" ".llr-ui")
+  (cli.opt (&mut c) "port" "0")
+  (cli.parse (&mut c) (os.args))
+  (if (not (str.eq (cli.at (& c) 0) "serve"))
+    (do (io.eputs "E|<llr-ui>|0|0|0|ui.cmd|name=serve") (os.exit 1)))
+  (serve.run (cli.at (& c) 1) (cli.get (& c) "out") (cli.get_int (& c) "port")))

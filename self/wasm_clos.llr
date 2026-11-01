@@ -65,7 +65,7 @@
   (let mut u (+ env 1))
   (for i 0 (vec.len (& (. c user)))
     (if (not (ty.is_unit (vec.get (& (. c user)) i))) (do (wasm_abi.get fx u) (set u (+ u 1)))))
-  (wasm_abi.call_ix fx (wasm_mod.call_of inner))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g inner))
   (wasm_abi.retn fx))
 
 (fn push_cap ((fx (&mut wasm_abi.fx)) (env i64) (t (& ty.sty)) (off i64)) unit
@@ -110,7 +110,7 @@
   (drop_caps g p (&mut fx) c)
   (wasm_abi.get (&mut fx) 0)
   (let free (wasm_mod.func_sym g p (prog.std_fn p "sys" "free") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of free))
+  (wasm_abi.call_ix (&mut fx) (wasm_mod.call_of g free))
   (wasm_abi.bump_sp (&mut fx) 64)
   (wasm_abi.retn (&mut fx))
   (wasm_mod.set_code g ord (wasm_abi.finish (& fx)))
@@ -129,7 +129,7 @@
   (wasm_abi.set_acc fx)
   (wasm_abi.add_acc fx off)
   (wasm_abi.get_acc fx)
-  (wasm_abi.call_ix fx (wasm_mod.call_of ord)))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord)))
 
 (pub (fn fill ((g (&mut wasm_mod.wm))
    (p (& prog.prog))
@@ -144,7 +144,7 @@
   (let n (if (<= (. seq size) 0) 1 (. seq size)))
   (wasm_abi.i64c fx n)
   (let alloc (wasm_mod.func_sym g p (prog.std_fn p "sys" "alloc") (vec.new <ty.sty>)))
-  (wasm_abi.call_ix fx (wasm_mod.call_of alloc))
+  (wasm_abi.call_ix fx (wasm_mod.call_of g alloc))
   (wasm_abi.set_acc fx)
   (let env (wasm_abi.hold_acc fx))
   (store_caps g p fx locs r (& seq) env)
