@@ -318,11 +318,32 @@
   (let ks (render.kids_of rt id))
   (for i 0 (vec.len (& ks)) (place_one rt g (@ (vec.get (& ks) i)) x y sw sh)))
 
+(fn span_of ((max f32) (child f32)) f32 (if (layout.bounded max) max child))
+
+(fn scroll_off ((rt (& render.rtree)) (id u32)) f32 (. (. (node rt id) d) off))
+
+(fn lay_scroll ((rt (&mut render.rtree))
+   (g (&mut fonts))
+   (id u32)
+   (c (& constraints))
+   (x f32)
+   (y f32)) geom.size
+  (let off (scroll_off rt id))
+  (let max_w (if (layout.bounded (. c max_w)) (. c max_w) layout.unbound))
+  (let inner (constraints 0.0f32 max_w 0.0f32 layout.unbound))
+  (let y0 (- y off))
+  (let sz (lay_one rt g id (& inner) x y0))
+  (match (kid0 rt id)
+    ((opt.some k) (do (render.set_rel rt k 0.0f32 (neg off)) (render.place_abs rt k x y0)))
+    ((opt.none) ()))
+  (geom.size (span_of (. c max_w) (. sz w)) (span_of (. c max_h) (. sz h))))
+
 (fn dispatch ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
   (let ty (ty_of rt id))
   (if (== ty widget.ty_row) (ret (lay_flex rt g id c x y 0)))
-  (if (== ty widget.ty_column) (ret (lay_flex rt g id c x y 1)))
+  (if (or (== ty widget.ty_column) (== ty widget.ty_scaffold)) (ret (lay_flex rt g id c x y 1)))
   (if (== ty widget.ty_stack) (ret (lay_stack rt g id c x y)))
+  (if (== ty widget.ty_scroll) (ret (lay_scroll rt g id c x y)))
   (if (== ty widget.ty_text) (ret (lay_text rt g id c)))
   (if (== ty widget.ty_image) (ret (lay_image rt id c)))
   (if (custom_of rt id) (ret (lay_custom rt id c)))

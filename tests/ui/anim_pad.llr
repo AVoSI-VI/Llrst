@@ -21,8 +21,11 @@
 
 (impl state.state
   phase
-  (fn build ((self (& phase)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (view (. self on)))
-  (fn msg ((_s (&mut phase)) (_m i64)) unit ())
+  (fn build ((self (& phase)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (view (. self on)))
+  (fn msg ((_s (&mut phase)) (_m i64)) bool false)
+  (fn input ((_s (&mut phase)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& phase))) i64 (neg 1))
   (fn dispose ((_s (&mut phase))) unit ())
   (fn ticking ((self (& phase))) bool (not (. self on)))
   (fn tick ((self (&mut phase)) (dt i64) (_g (& anim.goal))) bool

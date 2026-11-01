@@ -1,0 +1,124 @@
+;; A stack of routes. Push slides the new page in; pop slides it back out.
+(use std.str)
+(use ui.anim)
+(use ui.ctx)
+(use ui.curve)
+(use ui.key)
+(use ui.state)
+(use ui.tween)
+(use ui.w_fx)
+(use ui.w_stack)
+(use ui.widget)
+
+(struct model (ids (vec i64)) (c anim.ctrl) (dropb bool) (body (clos (i64) (box (dyn widget.widget)))))
+
+(fn one ((n i64)) (vec i64)
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) n)
+  v)
+
+(fn pack ((self (& model))) str
+  (let mut s (str.from "N|"))
+  (for i 0 (vec.len (& (. self ids)))
+    (if (> i 0) (str.push_byte (&mut s) 44u8))
+    (str.push (&mut s) (& (str.from_int (@ (vec.get (& (. self ids)) i))))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. (. self c) pos))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (if (. self dropb) 1 0))))
+  s)
+
+(fn piece ((s (& str)) (sep u8) (i i64)) str
+  (let ps (str.split s sep))
+  (if (>= i (vec.len (& ps))) (ret (str.from "")))
+  (str.clone (vec.get (& ps) i)))
+
+(fn num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn restore ((self (&mut model)) (text (& str))) unit
+  (if (not (str.starts text "N|")) (ret))
+  (let rest (str.slice text 2 (str.len text)))
+  (let ids (piece (& rest) 124u8 0))
+  (let parts (str.split (& ids) 44u8))
+  (let mut next (vec.new <i64>))
+  (for i 0 (vec.len (& parts)) (vec.push (&mut next) (num (vec.get (& parts) i))))
+  (if (== (vec.len (& next)) 0) (vec.push (&mut next) 0))
+  (set (. self ids) next)
+  (set (. (. self c) pos) (num (& (piece (& rest) 124u8 1))))
+  (set (. self dropb) (== (num (& (piece (& rest) 124u8 2))) 1)))
+
+(fn push_id ((self (&mut model)) (id i64)) unit
+  (vec.push (&mut (. self ids)) id)
+  (set (. (. self c) pos) 0)
+  (anim.ctrl.forward (&mut (. self c))))
+
+(fn arm_pop ((self (&mut model))) bool
+  (if (<= (vec.len (& (. self ids))) 1) (ret false))
+  (set (. (. self c) pos) (. (. self c) dur))
+  (anim.ctrl.reverse (&mut (. self c)))
+  (set (. self dropb) true)
+  true)
+
+(fn tx_of ((self (& model)) (top bool) (w f32)) f32
+  (if (not top) (ret 0.0f32))
+  (if (not (anim.ctrl.running (& (. self c)))) (ret 0.0f32))
+  (let t (curve.apply curve.ease_in_out (anim.ctrl.value (& (. self c)))))
+  (tween.num w 0.0f32 t))
+
+(fn top_id ((self (& model))) i64
+  (let n (vec.len (& (. self ids))))
+  (if (== n 0) (ret 0))
+  (@ (vec.get (& (. self ids)) (- n 1))))
+
+(fn pages ((self (& model)) (c (& ctx.ctx))) (box (dyn widget.widget))
+  (let id (top_id self))
+  (let page (call (. self body) id))
+  (let slide (w_fx.transform (tx_of self true (. c w)) 0.0f32 1.0f32 1.0f32 0.0f32 page))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (widget.with_key slide (key.key.value (as u32 id))))
+  (w_stack.stack ks))
+
+(fn finish ((self (&mut model))) bool
+  (if (not (and (. self dropb) (== (anim.ctrl.status (& (. self c))) anim.dismissed))) (ret false))
+  (set (. self dropb) false)
+  (let n (vec.len (& (. self ids))))
+  (if (> n 1) (drop (vec.remove (&mut (. self ids)) (- n 1))))
+  true)
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (pages self c))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (ret (arm_pop self)))
+    (if (>= m 100) (do (push_id self (- m 100)) (ret true)))
+    false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (o (&mut state.out))) bool
+    (if (== (. e kind) state.in_back) (ret (arm_pop self)))
+    (if (== (. e kind) state.in_flush) (do (set (. o handoff) true) (set (. o text) (pack self)) (ret false)))
+    (if (== (. e kind) state.in_paste) (do (restore self (& (. e text))) (ret true)))
+    false)
+  (fn route ((self (& model))) i64 (vec.len (& (. self ids))))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((self (& model))) bool (or (. self dropb) (anim.ctrl.running (& (. self c)))))
+  (fn tick ((self (&mut model)) (dt i64) (_g (& anim.goal))) bool
+    (let was (anim.ctrl.value (& (. self c))))
+    (let live (anim.ctrl.advance (&mut (. self c)) dt))
+    (let moved (!= was (anim.ctrl.value (& (. self c)))))
+    (let done (finish self))
+    (or live (or moved done))))
+
+(pub (fn navigator ((body (clos (i64) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (state.stateful widget.ty_nav (key.key.none) (model (one 0) (anim.ctrl.make 200) false body)))
+)
+(test nav_pop
+  (let mut m (model (one 0) (anim.ctrl.make 200) false (clos ((i i64)) (box (dyn widget.widget)) (widget.empty))))
+  (assert_eq (state.state.route (& m)) 1)
+  (assert (state.state.msg (&mut m) 101))
+  (assert_eq (state.state.route (& m)) 2)
+  (assert (state.state.msg (&mut m) 1))
+  (let g (anim.goal_new))
+  (assert (state.state.tick (&mut m) 200 (& g)))
+  (assert_eq (state.state.route (& m)) 1)
+  (assert (not (state.state.msg (&mut m) 1))))

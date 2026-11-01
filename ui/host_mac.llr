@@ -27,4 +27,5 @@
     (host_shim.clip_set (& (. self s)) text))
   (fn text_input ((self (&mut host_mac)) (on bool) (r (& geom.rect))) unit
     (host_shim.text_input (& (. self s)) on r))
-  (fn quit ((self (&mut host_mac))) unit (host_shim.quit (&mut (. self s)))))
+  (fn quit ((self (&mut host_mac))) unit (host_shim.quit (&mut (. self s))))
+  (fn history ((_s (&mut host_mac)) (_n i64)) unit ()))

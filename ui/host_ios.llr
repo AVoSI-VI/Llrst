@@ -27,6 +27,7 @@
     (host_shim.clip_set (& (. self s)) text))
   (fn text_input ((self (&mut host_ios)) (on bool) (r (& geom.rect))) unit
     (host_shim.text_input (& (. self s)) on r))
-  (fn quit ((self (&mut host_ios))) unit (host_shim.quit (&mut (. self s)))))
+  (fn quit ((self (&mut host_ios))) unit (host_shim.quit (&mut (. self s))))
+  (fn history ((_s (&mut host_ios)) (_n i64)) unit ()))
 
 (test host_ios_kind (assert_eq host.cursor_text 1))

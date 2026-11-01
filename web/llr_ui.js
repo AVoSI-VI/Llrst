@@ -12,6 +12,8 @@
   let pending = false;
   let raf = 0;
   let clip = "";
+  let hist = 1;
+  let suppress = false;
   const canvas = document.getElementById("llr");
   const ctx = canvas.getContext("2d", { alpha: true });
   const input = document.createElement("input");
@@ -202,6 +204,24 @@
     input.focus();
   }
 
+  function history(n) {
+    const next = n | 0;
+    if (next === hist) return;
+    if (next > hist) {
+      suppress = false;
+      window.history.pushState({ n: next }, "");
+      hist = next;
+      return;
+    }
+    if (suppress) {
+      suppress = false;
+      hist = next;
+      return;
+    }
+    hist = next;
+    window.history.back();
+  }
+
   function quit() {
     stopped = true;
     if (raf) cancelAnimationFrame(raf);
@@ -294,7 +314,7 @@
     environ_sizes_get: sizes,
     random_get,
     present, size, scale, now_ms, request_frame, poll_event, set_cursor,
-    clipboard_get, clipboard_set, text_input, quit, bind, app,
+    clipboard_get, clipboard_set, text_input, quit, bind, app, history,
   };
 
   canvas.addEventListener("pointerdown", (e) => {
@@ -317,7 +337,7 @@
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const p = xy(e);
-    ptrEv(4, p.x, p.y, -e.deltaX, -e.deltaY);
+    ptrEv(4, p.x, p.y, e.deltaX, e.deltaY);
   }, { passive: false });
   window.addEventListener("keydown", (e) => {
     if (e.key === "Tab") e.preventDefault();
@@ -331,6 +351,10 @@
   window.addEventListener("paste", (e) => {
     const t = e.clipboardData && e.clipboardData.getData("text/plain");
     if (t) clip = t;
+  });
+  window.addEventListener("popstate", () => {
+    suppress = true;
+    pushKind(8);
   });
   window.addEventListener("resize", () => pushKind(4));
   document.addEventListener("visibilitychange", () => {

@@ -253,6 +253,12 @@ static void on_key(llr_and *h, const AInputEvent *ev) {
     int mods = mods_of(AKeyEvent_getMetaState(ev));
     uint8_t buf[4];
     int n;
+    if (AKeyEvent_getKeyCode(ev) == 4) {
+        if (down) {
+            llr_ui_kind(h->q, &h->qn, 8);
+        }
+        return;
+    }
     llr_ui_key(h->q, &h->qn, down ? 1 : 0, uni, mods);
     if (!down || uni <= 0) {
         return;

@@ -8,7 +8,8 @@
   (pub (frame))
   (pub (quit))
   (pub (life i64))
-  (pub (inset f32 f32 f32 f32))))
+  (pub (inset f32 f32 f32 f32))
+  (pub (back))))
 
 (pub (const down i64 0))
 
@@ -45,6 +46,8 @@
 (pub (const rec_life i64 6))
 
 (pub (const rec_inset i64 7))
+
+(pub (const rec_back i64 8))
 
 (pub (const pause i64 0))
 
@@ -86,6 +89,7 @@
 (fn named ((xs (& (vec str))) (s (& str))) (opt event)
   (if (str.eq s "frame") (ret (opt.some (event.frame))))
   (if (str.eq s "quit") (ret (opt.some (event.quit))))
+  (if (str.eq s "back") (ret (opt.some (event.back))))
   (if (str.eq s "life") (ret (life_ev xs)))
   (if (str.eq s "inset")
     (ret (opt.some (event.inset (f_at xs 1) (f_at xs 2) (f_at xs 3) (f_at xs 4)))))
@@ -130,6 +134,10 @@
         (assert_eq (as i64 b) 48)))
     ((opt.some _) (assert false))
     ((opt.none) (assert false)))
+  (match (parse_line "back")
+    ((opt.some (event.back)) (assert true))
+    ((opt.some _) (assert false))
+    ((opt.none) (assert false)))
   (assert (opt.is_none (& (parse_line "nope"))))
   (assert (opt.is_none (& (parse_line "life|nope")))))
 
@@ -148,6 +156,7 @@
   (if (== k rec_quit) (ret (opt.some (event.quit))))
   (if (== k rec_life) (ret (opt.some (event.life (ri p 4)))))
   (if (== k rec_inset) (ret (opt.some (event.inset (rf p 16) (rf p 20) (rf p 24) (rf p 28)))))
+  (if (== k rec_back) (ret (opt.some (event.back))))
   (opt.none <event>))
 
 (fn text_len ((p (ptr u8))) i64 (let n (ri p 4)) (if (< n 0) (ret 0)) (if (> n 32) 32 n))

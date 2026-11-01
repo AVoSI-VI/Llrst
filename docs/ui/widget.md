@@ -6,7 +6,7 @@ Source: `ui/widget.llr`. Import with `(use ui.widget)` for module functions; typ
 
 ## Types
 
-- `(struct rdesc (pub (pad_l f32)) (pub (pad_t f32)) (pub (pad_r f32)) (pub (pad_b f32)) (pub (ax f32)) (pub (ay f32)) (pub (has_color bool)) (pub (color blend.color)) (pub (text str)) (pub (font_size f32)) (pub (has_image bool)) (pub (image bitmap.bitmap)) (pub (opacity f32)) (pub (clip bool)) (pub (has_xform bool)) (pub (tx f32)) (pub (ty f32)) (pub (sx f32)) (pub (sy f32)) (pub (rot f32)) (pub (min_w f32)) (pub (max_w f32)) (pub (min_h f32)) (pub (max_h f32)) (pub (tight bool)) (pub (has_custom bool)) (pub (custom (box (dyn render.render)))) (pub (flex i64)) (pub (has_pos bool)) (pub (px f32)) (pub (py f32)) (pub (pw f32)) (pub (ph f32)))`
+- `(struct rdesc (pub (pad_l f32)) (pub (pad_t f32)) (pub (pad_r f32)) (pub (pad_b f32)) (pub (ax f32)) (pub (ay f32)) (pub (has_color bool)) (pub (color blend.color)) (pub (text str)) (pub (font_size f32)) (pub (has_image bool)) (pub (image bitmap.bitmap)) (pub (opacity f32)) (pub (clip bool)) (pub (has_xform bool)) (pub (tx f32)) (pub (ty f32)) (pub (sx f32)) (pub (sy f32)) (pub (rot f32)) (pub (min_w f32)) (pub (max_w f32)) (pub (min_h f32)) (pub (max_h f32)) (pub (tight bool)) (pub (has_custom bool)) (pub (custom (box (dyn render.render)))) (pub (flex i64)) (pub (has_pos bool)) (pub (px f32)) (pub (py f32)) (pub (pw f32)) (pub (ph f32)) (pub (off f32)))`
 - `(struct pdata (pub (flex i64)) (pub (has_pos bool)) (pub (x f32)) (pub (y f32)) (pub (w f32)) (pub (h f32)) (pub (gesture bool)) (pub (relayout bool)) (pub (repaint bool)))`
 - `(struct leaf (ty i64) (k key.key) (kids (vec (box (dyn widget)))) (gesture bool) (tap (clos () i64)) (d rdesc))`
 
@@ -54,6 +54,24 @@ Source: `ui/widget.llr`. Import with `(use ui.widget)` for module functions; typ
 | `widget.ty_acont` | `i64` | `21` |
 | `widget.ty_aopac` | `i64` | `22` |
 | `widget.ty_apad` | `i64` | `23` |
+| `widget.ty_theme` | `i64` | `24` |
+| `widget.ty_scroll` | `i64` | `25` |
+| `widget.ty_list` | `i64` | `26` |
+| `widget.ty_scaffold` | `i64` | `27` |
+| `widget.ty_bar` | `i64` | `28` |
+| `widget.ty_button` | `i64` | `29` |
+| `widget.ty_icon` | `i64` | `30` |
+| `widget.ty_field` | `i64` | `31` |
+| `widget.ty_check` | `i64` | `32` |
+| `widget.ty_switch` | `i64` | `33` |
+| `widget.ty_slider` | `i64` | `34` |
+| `widget.ty_dialog` | `i64` | `35` |
+| `widget.ty_snack` | `i64` | `36` |
+| `widget.ty_tile` | `i64` | `37` |
+| `widget.ty_card` | `i64` | `38` |
+| `widget.ty_rule` | `i64` | `39` |
+| `widget.ty_progress` | `i64` | `40` |
+| `widget.ty_nav` | `i64` | `41` |
 | `widget.role_leaf` | `i64` | `0` |
 | `widget.role_less` | `i64` | `1` |
 | `widget.role_full` | `i64` | `2` |
@@ -70,6 +88,8 @@ Source: `ui/widget.llr`. Import with `(use ui.widget)` for module functions; typ
 | `widget.empty` | `()` | `(box (dyn widget))` |
 | `widget.make` | `((ty i64) (k key.key) (kids (vec (box (dyn widget)))) (d rdesc) (gesture bool) (tap (clos () i64)))` | `(box (dyn widget))` |
 | `widget.stateless` | `((k key.key) (bld (clos ((& ctx.ctx)) (box (dyn widget)))))` | `(box (dyn widget))` |
+| `widget.view` | `((ty i64) (k key.key) (bld (clos ((& ctx.ctx)) (box (dyn widget)))))` | `(box (dyn widget))` |
+| `widget.view_kids` | `((ty i64) (kids (vec (box (dyn widget)))) (bld (clos ((& ctx.ctx) (vec (box (dyn widget)))) (box (dyn widget)))))` | `(box (dyn widget))` |
 | `widget.with_key` | `((w (box (dyn widget))) (k key.key))` | `(box (dyn widget))` |
 | `widget.custom` | `((ty i64) (k key.key) (r (box (dyn render.render))))` | `(box (dyn widget))` |
 

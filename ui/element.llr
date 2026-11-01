@@ -3,6 +3,7 @@
 (use ui.key)
 (use ui.render)
 (use ui.state)
+(use ui.theme)
 (use ui.widget)
 
 (pub (struct elem
@@ -111,11 +112,31 @@
 (fn keep ((es (&mut elems)) (id u32) (got (opt (box (dyn state.state))))) unit
   (match got ((opt.some s) (set_st es id s)) ((opt.none) ())))
 
+(fn flush_of ((es (&mut elems)) (id u32) (o (&mut state.out))) unit
+  (let mut e (state.ev_new))
+  (set (. e kind) state.in_flush)
+  (let n (at_mut es id))
+  (drop (state.state.input (&mut (. n st)) (& e) o)))
+
+(fn accept ((es (&mut elems)) (id u32) (neu (box (dyn state.state))) (text (& str))) unit
+  (let mut e (state.ev_text state.in_paste (str.clone text)))
+  (let mut back (state.out_new))
+  (let mut neu neu)
+  (drop (state.state.input (&mut neu) (& e) (&mut back)))
+  (set_st es id neu))
+
 (fn pull_state ((es (&mut elems)) (id u32)) unit
   (if (!= (role_at es id) widget.role_full) (ret))
   (let has (has_st_at es id))
   (let got (take_init es id))
-  (if has (drop got) (keep es id got)))
+  (if (not has) (ret (keep es id got)))
+  (match got
+    ((opt.none) ())
+    ((opt.some neu)
+      (do
+        (let mut o (state.out_new))
+        (flush_of es id (&mut o))
+        (if (. o handoff) (accept es id neu (& (. o text))) (drop neu))))))
 
 (fn fill_at ((es (&mut elems)) (id u32) (out (&mut widget.rdesc))) unit
   (let n (at_mut es id))
@@ -213,11 +234,15 @@
   (let ks (kids_at es id))
   (for i 0 (vec.len (& ks)) (apply_one es rt (@ (vec.get (& ks) i)) (& pd))))
 
+(fn keep_scroll ((es (& elems)) (parent u32) (n i64)) bool
+  (and (== (ty_at es parent) widget.ty_scroll) (and (== n 0) (> (vec.len (& (kids_at es parent))) 0))))
+
 (fn reconcile ((es (&mut elems))
    (rt (&mut render.rtree))
    (parent u32)
    (nw (vec (box (dyn widget.widget))))
    (c (& ctx.ctx))) unit
+  (if (keep_scroll es parent (vec.len (& nw))) (ret))
   (let old (kids_at es parent))
   (let mut used (falses (vec.len (& old))))
   (let mut next (vec.new <u32>))
@@ -253,20 +278,29 @@
 
 (fn build_full ((es (&mut elems)) (id u32) (c (& ctx.ctx))) (box (dyn widget.widget))
   (if (not (has_st_at es id)) (ret (widget.empty)))
+  (let kids (take_kids es id))
   (let n (at_mut es id))
-  (state.state.build (& (. n st)) c))
+  (state.state.build (& (. n st)) c kids))
+
+(fn themed ((es (& elems)) (id u32) (c (& ctx.ctx))) ctx.ctx
+  (if (!= (ty_at es id) widget.ty_theme) (ret (ctx.ctx.with_theme c (ctx.ctx.theme c))))
+  (let k (widget.widget.key (& (. (at es id) widget))))
+  (let th (if (and (. k on) (== (as i64 (. k id)) 1)) (ctx.palette_dark) (ctx.palette_light)))
+  (ctx.ctx.with_theme c th))
 
 (fn take_kids ((es (&mut elems)) (id u32)) (vec (box (dyn widget.widget)))
   (let n (at_mut es id))
   (widget.widget.take_children (&mut (. n widget))))
 
 (fn sync ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (c (& ctx.ctx))) unit
+  (clear_dirty es id)
+  (let c2 (themed es id c))
   (let role (role_at es id))
   (let mut ws (vec.new < (box (dyn widget.widget)) >))
-  (if (== role widget.role_less) (vec.push (&mut ws) (build_less es id c)))
-  (if (== role widget.role_full) (vec.push (&mut ws) (build_full es id c)))
+  (if (== role widget.role_less) (vec.push (&mut ws) (build_less es id (& c2))))
+  (if (== role widget.role_full) (vec.push (&mut ws) (build_full es id (& c2))))
   (if (== role widget.role_leaf) (set ws (take_kids es id)))
-  (reconcile es rt id ws c)
+  (reconcile es rt id ws (& c2))
   (relink es rt id)
   (if (widget.parent_data (ty_at es id)) (apply es rt id)))
 
@@ -329,11 +363,12 @@
 (pub (fn rebuild ((es (&mut elems)) (rt (&mut render.rtree)) (id u32) (c (& ctx.ctx))) unit
   (if (not (live_at es id)) (ret))
   (if (dirty_at es id) (do (clear_dirty es id) (sync es rt id c)))
+  (let c2 (themed es id c))
   (let ty (ty_at es id))
   (let ks (kids_at es id))
   (for i 0 (vec.len (& ks))
     (let kid (@ (vec.get (& ks) i)))
-    (let cc (ctx.ctx.child c kid ty))
+    (let cc (ctx.ctx.child (& c2) kid ty))
     (rebuild es rt kid (& cc)))))
 
 (fn sized ((w f32) (k key.key)) (box (dyn widget.widget))

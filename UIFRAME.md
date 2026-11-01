@@ -192,7 +192,7 @@ Files: `compiler/src/` and `self/` twins per item, `docs/spec/types.md`, `docs/s
 Files: `ui/widget.llr`, `ui/key.llr`, `ui/element.llr`, `ui/state.llr`, `ui/ctx.llr`, `ui/render.llr`, `ui/layout.llr`, `ui/render_box.llr`, `ui/render_paint.llr`, `ui/hit.llr`, `ui/event.llr`, `ui/focus.llr`, `ui/sched.llr`, `ui/app.llr`, `ui/host.llr`, `ui/host_null.llr`, `ui/w_*.llr`, `examples/counter.llr`, `tests/ui/`, `docs/ui/`, `docs/canon/ui.md`.
 
 Custom render objects are leaves. `row`, `column`, and `stack` are framework layout.
-`ctx.theme` is a background and foreground pair until phase 11 adds `ui/theme.llr`.
+`ctx.theme` was a background and foreground pair until phase 11 added `ui/theme.llr`.
 
 1. `[x]` `host` trait: `size scale present(bitmap) poll(events) request_frame now_ms set_cursor clipboard_get clipboard_set text_input(on off rect) quit`. `host_null`: fixed size from args, no events unless scripted from a `.events` file, `present` writes the `--shot` PPM.
 2. `[x]` `widget` trait and `key`; `element` arena with `mount update unmount rebuild` and dirty list; `stateful` / `state` with `init build dispose set_state`; `ctx` gives `size theme find_ancestor`. Reconciliation by runtime type id plus key, like Flutter's `canUpdate`.
@@ -268,16 +268,18 @@ Files: `ui/ticker.llr`, `ui/anim.llr`, `ui/curve.llr`, `ui/tween.llr`, `ui/w_ani
 3. `[x]` Goldens: the null host accepts `--frames N --step MS` and dumps the render tree after each frame.
 4. `[x]` Commit: `ui: tickers, controllers, curves, implicit animations`.
 
-### Phase 11: default widget set `[ ]`
+### Phase 11: default widget set `[x]`
 
 Files: `ui/theme.llr`, `ui/m_*.llr`, `ui/w_scroll.llr`, `ui/w_list.llr`, `ui/navigator.llr`, `examples/todo.llr`, `tests/ui/`, `docs/canon/ui.md`.
 
-1. `[ ]` `theme`: colours, text styles, spacing, light and dark; found through `ctx`.
-2. `[ ]` `w_scroll`: a scroll view with a viewport, pointer drag and wheel, clamped physics with fling; `w_list`: a builder list that lays out only visible children; a `sliver`-free design, recorded here.
-3. `[ ]` `m_*`: `scaffold app_bar button icon_button text_field checkbox switch slider dialog snack_bar list_tile card divider progress`. `text_field` uses `text.hit` and caret from Phase 2, selection by drag, clipboard through the host.
-4. `[ ]` `navigator`: a page stack with push/pop and a transition from Phase 10; back button and web history (`llr_ui.js` `pushState`) mapped to pop.
-5. `[ ]` `examples/todo.llr`; goldens for every widget in default and dark theme; `docs/canon/ui.md` names the one widget per task.
-6. `[ ]` Commit: `ui: theme, scrolling, material-like set, navigator`.
+Sliver-free rule: a list has one fixed row extent and mounts `floor(offset / extent)` through one host height of rows plus one. There is no sliver protocol; off-screen rows are never mounted.
+
+1. `[x]` `theme`: colours, text styles, spacing, light and dark; found through `ctx`.
+2. `[x]` `w_scroll`: a scroll view with a viewport, pointer drag and wheel, clamped physics with fling; `w_list`: a builder list that lays out only visible children; a `sliver`-free design, recorded here.
+3. `[x]` `m_*`: `scaffold app_bar button icon_button text_field checkbox switch slider dialog snack_bar list_tile card divider progress`. `text_field` uses `text.hit` and caret from Phase 2, selection by drag, clipboard through the host.
+4. `[x]` `navigator`: a page stack with push/pop and a transition from Phase 10; back button and web history (`llr_ui.js` `pushState`) mapped to pop.
+5. `[x]` `examples/todo.llr`; goldens for every widget in default and dark theme; `docs/canon/ui.md` names the one widget per task.
+6. `[x]` Commit: `ui: theme, scrolling, material-like set, navigator`.
 
 ### Phase 12: accessibility `[ ]`
 
@@ -328,3 +330,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-11-01: Phase 8. Apple triples link with `xcrun clang` and an SDK. Android links a shared library with the NDK clang at API 21. `tests/a64.sh` runs the `tests/run` goldens as a freestanding aarch64 Linux ELF, under `qemu-aarch64` when the host cannot execute that ELF.
 - 2026-11-01: Phase 9. Android and iOS hosts use the same 64-byte record. Kind 6 is life (pause, resume, destroy) and kind 7 is an inset. Logical size is the safe content rect. `llr-ui pack` shells out to the Android SDK or `codesign`. The simulator slice is arm64. The suite stays headless.
 - 2026-11-01: Phase 10. A state registers by `ticking`. `app.frame` advances it with the host clock before rebuild, then writes implicit targets into the render desc. The null host's `--step` is the elapsed time after the first frame. `w_anim.builder` and the implicit leaves are headless goldens. The navigator's page transition stays in phase 11.
+- 2026-11-01: Phase 11. `ctx.theme` is a `ctx.palette`; `w_theme.dark` swaps it by widget key. `state.msg` returns `bool` and bubbles; `state.input` carries pointer, key, text, paste, submit, back, focus, and flush through `ui/input.llr`; `sched.handle` takes the host. `scroll` is a framework leaf laid out with an unbounded height and a clip; `list` mounts one host height of fixed rows. The `m_*` set reads the theme in `widget.view` closures; a wrapper child goes through `widget.view_kids` because a closure must not move a captured box. `navigator` slides the top page with a 200ms controller; `back` is record kind 8 and the web host mirrors depth with `pushState`. The `state` trait cannot be compiled on its own with `--test`; the widget object type is checked when a dependent module builds. Goldens: `tests/ui/m_light`, `m_dark`, `scroll`, `list`, `field`, `nav`, `todo`.

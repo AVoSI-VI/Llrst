@@ -1,0 +1,52 @@
+;; A theme for the descendants of one widget. The closure is called with that theme.
+(use ui.anim)
+(use ui.ctx)
+(use ui.key)
+(use ui.state)
+(use ui.theme)
+(use ui.widget)
+
+(struct thw (th ctx.palette) (k key.key) (bld (clos ((& ctx.ctx)) (box (dyn widget.widget)))))
+
+(fn none_st () (opt (box (dyn state.state))) (opt.none < (box (dyn state.state)) >))
+
+(fn no_kids () (vec (box (dyn widget.widget))) (vec.new < (box (dyn widget.widget)) >))
+
+(fn put ((out (&mut ctx.palette)) (th (& ctx.palette))) unit
+  (drop (mem.replace out (theme.copy th))))
+
+(impl widget.widget
+  thw
+  (fn ty ((_s (& thw))) i64 widget.ty_theme)
+  (fn name ((_s (& thw))) (& str) "theme")
+  (fn key ((self (& thw))) key.key (key.key (. (. self k) on) (. (. self k) id)))
+  (fn role ((_s (& thw))) i64 widget.role_less)
+  (fn set_key ((self (&mut thw)) (k key.key)) unit (set (. self k) k))
+  (fn build ((self (&mut thw)) (c (& ctx.ctx))) (box (dyn widget.widget)) (call (. self bld) c))
+  (fn take_state ((_s (&mut thw))) (opt (box (dyn state.state))) (none_st))
+  (fn take_children ((_s (&mut thw))) (vec (box (dyn widget.widget))) (no_kids))
+  (fn fill ((_s (&mut thw)) (_o (&mut widget.rdesc))) unit ())
+  (fn pdata ((_s (& thw))) widget.pdata (widget.no_data))
+  (fn signal ((_s (& thw))) i64 0)
+  (fn goal ((_s (& thw)) (_g (&mut anim.goal))) bool false))
+
+(pub (fn wrap ((th ctx.palette) (dark bool) (bld (clos ((& ctx.ctx)) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (let k (if dark (key.key.value 1u32) (key.key.none)))
+  (thw th k bld)))
+
+(pub (fn light ((bld (clos ((& ctx.ctx)) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (wrap (theme.light) false bld))
+)
+(pub (fn dark ((bld (clos ((& ctx.ctx)) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (wrap (theme.dark) true bld))
+)
+(fn swatch ((_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
+
+(test w_theme_dark
+  (let w (dark (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c))))
+  (assert_eq (widget.widget.name (& w)) "theme")
+  (let k (widget.widget.key (& w)))
+  (assert (. k on))
+  (assert_eq (as i64 (. k id)) 1)
+  (let day (light (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c))))
+  (assert (not (. (widget.widget.key (& day)) on))))

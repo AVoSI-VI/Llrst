@@ -117,7 +117,8 @@
   (fn text_input ((self (&mut host_null)) (on bool) (r (& geom.rect))) unit
     (set (. self text_on) on)
     (set (. self text_r) (geom.rect (. r x) (. r y) (. r w) (. r h))))
-  (fn quit ((self (&mut host_null))) unit (set (. self quitb) true)))
+  (fn quit ((self (&mut host_null))) unit (set (. self quitb) true))
+  (fn history ((_s (&mut host_null)) (_n i64)) unit ()))
 
 (test host_null_poll
   (let mut h (host_null.make 8 4))

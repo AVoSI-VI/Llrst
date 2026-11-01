@@ -1,0 +1,83 @@
+;; Add, toggle, open, and go back. The route stack lives in this state.
+(use std.io)
+(use std.str)
+(use ui.anim)
+(use ui.app)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.key)
+(use ui.m_button)
+(use ui.m_field)
+(use ui.m_shell)
+(use ui.m_tile)
+(use ui.m_toggle)
+(use ui.state)
+(use ui.w_flex)
+(use ui.w_gesture)
+(use ui.widget)
+
+(struct model (items (vec str)) (on (vec bool)) (route i64))
+
+(fn blank () model (model (vec.new <str>) (vec.new <bool>) 0))
+
+(fn add_item ((self (&mut model)) (text (& str))) unit
+  (if (== (str.len text) 0) (ret))
+  (vec.push (&mut (. self items)) (str.clone text))
+  (vec.push (&mut (. self on)) false))
+
+(fn at_s ((items (& (vec str))) (i i64)) str
+  (if (or (< i 0) (>= i (vec.len items))) (ret (str.from "")))
+  (str.clone (vec.get items i)))
+
+(fn at_b ((on (& (vec bool))) (i i64)) bool
+  (if (or (< i 0) (>= i (vec.len on))) (ret false))
+  (@ (vec.get on i)))
+
+(fn toggle ((self (&mut model)) (i i64)) unit
+  (if (or (< i 0) (>= i (vec.len (& (. self on))))) (ret))
+  (let cur (at_b (& (. self on)) i))
+  (vec.set (&mut (. self on)) i (not cur)))
+
+(fn tile ((self (& model)) (i i64)) (box (dyn widget.widget))
+  (let box (m_toggle.checkbox (at_b (& (. self on)) i) (neg (+ i 1))))
+  (let row (m_tile.list_tile (at_s (& (. self items)) i) box))
+  (w_gesture.tap (+ 101 i) row))
+
+(fn home ((self (& model))) (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (m_field.field))
+  (vec.push (&mut ks) (m_button.button (str.from "Add") 10))
+  (let mut i 0)
+  (while (< i (vec.len (& (. self items)))) (vec.push (&mut ks) (tile self i)) (set i (+ i 1)))
+  (m_shell.scaffold (m_shell.app_bar (str.from "Todo")) (w_flex.column ks)))
+
+(fn detail ((self (& model))) (box (dyn widget.widget))
+  (let bar (m_shell.app_bar (at_s (& (. self items)) (- (. self route) 1))))
+  (m_shell.scaffold bar (m_button.icon_button (str.from "<") 1)))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (if (== (. self route) 0) (ret (home self)))
+    (detail self))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (do (set (. self route) 0) (ret true)))
+    (if (>= m 100) (do (set (. self route) (- m 100)) (ret true)))
+    (if (< m 0) (do (toggle self (- (neg m) 1)) (ret true)))
+    false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (_o (&mut state.out))) bool
+    (if (== (. e kind) state.in_back) (do (set (. self route) 0) (ret true)))
+    (if (!= (. e kind) state.in_submit) (ret false))
+    (add_item self (& (. e text)))
+    true)
+  (fn route ((self (& model))) i64 (if (== (. self route) 0) 1 2))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((_s (& model))) bool false)
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (state.stateful widget.ty_nav (key.key.none) (blank))))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

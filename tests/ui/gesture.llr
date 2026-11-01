@@ -18,8 +18,13 @@
 
 (impl state.state
   model
-  (fn build ((self (& model)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (view (. self n)))
-  (fn msg ((self (&mut model)) (m i64)) unit (if (== m 1) (set (. self n) (+ (. self n) 1))))
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (view (. self n)))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (do (set (. self n) (+ (. self n) 1)) (ret true)))
+    false)
+  (fn input ((_s (&mut model)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((_s (& model))) bool false)
   (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))

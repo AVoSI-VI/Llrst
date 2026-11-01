@@ -1,0 +1,13 @@
+;; A long builder mounts only the visible indexes, then the window moves.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.w_list)
+(use ui.widget)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_list.list 20.0f32 30 (clos ((_i i64)) (box (dyn widget.widget)) (widget.empty)))))
+  (io.puts (& (app.dump (& a))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

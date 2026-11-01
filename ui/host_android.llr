@@ -28,6 +28,7 @@
     (host_shim.clip_set (& (. self s)) text))
   (fn text_input ((self (&mut host_android)) (on bool) (r (& geom.rect))) unit
     (host_shim.text_input (& (. self s)) on r))
-  (fn quit ((self (&mut host_android))) unit (host_shim.quit (&mut (. self s)))))
+  (fn quit ((self (&mut host_android))) unit (host_shim.quit (&mut (. self s))))
+  (fn history ((_s (&mut host_android)) (_n i64)) unit ()))
 
 (test host_android_kind (assert_eq host.cursor_hand 2))

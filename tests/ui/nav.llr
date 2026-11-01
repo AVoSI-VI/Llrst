@@ -1,0 +1,19 @@
+;; Push, a transition frame, then back.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.navigator)
+(use ui.w_box)
+(use ui.w_gesture)
+(use ui.widget)
+
+(fn page ((i i64)) (box (dyn widget.widget))
+  (if (== i 0) (ret (w_gesture.tap 101 (w_box.sized 20.0f32 20.0f32 (widget.empty)))))
+  (w_box.sized 20.0f32 20.0f32 (widget.empty)))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (navigator.navigator (clos ((i i64)) (box (dyn widget.widget)) (page i)))))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

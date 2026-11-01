@@ -30,6 +30,8 @@
 
 (extern llr_web_quit () unit)
 
+(extern llr_web_history ((n i64)) unit)
+
 (extern llr_web_bind ((p (ptr u8))) unit)
 
 (extern llr_web_app () i32)
@@ -61,7 +63,8 @@
   (fn clipboard_get ((_s (& host_web))) str (clip_get))
   (fn clipboard_set ((_s (&mut host_web)) (text (& str))) unit (clip_set text))
   (fn text_input ((_s (&mut host_web)) (on bool) (r (& geom.rect))) unit (text_on on r))
-  (fn quit ((_s (&mut host_web))) unit (llr_web_quit)))
+  (fn quit ((_s (&mut host_web))) unit (llr_web_quit))
+  (fn history ((_s (&mut host_web)) (n i64)) unit (llr_web_history n)))
 
 (fn drain ((out (&mut (vec event.event)))) unit
   (let mut b (vec.new <u8>))

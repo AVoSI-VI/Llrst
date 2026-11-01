@@ -1,0 +1,90 @@
+;; Vertical offset. Clamped to the content, with a fling that dies at the edge.
+(use std.math)
+
+(pub (const slop f32 8.0f32))
+
+(pub (struct step (pub (off f32)) (pub (vel f32))))
+
+(pub (fn limit ((span f32) (view f32)) f32 (math.max32 0.0f32 (- span view))))
+
+(pub (fn clamp ((off f32) (lim f32)) f32 (math.max32 0.0f32 (math.min32 off lim))))
+
+(pub (fn drag ((off f32) (dy f32) (lim f32)) f32 (clamp (- off dy) lim)))
+
+(pub (fn wheel ((off f32) (dy f32) (lim f32)) f32 (clamp (+ off dy) lim)))
+
+(fn dying ((v f32)) bool (< (math.abs32 v) 0.5f32))
+
+(fn stuck ((off f32) (lim f32) (vel f32)) bool
+  (or (and (<= off 0.0f32) (< vel 0.0f32)) (and (>= off lim) (> vel 0.0f32))))
+
+(pub (fn fling_step ((off f32) (vel f32) (lim f32)) step
+  (let v (* vel 0.9f32))
+  (let o (clamp (+ off v) lim))
+  (if (or (dying v) (stuck o lim v)) (ret (step o 0.0f32)))
+  (step o v)))
+
+(pub (fn fling ((off f32) (vel f32) (lim f32) (dt i64)) step
+  (let mut o off)
+  (let mut v vel)
+  (let mut left dt)
+  (while (and (>= left 16) (not (dying v)))
+    (let s (fling_step o v lim))
+    (set o (. s off))
+    (set v (. s vel))
+    (set left (- left 16)))
+  (step o v)))
+
+(pub (fn live ((vel f32) (drag bool)) bool (and (not drag) (not (dying vel)))))
+
+(pub (fn touch ((off (&mut f32))
+   (vel (&mut f32))
+   (held (&mut bool))
+   (code i64)
+   (dy f32)
+   (view f32)
+   (span f32)) bool
+  (let lim (limit span view))
+  (if (== code 4)
+    (do (set (@ off) (wheel (@ off) dy lim)) (set (@ vel) 0.0f32) (set (@ held) false) (ret true)))
+  (if (== code 1)
+    (do
+      (set (@ held) true)
+      (set (@ vel) (neg dy))
+      (set (@ off) (drag (@ off) dy lim))
+      (ret true)))
+  (if (and (== code 2) (@ held)) (do (set (@ held) false) (ret true)))
+  false))
+
+(pub (fn coast ((off (&mut f32)) (vel (&mut f32)) (drag bool) (view f32) (span f32) (dt i64)) bool
+  (if (not (live (@ vel) drag)) (ret false))
+  (let s (fling (@ off) (@ vel) (limit span view) dt))
+  (let moved (!= (@ off) (. s off)))
+  (set (@ off) (. s off))
+  (set (@ vel) (. s vel))
+  (or moved (live (@ vel) false))))
+
+(test scroll_clamp
+  (assert_eq (as i64 (clamp (neg 4.0f32) 30.0f32)) 0)
+  (assert_eq (as i64 (clamp 40.0f32 30.0f32)) 30)
+  (assert_eq (as i64 (limit 50.0f32 20.0f32)) 30)
+  (assert_eq (as i64 (drag 10.0f32 4.0f32 30.0f32)) 6)
+  (assert_eq (as i64 (wheel 10.0f32 8.0f32 30.0f32)) 18)
+  (let s (fling 0.0f32 20.0f32 100.0f32 16))
+  (assert (< (. s vel) 20.0f32))
+  (assert (not (live 0.0f32 false)))
+  (assert (live 2.0f32 false))
+  (assert (not (live 2.0f32 true)))
+  (let end (fling 0.0f32 30.0f32 100.0f32 800))
+  (assert (dying (. end vel)))
+  (let mut o 0.0f32)
+  (let mut v 10.0f32)
+  (let mut d false)
+  (assert (touch (&mut o) (&mut v) (&mut d) 4 5.0f32 20.0f32 100.0f32))
+  (assert_eq (as i64 o) 5)
+  (set v 10.0f32)
+  (assert (coast (&mut o) (&mut v) false 20.0f32 100.0f32 16))
+  (set o 20.0f32)
+  (assert (touch (&mut o) (&mut v) (&mut d) 1 4.0f32 20.0f32 100.0f32))
+  (assert_eq (as i64 o) 16)
+  (assert (< v 0.0f32)))

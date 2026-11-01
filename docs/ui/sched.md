@@ -4,16 +4,11 @@ One frame's events: hit, messages, focus, then the caller rebuilds.
 
 Source: `ui/sched.llr`. Import with `(use ui.sched)` for module functions; types and methods need no import.
 
-## Types
-
-- `(struct ptrs (pub (focus i64)) (pub (cap u32)) (pub (has_cap bool)) (pub (text str)) (pub (quit bool)) (pub (paused bool)) (pub (il f32)) (pub (it f32)) (pub (ir f32)) (pub (ib f32)) (pub (anims (vec anim.track))))`
-
 ## Functions
 
 | name | params | returns |
 |------|--------|---------|
-| `sched.ptrs_new` | `()` | `ptrs` |
-| `sched.handle` | `((es (&mut element.elems)) (rt (&mut render.rtree)) (root u32) (p (&mut ptrs)) (ev (& (vec event.event))))` | `unit` |
+| `sched.handle` | `((es (&mut element.elems)) (rt (&mut render.rtree)) (root u32) (p (&mut ptrs.ptrs)) (host (&mut (box (dyn host.host)))) (ev (& (vec event.event))))` | `unit` |
 
 ## Tests
 

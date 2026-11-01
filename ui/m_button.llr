@@ -1,0 +1,33 @@
+;; Filled button and icon button. The icon is a label in the bundled font.
+(use ui.ctx)
+(use ui.key)
+(use ui.theme)
+(use ui.w_box)
+(use ui.w_gesture)
+(use ui.w_text)
+(use ui.widget)
+
+(fn filled ((c (& ctx.ctx)) (label (& str)) (msg i64) (gap f32)) (box (dyn widget.widget))
+  (let th (ctx.ctx.theme c))
+  (let text (w_text.text label (. th label) (theme.ink (& (. th on_primary)))))
+  (let pad (w_box.padding gap (* gap 0.5f32) gap (* gap 0.5f32) text))
+  (let box
+    (w_box.container (theme.ink (& (. th primary))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+  (w_gesture.tap msg box))
+
+(fn press ((label str) (msg i64) (ty i64) (gap f32)) (box (dyn widget.widget))
+  (widget.view ty
+    (key.key.none)
+    (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (filled c (& label) msg gap))))
+
+(pub (fn button ((label str) (msg i64)) (box (dyn widget.widget))
+  (press label msg widget.ty_button 16.0f32))
+)
+(pub (fn icon_button ((label str) (msg i64)) (box (dyn widget.widget))
+  (press label msg widget.ty_icon 8.0f32))
+)
+(test m_button_name
+  (let w (button (str.from "Add") 10))
+  (assert_eq (widget.widget.name (& w)) "button")
+  (let i (icon_button (str.from "+") 10))
+  (assert_eq (widget.widget.name (& i)) "icon_button"))

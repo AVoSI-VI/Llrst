@@ -64,3 +64,7 @@ void llr_web_bind(const uint8_t *p) {
 int32_t llr_web_app(void) {
     return 0;
 }
+
+void llr_web_history(int64_t n) {
+    (void)n;
+}

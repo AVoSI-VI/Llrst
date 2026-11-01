@@ -70,7 +70,7 @@ low 32 bits of that pointer.
 POSIX file. `sys.os_id` is `3`. `wasm32-wasi` imports WASI preview1. `wasm32-unknown-unknown`
 imports those same names from the module `llr`, then the canvas imports `present`, `size`,
 `scale`, `now_ms`, `request_frame`, `poll_event`, `set_cursor`, `clipboard_get`,
-`clipboard_set`, `text_input`, `quit`, `bind`, and `app`. Its `_start` calls boot and `main`
+`clipboard_set`, `text_input`, `quit`, `bind`, `app`, and `history`. Its `_start` calls boot and `main`
 and returns, so the page can keep calling the exported `llr_frame`. A WASI module still calls
 `proc_exit` and does not import `present`. There is no network, no threads, no shell, and
 no directory listing: those externs write `target.unsupported` and return `-1` or null.

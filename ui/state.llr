@@ -1,12 +1,62 @@
-;; Stateful widgets. The element keeps the first state; a later widget's init is dropped.
+;; Stateful widgets. The element keeps the first state unless a flush hands off.
 (use ui.anim)
 (use ui.ctx)
+(use ui.geom)
 (use ui.key)
 (use ui.widget)
 
+(pub (const in_ptr i64 1))
+
+(pub (const in_key i64 2))
+
+(pub (const in_text i64 3))
+
+(pub (const in_paste i64 4))
+
+(pub (const in_submit i64 5))
+
+(pub (const in_back i64 6))
+
+(pub (const in_focus i64 7))
+
+(pub (const in_flush i64 8))
+
+(pub (struct ev
+  (pub (kind i64))
+  (pub (code i64))
+  (pub (mods i64))
+  (pub (x f32))
+  (pub (y f32))
+  (pub (dx f32))
+  (pub (dy f32))
+  (pub (w f32))
+  (pub (h f32))
+  (pub (text str))))
+
+(pub (struct out
+  (pub (do_copy bool))
+  (pub (do_paste bool))
+  (pub (submit bool))
+  (pub (ime bool))
+  (pub (handoff bool))
+  (pub (text str))
+  (pub (caret geom.rect))))
+
+(pub (fn ev_new () ev (ev 0 0 0 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 (str.new))))
+
+(pub (fn ev_ptr ((code i64) (x f32) (y f32) (dy f32) (w f32) (h f32)) ev
+  (ev in_ptr code 0 x y 0.0f32 dy w h (str.new))))
+
+(pub (fn ev_text ((kind i64) (text str)) ev (ev kind 0 0 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 text)))
+
+(pub (fn out_new () out
+  (out false false false false false (str.new) (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32))))
+
 (pub (trait state
-  (fn build ((& Self) (& ctx.ctx)) (box (dyn widget.widget)))
-  (fn msg ((&mut Self) i64) unit)
+  (fn build ((& Self) (& ctx.ctx) (vec (box (dyn widget.widget)))) (box (dyn widget.widget)))
+  (fn msg ((&mut Self) i64) bool)
+  (fn input ((&mut Self) (& ev) (&mut out)) bool)
+  (fn route ((& Self)) i64)
   (fn dispose ((&mut Self)) unit)
   (fn ticking ((& Self)) bool)
   (fn tick ((&mut Self) i64 (& anim.goal)) bool)))
@@ -15,15 +65,22 @@
 
 (impl state
   nostate
-  (fn build ((_s (& nostate)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
-  (fn msg ((_s (&mut nostate)) (_m i64)) unit ())
+  (fn build ((_s (& nostate)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (widget.empty))
+  (fn msg ((_s (&mut nostate)) (_m i64)) bool false)
+  (fn input ((_s (&mut nostate)) (_e (& ev)) (_o (&mut out))) bool false)
+  (fn route ((_s (& nostate))) i64 (neg 1))
   (fn dispose ((_s (&mut nostate))) unit ())
   (fn ticking ((_s (& nostate))) bool false)
   (fn tick ((_s (&mut nostate)) (_d i64) (_g (& anim.goal))) bool false))
 
 (pub (fn no_state () (box (dyn state)) (nostate)))
 
-(struct sfull (ty i64) (k key.key) (init (opt (box (dyn state)))))
+(struct sfull
+  (ty i64)
+  (k key.key)
+  (init (opt (box (dyn state))))
+  (kids (vec (box (dyn widget.widget)))))
 
 (fn none_st () (opt (box (dyn state))) (opt.none < (box (dyn state)) >))
 
@@ -34,18 +91,24 @@
   (fn ty ((self (& sfull))) i64 (. self ty))
   (fn name ((self (& sfull))) (& str)
     (if (== (. self ty) widget.ty_builder) (ret "animated_builder"))
-    "stateful")
+    (let n (widget.name_of (. self ty)))
+    (if (str.eq n "custom") (ret "stateful"))
+    n)
   (fn key ((self (& sfull))) key.key (key.key (. (. self k) on) (. (. self k) id)))
   (fn role ((_s (& sfull))) i64 widget.role_full)
   (fn set_key ((self (&mut sfull)) (k key.key)) unit (set (. self k) k))
   (fn build ((_s (&mut sfull)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
   (fn take_state ((self (&mut sfull))) (opt (box (dyn state)))
     (mem.replace (&mut (. self init)) (none_st)))
-  (fn take_children ((_s (&mut sfull))) (vec (box (dyn widget.widget))) (no_kids))
+  (fn take_children ((self (&mut sfull))) (vec (box (dyn widget.widget)))
+    (mem.replace (&mut (. self kids)) (no_kids)))
   (fn fill ((_s (&mut sfull)) (_o (&mut widget.rdesc))) unit ())
   (fn pdata ((_s (& sfull))) widget.pdata (widget.no_data))
   (fn signal ((_s (& sfull))) i64 0)
   (fn goal ((_s (& sfull)) (_g (&mut anim.goal))) bool false))
 
 (pub (fn stateful ((ty i64) (k key.key) (s (box (dyn state)))) (box (dyn widget.widget))
-  (sfull ty k (opt.some s))))
+  (sfull ty k (opt.some s) (no_kids))))
+
+(pub (fn holding ((ty i64) (k key.key) (s (box (dyn state))) (kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (sfull ty k (opt.some s) kids)))

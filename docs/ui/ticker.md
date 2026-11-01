@@ -10,7 +10,7 @@ Source: `ui/ticker.llr`. Import with `(use ui.ticker)` for module functions; typ
 |------|--------|---------|
 | `ticker.write_desc` | `((d (&mut widget.rdesc)) (g (& anim.goal)))` | `unit` |
 | `ticker.pump_states` | `((es (&mut element.elems)) (rt (&mut render.rtree)) (dt i64))` | `bool` |
-| `ticker.pump_implicit` | `((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut sched.ptrs)) (dt i64))` | `bool` |
+| `ticker.pump_implicit` | `((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut ptrs.ptrs)) (dt i64))` | `bool` |
 
 ## Tests
 

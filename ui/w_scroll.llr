@@ -1,0 +1,82 @@
+;; A viewport that clips its child and shifts it by the scroll offset.
+(use ui.anim)
+(use ui.ctx)
+(use ui.element)
+(use ui.key)
+(use ui.render)
+(use ui.scroll)
+(use ui.state)
+(use ui.widget)
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(fn portal ((off f32) (kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d clip) true)
+  (set (. d off) off)
+  (widget.make widget.ty_scroll (key.key.none) kids d true (widget.nop)))
+
+(pub (fn leaf ((off f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (portal off (one child))))
+
+(fn bare ((off f32)) (box (dyn widget.widget)) (portal off (vec.new < (box (dyn widget.widget)) >)))
+
+(struct model (off f32) (vel f32) (drag bool))
+
+(fn show ((self (& model)) (kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (let mut rest kids)
+  (if (> (vec.len (& rest)) 0) (ret (leaf (. self off) (vec.remove (&mut rest) 0))))
+  (bare (. self off)))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (show self kids))
+  (fn msg ((_s (&mut model)) (_m i64)) bool false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (_o (&mut state.out))) bool
+    (if (!= (. e kind) state.in_ptr) (ret false))
+    (scroll.touch (&mut (. self off)) (&mut (. self vel)) (&mut (. self drag)) (. e code) (. e dy) (. e w) (. e h)))
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((self (& model))) bool (scroll.live (. self vel) (. self drag)))
+  (fn tick ((self (&mut model)) (dt i64) (g (& anim.goal))) bool
+    (scroll.coast (&mut (. self off)) (&mut (. self vel)) (. self drag) (. g w) (. g h) dt)))
+
+(pub (fn scroll ((child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (state.holding widget.ty_scroll (key.key.none) (model 0.0f32 0.0f32 false) (one child))))
+
+(fn paint ((rt (& render.rtree)) (id u32) (view (&mut f32)) (span (&mut f32))) unit
+  (let n (vec.get (& (. rt nodes)) (as i64 id)))
+  (set (@ view) (. n h))
+  (let ks (render.kids_of rt id))
+  (if (== (vec.len (& ks)) 0) (ret (set (@ span) (. n h))))
+  (let c (vec.get (& (. rt nodes)) (as i64 (@ (vec.get (& ks) 0)))))
+  (set (@ span) (. c h)))
+
+(fn first_kid ((es (& element.elems)) (id u32)) u32
+  (let ks (element.kids_at es id))
+  (let id (@ (vec.get (& ks) 0)))
+  id)
+
+(fn kid_n ((es (& element.elems)) (id u32)) i64 (vec.len (& (element.kids_at es id))))
+
+(pub (fn metrics ((es (& element.elems)) (rt (& render.rtree)) (id u32) (view (&mut f32)) (span (&mut f32))) unit
+  (let mut cur id)
+  (let mut n 0)
+  (while (< n 6)
+    (if (element.has_render_at es cur) (ret (paint rt (element.render_at es cur) view span)))
+    (if (== (kid_n es cur) 0) (ret))
+    (set cur (first_kid es cur))
+    (set n (+ n 1)))))
+
+(test w_scroll_name
+  (let w (scroll (widget.empty)))
+  (assert_eq (widget.widget.name (& w)) "scroll")
+  (let mut m (model 1.0f32 0.0f32 false))
+  (let e (state.ev_ptr 4 0.0f32 0.0f32 6.0f32 20.0f32 80.0f32))
+  (let mut o (state.out_new))
+  (assert (state.state.input (&mut m) (& e) (&mut o)))
+  (assert_eq (as i64 (. m off)) 7))

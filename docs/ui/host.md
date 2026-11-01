@@ -19,6 +19,7 @@ Source: `ui/host.llr`. Import with `(use ui.host)` for module functions; types a
 | `host.clipboard_set` | `((&mut Self) (& str))` | `unit` |
 | `host.text_input` | `((&mut Self) bool (& geom.rect))` | `unit` |
 | `host.quit` | `((&mut Self))` | `unit` |
+| `host.history` | `((&mut Self) i64)` | `unit` |
 
 ## Constants
 

@@ -14,7 +14,8 @@
   (fn clipboard_get ((& Self)) str)
   (fn clipboard_set ((&mut Self) (& str)) unit)
   (fn text_input ((&mut Self) bool (& geom.rect)) unit)
-  (fn quit ((&mut Self)) unit)))
+  (fn quit ((&mut Self)) unit)
+  (fn history ((&mut Self) i64) unit)))
 
 (pub (const cursor_arrow i64 0))
 

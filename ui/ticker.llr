@@ -5,8 +5,9 @@
 (use ui.element)
 (use ui.key)
 (use ui.render)
-(use ui.sched)
+(use ui.ptrs)
 (use ui.state)
+(use ui.w_scroll)
 (use ui.widget)
 
 (fn bit ((mask i64) (flag i64)) bool (!= (band mask flag) 0))
@@ -53,9 +54,19 @@
   (let n (vec.get_mut (&mut (. es nodes)) (as i64 id)))
   (state.state.tick (&mut (. n st)) dt g))
 
+(fn feed ((es (& element.elems)) (rt (& render.rtree)) (id u32) (g (&mut anim.goal))) unit
+  (let ty (element.ty_at es id))
+  (if (not (or (== ty widget.ty_scroll) (== ty widget.ty_list))) (ret))
+  (let mut view 0.0f32)
+  (let mut span 0.0f32)
+  (w_scroll.metrics es rt id (&mut view) (&mut span))
+  (set (. g w) view)
+  (set (. g h) span))
+
 (fn one_state ((es (&mut element.elems)) (rt (&mut render.rtree)) (id u32) (dt i64)) bool
   (if (not (armed es id)) (ret false))
-  (let g (take_goal es id))
+  (let mut g (take_goal es id))
+  (feed es rt id (&mut g))
   (let dirty (apply_tick es id dt (& g)))
   (if dirty (element.mark es rt id))
   (armed es id))
@@ -70,27 +81,27 @@
   (let mut g (anim.goal_new))
   (and (read_goal es id (&mut g)) (. g on)))
 
-(fn track_at ((p (& sched.ptrs)) (elem u32)) i64
+(fn track_at ((p (& ptrs.ptrs)) (elem u32)) i64
   (for i 0 (vec.len (& (. p anims))) (if (== (. (vec.get (& (. p anims)) i) elem) elem) (ret i)))
   (neg 1))
 
-(fn ensure ((p (&mut sched.ptrs)) (elem u32) (g (& anim.goal))) i64
+(fn ensure ((p (&mut ptrs.ptrs)) (elem u32) (g (& anim.goal))) i64
   (let at (track_at p elem))
   (if (>= at 0) (ret at))
   (vec.push (&mut (. p anims)) (anim.track_make elem g))
   (- (vec.len (& (. p anims))) 1))
 
-(fn drop_dead ((es (& element.elems)) (p (&mut sched.ptrs))) unit
+(fn drop_dead ((es (& element.elems)) (p (&mut ptrs.ptrs))) unit
   (let mut i 0)
   (while (< i (vec.len (& (. p anims))))
     (let id (. (vec.get (& (. p anims)) i) elem))
     (if (goal_on es id) (set i (+ i 1)) (drop (vec.remove (&mut (. p anims)) i)))))
 
-(fn show ((p (&mut sched.ptrs)) (at i64) (g (& anim.goal)) (dt i64)) bool
+(fn show ((p (&mut ptrs.ptrs)) (at i64) (g (& anim.goal)) (dt i64)) bool
   (let skip (anim.track_sync (vec.get_mut (&mut (. p anims)) at) g))
   (anim.track_show (vec.get_mut (&mut (. p anims)) at) skip dt))
 
-(fn current ((p (& sched.ptrs)) (at i64)) anim.goal
+(fn current ((p (& ptrs.ptrs)) (at i64)) anim.goal
   (anim.copy_goal (& (. (vec.get (& (. p anims)) at) cur))))
 
 (fn put_desc ((rt (&mut render.rtree)) (rid u32) (g (& anim.goal))) unit
@@ -102,7 +113,7 @@
   (put_desc rt rid g)
   (render.touch rt rid))
 
-(fn one_imp ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut sched.ptrs)) (id u32) (dt i64)) bool
+(fn one_imp ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut ptrs.ptrs)) (id u32) (dt i64)) bool
   (let mut g (anim.goal_new))
   (if (not (read_goal es id (&mut g))) (ret false))
   (if (not (. g on)) (ret false))
@@ -112,7 +123,7 @@
   (put rt es id (& cur))
   live)
 
-(pub (fn pump_implicit ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut sched.ptrs)) (dt i64)) bool
+(pub (fn pump_implicit ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut ptrs.ptrs)) (dt i64)) bool
   (drop_dead es p)
   (let mut any false)
   (let n (vec.len (& (. es nodes))))
@@ -123,8 +134,11 @@
 
 (impl state.state
   clock
-  (fn build ((_s (& clock)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
-  (fn msg ((_s (&mut clock)) (_m i64)) unit ())
+  (fn build ((_s (& clock)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (widget.empty))
+  (fn msg ((_s (&mut clock)) (_m i64)) bool false)
+  (fn input ((_s (&mut clock)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& clock))) i64 (neg 1))
   (fn dispose ((_s (&mut clock))) unit ())
   (fn ticking ((self (& clock))) bool (. self on))
   (fn tick ((self (&mut clock)) (dt i64) (_g (& anim.goal))) bool
@@ -143,7 +157,7 @@
   (assert (pump_states (&mut es) (&mut rt) 16))
   (assert (. (vec.get (& (. es nodes)) (as i64 id)) dirty))
   (assert (not (pump_states (&mut es) (&mut rt) 20)))
-  (let mut p (sched.ptrs_new))
+  (let mut p (ptrs.ptrs_new))
   (assert (not (pump_implicit (& es) (&mut rt) (&mut p) 16)))
   (let mut d (widget.blank))
   (let mut g (anim.goal_new))

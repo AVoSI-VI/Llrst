@@ -5,9 +5,10 @@ A trait in another module is `module.Trait`, and a method is `module.Trait.metho
 A method on a type with the same name as its module is `module.Type.method`
 (`key.key.none`, `ctx.ctx.root`, `host_null.host_null.from_args`).
 
-`ctx.theme` is a background and foreground pair. The Material theme in `ui/theme.llr`
-is phase 11. Custom render objects are leaves: `row`, `column`, and `stack` are
-framework layout.
+`ctx.theme` is a `ctx.palette`: eight colours, three text sizes, and a spacing unit.
+`theme.light` and `theme.dark` are the two bundled palettes; `w_theme.dark` swaps
+the palette for its descendants. Custom render objects are leaves: `row`, `column`,
+`stack`, and `scroll` are framework layout.
 
 | module | role |
 |--------|------|
@@ -48,3 +49,18 @@ framework layout.
 | [w_gesture](w_gesture.md) | A tap target. The closure returns a message id; 0 means none. |
 | [w_anim](w_anim.md) | Builder and implicit leaves. A leaf keeps its child; the ticker rewrites the render desc. |
 | [w_fx](w_fx.md) | Opacity, clip, and transform. They are repaint boundaries. |
+| [theme](theme.md) | Light and dark palettes. Descendants read them through `ctx.theme`. |
+| [w_theme](w_theme.md) | A theme for the descendants of one widget. Key `1` means dark. |
+| [ptrs](ptrs.md) | Pointer, focus, and animation tracks for one frame. |
+| [input](input.md) | Pointer drags, wheels, keys, text, and clipboard. A false message walks upward. |
+| [scroll](scroll.md) | Vertical offset. Clamped to the content, with a fling that dies at the edge. |
+| [w_scroll](w_scroll.md) | A viewport that clips its child and shifts it by the scroll offset. |
+| [w_list](w_list.md) | Fixed-extent list. Only the rows in the host window are mounted. |
+| [m_shell](m_shell.md) | Scaffold and app bar. |
+| [m_button](m_button.md) | Filled button and icon button. The icon is a label in the bundled font. |
+| [m_field](m_field.md) | One-line field. It owns the string, the caret, and the selection. |
+| [m_toggle](m_toggle.md) | Checkbox, switch, and a slider that owns a value from 0 to 100. |
+| [m_layer](m_layer.md) | Dialog scrim and a snack bar that leaves after a short tick. |
+| [m_tile](m_tile.md) | List tile, card, divider, and a determinate progress bar. |
+| [m_show](m_show.md) | One column of every named control, for the light and dark goldens. |
+| [navigator](navigator.md) | A stack of routes. Push slides the new page in; pop slides it back out. |
