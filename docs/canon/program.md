@@ -37,7 +37,8 @@ private fields. Another file may do that without naming the fields. `name.privat
 does not apply. This is the escape. An enum variant is private unless it is `(pub (name type*))`.
 Code in the enum's file may construct and match a private variant. Another file gets
 `name.private_variant`. A std type enters the prelude only when
-it is `pub`.
+it is `pub`. A `pub` std type or trait name is unique across `std`; a second module
+declaring one is `name.dup|name=|module=`, and the first keeps the name.
 
 Import a sibling module with `(use proj.name)` where the root is the directory of the file
 holding `main`.

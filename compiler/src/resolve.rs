@@ -316,21 +316,15 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                 }
                 Item::Struct(s) => {
                     let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
-                    if *is_std && s.is_pub {
-                        prog.prelude.insert(s.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, s.is_pub, path, &s.name, id, s.span, diags);
                 }
                 Item::Enum(e) => {
                     let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), e.is_pub, diags);
-                    if *is_std && e.is_pub {
-                        prog.prelude.insert(e.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, e.is_pub, path, &e.name, id, e.span, diags);
                 }
                 Item::Trait(t) => {
                     let id = push_def(&mut prog, &mut m, &t.name, mi, t.span, DefKind::Trait(TraitDef { methods: Vec::new(), object_safe: true }), t.is_pub, diags);
-                    if *is_std && t.is_pub {
-                        prog.prelude.insert(t.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, t.is_pub, path, &t.name, id, t.span, diags);
                 }
                 _ => {}
             }

@@ -377,7 +377,9 @@
   (let mut locs (vec.new <loc>))
   (vec.push (&mut locs)
     (loc (str.from "$ret")
-      (info (check_ty.show_ty (& (. it ret)) (& (vec.new <str>)) (& (vec.new <info>))) (str.new) (str.new))
+      (info (check_ty.show_ty (& (. it ret)) (& (vec.new <str>)) (& (vec.new <info>)))
+        (str.new)
+        (str.new))
       false
       0
       0
@@ -440,6 +442,7 @@
   (match (check_load.bad_use (& srcs) main) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
   (let mut defs (vec.new <def>))
   (register (& srcs) (&mut defs))
+  (match (check_load.pre_dup (& defs)) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
   (match (impl_dup (& srcs)) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
   (match (check_more.impl_shape (& srcs) main) ((opt.some e) (ret (res.err e))) ((opt.none) ()))
   (res.ok (prog srcs defs main))))

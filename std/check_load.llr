@@ -91,6 +91,41 @@
           ((res.ok items) (do (vec.push srcs (source (str.clone name) items)) ()))))))
   (res.ok ())))
 
+(fn pre_name ((d (& def))) bool
+  (and (. d is_type) (and (. d is_pub) (str.starts (& (. d module)) "std."))))
+
+(fn pre_seen ((defs (& (vec def))) (upto i64) (name (& str))) bool
+  (for j 0 upto
+    (let e (vec.get defs j))
+    (if (and (pre_name e) (str.eq (& (. e name)) name)) (ret true)))
+  false)
+
+;; A second pub std type with a prelude name is name.dup. The first keeps the name.
+(pub (fn pre_dup ((defs (& (vec def)))) (opt str)
+  (for i 0 (vec.len defs)
+    (let d (vec.get defs i))
+    (if (and (pre_name d) (pre_seen defs i (& (. d name))))
+      (ret (opt.some (check.span 1
+          1
+          0
+          "name.dup"
+          (& (check.join_kv "name" (& (. d name)) "module" (& (. d module)))))))))
+  (opt.none)))
+
+(test load_dup
+  (let mut defs (vec.new <def>))
+  (let g (vec.new <str>))
+  (vec.push (&mut defs)
+    (def (str.from "ty") (str.from "std.ast.ty") true true true (str.from "std.ast") 0 0 0 g))
+  (match (pre_dup (& defs)) ((opt.none) ()) ((opt.some _) (assert false)))
+  (let g2 (vec.new <str>))
+  (vec.push (&mut defs)
+    (def (str.from "ty") (str.from "std.gql.ty") true true true (str.from "std.gql") 1 0 0 g2))
+  (match (pre_dup (& defs))
+    ((opt.some e)
+      (do (assert (str.has (& e) "name.dup")) (assert (str.has (& e) "module=std.gql"))))
+    ((opt.none) (assert false))))
+
 (test load_root
   (let r (res.unwrap (root "" "x.llr")))
   (assert (> (str.len (& (slash (& r)))) 0))

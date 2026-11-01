@@ -10,6 +10,7 @@ mod inl;
 mod link;
 mod mir;
 mod parse;
+mod prelude;
 mod resolve;
 mod sexpr;
 mod thir;
