@@ -44,12 +44,8 @@
 | [json_read](json_read.md) | JSON objects, arrays, strings, ints, bools, and null. |
 | [cli](cli.md) | Argument parsing for tools. |
 | [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
-| [ast](ast.md) | Surface grammar parsed from a sexp tree. `llrc` remains the checker. |
+| [ast](ast.md) | Surface grammar parsed from a sexp tree. `llrc check` is the checker; `llr-check` runs it. |
 | [ast_expr](ast_expr.md) | Expression and type forms parsed from a sexp tree. |
-| [check](check.md) | Typed tree. Borrow checking stays in `llrc`. |
-| [check_more](check_more.md) | Impl shape and generic bounds for `llr-check`. |
-| [check_ty](check_ty.md) | Type display, generic arity, and `(dyn Trait)` object safety. |
-| [check_expr](check_expr.md) | Expression types, resolved callees, and builtin ids. |
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b \N ( ) |`. |
 | [diff](diff.md) | Line diff. Shared ends are exact. The middle is a minimal LCS. |

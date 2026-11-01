@@ -79,6 +79,7 @@ if (-not $llrc -or -not (Test-Path -LiteralPath $llrc)) {
     exit 1
 }
 $env:LLRST_STD = Join-Path $root 'std'
+$env:LLRC = $llrc   # llr-check runs this compiler
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('llr-self-' + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 $fails = 0

@@ -16,6 +16,7 @@ if [ -z "$llrc" ] || [ ! -x "$llrc" ]; then
 fi
 export LLRST_STD="$root/std"
 export LLRST_UI="$root/ui"
+export LLRC="$llrc"   # llr-check runs this compiler
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
   echo "fail|setup|cc=llr_stat.c"
   exit 1
@@ -180,14 +181,12 @@ for f in "$root"/tests/err/*.llr; do
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
-  if ! grep -Eq '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read' "$want"; then
-    ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
-    if cmp -s "$tmp/$name.lerr" "$want"; then
-      echo "ok|err/$name|llr-check"
-    else
-      echo "fail|err/$name|llr-check|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.lerr" | tr '\n' ' ')"
-      fails=$((fails+1))
-    fi
+  ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
+  if cmp -s "$tmp/$name.lerr" "$want"; then
+    echo "ok|err/$name|llr-check"
+  else
+    echo "fail|err/$name|llr-check|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.lerr" | tr '\n' ' ')"
+    fails=$((fails+1))
   fi
 done
 

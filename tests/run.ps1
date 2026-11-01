@@ -116,6 +116,7 @@ if (-not $llrc -or -not (Test-Path -LiteralPath $llrc)) {
 }
 $env:LLRST_STD = Join-Path $root 'std'
 $env:LLRST_UI = Join-Path $root 'ui'
+$env:LLRC = $llrc   # llr-check runs this compiler
 $env:LLRST_RUNTIME = Join-Path $root 'runtime'
 foreach ($shim in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Compile-WinShim $shim
@@ -256,16 +257,13 @@ try {
             Write-Output "fail|err/$name|want=$(Head-Text $want)|got=$(Head-Text $got)"
             $script:fails++
         }
-        $wantText = [System.IO.File]::ReadAllText($want)
-        if ($wantText -notmatch '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read') {
-            $lerr = Join-Path $tmp "$name.lerr"
-            Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
-            if (Same-Bytes $lerr $want) {
-                Write-Output "ok|err/$name|llr-check"
-            } else {
-                Write-Output "fail|err/$name|llr-check|want=$(Head-Text $want)|got=$(Head-Text $lerr)"
-                $script:fails++
-            }
+        $lerr = Join-Path $tmp "$name.lerr"
+        Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
+        if (Same-Bytes $lerr $want) {
+            Write-Output "ok|err/$name|llr-check"
+        } else {
+            Write-Output "fail|err/$name|llr-check|want=$(Head-Text $want)|got=$(Head-Text $lerr)"
+            $script:fails++
         }
     }
 

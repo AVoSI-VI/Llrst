@@ -12,6 +12,7 @@ if [ -z "$llrc" ] || [ ! -x "$llrc" ]; then
   exit 1
 fi
 export LLRST_STD="$root/std"
+export LLRC="$llrc"   # llr-check runs this compiler
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 stage="${1:-${STAGE:-}}"

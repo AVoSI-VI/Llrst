@@ -234,10 +234,8 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | `compiler/src/mir/lower.rs` | 497 | Stage 0; split before a Phase 2 move change |
 | `self/thir_expr.llr` | 493 | Split before Phase 1 span work |
 | `self/lower.llr` | 493 | Statement spans are set before a `let` or `set` is lowered |
-| `std/check_expr.llr` | 490 | Backs `llr-check` only (Phase 4) |
 | `compiler/src/resolve.rs` | 487 | Stage 0 |
 | `compiler/src/codegen/func.rs` | 486 | Trace push/pop lives in `codegen/trace.rs` |
-| `std/check.llr` | 480 | Backs `llr-check` only (Phase 4). `check_more.llr` holds impl shape and bounds |
 | `std/http.llr` | 499 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
 | `self/collect.llr` | 461 | Trait impl shape and generic bounds |
 | `self/elf.llr` | 450 | aarch64 relocation kinds and `e_machine` |
@@ -409,3 +407,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-31: A trait in another module is `module.Trait`, and `(&mut box)` passed into a call is the fat pointer (`tests/run/box_mut`, `tests/run/dyn_qual`). `ui/` phase 4 is in `UIFRAME.md`.
 - 2026-10-31: wasm32 (`UIFRAME.md` phase 6). `self/wasm_*.llr` lower MIR to one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`; `load.llr` appends `std/sys_wasm.llr` and `sys.os_id` is 3; `std/alloc.llr` is the allocator. Stage 0 `resolve.rs` skips `sys_wasm` like the other host files so def ids stay equal. `self/mir_print.llr` prints `&mut box`, and a `(& box)` through an inferred type takes the resolved trait id. `tests/wasm.sh` fails=0 under wasmtime 50; goldens, std tests, `tests/check.sh`, and `tests/mir.sh` fails=0 with the rebuilt self compiler. `ui-mod/event` fails `type.arity` on the nested `(opt.some (event.pointer ...))` pattern in `self/` (stage 0 accepts it); that predates this phase and is fixed on 2026-11-01.
 - 2026-11-01: Two blockers. `std/gql_schema.llr` declared `pub` types `ty` and `field`, and `std/gql_parse.llr` declared `doc`, repeating `std/ast.llr` and `std/xml.llr`; stage 0's prelude map kept the last one while `self/` and `std/check.llr` kept the first, so stage 0 could not build `llr-check` or `llrs0`. They are `gtype`, `gfield`, and `gdoc`. A repeated `pub` std type name is now `name.dup|name=|module=` in all three checkers (`compiler/src/prelude.rs`, `self/collect.llr`, `std/check_load.llr`), and the first keeps the name. `self/thir_pat.llr` copied pattern children without their own children, so any variant pattern nested in another had zero sub-patterns; it borrows them now (`tests/run/match_nested`). `scripts/self.sh --stage` reaches `stage2=equal`.
+- 2026-11-01: `llr-check` is a front end over `llrc check` (`os.exec`, `os.exe_path`): `$LLRC`, then `llrc` beside the tool, then `PATH`; arguments and the exit code pass through. The second checker in `std/check*.llr` is retired, so the two can no longer disagree. `tests/run.sh` and `tests/self.sh` export `LLRC` and compare `llr-check` on every `tests/err` and `tests/warn` golden, including borrow, move, init, warnings, and `--deny`. `tests/self.sh` fails=0.
