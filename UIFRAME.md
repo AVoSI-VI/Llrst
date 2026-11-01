@@ -97,10 +97,10 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-10-31|phases=0-13|phase 5 done
-compiler|self/ emits x86-64 ELF64 and COFF, and aarch64 ELF and Mach-O|no wasm (HANDOFF Phase 6 item 2)
+plan|2026-10-31|phases=0-13|phase 6 done
+compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
-std|math and math_trig|no allocator, no png
+std|math, math_trig, and alloc|no png
 ```
 
 ## Implementation notes (constraints the plan is built around)
@@ -126,15 +126,14 @@ Language and std facts that shape every phase. Each is verified against `docs/sp
   It is the reference for the `self/` aarch64 backend. Cranelift does not emit wasm; the
   wasm backend has no stage 0 twin, so its reference is `tests/run` goldens under `wasmtime`.
 - `std/math.llr` and `std/math_trig.llr` are pure Llrst (`sqrt sin cos floor ceil pow` and
-  the rest). There is still no allocator (`sys` imports `malloc` `realloc` `free`) and no
-  image codec. wasm32 has no libc unless WASI brings one, so `std/alloc.llr` is written in
-  Llrst and used on every target where the extern is missing.
+  the rest). `std/alloc.llr` is a free-list allocator over a grow hook. There is still no
+  image codec. wasm32 has no libc; `std/sys_wasm.llr` calls `alloc` and `memory.grow`.
 - `self/load.llr` loads `main`, every file in sorted `std/`, the host OS externs, then `proj.*`
   modules found beside `main`. `(use ui.NAME)` loads `ui/NAME.llr` only when named, from
   `--ui`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. Stage 0
   (`compiler/src/driver.rs`, `resolve.rs`) resolves the same prefix.
-- `--target` does not switch `sys_windows.llr` / `sys_posix.llr` (HANDOFF Phase 6 item 3).
-  Every cross target in this plan (wasm, Android, iOS) needs that fixed first.
+- `--target` selects `sys_wasm.llr` when the triple contains `wasm32`, and `sys_windows.llr`
+  or `sys_posix.llr` for the other host files. Android and iOS still need their own files.
 - `scripts/check-lines.sh` and the copy in `tests/run.ps1` scan `compiler/src`, `std`, `ui`,
   `web`, `tools`, `docs`, `scripts`, `tests`, `self`, and `runtime/*.{c,m}`.
 
@@ -215,18 +214,18 @@ Files: `runtime/llr_ui_win.c`, `runtime/llr_ui_x11.c`, `runtime/llr_ui_mac.m`, `
 5. `[x]` Manual check list in `docs/ui/hosts.md`: resize, DPI change, minimise, close, paste; the suite stays headless.
 6. `[x]` Commit: `ui: win32, x11, cocoa hosts`.
 
-### Phase 6: wasm32 backend `[ ]`
+### Phase 6: wasm32 backend `[x]`
 
 Files: `self/wasm.llr`, `self/wasm_mod.llr`, `self/wasm_fn.llr`, `self/wasm_op.llr`, `self/wasm_abi.llr`, `self/wasm_imp.llr`, `self/drive.llr`, `self/llrs.llr`, `self/load.llr`, `std/alloc.llr`, `std/sys_wasm.llr`, `std/sys.llr`, `tests/wasm.sh`, `tests/wasm.ps1`, `docs/spec/targets.md`.
 
-1. `[ ]` `--target wasm32-wasi` and `wasm32-unknown-unknown` accepted by `drive.llr` `target_ok`; `load.llr` selects `sys_wasm.llr` by target, not host (closes HANDOFF Phase 6 item 3 for this target).
-2. `[ ]` `wasm.llr`: LEB128, sections (`type import function memory global export code data`), names section for debugging; `wasm_mod`: one module per program, one linear memory, a shadow-stack global, data segment for `str_data` literals.
-3. `[ ]` `wasm_abi`: every MIR local is an offset from the shadow stack pointer; aggregates by pointer as on x86-64; scalars in wasm locals only as temporaries; calls, indirect calls through a table for `fn` pointers, closures, and vtables; `sret` returns.
-4. `[ ]` `wasm_op`: integer and float ops with wrap semantics, `--checked` traps via `unreachable` after an overflow test, shifts masked, float-to-int saturating (`i32.trunc_sat_f64_s` and kin), casts, `sizeof`; panics call `proc_exit(101)` after writing to fd 2.
-5. `[ ]` `std/alloc.llr`: a free-list allocator over `memory.grow`, exposing the `malloc realloc free` shapes `sys` expects, used when the target has no libc; `std/sys_wasm.llr`: WASI preview1 `fd_write fd_read path_open fd_close clock_time_get proc_exit args_get args_sizes_get environ_get environ_sizes_get random_get`; the `net thread os.shell fs.list` externs return `E|...|target.unsupported`.
-6. `[ ]` `tests/wasm.sh` and `.ps1`: build every `tests/run` and `tests/panic` golden with `--target wasm32-wasi`, run under `wasmtime`, compare; skip list in the script for `net thread` cases with the reason per line. `wasmtime` missing prints `fail|setup|wasmtime=missing` like `tests/cross.sh`.
-7. `[ ]` `docs/spec/targets.md`: triples, what each lacks, how `sys` picks externs.
-8. `[ ]` Commit: `self: wasm32 backend, wasi externs, allocator, suite under wasmtime`.
+1. `[x]` `--target wasm32-wasi` and `wasm32-unknown-unknown` accepted by `drive.llr` `target_ok`; `load.llr` selects `sys_wasm.llr` by target, not host (closes HANDOFF Phase 6 item 3 for this target).
+2. `[x]` `wasm.llr`: LEB128, sections (`type import function memory global export code data`), names section for debugging; `wasm_mod`: one module per program, one linear memory, a shadow-stack global, data segment for `str_data` literals.
+3. `[x]` `wasm_abi`: every MIR local is an offset from the shadow stack pointer; aggregates by pointer as on x86-64; scalars in wasm locals only as temporaries; calls, indirect calls through a table for `fn` pointers, closures, and vtables; `sret` returns.
+4. `[x]` `wasm_op`: integer and float ops with wrap semantics, `--checked` traps via `unreachable` after an overflow test, shifts masked, float-to-int saturating (`i32.trunc_sat_f64_s` and kin), casts, `sizeof`; panics call `proc_exit(101)` after writing to fd 2.
+5. `[x]` `std/alloc.llr`: a free-list allocator over `memory.grow`, exposing the `malloc realloc free` shapes `sys` expects, used when the target has no libc; `std/sys_wasm.llr`: WASI preview1 `fd_write fd_read path_open fd_close clock_time_get proc_exit args_get args_sizes_get environ_get environ_sizes_get random_get`; the `net thread os.shell fs.list` externs return `E|...|target.unsupported`.
+6. `[x]` `tests/wasm.sh` and `.ps1`: build every `tests/run` and `tests/panic` golden with `--target wasm32-wasi`, run under `wasmtime`, compare; skip list in the script for `net thread` cases with the reason per line. `wasmtime` missing prints `fail|setup|wasmtime=missing` like `tests/cross.sh`.
+7. `[x]` `docs/spec/targets.md`: triples, what each lacks, how `sys` picks externs.
+8. `[x]` Commit: `self: wasm32 backend, wasi externs, allocator, suite under wasmtime`.
 
 ### Phase 7: web host `[ ]`
 
@@ -323,3 +322,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-31: Phase 3. `(box (dyn Trait))` is an owned trait object, packed where that type is expected. `(& box)` is the fat pointer unless a reference to the box is expected. No trait default methods; a callback is a closure field. `f32` casts of the same width are a no-op in `self/`. Goldens: `tests/run/box_dyn`, `clos_cb`, `f32`.
 - 2026-10-31: Phase 4. Widget, element, and render arenas, the basic widgets, and the null host. `examples/counter.llr` runs headless. Custom render objects are leaves. `ctx.theme` is a background and foreground pair until phase 11. A trait in another module is `module.Trait`. `(&mut box)` passed to a method is the fat pointer. Goldens: `tests/ui/host_null`, `box`, `flex`, `stack`, `text`, `image`, `fx`, `counter`, `gesture`, `counter_tap`, `focus`.
 - 2026-10-31: Phase 5. Win32, X11, and Cocoa present the BGRA buffer and pull a 64-byte event record. One `llr_ui_*` ABI, so `host_pick` can name every host and the link line adds only this operating system's shim when the object references `llr_ui_open`. `.m` shims are compiled with `clang -fobjc-arc` on Darwin only. The suite stays headless. Manual checks are in `docs/ui/hosts.md`.
+- 2026-10-31: Phase 6. `self/` emits one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3. `tests/wasm.sh` runs the run and panic goldens under `wasmtime`. Net, threads, shell, and directory listing are `target.unsupported`.

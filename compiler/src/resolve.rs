@@ -247,7 +247,7 @@ impl<'a> Loader<'a> {
         let main_canon = std::fs::canonicalize(main).ok();
         for f in std_files {
             let name = f.file_stem().unwrap().to_string_lossy().to_string();
-            if name == "sys_posix" || name == "sys_windows" {
+            if name == "sys_posix" || name == "sys_windows" || name == "sys_wasm" {
                 continue;
             }
             if std::fs::canonicalize(&f).ok() == main_canon {

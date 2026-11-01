@@ -62,6 +62,7 @@ flowchart LR
   src[".llr"] --> load["load.llr std.ast"] --> resolve["collect.llr resolve.llr"]
   resolve --> check["check.llr thir*"] --> mir["lower* MIR"] --> borrow["borrow.llr lint.llr"]
   borrow --> cg["cg_* via cg_isa"] --> obj["elf, coff, or macho"] --> link["link.llr cc or cl"]
+  borrow --> wasm["wasm_*"] --> wobj["one .wasm module"]
 ```
 
 | path | role | start here |
@@ -88,7 +89,7 @@ flowchart LR
 | MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `lower_clos.llr`, `lower_div.llr`, `inline.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div`, inline substitution |
 | borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `static_ck.llr`, `lint.llr` | loans, holders, init, `'static`, warnings |
 | codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | every local a slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
-| objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), or Mach-O arm64 |
+| objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr`, `wasm.llr`, `wasm_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), Mach-O arm64, or one Wasm module (`.wasm`) for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3 on wasm. |
 | link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims. A reference to `llr_ui_open` also links the host UI shim |
 | driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
 
@@ -101,6 +102,7 @@ instances are compiled; std bodies are checked lazily.
 commit|ebaed76|Merge pull request #1 from AVoSI-VI/self-hosting-esty
 suite|tests/run.ps1|fails=3|2026-10-27|run/cast_float panic/cast_f_high panic/cast_f_neg|cranelift emit unreachable
 self|stage2=equal|scripts/self.sh record at 1732bd6|darwin arm64
+wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
 lines|compiler=9263 rs|self=12731 llr|std=6049 llr|tools=859 llr|max_file=compiler/src/mir/lower.rs 497|budget=500 soft, 1000 hard
 ```
 
@@ -405,3 +407,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-31: Darwin phase 5. `self/` accepts an empty triple, `x86_64` without `apple`, and `aarch64` or `arm64`, including Mach-O on a Darwin triple and ELF for `aarch64-unknown-linux-gnu`. riscv64 and s390x stay on stage 0. `scripts/install.sh` installs `llrs2` on Darwin. `tests/check.sh` and `tests/mir.sh` fails=0. `tests/x64_ref.sh` is byte-equal after refreshing the `self/llrs` snapshots. `LLRC=llrs0 tests/cross.sh` fails=0.
 - 2026-10-31: Phase 7. `connect` takes a dotted IPv4. Poll and thread callbacks are closures, and both pools grow. HTTP decodes chunked bodies and reassembles WebSocket messages. GraphQL runs a schema with variables and nested selections. XML reads attributes and namespaces. SOAP 1.1, unary gRPC with HPACK and protobuf, and an MQTT 3.1.1 broker are in std. Windows `poll` is not clamped at 4096. `LLRC=llrc tests/run.sh`: goldens, std tests, lines, `tests/check.sh`, `tests/mir.sh`, and `tests/cross.sh` fails=0. `tests/self.sh` stops at `llrs0` with `use.unused|name=opt` in `self/drive.llr`, and stage 0 still cannot build `llr-check` (`type.mismatch` in `std/check.llr`).
 - 2026-10-31: A trait in another module is `module.Trait`, and `(&mut box)` passed into a call is the fat pointer (`tests/run/box_mut`, `tests/run/dyn_qual`). `ui/` phase 4 is in `UIFRAME.md`.
+- 2026-10-31: wasm32 (`UIFRAME.md` phase 6). `self/wasm_*.llr` lower MIR to one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`; `load.llr` appends `std/sys_wasm.llr` and `sys.os_id` is 3; `std/alloc.llr` is the allocator. Stage 0 `resolve.rs` skips `sys_wasm` like the other host files so def ids stay equal. `self/mir_print.llr` prints `&mut box`, and a `(& box)` through an inferred type takes the resolved trait id. `tests/wasm.sh` fails=0 under wasmtime 50; goldens, std tests, `tests/check.sh`, and `tests/mir.sh` fails=0 with the rebuilt self compiler. `ui-mod/event` fails `type.arity` on the five-field `event.pointer` pattern in `self/` (stage 0 accepts it); that predates this phase.

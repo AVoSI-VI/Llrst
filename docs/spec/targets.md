@@ -36,3 +36,16 @@ prints `skip|cross|target=...|self=x86-64 and aarch64 only` for those two when `
 
 An empty triple links with host `cc`. A Darwin host omits `-pie`. A non-empty Unix triple
 links with `clang --target=<triple>`. Windows uses the probed linker in `link_win.llr`.
+
+## wasm32
+
+`self/` also accepts `wasm32-wasi` and `wasm32-unknown-unknown`. The object is one Wasm
+module (default path ends in `.wasm`). `llrc run` on either triple is `target.unsupported`;
+`tests/wasm.sh` runs the module with `wasmtime`. Language pointers, `str` headers, and
+vtable words stay 8 bytes, little-endian, the same layout as x86-64. A wasm address is the
+low 32 bits of that pointer.
+
+`load.llr` selects `sys_wasm.llr` when the triple contains `wasm32`, before the Windows or
+POSIX file. `sys.os_id` is `3`. `wasm32-wasi` imports WASI preview1. `wasm32-unknown-unknown`
+imports the same names from the module `llr`. There is no network, no threads, no shell, and
+no directory listing: those externs write `target.unsupported` and return `-1` or null.

@@ -1,0 +1,65 @@
+;; WASI preview1 imports and the four compiler intrinsics.
+(use std.str)
+
+(pub (fn nimp () i64 11))
+
+(pub (fn wasi ((wasi bool)) str (if wasi (str.from "wasi_snapshot_preview1") (str.from "llr"))))
+
+(pub (fn field ((i i64)) str
+  (if (== i 0) (ret (str.from "fd_write")))
+  (if (== i 1) (ret (str.from "fd_read")))
+  (if (== i 2) (ret (str.from "path_open")))
+  (if (== i 3) (ret (str.from "fd_close")))
+  (if (== i 4) (ret (str.from "clock_time_get")))
+  (if (== i 5) (ret (str.from "proc_exit")))
+  (if (== i 6) (ret (str.from "args_get")))
+  (if (== i 7) (ret (str.from "args_sizes_get")))
+  (if (== i 8) (ret (str.from "environ_get")))
+  (if (== i 9) (ret (str.from "environ_sizes_get")))
+  (str.from "random_get")))
+
+(pub (fn index ((name (& str))) i64
+  (if (str.eq name "fd_write") (ret 0))
+  (if (str.eq name "fd_read") (ret 1))
+  (if (str.eq name "path_open") (ret 2))
+  (if (str.eq name "fd_close") (ret 3))
+  (if (str.eq name "clock_time_get") (ret 4))
+  (if (str.eq name "proc_exit") (ret 5))
+  (if (str.eq name "args_get") (ret 6))
+  (if (str.eq name "args_sizes_get") (ret 7))
+  (if (str.eq name "environ_get") (ret 8))
+  (if (str.eq name "environ_sizes_get") (ret 9))
+  (if (str.eq name "random_get") (ret 10))
+  (neg 1)))
+
+;; 0 none, 1 memory.grow, 2 heap base, 3 trace head, 4 argc, 5 argv, 6 heap header.
+(pub (fn intrinsic ((name (& str))) i64
+  (if (str.eq name "llr_memory_grow") (ret 1))
+  (if (str.eq name "llr_heap_base") (ret 2))
+  (if (str.eq name "llr_trace_slot") (ret 3))
+  (if (str.eq name "llr_argc_slot") (ret 4))
+  (if (str.eq name "llr_argv_slot") (ret 5))
+  (if (str.eq name "llr_heap_slot") (ret 6))
+  0))
+
+(pub (fn slot_addr ((k i64)) i64
+  (if (== k 3) (ret 0))
+  (if (== k 4) (ret 16))
+  (if (== k 5) (ret 24))
+  (if (== k 6) (ret 32))
+  0))
+
+;; Param kinds for an import: 0 i32, 1 i64. Result 0 i32, 1 i64, 2 none.
+(pub (fn argc ((i i64)) i64
+  (if (or (== i 0) (== i 1)) (ret 4))
+  (if (== i 2) (ret 9))
+  (if (== i 4) (ret 3))
+  (if (or (== i 3) (== i 5)) (ret 1))
+  2))
+
+(pub (fn arg_kind ((i i64) (n i64)) i64
+  (if (and (== i 2) (or (== n 5) (== n 6))) (ret 1))
+  (if (and (== i 4) (== n 1)) (ret 1))
+  0))
+
+(pub (fn ret_kind ((i i64)) i64 (if (== i 5) 2 0)))

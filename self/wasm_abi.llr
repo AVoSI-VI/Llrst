@@ -1,0 +1,440 @@
+;; Shadow stack, wasm locals, and loads. MIR locals are sp-relative slots.
+(use proj.cg_lay)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+(use proj.wasm)
+(use proj.wasm_mod)
+
+(pub (struct fx
+  (pub (code (vec u8)))
+  (pub (off (vec i64)))
+  (pub (z (vec bool)))
+  (pub (flag (vec i64)))
+  (pub (fon (vec bool)))
+  (pub (ff (vec (vec i64))))
+  (pub (base i64))
+  (pub (frame i64))
+  (pub (scratch i64))
+  (pub (used i64))
+  (pub (sret i64))
+  (pub (has_sret bool))
+  (pub (trace i64))
+  (pub (do_trace bool))
+  (pub (toff (vec i64)))
+  (pub (tramp (vec i64)))
+  (pub (cdrop (vec i64)))
+  (pub (line i64))
+  (pub (col i64))
+  (pub (path str))
+  (pub (nb i64))
+  (pub (bi i64))
+  (pub (nparam i64))))
+
+(pub (fn fresh ((path str) (nparam i64)) fx
+  (fx (vec.new <u8>)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (vec.new < (vec i64) >)
+    nparam
+    0
+    0
+    0
+    0
+    false
+    0
+    false
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    0
+    0
+    path
+    0
+    0
+    nparam)))
+
+(pub (fn acc ((fx (& fx))) i64 (. fx base)))
+
+(pub (fn tmpv ((fx (& fx))) i64 (+ (. fx base) 1)))
+
+(pub (fn fp0 ((fx (& fx))) i64 (+ (. fx base) 2)))
+
+(pub (fn fp1 ((fx (& fx))) i64 (+ (. fx base) 3)))
+
+(pub (fn selv ((fx (& fx))) i64 (+ (. fx base) 4)))
+
+(fn c ((fx (&mut fx))) (&mut (vec u8)) (&mut (. fx code)))
+
+(pub (fn put ((fx (&mut fx)) (n i64)) unit (wasm.byte (c fx) n)))
+
+(pub (fn get ((fx (&mut fx)) (i i64)) unit (put fx 32) (wasm.uleb (c fx) i)))
+
+(pub (fn setl ((fx (&mut fx)) (i i64)) unit (put fx 33) (wasm.uleb (c fx) i)))
+
+(pub (fn i32c ((fx (&mut fx)) (n i64)) unit (wasm.i32_const (c fx) n)))
+
+(pub (fn i64c ((fx (&mut fx)) (n i64)) unit (wasm.i64_const (c fx) n)))
+
+(pub (fn get_acc ((fx (&mut fx))) unit (get fx (acc fx))))
+
+(pub (fn set_acc ((fx (&mut fx))) unit (setl fx (acc fx))))
+
+(pub (fn get_tmp ((fx (&mut fx))) unit (get fx (tmpv fx))))
+
+(pub (fn set_tmp ((fx (&mut fx))) unit (setl fx (tmpv fx))))
+
+(pub (fn get_fp0 ((fx (&mut fx))) unit (get fx (fp0 fx))))
+
+(pub (fn set_fp0 ((fx (&mut fx))) unit (setl fx (fp0 fx))))
+
+(pub (fn get_fp1 ((fx (&mut fx))) unit (get fx (fp1 fx))))
+
+(pub (fn set_fp1 ((fx (&mut fx))) unit (setl fx (fp1 fx))))
+
+(pub (fn end ((fx (&mut fx))) unit (put fx 11)))
+
+(pub (fn op_block ((fx (&mut fx))) unit (put fx 2) (put fx 64)))
+
+(pub (fn op_loop ((fx (&mut fx))) unit (put fx 3) (put fx 64)))
+
+(pub (fn op_if ((fx (&mut fx))) unit (put fx 4) (put fx 127)))
+
+(pub (fn op_if0 ((fx (&mut fx))) unit (put fx 4) (put fx 64)))
+
+(pub (fn op_else ((fx (&mut fx))) unit (put fx 5)))
+
+(pub (fn retn ((fx (&mut fx))) unit (put fx 15)))
+
+(pub (fn trap ((fx (&mut fx))) unit (put fx 0)))
+
+(pub (fn br ((fx (&mut fx)) (d i64)) unit (put fx 12) (wasm.uleb (c fx) d)))
+
+(pub (fn call_ix ((fx (&mut fx)) (ix i64)) unit (put fx 16) (wasm.uleb (c fx) ix)))
+
+(pub (fn call_ind ((fx (&mut fx)) (ty i64)) unit (put fx 17) (wasm.uleb (c fx) ty) (wasm.uleb (c fx) 0)))
+
+(pub (fn br_table ((fx (&mut fx)) (n i64)) unit
+  (put fx 14)
+  (wasm.uleb (c fx) n)
+  (for i 0 n (wasm.uleb (c fx) i))
+  (wasm.uleb (c fx) (+ n 1))))
+
+(pub (fn jump ((fx (&mut fx)) (target i64)) unit
+  (i32c fx target)
+  (setl fx (selv fx))
+  (br fx (- (- (. fx nb) 1) (. fx bi)))))
+
+(fn gsp ((fx (&mut fx))) unit (put fx 35) (wasm.uleb (c fx) 0))
+
+(fn ssp ((fx (&mut fx))) unit (put fx 36) (wasm.uleb (c fx) 0))
+
+(pub (fn bump_sp ((fx (&mut fx)) (delta i64)) unit (gsp fx) (i32c fx delta) (put fx 106) (ssp fx)))
+
+(pub (fn sp_i32 ((fx (&mut fx)) (off i64)) unit (gsp fx) (if (!= off 0) (do (i32c fx off) (put fx 106)))))
+
+(fn wrap ((fx (&mut fx))) unit (put fx 167))
+
+(fn ext_u ((fx (&mut fx))) unit (put fx 173))
+
+(pub (fn ptr_i32 ((fx (&mut fx)) (local i64) (off i64)) unit
+  (get fx local)
+  (wrap fx)
+  (if (!= off 0) (do (i32c fx off) (put fx 106)))))
+
+(fn memop ((fx (&mut fx)) (op i64)) unit (put fx op) (wasm.uleb (c fx) 0) (wasm.uleb (c fx) 0))
+
+(fn load_op ((w i64) (signed bool)) i64
+  (if (and (== w 1) signed) (ret 48))
+  (if (== w 1) (ret 49))
+  (if (and (== w 2) signed) (ret 50))
+  (if (== w 2) (ret 51))
+  (if (and (== w 4) signed) (ret 52))
+  (if (== w 4) (ret 53))
+  41)
+
+(fn store_op ((w i64)) i64 (if (== w 1) (ret 60)) (if (== w 2) (ret 61)) (if (== w 4) (ret 62)) 55)
+
+(pub (fn load_acc ((fx (&mut fx)) (off i64) (w i64) (signed bool)) unit
+  (ptr_i32 fx (acc fx) off)
+  (memop fx (load_op w signed))
+  (set_acc fx)))
+
+(pub (fn load_tmp ((fx (&mut fx)) (off i64) (w i64) (signed bool)) unit
+  (ptr_i32 fx (tmpv fx) off)
+  (memop fx (load_op w signed))
+  (set_acc fx)))
+
+(pub (fn store_tmp ((fx (&mut fx)) (off i64) (w i64)) unit
+  (ptr_i32 fx (tmpv fx) off)
+  (get_acc fx)
+  (memop fx (store_op w))))
+
+(pub (fn load_sp ((fx (&mut fx)) (off i64) (w i64) (signed bool)) unit
+  (sp_i32 fx off)
+  (memop fx (load_op w signed))
+  (set_acc fx)))
+
+(pub (fn store_sp ((fx (&mut fx)) (off i64) (w i64)) unit
+  (sp_i32 fx off)
+  (get_acc fx)
+  (memop fx (store_op w))))
+
+(pub (fn push_sp ((fx (&mut fx)) (off i64)) unit (sp_i32 fx off) (memop fx 41)))
+
+(pub (fn store_tmp_sp ((fx (&mut fx)) (off i64)) unit
+  (sp_i32 fx off)
+  (get_tmp fx)
+  (memop fx (store_op 8))))
+
+(pub (fn store_sp_local ((fx (&mut fx)) (off i64) (local i64) (w i64)) unit
+  (sp_i32 fx off)
+  (get fx local)
+  (memop fx (store_op w))))
+
+(pub (fn lea ((fx (&mut fx)) (off i64)) unit (sp_i32 fx off) (ext_u fx) (set_acc fx)))
+
+(pub (fn add_acc ((fx (&mut fx)) (off i64)) unit
+  (if (== off 0) (ret))
+  (get_acc fx)
+  (wrap fx)
+  (i32c fx off)
+  (put fx 106)
+  (ext_u fx)
+  (set_acc fx)))
+
+(pub (fn copy_n ((fx (&mut fx)) (n i64)) unit
+  (if (<= n 0) (ret))
+  (get_tmp fx)
+  (wrap fx)
+  (get_acc fx)
+  (wrap fx)
+  (i32c fx n)
+  (put fx 252)
+  (wasm.uleb (c fx) 10)
+  (wasm.uleb (c fx) 0)
+  (wasm.uleb (c fx) 0)))
+
+(pub (fn copy_from ((fx (&mut fx)) (src i64) (n i64)) unit
+  (if (<= n 0) (ret))
+  (get_tmp fx)
+  (wrap fx)
+  (get fx src)
+  (wrap fx)
+  (i32c fx n)
+  (put fx 252)
+  (wasm.uleb (c fx) 10)
+  (wasm.uleb (c fx) 0)
+  (wasm.uleb (c fx) 0)))
+
+(pub (fn fit ((fx (&mut fx)) (w i64) (signed bool)) unit
+  (if (>= w 8) (ret))
+  (if (== w 4) (ret (fit32 fx signed)))
+  (fit_sh fx (if (== w 2) 48 56) signed)))
+
+(fn fit32 ((fx (&mut fx)) (signed bool)) unit
+  (get_acc fx)
+  (wrap fx)
+  (put fx (if signed 172 173))
+  (set_acc fx))
+
+(fn fit_sh ((fx (&mut fx)) (sh i64) (signed bool)) unit
+  (get_acc fx)
+  (i64c fx sh)
+  (put fx 134)
+  (i64c fx sh)
+  (put fx (if signed 135 136))
+  (set_acc fx))
+
+(pub (fn ld_fp ((fx (&mut fx)) (single bool)) unit
+  (ptr_i32 fx (acc fx) 0)
+  (if single (do (memop fx 42) (put fx 187)) (memop fx 43))
+  (set_fp0 fx)))
+
+(pub (fn st_fp ((fx (&mut fx)) (single bool)) unit
+  (ptr_i32 fx (tmpv fx) 0)
+  (get_fp0 fx)
+  (if single (do (put fx 182) (memop fx 56)) (memop fx 57))))
+
+(pub (fn ld_fp_sp ((fx (&mut fx)) (off i64) (single bool)) unit
+  (sp_i32 fx off)
+  (if single (do (memop fx 42) (put fx 187)) (memop fx 43))
+  (set_fp0 fx)))
+
+(pub (fn st_fp_sp ((fx (&mut fx)) (off i64) (single bool)) unit
+  (sp_i32 fx off)
+  (get_fp0 fx)
+  (if single (do (put fx 182) (memop fx 56)) (memop fx 57))))
+
+(pub (fn st_f32_param ((fx (&mut fx)) (off i64) (local i64)) unit
+  (sp_i32 fx off)
+  (get fx local)
+  (memop fx 56)))
+
+(pub (fn st_f64_param ((fx (&mut fx)) (off i64) (local i64)) unit
+  (sp_i32 fx off)
+  (get fx local)
+  (memop fx 57)))
+
+(pub (fn reset ((fx (&mut fx))) unit (set (. fx used) 0)))
+
+(pub (fn scratch ((fx (&mut fx)) (n i64)) i64
+  (if (<= n 0) (ret (. fx scratch)))
+  (set (. fx used) (cg_lay.align_up (. fx used) 8))
+  (let off (+ (. fx scratch) (. fx used)))
+  (set (. fx used) (+ (. fx used) n))
+  off))
+
+(pub (fn hold_acc ((fx (&mut fx))) i64 (let d (scratch fx 8)) (store_sp fx d 8) d))
+
+(pub (fn reload_acc ((fx (&mut fx)) (off i64)) unit (lea fx off) (load_acc fx 0 8 true)))
+
+(fn alloc_slot ((cur (&mut i64)) (size i64) (align i64)) i64
+  (if (<= size 0) (ret 0))
+  (let c (cg_lay.align_up (@ cur) align))
+  (set (@ cur) (+ c size))
+  c)
+
+(pub (fn layout ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut fx)) (b (& mir.body)) (trace bool)) unit
+  (let mut cur 0)
+  (if (cg_lay.is_agg (& (. (vec.get (& (. b locs)) 0) ty)))
+    (do (set (. fx has_sret) true) (set (. fx sret) (alloc_slot (&mut cur) 8 8))))
+  (for i 0 (vec.len (& (. b locs)))
+    (local_slot g p fx (&mut cur) (& (. (vec.get (& (. b locs)) i) ty))))
+  (if trace (do (set (. fx do_trace) true) (set (. fx trace) (alloc_slot (&mut cur) 16 8))))
+  (alloc_traces fx (&mut cur) b)
+  (set (. fx scratch) cur)
+  (set (. fx frame) (cg_lay.align_up (+ cur 4096) 16))))
+
+(fn local_slot ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut fx)) (cur (&mut i64)) (t (& ty.sty))) unit
+  (let l (cg_lay.of (&mut (. g lays)) p t))
+  (vec.push (&mut (. fx off)) (alloc_slot cur (. l size) (. l align)))
+  (vec.push (&mut (. fx z)) (<= (. l size) 0))
+  (let mask (field_mask p t))
+  (if (> (vec.len (& mask)) 0) (push_fields fx cur (& mask)) (push_whole fx cur p t)))
+
+(fn push_whole ((fx (&mut fx)) (cur (&mut i64)) (p (& prog.prog)) (t (& ty.sty))) unit
+  (vec.push (&mut (. fx ff)) (vec.new <i64>))
+  (if (prog.needs_drop p t)
+    (do (vec.push (&mut (. fx flag)) (alloc_slot cur 1 1)) (vec.push (&mut (. fx fon)) true))
+    (do (vec.push (&mut (. fx flag)) 0) (vec.push (&mut (. fx fon)) false))))
+
+(fn push_fields ((fx (&mut fx)) (cur (&mut i64)) (mask (& (vec bool)))) unit
+  (let mut row (vec.new <i64>))
+  (for i 0 (vec.len mask)
+    (if (@ (vec.get mask i))
+      (vec.push (&mut row) (alloc_slot cur 1 1))
+      (vec.push (&mut row) (neg 1))))
+  (vec.push (&mut (. fx ff)) row)
+  (vec.push (&mut (. fx flag)) 0)
+  (vec.push (&mut (. fx fon)) false))
+
+(fn field_mask ((p (& prog.prog)) (t (& ty.sty))) (vec bool)
+  (if (not (field_mode p t)) (ret (vec.new <bool>)))
+  (let d (vec.get (& (. p defs)) (. t id)))
+  (let mut o (vec.new <bool>))
+  (let mut any false)
+  (for i 0 (vec.len (& (. d sfields)))
+    (let ft (ty.subst (& (. (vec.get (& (. d sfields)) i) ty)) (& (. t args))))
+    (let n (prog.needs_drop p (& ft)))
+    (vec.push (&mut o) n)
+    (if n (set any true)))
+  (if any o (vec.new <bool>)))
+
+(fn field_mode ((p (& prog.prog)) (t (& ty.sty))) bool
+  (if (!= (. t kind) 8u8) (ret false))
+  (if (>= (prog.meth_id p (. t id) "drop") 0) (ret false))
+  (== (. (vec.get (& (. p defs)) (. t id)) kind) 0u8))
+
+(fn alloc_traces ((fx (&mut fx)) (cur (&mut i64)) (b (& mir.body))) unit
+  (let n (trace_n b))
+  (for i 0 n (vec.push (&mut (. fx toff)) (alloc_slot cur 16 8))))
+
+(fn trace_n ((b (& mir.body))) i64
+  (let mut n 0)
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for k 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) k))
+      (if (and (== (. s kind) 6u8) (>= (. s local) n)) (set n (+ (. s local) 1)))))
+  n)
+
+(pub (fn off_at ((fx (& fx)) (local i64)) i64 (@ (vec.get (& (. fx off)) local))))
+
+(pub (fn is_z ((fx (& fx)) (local i64)) bool (@ (vec.get (& (. fx z)) local))))
+
+(pub (fn addr_local ((fx (&mut fx)) (local i64)) unit
+  (if (is_z fx local) (ret (do (i64c fx 0) (set_acc fx))))
+  (lea fx (off_at fx local))))
+
+(pub (fn place ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut fx))
+   (locs (& (vec thir.loc)))
+   (local i64)
+   (pk (& (vec u8)))
+   (pi (& (vec i64)))) ty.sty
+  (addr_local fx local)
+  (let mut ty (ty.clone (& (. (vec.get locs local) ty))))
+  (let mut variant (neg 1))
+  (for i 0 (vec.len pk)
+    (set ty (step g p fx (& ty) (&mut variant) (@ (vec.get pk i)) (@ (vec.get pi i)))))
+  ty))
+
+(fn step ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut fx))
+   (ty (& ty.sty))
+   (variant (&mut i64))
+   (k u8)
+   (n i64)) ty.sty
+  (if (== k 1u8) (ret (do (load_acc fx 0 8 true) (ty.inner ty))))
+  (if (== k 2u8) (ret (do (set (@ variant) n) (ty.clone ty))))
+  (field_step g p fx ty variant n))
+
+(fn field_step ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut fx))
+   (ty (& ty.sty))
+   (variant (&mut i64))
+   (n i64)) ty.sty
+  (let l (cg_lay.of (&mut (. g lays)) p ty))
+  (let off
+    (if (>= (@ variant) 0)
+      (@ (vec.get (vec.get (& (. l vars)) (@ variant)) n))
+      (@ (vec.get (& (. l fields)) n))))
+  (add_acc fx off)
+  (let next (mir.field_ty p ty (@ variant) n))
+  (set (@ variant) (neg 1))
+  next)
+
+(pub (fn load_s ((fx (&mut fx)) (t (& ty.sty))) unit
+  (if (ty.is_unit t) (ret))
+  (if (cg_lay.is_float t) (ret (ld_fp fx (== (. t kind) 1u8))))
+  (load_acc fx 0 (cg_lay.width t) (cg_lay.signed t))))
+
+(pub (fn store_s ((fx (&mut fx)) (t (& ty.sty))) unit
+  (if (ty.is_unit t) (ret))
+  (if (cg_lay.is_float t) (ret (st_fp fx (== (. t kind) 1u8))))
+  (store_tmp fx 0 (cg_lay.width t))))
+
+(pub (fn prefix ((nparam i64)) (vec u8)
+  (let mut b (vec.new <u8>))
+  (wasm.byte (&mut b) 3)
+  (wasm.uleb (&mut b) 2)
+  (wasm.byte (&mut b) 126)
+  (wasm.uleb (&mut b) 2)
+  (wasm.byte (&mut b) 124)
+  (wasm.uleb (&mut b) 1)
+  (wasm.byte (&mut b) 127)
+  (let _ nparam)
+  b))
+
+(pub (fn finish ((fx (& fx))) (vec u8)
+  (let mut o (prefix (. fx nparam)))
+  (for i 0 (vec.len (& (. fx code))) (vec.push (&mut o) (@ (vec.get (& (. fx code)) i))))
+  (wasm.end (&mut o))
+  o))

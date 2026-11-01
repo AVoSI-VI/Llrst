@@ -21,6 +21,7 @@
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
+(use proj.wasm_fn)
 
 (pub (struct flags
   (pub (cmd str))
@@ -46,8 +47,11 @@
 
 (pub (fn target_ok ((t (& str))) bool
   (if (== (str.len t) 0) (ret true))
+  (if (is_wasm t) (ret true))
   (if (and (str.has t "x86_64") (not (str.has t "apple"))) (ret true))
   (or (str.has t "aarch64") (str.has t "arm64"))))
+
+(pub (fn is_wasm ((t (& str))) bool (or (str.eq t "wasm32-wasi") (str.eq t "wasm32-unknown-unknown"))))
 
 (pub (fn reject_target ((file (& str)) (got (& str))) i64 (bad file "target.unsupported" got)))
 
@@ -85,9 +89,9 @@
   (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
+  (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds))))
   (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target)))))
-  (let mut g
-    (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
+  (let mut g (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (pump (&mut g) (& p) (&mut ds))
@@ -119,6 +123,19 @@
 (fn promote_one ((d (&mut diag.dg)) (deny (& (vec str)))) unit
   (if (. d err) (ret))
   (for i 0 (vec.len deny) (if (str.eq (& (. d code)) (vec.get deny i)) (set (. d err) true))))
+
+(fn wasm_out ((o (& flags)) (p prog.prog) (ds (&mut (vec diag.dg)))) i64
+  (let wasi (str.has (& (. o target)) "wasi"))
+  (let bytes (wasm_fn.build (& p) (. o checked) wasi (. o test) ds))
+  (if (diag.any_err ds "") (ret (finish o ds)))
+  (let path (wasm_path o))
+  (match (fs.write (& path) (& bytes))
+    ((res.err e) (do (io.eputs (& (at_main (& (. o file)) "io.write" "got" (& e) "" ""))) (ret 1)))
+    ((res.ok _) (finish o ds))))
+
+(fn wasm_path ((o (& flags))) str
+  (if (> (str.len (& (. o out))) 0) (ret (str.clone (& (. o out)))))
+  (str.cat (& (out_path o)) ".wasm"))
 
 (fn out_path ((o (& flags))) str
   (if (> (str.len (& (. o out))) 0) (ret (str.clone (& (. o out)))))
@@ -253,4 +270,7 @@
   (assert_eq (target_ok "aarch64-apple-darwin") true)
   (assert_eq (target_ok "arm64-apple-darwin") true)
   (assert_eq (target_ok "riscv64gc-unknown-linux-gnu") false)
-  (assert_eq (target_ok "s390x-unknown-linux-gnu") false))
+  (assert_eq (target_ok "s390x-unknown-linux-gnu") false)
+  (assert_eq (target_ok "wasm32-wasi") true)
+  (assert_eq (target_ok "wasm32-unknown-unknown") true)
+  (assert_eq (target_ok "wasm32-unknown-emscripten") false))

@@ -2,9 +2,11 @@
 
 | module | role |
 |--------|------|
-| [sys](sys.md) | Panic runtime. `sys.os_id` is `1` on POSIX and `2` on Windows. Not for programs; std only. |
+| [sys](sys.md) | Panic runtime. `sys.os_id` is `1` on POSIX, `2` on Windows, and `3` on wasm32. Not for programs; std only. |
 | [sys_posix](sys_posix.md) | POSIX externs merged into `std.sys`. |
 | [sys_windows](sys_windows.md) | Windows externs merged into `std.sys`. |
+| [sys_wasm](sys_wasm.md) | WASI preview1 externs merged into `std.sys` when the target contains `wasm32`. |
+| [alloc](alloc.md) | Free-list `malloc`, `realloc`, and `free` over a grow hook. |
 | [str](str.md) | Owned byte string `str`. Literals are `(& str)`. |
 | [vec](vec.md) | Growable array `(vec T)`. |
 | [opt](opt.md) | Optional `(opt T)`: `(opt.some x)` / `(opt.none)`. |

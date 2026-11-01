@@ -83,7 +83,8 @@
     (or (str.eq a "--emit-obj")
       (or (str.eq a "--checked")
         (or (str.eq a "-o")
-          (or (str.eq a "--target") (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny")))))))))
+          (or (str.eq a "--target")
+            (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny")))))))))
 
 (fn command ((c (& str))) bool
   (or (str.eq c "build")
@@ -123,6 +124,8 @@
   s)
 
 (fn run_cmd ((o drive.flags)) unit
+  (if (drive.is_wasm (& (. o target)))
+    (os.exit (drive.reject_target (& (. o file)) (& (. o target)))))
   (let mut b o)
   (set (. b cmd) (str.from "build"))
   (set (. b out) (run_file))

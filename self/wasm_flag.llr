@@ -1,0 +1,47 @@
+;; Drop flags on the shadow stack. A row is one byte per field.
+(use proj.wasm_abi)
+
+(fn set_byte ((fx (&mut wasm_abi.fx)) (disp i64) (on bool)) unit
+  (wasm_abi.i64c fx (if on 1 0))
+  (wasm_abi.set_acc fx)
+  (wasm_abi.store_sp fx disp 1))
+
+(fn flag_on ((fx (& wasm_abi.fx)) (local i64)) bool (@ (vec.get (& (. fx fon)) local)))
+
+(fn flag_at ((fx (& wasm_abi.fx)) (local i64)) i64 (@ (vec.get (& (. fx flag)) local)))
+
+(fn row_len ((fx (& wasm_abi.fx)) (local i64)) i64 (vec.len (vec.get (& (. fx ff)) local)))
+
+(fn row_at ((fx (& wasm_abi.fx)) (local i64) (i i64)) i64
+  (@ (vec.get (vec.get (& (. fx ff)) local) i)))
+
+(fn row_owned ((fx (& wasm_abi.fx)) (local i64)) (vec i64)
+  (let row (vec.get (& (. fx ff)) local))
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len row) (vec.push (&mut o) (@ (vec.get row i))))
+  o)
+
+(pub (fn set_flag ((fx (&mut wasm_abi.fx)) (local i64) (on bool)) unit
+  (if (> (row_len fx local) 0) (ret (set_row fx local on)))
+  (if (not (flag_on fx local)) (ret))
+  (set_byte fx (flag_at fx local) on)))
+
+(fn set_row ((fx (&mut wasm_abi.fx)) (local i64) (on bool)) unit
+  (let row (row_owned fx local))
+  (for i 0 (vec.len (& row)) (let d (@ (vec.get (& row) i))) (if (>= d 0) (set_byte fx d on))))
+
+(pub (fn set_field ((fx (&mut wasm_abi.fx)) (local i64) (field i64) (on bool)) unit
+  (if (<= (row_len fx local) field) (ret))
+  (let d (row_at fx local field))
+  (if (< d 0) (ret))
+  (set_byte fx d on)))
+
+(fn fon_len ((fx (& wasm_abi.fx))) i64 (vec.len (& (. fx fon))))
+
+(fn ff_len ((fx (& wasm_abi.fx))) i64 (vec.len (& (. fx ff))))
+
+(pub (fn zero_flags ((fx (&mut wasm_abi.fx))) unit
+  (let n (fon_len fx))
+  (for i 0 n (if (flag_on fx i) (set_byte fx (flag_at fx i) false)))
+  (let m (ff_len fx))
+  (for i 0 m (set_row fx i false))))

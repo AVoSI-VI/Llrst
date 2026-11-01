@@ -87,6 +87,7 @@
   (match (os.env "LLRST_STD") ((opt.some s) (res.ok (slash (& s)))) ((opt.none) (std_found file))))
 
 (fn os_name ((target (& str))) str
+  (if (str.has target "wasm32") (ret (str.from "sys_wasm.llr")))
   (if (> (str.len target) 0)
     (ret (if (str.has target "windows") (str.from "sys_windows.llr") (str.from "sys_posix.llr"))))
   (match (os.env "OS")
@@ -117,7 +118,8 @@
         ((res.ok v) (res.ok v))))))
 
 (fn skip_os ((name (& str))) bool
-  (or (str.eq name "sys_posix.llr") (str.eq name "sys_windows.llr")))
+  (or (str.eq name "sys_posix.llr")
+    (or (str.eq name "sys_windows.llr") (str.eq name "sys_wasm.llr"))))
 
 (fn load_one ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (modp str) (file str) (is_std bool)) (res i64 str)
   (if (>= (path_i paths (& modp)) 0) (ret (res.ok (path_i paths (& modp)))))
@@ -266,6 +268,7 @@
   (str.starts (& (str.trim (& (. r out)))) "Darwin"))
 
 (fn arch_of ((target (& str))) str
+  (if (str.has target "wasm32") (ret (str.from "wasm32")))
   (if (or (str.has target "aarch64") (str.has target "arm64")) (ret (str.from "aarch64")))
   (if (and (== (str.len target) 0) (host_darwin)) (ret (str.from "aarch64")))
   (str.from "x86_64"))

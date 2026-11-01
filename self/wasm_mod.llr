@@ -1,0 +1,307 @@
+;; One wasm module: data, types, functions, and the pending compile queue.
+(use proj.cg_bits)
+(use proj.cg_lay)
+(use proj.cg_mod)
+(use proj.prog)
+(use proj.ty)
+(use proj.wasm)
+(use proj.wasm_imp)
+(use std.str)
+
+(pub (struct wm
+  (pub (checked bool))
+  (pub (wasi bool))
+  (pub (lays cg_lay.lays))
+  (pub (data (vec u8)))
+  (pub (names (vec str)))
+  (pub (ftys (vec i64)))
+  (pub (codes (vec (vec u8))))
+  (pub (fid (vec i64)))
+  (pub (fargs (vec (vec ty.sty))))
+  (pub (ford (vec i64)))
+  (pub (fdone (vec bool)))
+  (pub (pend (vec i64)))
+  (pub (pargs (vec (vec ty.sty))))
+  (pub (tb (vec (vec u8))))
+  (pub (dty (vec ty.sty)))
+  (pub (dord (vec i64)))
+  (pub (ddone (vec bool)))
+  (pub (dpend (vec i64)))
+  (pub (skey (vec str)))
+  (pub (saddr (vec i64)))
+  (pub (ckey (vec str)))
+  (pub (caddr (vec i64)))
+  (pub (vkey (vec str)))
+  (pub (vaddr (vec i64)))
+  (pub (imps (vec i64)))))
+
+(fn z64 () (vec u8) (let mut v (vec.new <u8>)) (for i 0 64 (vec.push (&mut v) 0u8)) v)
+
+(fn blank ((checked bool) (wasi bool)) wm
+  (wm checked
+    wasi
+    (cg_lay.new)
+    (z64)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new < (vec u8) >)
+    (vec.new <i64>)
+    (vec.new < (vec ty.sty) >)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (vec.new <i64>)
+    (vec.new < (vec ty.sty) >)
+    (vec.new < (vec u8) >)
+    (vec.new <ty.sty>)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (vec.new <i64>)))
+
+(pub (fn new ((checked bool) (wasi bool)) wm (let mut g (blank checked wasi)) (prep_imp (&mut g)) g))
+
+(fn prep_imp ((g (&mut wm))) unit
+  (let n (wasm_imp.nimp))
+  (let mut i 0)
+  (while (< i n) (do (let ty (imp_ty g i)) (vec.push (&mut (. g imps)) ty) (set i (+ i 1)))))
+
+(fn imp_ty ((g (&mut wm)) (i i64)) i64
+  (let mut ps (vec.new <u8>))
+  (let mut rs (vec.new <u8>))
+  (for n 0 (wasm_imp.argc i) (vec.push (&mut ps) (if (== (wasm_imp.arg_kind i n) 1) 126u8 127u8)))
+  (if (!= (wasm_imp.ret_kind i) 2) (vec.push (&mut rs) 127u8))
+  (intern g (& ps) (& rs)))
+
+(pub (fn intern ((g (&mut wm)) (ps (& (vec u8))) (rs (& (vec u8)))) i64
+  (let body (ty_body ps rs))
+  (let hit (find_ty g (& body)))
+  (if (>= hit 0) (ret hit))
+  (vec.push (&mut (. g tb)) body)
+  (- (vec.len (& (. g tb))) 1)))
+
+(fn ty_body ((ps (& (vec u8))) (rs (& (vec u8)))) (vec u8)
+  (let mut b (vec.new <u8>))
+  (wasm.byte (&mut b) 96)
+  (wasm.uleb (&mut b) (vec.len ps))
+  (for i 0 (vec.len ps) (wasm.byte (&mut b) (as i64 (@ (vec.get ps i)))))
+  (wasm.uleb (&mut b) (vec.len rs))
+  (for i 0 (vec.len rs) (wasm.byte (&mut b) (as i64 (@ (vec.get rs i)))))
+  b)
+
+(fn find_ty ((g (& wm)) (body (& (vec u8)))) i64
+  (for i 0 (vec.len (& (. g tb))) (if (bytes_eq (vec.get (& (. g tb)) i) body) (ret i)))
+  (neg 1))
+
+(fn bytes_eq ((a (& (vec u8))) (b (& (vec u8)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret false))
+  (for i 0 (vec.len a) (if (!= (@ (vec.get a i)) (@ (vec.get b i))) (ret false)))
+  true)
+
+(pub (fn add_fn ((g (&mut wm)) (name str) (ty i64)) i64
+  (let ord (vec.len (& (. g names))))
+  (vec.push (&mut (. g names)) name)
+  (vec.push (&mut (. g ftys)) ty)
+  (vec.push (&mut (. g codes)) (vec.new <u8>))
+  ord))
+
+(pub (fn set_code ((g (&mut wm)) (ord i64) (code (vec u8))) unit (vec.set (&mut (. g codes)) ord code)))
+
+(pub (fn call_of ((ord i64)) i64 (+ (wasm_imp.nimp) ord)))
+
+(fn align_data ((g (&mut wm)) (a i64)) unit
+  (if (<= a 1) (ret))
+  (while (!= (% (vec.len (& (. g data))) a) 0) (vec.push (&mut (. g data)) 0u8)))
+
+(pub (fn append ((g (&mut wm)) (src (& (vec u8))) (a i64)) i64
+  (align_data g a)
+  (let at (vec.len (& (. g data))))
+  (for i 0 (vec.len src) (vec.push (&mut (. g data)) (@ (vec.get src i))))
+  at))
+
+(fn put_i64 ((g (&mut wm)) (at i64) (n i64)) unit
+  (for i 0 8 (vec.set (&mut (. g data)) (+ at i) (as u8 (band (shr n (* i 8)) 255)))))
+
+(pub (fn cstr_addr ((g (&mut wm)) (s (& str))) i64
+  (let hit (find_key (& (. g ckey)) (& (. g caddr)) s))
+  (if (>= hit 0) (ret hit))
+  (let mut raw (vec.new <u8>))
+  (for i 0 (str.len s) (vec.push (&mut raw) (str.at s i)))
+  (vec.push (&mut raw) 0u8)
+  (let at (append g (& raw) 1))
+  (vec.push (&mut (. g ckey)) (str.clone s))
+  (vec.push (&mut (. g caddr)) at)
+  at))
+
+(pub (fn str_addr ((g (&mut wm)) (s (& str))) i64
+  (let hit (find_key (& (. g skey)) (& (. g saddr)) s))
+  (if (>= hit 0) (ret hit))
+  (let bytes (cstr_addr g s))
+  (let mut rec (vec.new <u8>))
+  (for i 0 24 (vec.push (&mut rec) 0u8))
+  (let at (append g (& rec) 8))
+  (put_i64 g at bytes)
+  (put_i64 g (+ at 8) (str.len s))
+  (vec.push (&mut (. g skey)) (str.clone s))
+  (vec.push (&mut (. g saddr)) at)
+  at))
+
+(fn find_key ((keys (& (vec str))) (vals (& (vec i64))) (s (& str))) i64
+  (for i 0 (vec.len keys) (if (str.eq (vec.get keys i) s) (ret (@ (vec.get vals i)))))
+  (neg 1))
+
+(pub (fn scalar_addr ((g (&mut wm)) (ck i64) (v i64) (text (& str)) (t (& ty.sty))) i64
+  (let key (sc_key ck v text))
+  (let hit (find_key (& (. g vkey)) (& (. g vaddr)) (& key)))
+  (if (>= hit 0) (ret hit))
+  (let bytes (cg_bits.scalar_bytes ck v text t false))
+  (let al (if (== (vec.len (& bytes)) 0) 1 (vec.len (& bytes))))
+  (let at (append g (& bytes) al))
+  (vec.push (&mut (. g vkey)) key)
+  (vec.push (&mut (. g vaddr)) at)
+  at))
+
+(fn sc_key ((ck i64) (v i64) (text (& str))) str
+  (let mut s (str.from_int ck))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (str.from_int v)))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) text)
+  s)
+
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
+  o)
+
+(fn args_eq ((a (& (vec ty.sty))) (b (& (vec ty.sty)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret false))
+  (for i 0 (vec.len a) (if (not (ty.eq (vec.get a i) (vec.get b i))) (ret false)))
+  true)
+
+(fn find_fn ((g (& wm)) (id i64) (args (& (vec ty.sty)))) i64
+  (for i 0 (vec.len (& (. g fid)))
+    (if (and (== (@ (vec.get (& (. g fid)) i)) id) (args_eq (vec.get (& (. g fargs)) i) args))
+      (ret i)))
+  (neg 1))
+
+(pub (fn func_sym ((g (&mut wm)) (p (& prog.prog)) (id i64) (args (vec ty.sty))) i64
+  (let hit (find_fn g id (& args)))
+  (if (>= hit 0) (ret (@ (vec.get (& (. g ford)) hit))))
+  (let d (vec.get (& (. p defs)) id))
+  (if (. d extern) (ret (neg 1)))
+  (let fs (formals p id (& args)))
+  (let ret (ty.subst (& (. d ret)) (& args)))
+  (let ty (sig_ty g (& ret) (& fs)))
+  (let ord (add_fn g (cg_mod.mangle (& (prog.fn_path p id)) (& args)) ty))
+  (vec.push (&mut (. g fid)) id)
+  (vec.push (&mut (. g fargs)) args)
+  (vec.push (&mut (. g ford)) ord)
+  (vec.push (&mut (. g fdone)) false)
+  (vec.push (&mut (. g pend)) id)
+  (vec.push (&mut (. g pargs))
+    (clone_tys (vec.get (& (. g fargs)) (- (vec.len (& (. g fargs))) 1))))
+  ord))
+
+(fn formals ((p (& prog.prog)) (id i64) (args (& (vec ty.sty)))) (vec ty.sty)
+  (let d (vec.get (& (. p defs)) id))
+  (let mut o (vec.new <ty.sty>))
+  (for i 0 (vec.len (& (. d spars)))
+    (vec.push (&mut o) (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) args)))
+  o)
+
+(pub (fn sig_ty ((g (&mut wm)) (ret (& ty.sty)) (args (& (vec ty.sty)))) i64
+  (let mut ps (vec.new <u8>))
+  (let mut rs (vec.new <u8>))
+  (if (cg_lay.is_agg ret) (vec.push (&mut ps) 126u8))
+  (for i 0 (vec.len args) (push_vt (&mut ps) (vec.get args i)))
+  (push_rt (&mut rs) ret)
+  (intern g (& ps) (& rs))))
+
+(fn push_vt ((ps (&mut (vec u8))) (t (& ty.sty))) unit
+  (if (ty.is_unit t) (ret))
+  (vec.push ps (valty t)))
+
+(fn push_rt ((rs (&mut (vec u8))) (t (& ty.sty))) unit
+  (if (or (ty.is_unit t) (cg_lay.is_agg t)) (ret))
+  (vec.push rs (valty t)))
+
+(fn valty ((t (& ty.sty))) u8
+  (if (== (. t kind) 1u8) (ret 125u8))
+  (if (== (. t kind) 2u8) (ret 124u8))
+  126u8)
+
+(pub (fn mark_done ((g (&mut wm)) (id i64) (args (& (vec ty.sty)))) unit
+  (let hit (find_fn g id args))
+  (if (>= hit 0) (vec.set (&mut (. g fdone)) hit true))))
+
+(pub (fn is_done ((g (& wm)) (id i64) (args (& (vec ty.sty)))) bool
+  (let hit (find_fn g id args))
+  (and (>= hit 0) (@ (vec.get (& (. g fdone)) hit)))))
+
+(pub (fn done_ids ((g (& wm))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len (& (. g fid)))
+    (if (@ (vec.get (& (. g fdone)) i)) (vec.push (&mut o) (@ (vec.get (& (. g fid)) i)))))
+  o))
+
+(pub (fn drop_ty ((g (&mut wm))) i64
+  (let mut ps (vec.new <u8>))
+  (let rs (vec.new <u8>))
+  (vec.push (&mut ps) 126u8)
+  (intern g (& ps) (& rs))))
+
+(pub (fn drop_sym ((g (&mut wm)) (t (& ty.sty))) i64
+  (let hit (find_drop g t))
+  (if (>= hit 0) (ret (@ (vec.get (& (. g dord)) hit))))
+  (let mut name (str.from "llr_drop_"))
+  (str.push (&mut name) (& (str.from_int (vec.len (& (. g dty))))))
+  (let dty (drop_ty g))
+  (let ord (add_fn g name dty))
+  (vec.push (&mut (. g dty)) (ty.clone t))
+  (vec.push (&mut (. g dord)) ord)
+  (vec.push (&mut (. g ddone)) false)
+  (vec.push (&mut (. g dpend)) (- (vec.len (& (. g dty))) 1))
+  ord))
+
+(fn find_drop ((g (& wm)) (t (& ty.sty))) i64
+  (for i 0 (vec.len (& (. g dty))) (if (ty.eq (vec.get (& (. g dty)) i) t) (ret i)))
+  (neg 1))
+
+(pub (fn drop_pending ((g (& wm)) (i i64)) bool (not (@ (vec.get (& (. g ddone)) i)))))
+
+(pub (fn mark_drop ((g (&mut wm)) (i i64)) unit (vec.set (&mut (. g ddone)) i true)))
+
+(pub (fn vt_addr ((g (&mut wm)) (p (& prog.prog)) (tr i64) (t (& ty.sty))) i64
+  (let key (vt_key tr t))
+  (let hit (find_key (& (. g vkey)) (& (. g vaddr)) (& key)))
+  (if (>= hit 0) (ret hit))
+  (let im (prog.impl_of p tr t))
+  (let ids (& (. (vec.get (& (. p ims)) im) ids)))
+  (let words (+ (vec.len ids) 1))
+  (let mut raw (vec.new <u8>))
+  (for i 0 (* words 8) (vec.push (&mut raw) 0u8))
+  (let at (append g (& raw) 8))
+  (let drop (drop_sym g t))
+  (put_i64 g at drop)
+  (for i 0 (vec.len ids) (vt_word g p ids at i))
+  (vec.push (&mut (. g vkey)) key)
+  (vec.push (&mut (. g vaddr)) at)
+  at))
+
+(fn vt_word ((g (&mut wm)) (p (& prog.prog)) (ids (& (vec i64))) (at i64) (i i64)) unit
+  (let ord (func_sym g p (@ (vec.get ids i)) (vec.new <ty.sty>)))
+  (put_i64 g (+ at (* (+ i 1) 8)) ord))
+
+(fn vt_key ((tr i64) (t (& ty.sty))) str
+  (let mut s (str.from_int tr))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (ty.show t)))
+  s)
+
+(pub (fn patch_heap ((g (&mut wm)) (heap i64)) unit (put_i64 g 8 heap)))

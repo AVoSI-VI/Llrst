@@ -1,0 +1,159 @@
+;; Casts. Integers land in acc, floats in fp0.
+(use proj.cg_lay)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+(use proj.wasm_abi)
+(use proj.wasm_mod)
+(use proj.wasm_op)
+
+(pub (fn eval ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))) ty.sty
+  (let from (wasm_op.eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (cast g p fx (& from) (& (. r ty)))
+  (ty.clone (& (. r ty)))))
+
+(fn cast ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (and (cg_lay.is_float from) (cg_lay.is_float to)) (ret (fcvt fx from to)))
+  (if (and (cg_lay.is_float from) (== (. to kind) 0u8)) (ret (ftoi g p fx from to)))
+  (if (and (== (. from kind) 0u8) (cg_lay.is_float to)) (ret (itof g p fx from to)))
+  (if (and (== (. from kind) 0u8) (== (. to kind) 0u8)) (icast g p fx from to)))
+
+(fn fcvt ((fx (&mut wasm_abi.fx)) (from (& ty.sty)) (to (& ty.sty))) unit
+  (if (== (. from kind) (. to kind)) (ret))
+  (if (== (. from kind) 1u8) (ret))
+  (wasm_abi.get_fp0 fx)
+  (wasm_abi.put fx 182)
+  (wasm_abi.put fx 187)
+  (wasm_abi.set_fp0 fx))
+
+(fn icast ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (. g checked) (cast_chk g p fx from to))
+  (wasm_abi.fit fx (cg_lay.width to) (cg_lay.signed to)))
+
+(fn cast_chk ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (let sb (cg_lay.width from))
+  (let db (cg_lay.width to))
+  (if (and (== (cg_lay.signed from) (cg_lay.signed to)) (>= db sb)) (ret))
+  (if (and (not (cg_lay.signed from)) (and (cg_lay.signed to) (> db sb))) (ret))
+  (dest_bounds g p fx to))
+
+(fn dest_bounds ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (to (& ty.sty))) unit
+  (let bits (* (cg_lay.width to) 8))
+  (if (not (cg_lay.signed to)) (cmp g p fx 0 83))
+  (if (and (not (cg_lay.signed to)) (== bits 64)) (ret))
+  (if (cg_lay.signed to)
+    (do (cmp g p fx (neg (shl 1 (- bits 1))) 83) (cmp g p fx (- (shl 1 (- bits 1)) 1) 85))
+    (cmp g p fx (- (shl 1 bits) 1) 85)))
+
+(fn cmp ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (n i64) (op i64)) unit
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx n)
+  (wasm_abi.put fx op)
+  (wasm_abi.op_if0 fx)
+  (wasm_op.abort g p fx "cast.overflow")
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx))
+
+(fn itof ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (let orig (wasm_abi.hold_acc fx))
+  (convert fx from to)
+  (if (. g checked) (exact g p fx orig to))
+  ())
+
+(fn convert ((fx (&mut wasm_abi.fx)) (from (& ty.sty)) (to (& ty.sty))) unit
+  (wasm_abi.get_acc fx)
+  (let un (not (cg_lay.signed from)))
+  (if (== (. to kind) 1u8) (wasm_abi.put fx (if un 181 180)) (wasm_abi.put fx (if un 186 185)))
+  (if (== (. to kind) 1u8) (wasm_abi.put fx 187))
+  (wasm_abi.set_fp0 fx))
+
+(fn exact ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (orig i64) (to (& ty.sty))) unit
+  (let _ to)
+  (wasm_abi.get_fp0 fx)
+  (trunc_s fx)
+  (wasm_abi.set_tmp fx)
+  (wasm_abi.reload_acc fx orig)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.get_tmp fx)
+  (wasm_abi.put fx 82)
+  (wasm_abi.op_if0 fx)
+  (wasm_op.abort g p fx "cast.overflow")
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx)
+  (wasm_abi.reload_acc fx orig))
+
+(fn ftoi ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (== (. from kind) 1u8)
+    (do (wasm_abi.get_fp0 fx) (wasm_abi.put fx 182) (wasm_abi.put fx 187) (wasm_abi.set_fp0 fx)))
+  (nan g p fx)
+  (let raw (trunc_hold fx))
+  (clamp g p fx raw to))
+
+(fn nan ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx))) unit
+  (wasm_abi.get_fp0 fx)
+  (wasm_abi.get_fp0 fx)
+  (wasm_abi.put fx 97)
+  (wasm_abi.put fx 69)
+  (wasm_abi.op_if0 fx)
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.set_acc fx)
+  (if (. g checked) (wasm_op.abort g p fx "cast.overflow"))
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx))
+
+(fn trunc_hold ((fx (&mut wasm_abi.fx))) i64
+  (wasm_abi.get_fp0 fx)
+  (trunc_s fx)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.hold_acc fx))
+
+(fn trunc_s ((fx (&mut wasm_abi.fx))) unit (wasm_abi.put fx 252) (wasm_abi.put fx 6) (let _ fx))
+
+(fn clamp ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (raw i64) (to (& ty.sty))) unit
+  (let bits (* (cg_lay.width to) 8))
+  (let lo (if (cg_lay.signed to) (neg (shl 1 (- bits 1))) 0))
+  (let hi (hi_of to bits))
+  (wasm_abi.reload_acc fx raw)
+  (pick g p fx lo 83 lo)
+  (if (not (and (not (cg_lay.signed to)) (== bits 64))) (pick g p fx hi 85 hi))
+  (wasm_abi.fit fx (cg_lay.width to) (cg_lay.signed to)))
+
+(fn hi_of ((to (& ty.sty)) (bits i64)) i64
+  (if (and (not (cg_lay.signed to)) (== bits 64)) (ret (neg 1)))
+  (if (cg_lay.signed to) (- (shl 1 (- bits 1)) 1) (- (shl 1 bits) 1)))
+
+(fn pick ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (n i64) (op i64) (sat i64)) unit
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx n)
+  (wasm_abi.put fx op)
+  (wasm_abi.op_if0 fx)
+  (wasm_abi.i64c fx sat)
+  (wasm_abi.set_acc fx)
+  (if (. g checked) (wasm_op.abort g p fx "cast.overflow"))
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx))
