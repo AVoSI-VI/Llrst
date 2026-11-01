@@ -64,6 +64,32 @@ foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c'
     Compile-Shim $share $name
 }
 Write-Output "ok|runtime|$share"
+
+function Compile-Android {
+    $ndk = $env:ANDROID_NDK
+    if (-not $ndk) { Write-Output 'skip|runtime|android=ndk-missing'; return }
+    $cc = Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android21-clang.cmd'
+    if (-not (Test-Path -LiteralPath $cc)) { Write-Output 'skip|runtime|android=clang-missing'; return }
+    $glue = Join-Path $ndk 'sources\android\native_app_glue'
+    $inc = @('-I', (Join-Path $root 'runtime'), '-I', $glue)
+    $pairs = @(
+        @('llr_stat.c', 'llr_stat_android.o'),
+        @('llr_now.c', 'llr_now_android.o'),
+        @('llr_android_main.c', 'llr_android_main.o'),
+        @('llr_ui_android.c', 'llr_ui_android.o'),
+        @('llr_ui_android_in.c', 'llr_ui_android_in.o')
+    )
+    foreach ($pair in $pairs) {
+        $src = Join-Path $root "runtime\$($pair[0])"
+        $out = Join-Path $share $pair[1]
+        & $cc -c -fPIC @inc $src -o $out
+        if ($LASTEXITCODE -ne 0) { Die "build-runtime|cc=$($pair[0])|target=android" }
+    }
+    & $cc -c -fPIC @inc (Join-Path $glue 'android_native_app_glue.c') -o (Join-Path $share 'llr_ui_android_glue.o')
+    if ($LASTEXITCODE -ne 0) { Die 'build-runtime|cc=android_native_app_glue.c' }
+    Write-Output "ok|runtime|$share\llr_ui_android.o"
+}
+Compile-Android
 $savedLlrc = $env:LLRC
 $env:LLRC = $llrc
 & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'self.ps1') --stage

@@ -13,13 +13,16 @@ framework layout.
 |--------|------|
 | [host](host.md) | Platform surface. The framework paints; a host only presents pixels and reports events. |
 | [host_null](host_null.md) | Headless host. Size and events come from argv; present writes a PPM when `--shot` is set. |
-| [host_shim](host_shim.md) | Desktop shim calls. The linked object is the host operating system. |
+| [host_shim](host_shim.md) | Platform shim calls. The linked object is chosen from the target. |
 | [host_win](host_win.md) | Win32 host. The shim object is chosen at link time. |
 | [host_x11](host_x11.md) | X11 host. The shim object is chosen at link time. |
 | [host_mac](host_mac.md) | Cocoa host. The shim object is chosen at link time. |
+| [host_android](host_android.md) | Android host. The shim object is chosen at link time. |
+| [host_ios](host_ios.md) | iOS host. The shim object is chosen at link time. |
 | [host_pick](host_pick.md) | Picks the desktop host from the operating system. |
 | [hosts](hosts.md) | Win32, X11, and Cocoa manual check. The suite stays headless. |
-| [event](event.md) | Pointer, key, text, and script records. `take_rec` reads the 64-byte host record. |
+| [mobile](mobile.md) | Android and iOS hosts and `llr-ui pack`. The suite stays headless. |
+| [event](event.md) | Pointer, key, text, life, inset, and script records. `take_rec` reads the 64-byte host record. |
 | [key](key.md) | Optional widget key. Both absent keys match; a present key matches only the same id. |
 | [ctx](ctx.md) | Build snapshot. `size` is the host, not the element. Ancestors are nearest first. |
 | [widget](widget.md) | Widget trait, leaf descriptors, and stateless. Type ids stand in for a runtime type. |

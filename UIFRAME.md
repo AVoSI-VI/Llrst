@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-11-01|phases=0-13|phase 8 done
+plan|2026-11-01|phases=0-13|phase 9 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -246,18 +246,18 @@ Files: `self/a64.llr`, `self/a64_int.llr`, `self/a64_fp.llr`, `self/a64_abi.llr`
 3. `[x]` Objects: `elf.llr` aarch64 relocations (`R_AARCH64_CALL26`, `ADR_PREL_PG_HI21`, `ADD_ABS_LO12_NC`, `ABS64`); `macho.llr` arm64 (`ARM64_RELOC_BRANCH26`, `PAGE21`, `PAGEOFF12`, `UNSIGNED`), symbol table, `__TEXT __DATA`, no code signing in the writer.
 4. `[x]` Link: a non-empty Unix triple, including `aarch64-unknown-linux-gnu`, links with `clang --target=` (`link.llr`). `link_mac.llr` uses `xcrun clang` with `-target arm64-apple-macos` / `arm64-apple-ios` and `-isysroot` from `xcrun --sdk macosx|iphoneos --show-sdk-path`. Android uses the NDK clang from `$ANDROID_NDK` (`aarch64-linux-android21-clang -shared`).
 5. `[x]` Verify: `tests/cross.sh` runs a `self/` compiler when `LLRC` names one, and a Darwin arm64 object is checked with `file`. `tests/a64.sh` runs `tests/run` goldens as `aarch64-unknown-linux-gnu`. A Linux aarch64 host runs the binary; any other host uses `qemu-aarch64` (`fail|setup|qemu=missing` when it is absent).
-6. `[ ]` Commit: `self: link aarch64 macOS, iOS, and Android; qemu goldens`.
+6. `[x]` Commit: `self: link aarch64 macOS, iOS, and Android; qemu goldens`.
 
-### Phase 9: mobile hosts and packaging `[ ]`
+### Phase 9: mobile hosts and packaging `[x]`
 
 Files: `runtime/llr_ui_android.c`, `runtime/llr_ui_ios.m`, `ui/host_android.llr`, `ui/host_ios.llr`, `tools/llr-ui.llr`, `docs/ui/mobile.md`, `scripts/install.sh`.
 
-1. `[ ]` Android: `NativeActivity` with `android_native_app_glue`; `ANativeWindow_lock` present with the RGBA/BGRA format negotiated once; touch via `AInputQueue`; soft keyboard through `ANativeActivity_showSoftInput` and key events; density from `AConfiguration`; lifecycle `pause resume destroy` delivered as host events; insets for status and navigation bars.
-2. `[ ]` `llr-ui pack --target aarch64-linux-android FILE`: builds the `.so`, writes a minimal manifest, runs `aapt2 zipalign apksigner` from `$ANDROID_HOME/build-tools` with a debug key; prints `pack|apk=PATH`. The tool shells out; it does not reimplement the SDK.
-3. `[ ]` iOS: `UIApplication` delegate in `.m`, a `UIView` whose `CALayer.contents` is set from a `CGImage` of the buffer each frame driven by `CADisplayLink`, touches, `UITextInput` minimum through a hidden `UITextField`, safe area insets, `contentScaleFactor`, lifecycle.
-4. `[ ]` `llr-ui pack --target aarch64-apple-ios FILE`: `.app` bundle with `Info.plist`, `codesign` with an identity from `--sign`; simulator first (`x86_64` or `arm64` simulator slice from `xcrun simctl`), device second.
-5. `[ ]` `docs/ui/mobile.md`: prerequisites (NDK, SDK build-tools, Xcode), the two pack commands, what is not supported (no background execution, one window).
-6. `[ ]` Commit: `ui: android and ios hosts, llr-ui pack`.
+1. `[x]` Android: `NativeActivity` with `android_native_app_glue`; `ANativeWindow_lock` present with the RGBA/BGRA format negotiated once; touch via `AInputQueue`; soft keyboard through `ANativeActivity_showSoftInput` and key events; density from `AConfiguration`; lifecycle `pause resume destroy` delivered as host events; insets for status and navigation bars.
+2. `[x]` `llr-ui pack --target aarch64-linux-android FILE`: builds the `.so`, writes a minimal manifest, runs `aapt2 zipalign apksigner` from `$ANDROID_HOME/build-tools` with a debug key; prints `pack|apk=PATH`. The tool shells out; it does not reimplement the SDK.
+3. `[x]` iOS: `UIApplication` delegate in `.m`, a `UIView` whose `CALayer.contents` is set from a `CGImage` of the buffer each frame driven by `CADisplayLink`, touches, `UITextInput` minimum through a hidden `UITextField`, safe area insets, `contentScaleFactor`, lifecycle.
+4. `[x]` `llr-ui pack --target aarch64-apple-ios FILE`: `.app` bundle with `Info.plist`, `codesign` with an identity from `--sign`; simulator first (`x86_64` or `arm64` simulator slice from `xcrun simctl`), device second.
+5. `[x]` `docs/ui/mobile.md`: prerequisites (NDK, SDK build-tools, Xcode), the two pack commands, what is not supported (no background execution, one window).
+6. `[x]` Commit: `ui: android and ios hosts, llr-ui pack`.
 
 ### Phase 10: animation `[ ]`
 
@@ -326,3 +326,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-10-31: Phase 6. `self/` emits one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3. `tests/wasm.sh` runs the run and panic goldens under `wasmtime`. Net, threads, shell, and directory listing are `target.unsupported`.
 - 2026-11-01: Phase 7. `host_web` presents on a canvas. `wasm32-unknown-unknown` keeps the WASI import names and adds the canvas imports; `_start` returns and `llr_frame` is the animation callback. `examples/counter.llr` uses `host_web` when `sys.os_id` is 3 and `host_null` otherwise. `llr-ui serve` builds that module, writes the page, and rebuilds when the source mtime changes. File responses pick a content type from the suffix.
 - 2026-11-01: Phase 8. Apple triples link with `xcrun clang` and an SDK. Android links a shared library with the NDK clang at API 21. `tests/a64.sh` runs the `tests/run` goldens as a freestanding aarch64 Linux ELF, under `qemu-aarch64` when the host cannot execute that ELF.
+- 2026-11-01: Phase 9. Android and iOS hosts use the same 64-byte record. Kind 6 is life (pause, resume, destroy) and kind 7 is an inset. Logical size is the safe content rect. `llr-ui pack` shells out to the Android SDK or `codesign`. The simulator slice is arm64. The suite stays headless.

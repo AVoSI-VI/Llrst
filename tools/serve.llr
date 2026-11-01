@@ -1,4 +1,5 @@
 ;; llr-ui serve: build wasm32-unknown-unknown and serve the page.
+(use proj.ui_tool)
 (use std.fmt)
 (use std.fs)
 (use std.http)
@@ -13,57 +14,6 @@
 
 (fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<llr-ui>|0|0|0" e))) (os.exit 1))
 
-(fn one_line ((s (& str))) str
-  (let mut n (str.len s))
-  (while (and (> n 0) (or (== (str.at s (- n 1)) 10u8) (== (str.at s (- n 1)) 13u8)))
-    (set n (- n 1)))
-  (let mut i 0)
-  (while (and (< i n) (and (!= (str.at s i) 10u8) (!= (str.at s i) 13u8))) (set i (+ i 1)))
-  (str.slice s 0 i))
-
-(fn which () str
-  (let cmd (if (== sys.os_id 2) "where llrc" "command -v llrc"))
-  (let r (os.capture cmd))
-  (if (!= (. r code) 0) (ret (str.new)))
-  (one_line (& (. r out))))
-
-(fn from_env ((name (& str))) str
-  (match (os.env name) ((opt.some s) (if (fs.is_dir (& s)) (ret s))) ((opt.none) ()))
-  (str.new))
-
-(fn beside ((bin (& str)) (rel (& str))) str
-  (if (== (str.len bin) 0) (ret (str.new)))
-  (path.join (& (path.dir bin)) rel))
-
-(fn pick ((a (& str)) (b (& str)) (c (& str))) str
-  (if (fs.is_dir a) (ret (str.from a)))
-  (if (fs.is_dir b) (ret (str.from b)))
-  (if (fs.is_dir c) (ret (str.from c)))
-  (str.new))
-
-(fn std_of ((bin (& str))) str
-  (let e (from_env "LLRST_STD"))
-  (if (> (str.len (& e)) 0) (ret e))
-  (pick "std" (& (beside bin "../share/llrst/std")) (& (beside bin "../../std"))))
-
-(fn ui_of ((bin (& str))) str
-  (let e (from_env "LLRST_UI"))
-  (if (> (str.len (& e)) 0) (ret e))
-  (pick "ui" (& (beside bin "../share/llrst/ui")) (& (beside bin "../../ui"))))
-
-(fn web_of ((bin (& str))) str
-  (let e (from_env "LLRST_WEB"))
-  (if (> (str.len (& e)) 0) (ret e))
-  (pick "web" (& (beside bin "../share/llrst/web")) (& (beside bin "../../web"))))
-
-(fn push_arg ((cmd (&mut str)) (s (& str))) unit
-  (str.push cmd " ")
-  (if (== sys.os_id 2)
-    (do (str.push_byte cmd 34u8) (str.push cmd s) (str.push_byte cmd 34u8) (ret)))
-  (str.push_byte cmd 39u8)
-  (str.push cmd s)
-  (str.push_byte cmd 39u8))
-
 (fn copy_file ((src (& str)) (dst (& str))) (res unit str)
   (let b (try (fs.read src)))
   (try (fs.mkdir_all (& (path.dir dst))))
@@ -73,7 +23,9 @@
   (let html (path.join web "index.html"))
   (let js (path.join web "llr_ui.js"))
   (let font (path.join ui "fonts/LiberationSans-Regular.ttf"))
-  (match (copy_file (& html) (& (path.join out "index.html"))) ((res.err e) (ret e)) ((res.ok _) ()))
+  (match (copy_file (& html) (& (path.join out "index.html")))
+    ((res.err e) (ret e))
+    ((res.ok _) ()))
   (match (copy_file (& js) (& (path.join out "llr_ui.js"))) ((res.err e) (ret e)) ((res.ok _) ()))
   (match (copy_file (& font) (& (path.join out "ui/fonts/LiberationSans-Regular.ttf")))
     ((res.err e) e)
@@ -84,21 +36,23 @@
   (let errp (path.join (& (. j out)) "build.err"))
   (let mut cmd (str.from (& (. j bin))))
   (str.push (&mut cmd) " build")
-  (push_arg (&mut cmd) (& (. j src)))
+  (ui_tool.push_arg (&mut cmd) (& (. j src)))
   (str.push (&mut cmd) " --target wasm32-unknown-unknown")
-  (if (> (str.len (& (. j std))) 0) (do (str.push (&mut cmd) " --std") (push_arg (&mut cmd) (& (. j std)))))
-  (if (> (str.len (& (. j ui))) 0) (do (str.push (&mut cmd) " --ui") (push_arg (&mut cmd) (& (. j ui)))))
+  (if (> (str.len (& (. j std))) 0)
+    (do (str.push (&mut cmd) " --std") (ui_tool.push_arg (&mut cmd) (& (. j std)))))
+  (if (> (str.len (& (. j ui))) 0)
+    (do (str.push (&mut cmd) " --ui") (ui_tool.push_arg (&mut cmd) (& (. j ui)))))
   (str.push (&mut cmd) " -o")
-  (push_arg (&mut cmd) (& wasm))
+  (ui_tool.push_arg (&mut cmd) (& wasm))
   (str.push (&mut cmd) " 2>")
-  (push_arg (&mut cmd) (& errp))
+  (ui_tool.push_arg (&mut cmd) (& errp))
   (let t0 (fs.now_ms))
   (let code (os.shell (& cmd)))
   (let ms (str.from_int (- (fs.now_ms) t0)))
   (if (== code 0) (ret (io.puts (& (fmt.pipe3 "build" "ok" (& (fmt.kv "ms" (& ms))))))))
   (let msg
     (match (fs.read (& errp))
-      ((res.ok s) (one_line (& s)))
+      ((res.ok s) (ui_tool.one_line (& s)))
       ((res.err _) (str.cat "code=" (& (str.from_int code))))))
   (io.puts (& (fmt.pipe3 "build" "fail" (& msg)))))
 
@@ -130,11 +84,11 @@
 
 (pub (fn run ((file (& str)) (out (& str)) (port i64)) unit
   (if (not (fs.exists file)) (die (& (str.cat "ui.missing|path=" file))))
-  (let bin (which))
+  (let bin (ui_tool.which))
   (if (== (str.len (& bin)) 0) (die "ui.llrc|name=llrc"))
-  (let stdd (std_of (& bin)))
-  (let uid (ui_of (& bin)))
-  (let web (web_of (& bin)))
+  (let stdd (ui_tool.std_of (& bin)))
+  (let uid (ui_tool.ui_of (& bin)))
+  (let web (ui_tool.web_of (& bin)))
   (if (== (str.len (& web)) 0) (die "ui.web|name=web"))
   (if (== (str.len (& uid)) 0) (die "ui.ui|name=ui"))
   (let copied (copy_assets (& web) (& uid) out))

@@ -6,7 +6,7 @@ Source: `ui/event.llr`. Import with `(use ui.event)` for module functions; types
 
 ## Types
 
-- `(enum event (pub (pointer i64 f32 f32 f32 f32)) (pub (key i64 i64 i64)) (pub (text str)) (pub (frame)) (pub (quit)))`
+- `(enum event (pub (pointer i64 f32 f32 f32 f32)) (pub (key i64 i64 i64)) (pub (text str)) (pub (frame)) (pub (quit)) (pub (life i64)) (pub (inset f32 f32 f32 f32)))`
 
 ## Constants
 
@@ -28,6 +28,11 @@ Source: `ui/event.llr`. Import with `(use ui.event)` for module functions; types
 | `event.rec_text` | `i64` | `3` |
 | `event.rec_frame` | `i64` | `4` |
 | `event.rec_quit` | `i64` | `5` |
+| `event.rec_life` | `i64` | `6` |
+| `event.rec_inset` | `i64` | `7` |
+| `event.pause` | `i64` | `0` |
+| `event.resume` | `i64` | `1` |
+| `event.destroy` | `i64` | `2` |
 
 ## Functions
 
@@ -38,4 +43,4 @@ Source: `ui/event.llr`. Import with `(use ui.event)` for module functions; types
 
 ## Tests
 
-`event_parse`, `event_rec_keys`, `event_rec_text`
+`event_parse`, `event_rec_keys`, `event_rec_text`, `event_rec_life`

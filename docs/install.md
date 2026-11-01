@@ -53,6 +53,13 @@ compiles the X11 files and needs the `X11/Xlib.h` headers (`libx11-dev`). The co
 does not compile those files itself on Unix. `tests/run.sh` compiles the host UI objects
 into `runtime/` beside `llr_stat.o`. The suite does not open a window.
 
+An Android link looks for `llr_stat_android.o`, `llr_now_android.o`,
+`llr_android_main.o`, and `llr_ui_android_glue.o`, plus `llr_ui_android.o` and
+`llr_ui_android_in.o` when the program calls `llr_ui_open`. An iOS link looks for the
+`_ios` objects, or `_ios_sim` when the triple contains `simulator`. Install compiles
+them when `ANDROID_NDK` or the Xcode iOS SDKs are present, and prints
+`skip|runtime|android=ndk-missing` or `skip|runtime|ios=sdk-missing` otherwise.
+
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
 `<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. It finds `ui` in this order:
 `--ui DIR`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. A program

@@ -7,6 +7,7 @@
 (use std.sys)
 (use proj.diag)
 (use proj.link_mac)
+(use proj.link_mob)
 (use proj.link_win)
 (use proj.load)
 
@@ -70,9 +71,9 @@
   (let shim (runtime name))
   (if (> (str.len (& shim)) 0) (do (str.push cmd " ") (str.push cmd (& (q (& shim)))))))
 
-(fn add_stat ((cmd (&mut str))) unit
-  (add_obj cmd "llr_stat.o")
-  (add_obj cmd "llr_now.o"))
+(fn add_stat ((cmd (&mut str)) (target (& str))) unit
+  (add_obj cmd (& (link_mob.stat_obj target)))
+  (add_obj cmd (& (link_mob.now_obj target))))
 
 (fn clang_cmd ((obj (& str)) (out (& str)) (target (& str))) str
   (let mut cmd (str.from "clang --target="))
@@ -81,7 +82,7 @@
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd))
+  (add_stat (&mut cmd) target)
   cmd)
 
 (fn host_cc ((obj (& str)) (out (& str))) str
@@ -89,7 +90,7 @@
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd))
+  (add_stat (&mut cmd) "")
   (if (not (host_darwin)) (str.push (&mut cmd) " -pie"))
   (str.push (&mut cmd) " -pthread")
   cmd)
@@ -116,9 +117,7 @@
   (path.join (& bin) "bin/aarch64-linux-android21-clang"))
 
 (fn ndk_root () str
-  (match (os.env "ANDROID_NDK")
-    ((opt.some d) (slash (& d)))
-    ((opt.none) (str.new))))
+  (match (os.env "ANDROID_NDK") ((opt.some d) (slash (& d))) ((opt.none) (str.new))))
 
 (fn ndk_clang () str
   (let root (ndk_root))
@@ -130,26 +129,26 @@
   (if (> (str.len (& alt)) 0) (push_cand (&mut c) (ndk_bin (& root) (& alt))))
   (first (& c)))
 
-(fn and_cmd ((cc (& str)) (obj (& str)) (out (& str))) str
+(fn and_cmd ((cc (& str)) (obj (& str)) (out (& str)) (target (& str))) str
   (let mut cmd (q cc))
   (str.push (&mut cmd) " -shared ")
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd))
+  (add_stat (&mut cmd) target)
   cmd)
 
 (fn android_cmd ((obj (& str)) (out (& str))) str
   (let cc (ndk_clang))
   (if (== (str.len (& cc)) 0) (ret (str.new)))
-  (and_cmd (& cc) obj out))
+  (and_cmd (& cc) obj out "aarch64-linux-android"))
 
 (fn apple_cmd ((obj (& str)) (out (& str)) (target (& str))) str
   (let ios (link_mac.ios target))
-  (let sdk (link_mac.sdk_path ios))
+  (let sdk (link_mac.sdk_path ios (link_mac.sim target)))
   (if (== (str.len (& sdk)) 0) (ret (str.new)))
-  (let mut cmd (link_mac.cmd obj out ios (& sdk)))
-  (add_stat (&mut cmd))
+  (let mut cmd (link_mac.cmd obj out target (& sdk)))
+  (add_stat (&mut cmd) target)
   cmd)
 
 (fn cc_cmd ((obj (& str)) (out (& str)) (target (& str))) str
@@ -225,6 +224,41 @@
   (str.push cmd (& (ui_libs win dar)))
   (str.new))
 
+(fn add_names ((cmd (&mut str)) (names (& (vec str)))) str
+  (for i 0 (vec.len names)
+    (let name (str.clone (vec.get names i)))
+    (if (not (add_named cmd (& name))) (ret (str.cat (& name) " missing"))))
+  (str.new))
+
+(fn add_android ((cmd (&mut str)) (ui bool)) str
+  (let names (link_mob.android_objs ui))
+  (let err (add_names cmd (& names)))
+  (if (> (str.len (& err)) 0) (ret err))
+  (str.push cmd " ")
+  (str.push cmd (& (link_mob.android_libs)))
+  (str.new))
+
+(fn add_ios ((cmd (&mut str)) (sim bool) (ui bool)) str
+  (let names (link_mob.ios_objs sim ui))
+  (let err (add_names cmd (& names)))
+  (if (> (str.len (& err)) 0) (ret err))
+  (str.push cmd " ")
+  (str.push cmd (& (link_mob.ios_libs)))
+  (str.new))
+
+(fn rename_main ((obj (& str)) (target (& str))) i64
+  (if (not (link_mac.ios target)) (ret 0))
+  (let mut c (str.from "xcrun llvm-objcopy --redefine-sym _main=_llr_user_main "))
+  (str.push (&mut c) (& (q obj)))
+  (os.shell (& c)))
+
+(fn attach ((cmd (&mut str)) (bytes (& str)) (target (& str))) str
+  (let ui (wants_ui bytes))
+  (if (str.has target "android") (ret (add_android cmd ui)))
+  (if (link_mac.ios target) (ret (add_ios cmd (link_mac.sim target) ui)))
+  (if ui (ret (add_ui cmd false (target_dar target) ".o")))
+  (str.new))
+
 (fn gnu_cmd ((cc (& str)) (obj (& str)) (exe (& str))) str
   (let mut cmd (str.clone cc))
   (push_q (&mut cmd) obj)
@@ -283,7 +317,18 @@
     (do
       (set web (runtime "llr_ui_web.obj"))
       (if (== (str.len (& web)) 0) (do (rm (& obj)) (ret (fail main "cl" "llr_ui_web.o missing"))))))
-  (let err (link_win.link (& obj) out (& wsa) (& shim) (& sock) (& proc) (& now) (& ua) (& ub) (& web) main))
+  (let err
+    (link_win.link (& obj)
+      out
+      (& wsa)
+      (& shim)
+      (& sock)
+      (& proc)
+      (& now)
+      (& ua)
+      (& ub)
+      (& web)
+      main))
   (rm (& obj))
   err)
 
@@ -299,11 +344,12 @@
   (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
   (let mut cmd (cc_cmd (& obj) out target))
-  (if (== (str.len (& cmd)) 0) (do (rm (& obj)) (ret (fail main (& (miss_cmd target)) (& (miss_got target))))))
-  (if (wants_ui bytes)
-    (do
-      (let err (add_ui (&mut cmd) false (target_dar target) ".o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))))
+  (if (== (str.len (& cmd)) 0)
+    (do (rm (& obj)) (ret (fail main (& (miss_cmd target)) (& (miss_got target))))))
+  (let renamed (rename_main (& obj) target))
+  (if (!= renamed 0) (do (rm (& obj)) (ret (fail main "llvm-objcopy" (& (str.from_int renamed))))))
+  (let err (attach (&mut cmd) bytes target))
+  (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))
   (if (wants_web bytes)
     (do
       (let err (add_web (&mut cmd) ".o"))
@@ -329,7 +375,7 @@
   (assert_eq (mach_a64 "Darwin") false))
 
 (test and_shared
-  (let c (and_cmd "ndk-clang" "a.o" "a.so"))
+  (let c (and_cmd "ndk-clang" "a.o" "a.so" "aarch64-linux-android"))
   (assert (str.has (& c) "ndk-clang"))
   (assert (str.has (& c) "-shared"))
   (assert (str.has (& c) "a.o"))

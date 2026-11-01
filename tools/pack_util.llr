@@ -1,0 +1,77 @@
+;; Shared pack records and the llrc build line.
+(use proj.ui_tool)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.path)
+(use std.str)
+
+(pub (fn fail ((k (& str)) (v (& str))) never
+  (io.puts (& (fmt.pipe3 "pack" "fail" (& (fmt.kv k v)))))
+  (os.exit 1)))
+
+(pub (fn must ((cmd (& str)) (k (& str))) unit
+  (let code (os.shell cmd))
+  (if (!= code 0) (fail k (& (str.from_int code))))))
+
+(pub (fn sh ((s (& str))) str
+  (let mut o (str.from "'"))
+  (for i 0 (str.len s)
+    (if (== (str.at s i) 39u8) (str.push (&mut o) "'\\''") (str.push_byte (&mut o) (str.at s i))))
+  (str.push_byte (&mut o) 39u8)
+  o))
+
+(fn push_sh ((cmd (&mut str)) (s (& str))) unit (str.push cmd " ") (str.push cmd (& (sh s))))
+
+(pub (fn build_cmd ((bin (& str))
+   (file (& str))
+   (target (& str))
+   (stdd (& str))
+   (uid (& str))
+   (outp (& str))
+   (rt (& str))) str
+  (let mut c (str.new))
+  (if (> (str.len rt) 0) (do (str.push (&mut c) "LLRST_RUNTIME=") (str.push (&mut c) (& (sh rt)))))
+  (push_sh (&mut c) bin)
+  (str.push (&mut c) " build")
+  (push_sh (&mut c) file)
+  (str.push (&mut c) " --target")
+  (push_sh (&mut c) target)
+  (if (> (str.len stdd) 0) (do (str.push (&mut c) " --std") (push_sh (&mut c) stdd)))
+  (if (> (str.len uid) 0) (do (str.push (&mut c) " --ui") (push_sh (&mut c) uid)))
+  (str.push (&mut c) " -o")
+  (push_sh (&mut c) outp)
+  c))
+
+(fn exists_join ((dir (& str)) (name (& str))) str
+  (if (== (str.len dir) 0) (ret (str.new)))
+  (let p (path.join dir name))
+  (if (fs.exists (& p)) (ret p))
+  (str.new))
+
+(pub (fn find_obj ((bin (& str)) (name (& str))) str
+  (match (os.env "LLRST_RUNTIME")
+    ((opt.some d) (do (let p (exists_join (& d) name)) (if (> (str.len (& p)) 0) (ret p))))
+    ((opt.none) ()))
+  (let share (exists_join (& (ui_tool.beside bin "../share/llrst")) name))
+  (if (> (str.len (& share)) 0) (ret share))
+  (let repo (exists_join (& (ui_tool.beside bin "../../runtime")) name))
+  (if (> (str.len (& repo)) 0) (ret repo))
+  (exists_join "runtime" name)))
+
+(pub (fn missing ((bin (& str)) (names (& (vec str)))) bool
+  (for i 0 (vec.len names)
+    (let name (str.clone (vec.get names i)))
+    (if (== (str.len (& (find_obj bin (& name)))) 0) (ret true)))
+  false))
+
+(test pack_build
+  (let c (build_cmd "llrc" "a.llr" "aarch64-linux-android" "std" "ui" "liba.so" "rt"))
+  (assert (str.has (& c) "LLRST_RUNTIME='rt'"))
+  (assert (str.has (& c) " --target 'aarch64-linux-android'"))
+  (assert (str.has (& c) " -o 'liba.so'"))
+  (let d (build_cmd "llrc" "a.llr" "arm64-apple-ios" "" "" "App" ""))
+  (assert (not (str.has (& d) "LLRST_RUNTIME")))
+  (assert (not (str.has (& d) "--std")))
+  (assert_eq (str.len (& (find_obj "" "no-such-object.o"))) 0))

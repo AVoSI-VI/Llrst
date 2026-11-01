@@ -1,4 +1,6 @@
 ;; llr-ui serve FILE [--out DIR] [--port N]
+;; llr-ui pack --target TRIPLE FILE [--out DIR] [--sign IDENT]
+(use proj.pack)
 (use proj.serve)
 (use std.cli)
 (use std.io)
@@ -6,12 +8,20 @@
 (use std.str)
 
 (fn main () unit
-  (let mut c (cli.new "llr-ui" "build a wasm ui and serve it"))
+  (let mut c (cli.new "llr-ui" "serve a wasm ui or pack a mobile app"))
   (cli.pos (&mut c) "cmd")
   (cli.pos (&mut c) "file")
   (cli.opt (&mut c) "out" ".llr-ui")
   (cli.opt (&mut c) "port" "0")
+  (cli.opt (&mut c) "target" "")
+  (cli.opt (&mut c) "sign" "")
   (cli.parse (&mut c) (os.args))
-  (if (not (str.eq (cli.at (& c) 0) "serve"))
-    (do (io.eputs "E|<llr-ui>|0|0|0|ui.cmd|name=serve") (os.exit 1)))
-  (serve.run (cli.at (& c) 1) (cli.get (& c) "out") (cli.get_int (& c) "port")))
+  (if (str.eq (cli.at (& c) 0) "serve")
+    (ret (serve.run (cli.at (& c) 1) (cli.get (& c) "out") (cli.get_int (& c) "port"))))
+  (if (str.eq (cli.at (& c) 0) "pack")
+    (ret (pack.run (cli.at (& c) 1)
+       (cli.get (& c) "target")
+       (cli.get (& c) "out")
+       (cli.get (& c) "sign"))))
+  (io.eputs "E|<llr-ui>|0|0|0|ui.cmd|name=serve,pack")
+  (os.exit 1))

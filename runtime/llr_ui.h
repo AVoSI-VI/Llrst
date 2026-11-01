@@ -1,8 +1,10 @@
-/* Fixed 64-byte event record shared by the desktop shims and, later, the web host.
- * Little-endian. kind: 1 pointer, 2 key, 3 text, 4 frame, 5 quit.
+/* Fixed 64-byte event record shared by every host shim.
+ * Little-endian. kind: 1 pointer, 2 key, 3 text, 4 frame, 5 quit, 6 life, 7 inset.
  * Pointer a is 0 down, 1 move, 2 up, 3 cancel, 4 scroll. x y z w are logical pixels.
  * Key a is 1 down or 0 up, b is a Unicode scalar, c is shift|ctrl|alt|meta.
- * Text a is the byte count, and the bytes start at offset 32 (at most 32). */
+ * Text a is the byte count, and the bytes start at offset 32 (at most 32).
+ * Life a is 0 pause, 1 resume, 2 destroy.
+ * Inset x y z w are left, top, right, bottom logical pixels. */
 #ifndef LLR_UI_H
 #define LLR_UI_H
 
@@ -14,7 +16,15 @@ enum {
     LLR_UI_KEY = 2,
     LLR_UI_TEXT = 3,
     LLR_UI_FRAME = 4,
-    LLR_UI_QUIT = 5
+    LLR_UI_QUIT = 5,
+    LLR_UI_LIFE = 6,
+    LLR_UI_INSET = 7
+};
+
+enum {
+    LLR_UI_PAUSE = 0,
+    LLR_UI_RESUME = 1,
+    LLR_UI_DESTROY = 2
 };
 
 enum {

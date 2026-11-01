@@ -1,4 +1,4 @@
-;; Desktop shim calls. The linked object is the host operating system.
+;; Platform shim calls. The linked object is chosen from the target.
 (use ui.bitmap)
 (use ui.event)
 (use ui.geom)

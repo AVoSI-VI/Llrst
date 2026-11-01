@@ -33,6 +33,7 @@ prints `skip|cross|target=...|self=x86-64 and aarch64 only` for those two when `
 | `aarch64-unknown-linux-gnu` | AArch64 | ELF, `e_machine` 183 |
 | `aarch64-apple-darwin`, `arm64-apple-darwin` | AArch64 | Mach-O arm64 |
 | `aarch64-apple-ios`, `arm64-apple-ios` | AArch64 | Mach-O arm64 |
+| `aarch64-apple-ios-simulator`, `arm64-apple-ios-simulator` | AArch64 | Mach-O arm64, `iphonesimulator` SDK |
 | `aarch64-linux-android` | AArch64 | ELF shared library, `e_machine` 183 |
 | `x86_64-apple-darwin` | | rejected |
 
@@ -42,7 +43,15 @@ triple links with `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` a
 `-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos
 --show-sdk-path`. An Android triple links with
 `$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android21-clang -shared`.
-A missing SDK or NDK is `link.failed`. Windows uses the probed linker in `link_win.llr`.
+That link is a NativeActivity library: `llr_stat_android.o`, `llr_now_android.o`,
+`android_native_app_glue` (`llr_ui_android_glue.o`), `llr_android_main.o`, and
+`-landroid -llog -u ANativeActivity_onCreate`. `android_main` calls `main`. A reference
+to `llr_ui_open` also links `llr_ui_android.o` and `llr_ui_android_in.o`. An iOS triple
+links `llr_stat_ios.o` and `llr_now_ios.o` (or the `_ios_sim` pair), renames `_main` to
+`_llr_user_main`, and links `llr_ios_main.o` with UIKit. A reference to `llr_ui_open`
+also links the UI pair. The simulator triple uses `-target arm64-apple-ios-simulator`
+and the `iphonesimulator` SDK. `self/` does not emit an `x86_64` Apple object. A missing
+SDK, NDK, or target object is `link.failed`. Windows uses the probed linker in `link_win.llr`.
 
 `tests/a64.sh` builds each `tests/run` golden with `--target aarch64-unknown-linux-gnu`,
 links it freestanding, and runs it. A Linux aarch64 host runs the binary. Any other host

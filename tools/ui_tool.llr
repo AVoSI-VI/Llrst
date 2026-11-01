@@ -1,0 +1,62 @@
+;; Shared llrc, std, and ui lookup for llr-ui.
+(use std.fs)
+(use std.os)
+(use std.path)
+(use std.str)
+(use std.sys)
+
+(pub (fn one_line ((s (& str))) str
+  (let mut n (str.len s))
+  (while (and (> n 0) (or (== (str.at s (- n 1)) 10u8) (== (str.at s (- n 1)) 13u8)))
+    (set n (- n 1)))
+  (let mut i 0)
+  (while (and (< i n) (and (!= (str.at s i) 10u8) (!= (str.at s i) 13u8))) (set i (+ i 1)))
+  (str.slice s 0 i)))
+
+(pub (fn which () str
+  (let cmd (if (== sys.os_id 2) "where llrc" "command -v llrc"))
+  (let r (os.capture cmd))
+  (if (!= (. r code) 0) (ret (str.new)))
+  (one_line (& (. r out)))))
+
+(pub (fn from_env ((name (& str))) str
+  (match (os.env name) ((opt.some s) (if (fs.is_dir (& s)) (ret s))) ((opt.none) ()))
+  (str.new)))
+
+(pub (fn beside ((bin (& str)) (rel (& str))) str
+  (if (== (str.len bin) 0) (ret (str.new)))
+  (path.join (& (path.dir bin)) rel)))
+
+(pub (fn pick ((a (& str)) (b (& str)) (c (& str))) str
+  (if (fs.is_dir a) (ret (str.from a)))
+  (if (fs.is_dir b) (ret (str.from b)))
+  (if (fs.is_dir c) (ret (str.from c)))
+  (str.new)))
+
+(pub (fn std_of ((bin (& str))) str
+  (let e (from_env "LLRST_STD"))
+  (if (> (str.len (& e)) 0) (ret e))
+  (pick "std" (& (beside bin "../share/llrst/std")) (& (beside bin "../../std")))))
+
+(pub (fn ui_of ((bin (& str))) str
+  (let e (from_env "LLRST_UI"))
+  (if (> (str.len (& e)) 0) (ret e))
+  (pick "ui" (& (beside bin "../share/llrst/ui")) (& (beside bin "../../ui")))))
+
+(pub (fn web_of ((bin (& str))) str
+  (let e (from_env "LLRST_WEB"))
+  (if (> (str.len (& e)) 0) (ret e))
+  (pick "web" (& (beside bin "../share/llrst/web")) (& (beside bin "../../web")))))
+
+(pub (fn push_arg ((cmd (&mut str)) (s (& str))) unit
+  (str.push cmd " ")
+  (if (== sys.os_id 2)
+    (do (str.push_byte cmd 34u8) (str.push cmd s) (str.push_byte cmd 34u8) (ret)))
+  (str.push_byte cmd 39u8)
+  (str.push cmd s)
+  (str.push_byte cmd 39u8)))
+
+(test ui_tool_line
+  (assert_eq (& (one_line "ab\ncd")) "ab")
+  (assert_eq (& (one_line "ab")) "ab")
+  (assert_eq (str.len (& (from_env "LLRST_NO_SUCH_DIR"))) 0))

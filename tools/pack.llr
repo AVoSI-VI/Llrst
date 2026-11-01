@@ -1,0 +1,11 @@
+;; llr-ui pack. Android prints pack|apk=. iOS prints pack|app=.
+(use proj.pack_and)
+(use proj.pack_ios)
+(use proj.pack_util)
+(use std.str)
+
+(pub (fn run ((file (& str)) (target (& str)) (out (& str)) (sign (& str))) unit
+  (if (== (str.len target) 0) (pack_util.fail "target" "missing"))
+  (if (str.has target "android") (ret (pack_and.run file target out)))
+  (if (str.has target "ios") (ret (pack_ios.run file target out sign)))
+  (pack_util.fail "target" target)))

@@ -1,0 +1,72 @@
+;; Object names for an Android or iOS link. Host desktop objects stay unsuffixed.
+(use std.str)
+
+(fn push ((v (&mut (vec str))) (s str)) unit (vec.push v s))
+
+(pub (fn mobile ((t (& str))) bool (or (str.has t "android") (str.has t "ios"))))
+
+(pub (fn stat_obj ((t (& str))) str
+  (if (str.has t "android") (ret (str.from "llr_stat_android.o")))
+  (if (and (str.has t "ios") (str.has t "simulator")) (ret (str.from "llr_stat_ios_sim.o")))
+  (if (str.has t "ios") (ret (str.from "llr_stat_ios.o")))
+  (str.from "llr_stat.o")))
+
+(pub (fn now_obj ((t (& str))) str
+  (if (str.has t "android") (ret (str.from "llr_now_android.o")))
+  (if (and (str.has t "ios") (str.has t "simulator")) (ret (str.from "llr_now_ios_sim.o")))
+  (if (str.has t "ios") (ret (str.from "llr_now_ios.o")))
+  (str.from "llr_now.o")))
+
+(pub (fn android_objs ((ui bool)) (vec str)
+  (let mut v (vec.new <str>))
+  (push (&mut v) (str.from "llr_ui_android_glue.o"))
+  (push (&mut v) (str.from "llr_android_main.o"))
+  (if ui
+    (do
+      (push (&mut v) (str.from "llr_ui_android.o"))
+      (push (&mut v) (str.from "llr_ui_android_in.o"))))
+  v))
+
+(fn ios_main ((sim bool)) str
+  (if sim (ret (str.from "llr_ios_main_sim.o")))
+  (str.from "llr_ios_main.o"))
+
+(fn ios_ui ((v (&mut (vec str))) (sim bool)) unit
+  (if sim
+    (do (push v (str.from "llr_ui_ios_sim.o")) (push v (str.from "llr_ui_ios_sim_in.o")) (ret)))
+  (push v (str.from "llr_ui_ios.o"))
+  (push v (str.from "llr_ui_ios_in.o")))
+
+(pub (fn ios_objs ((sim bool) (ui bool)) (vec str)
+  (let mut v (vec.new <str>))
+  (push (&mut v) (ios_main sim))
+  (if ui (ios_ui (&mut v) sim))
+  v))
+
+(pub (fn android_libs () str (str.from "-landroid -llog -u ANativeActivity_onCreate")))
+
+(pub (fn ios_libs () str (str.from "-framework UIKit -framework QuartzCore -framework CoreGraphics")))
+
+(test mob_objs
+  (let a (android_objs false))
+  (assert_eq (vec.len (& a)) 2)
+  (let b (android_objs true))
+  (assert_eq (vec.len (& b)) 4)
+  (assert (str.eq (vec.get (& b) 2) "llr_ui_android.o"))
+  (let s (ios_objs true true))
+  (assert (str.eq (vec.get (& s) 0) "llr_ios_main_sim.o"))
+  (assert (str.eq (vec.get (& s) 1) "llr_ui_ios_sim.o"))
+  (let d (ios_objs false false))
+  (assert_eq (vec.len (& d)) 1)
+  (assert (str.eq (vec.get (& d) 0) "llr_ios_main.o"))
+  (assert_eq (& (stat_obj "aarch64-linux-android")) "llr_stat_android.o")
+  (assert_eq (& (stat_obj "arm64-apple-ios-simulator")) "llr_stat_ios_sim.o")
+  (assert_eq (& (stat_obj "aarch64-apple-ios")) "llr_stat_ios.o")
+  (assert_eq (& (stat_obj "")) "llr_stat.o")
+  (assert_eq (& (now_obj "aarch64-linux-android")) "llr_now_android.o")
+  (assert_eq (& (now_obj "")) "llr_now.o")
+  (assert (mobile "aarch64-linux-android"))
+  (assert (mobile "arm64-apple-ios-simulator"))
+  (assert (not (mobile "aarch64-apple-darwin")))
+  (assert (str.has (& (android_libs)) "-landroid"))
+  (assert (str.has (& (ios_libs)) "UIKit")))
