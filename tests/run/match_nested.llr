@@ -1,0 +1,28 @@
+;; A variant pattern inside another variant pattern binds its fields.
+(use std.io)
+(use std.str)
+
+(enum ev (pub (pt i64 f32 f32 f32 f32)) (pub (key i64 i64)) (pub (none)))
+
+(enum wrap (pub (some ev)) (pub (nothing)))
+
+(fn show ((o (opt ev))) str
+  (match o
+    ((opt.some (ev.pt k x _ _ w))
+      (str.cat (& (str.from_int (+ k (as i64 x)))) (& (str.from_int (as i64 w)))))
+    ((opt.some (ev.key d c)) (str.from_int (* d c)))
+    ((opt.some (ev.none)) (str.from "none"))
+    ((opt.some _) (str.from "?"))
+    ((opt.none) (str.from "-"))))
+
+(fn deep ((w wrap)) i64
+  (match w ((wrap.some (ev.key d _)) d) ((wrap.some _) 0) ((wrap.nothing) (neg 1))))
+
+(fn main () unit
+  (io.puts (& (show (opt.some (ev.pt 3 4.0f32 0.0f32 0.0f32 9.0f32)))))
+  (io.puts (& (show (opt.some (ev.key 6 7)))))
+  (io.puts (& (show (opt.some (ev.none)))))
+  (io.puts (& (show (opt.none <ev>))))
+  (io.puts (& (str.from_int (deep (wrap.some (ev.key 5 1))))))
+  (io.puts (& (str.from_int (deep (wrap.some (ev.none))))))
+  (io.puts (& (str.from_int (deep (wrap.nothing))))))
