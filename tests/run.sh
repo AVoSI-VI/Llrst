@@ -134,6 +134,12 @@ for f in "$root"/tests/ui/*.llr; do
   if [ -f "${f%.llr}.events" ]; then
     args+=(--events "${f%.llr}.events")
   fi
+  if [ -f "${f%.llr}.argv" ]; then
+    while IFS= read -r arg || [ -n "$arg" ]; do
+      [ -n "$arg" ] || continue
+      args+=("$arg")
+    done < "${f%.llr}.argv"
+  fi
   set +u
   "$tmp/ui_$name" "${args[@]}" >"$tmp/ui_$name.out" 2>"$tmp/ui_$name.stderr"
   code=$?

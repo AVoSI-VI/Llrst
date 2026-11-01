@@ -6,7 +6,7 @@ Source: `ui/sched.llr`. Import with `(use ui.sched)` for module functions; types
 
 ## Types
 
-- `(struct ptrs (pub (focus i64)) (pub (cap u32)) (pub (has_cap bool)) (pub (text str)) (pub (quit bool)) (pub (paused bool)) (pub (il f32)) (pub (it f32)) (pub (ir f32)) (pub (ib f32)))`
+- `(struct ptrs (pub (focus i64)) (pub (cap u32)) (pub (has_cap bool)) (pub (text str)) (pub (quit bool)) (pub (paused bool)) (pub (il f32)) (pub (it f32)) (pub (ir f32)) (pub (ib f32)) (pub (anims (vec anim.track))))`
 
 ## Functions
 

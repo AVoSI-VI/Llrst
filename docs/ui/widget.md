@@ -25,6 +25,7 @@ Source: `ui/widget.llr`. Import with `(use ui.widget)` for module functions; typ
 | `widget.fill` | `((&mut Self) (&mut rdesc))` | `unit` |
 | `widget.pdata` | `((& Self))` | `pdata` |
 | `widget.signal` | `((& Self))` | `i64` |
+| `widget.goal` | `((& Self) (&mut anim.goal))` | `bool` |
 
 ## Constants
 
@@ -49,6 +50,10 @@ Source: `ui/widget.llr`. Import with `(use ui.widget)` for module functions; typ
 | `widget.ty_opacity` | `i64` | `17` |
 | `widget.ty_clip` | `i64` | `18` |
 | `widget.ty_transform` | `i64` | `19` |
+| `widget.ty_builder` | `i64` | `20` |
+| `widget.ty_acont` | `i64` | `21` |
+| `widget.ty_aopac` | `i64` | `22` |
+| `widget.ty_apad` | `i64` | `23` |
 | `widget.role_leaf` | `i64` | `0` |
 | `widget.role_less` | `i64` | `1` |
 | `widget.role_full` | `i64` | `2` |

@@ -1,0 +1,163 @@
+;; Per-frame ticks. States run before rebuild; implicit tracks write the render desc after.
+(use ui.anim)
+(use ui.blend)
+(use ui.ctx)
+(use ui.element)
+(use ui.key)
+(use ui.render)
+(use ui.sched)
+(use ui.state)
+(use ui.widget)
+
+(fn bit ((mask i64) (flag i64)) bool (!= (band mask flag) 0))
+
+(fn col ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a)))
+
+(fn paint_col ((d (&mut widget.rdesc)) (g (& anim.goal))) unit
+  (set (. d has_color) true)
+  (set (. d color) (col (& (. g color)))))
+
+(fn paint_pad ((d (&mut widget.rdesc)) (g (& anim.goal))) unit
+  (set (. d pad_l) (. g l))
+  (set (. d pad_t) (. g t))
+  (set (. d pad_r) (. g r))
+  (set (. d pad_b) (. g b)))
+
+(fn paint_size ((d (&mut widget.rdesc)) (g (& anim.goal))) unit
+  (if (>= (. g w) 0.0f32) (do (set (. d min_w) (. g w)) (set (. d max_w) (. g w))))
+  (if (>= (. g h) 0.0f32) (do (set (. d min_h) (. g h)) (set (. d max_h) (. g h)))))
+
+(pub (fn write_desc ((d (&mut widget.rdesc)) (g (& anim.goal))) unit
+  (if (bit (. g mask) anim.bit_color) (paint_col d g))
+  (if (bit (. g mask) anim.bit_pad) (paint_pad d g))
+  (if (bit (. g mask) anim.bit_size) (paint_size d g))
+  (if (bit (. g mask) anim.bit_opacity) (set (. d opacity) (. g opacity)))))
+
+(fn read_goal ((es (& element.elems)) (id u32) (g (&mut anim.goal))) bool
+  (if (not (element.live_at es id)) (ret false))
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (widget.widget.goal (& (. n widget)) g))
+
+(fn take_goal ((es (& element.elems)) (id u32)) anim.goal
+  (let mut g (anim.goal_new))
+  (drop (read_goal es id (&mut g)))
+  g)
+
+(fn armed ((es (& element.elems)) (id u32)) bool
+  (if (not (element.live_at es id)) (ret false))
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (if (not (. n has_st)) (ret false))
+  (state.state.ticking (& (. n st))))
+
+(fn apply_tick ((es (&mut element.elems)) (id u32) (dt i64) (g (& anim.goal))) bool
+  (let n (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+  (state.state.tick (&mut (. n st)) dt g))
+
+(fn one_state ((es (&mut element.elems)) (rt (&mut render.rtree)) (id u32) (dt i64)) bool
+  (if (not (armed es id)) (ret false))
+  (let g (take_goal es id))
+  (let dirty (apply_tick es id dt (& g)))
+  (if dirty (element.mark es rt id))
+  (armed es id))
+
+(pub (fn pump_states ((es (&mut element.elems)) (rt (&mut render.rtree)) (dt i64)) bool
+  (let mut any false)
+  (let n (vec.len (& (. es nodes))))
+  (for i 0 n (if (one_state es rt (as u32 i) dt) (set any true)))
+  any))
+
+(fn goal_on ((es (& element.elems)) (id u32)) bool
+  (let mut g (anim.goal_new))
+  (and (read_goal es id (&mut g)) (. g on)))
+
+(fn track_at ((p (& sched.ptrs)) (elem u32)) i64
+  (for i 0 (vec.len (& (. p anims))) (if (== (. (vec.get (& (. p anims)) i) elem) elem) (ret i)))
+  (neg 1))
+
+(fn ensure ((p (&mut sched.ptrs)) (elem u32) (g (& anim.goal))) i64
+  (let at (track_at p elem))
+  (if (>= at 0) (ret at))
+  (vec.push (&mut (. p anims)) (anim.track_make elem g))
+  (- (vec.len (& (. p anims))) 1))
+
+(fn drop_dead ((es (& element.elems)) (p (&mut sched.ptrs))) unit
+  (let mut i 0)
+  (while (< i (vec.len (& (. p anims))))
+    (let id (. (vec.get (& (. p anims)) i) elem))
+    (if (goal_on es id) (set i (+ i 1)) (drop (vec.remove (&mut (. p anims)) i)))))
+
+(fn show ((p (&mut sched.ptrs)) (at i64) (g (& anim.goal)) (dt i64)) bool
+  (let skip (anim.track_sync (vec.get_mut (&mut (. p anims)) at) g))
+  (anim.track_show (vec.get_mut (&mut (. p anims)) at) skip dt))
+
+(fn current ((p (& sched.ptrs)) (at i64)) anim.goal
+  (anim.copy_goal (& (. (vec.get (& (. p anims)) at) cur))))
+
+(fn put_desc ((rt (&mut render.rtree)) (rid u32) (g (& anim.goal))) unit
+  (write_desc (&mut (. (vec.get_mut (&mut (. rt nodes)) (as i64 rid)) d)) g))
+
+(fn put ((rt (&mut render.rtree)) (es (& element.elems)) (id u32) (g (& anim.goal))) unit
+  (if (not (element.has_render_at es id)) (ret))
+  (let rid (element.render_at es id))
+  (put_desc rt rid g)
+  (render.touch rt rid))
+
+(fn one_imp ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut sched.ptrs)) (id u32) (dt i64)) bool
+  (let mut g (anim.goal_new))
+  (if (not (read_goal es id (&mut g))) (ret false))
+  (if (not (. g on)) (ret false))
+  (let at (ensure p id (& g)))
+  (let live (show p at (& g) dt))
+  (let cur (current p at))
+  (put rt es id (& cur))
+  live)
+
+(pub (fn pump_implicit ((es (& element.elems)) (rt (&mut render.rtree)) (p (&mut sched.ptrs)) (dt i64)) bool
+  (drop_dead es p)
+  (let mut any false)
+  (let n (vec.len (& (. es nodes))))
+  (for i 0 n (if (one_imp es rt p (as u32 i) dt) (set any true)))
+  any))
+
+(struct clock (n i64) (on bool))
+
+(impl state.state
+  clock
+  (fn build ((_s (& clock)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
+  (fn msg ((_s (&mut clock)) (_m i64)) unit ())
+  (fn dispose ((_s (&mut clock))) unit ())
+  (fn ticking ((self (& clock))) bool (. self on))
+  (fn tick ((self (&mut clock)) (dt i64) (_g (& anim.goal))) bool
+    (if (<= dt 0) (ret (. self on)))
+    (set (. self n) (+ (. self n) dt))
+    (if (>= (. self n) 30) (set (. self on) false))
+    true))
+
+(fn mounted () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (clock 0 true)))
+
+(test ticker_pump
+  (let mut es (element.new))
+  (let mut rt (render.new))
+  (let id (element.mount (&mut es) (&mut rt) (mounted)))
+  (assert (pump_states (&mut es) (&mut rt) 0))
+  (assert (pump_states (&mut es) (&mut rt) 16))
+  (assert (. (vec.get (& (. es nodes)) (as i64 id)) dirty))
+  (assert (not (pump_states (&mut es) (&mut rt) 20)))
+  (let mut p (sched.ptrs_new))
+  (assert (not (pump_implicit (& es) (&mut rt) (&mut p) 16)))
+  (let mut d (widget.blank))
+  (let mut g (anim.goal_new))
+  (set (. g on) true)
+  (set (. g mask) (bor anim.bit_color (bor anim.bit_pad (bor anim.bit_size anim.bit_opacity))))
+  (set (. g color) (blend.color 1u8 2u8 3u8 255u8))
+  (set (. g l) 3.0f32)
+  (set (. g w) 8.0f32)
+  (set (. g h) 9.0f32)
+  (set (. g opacity) 0.5f32)
+  (write_desc (&mut d) (& g))
+  (assert (. d has_color))
+  (assert_eq (. (. d color) r) 3u8)
+  (assert_eq (as i64 (. d pad_l)) 3)
+  (assert_eq (as i64 (. d max_w)) 8)
+  (assert_eq (as i64 (. d max_h)) 9)
+  (assert_eq (as i64 (. d opacity)) 0))

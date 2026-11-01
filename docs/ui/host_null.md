@@ -1,6 +1,7 @@
 # ui.host_null
 
-Headless host. Size and events come from argv; present writes a PPM when --shot is set.
+Headless host. Size, events, `--frames`, and `--step` come from argv. `--shot` writes a PPM.
+`--step` is added to the clock when a frame is presented, so the first frame's elapsed time is 0.
 
 Source: `ui/host_null.llr`. Import with `(use ui.host_null)` for module functions; types and methods need no import.
 

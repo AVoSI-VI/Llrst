@@ -12,7 +12,7 @@ framework layout.
 | module | role |
 |--------|------|
 | [host](host.md) | Platform surface. The framework paints; a host only presents pixels and reports events. |
-| [host_null](host_null.md) | Headless host. Size and events come from argv; present writes a PPM when `--shot` is set. |
+| [host_null](host_null.md) | Headless host. `--frames` and `--step` drive the clock; `--shot` writes a PPM. |
 | [host_shim](host_shim.md) | Platform shim calls. The linked object is chosen from the target. |
 | [host_win](host_win.md) | Win32 host. The shim object is chosen at link time. |
 | [host_x11](host_x11.md) | X11 host. The shim object is chosen at link time. |
@@ -36,10 +36,15 @@ framework layout.
 | [focus](focus.md) | Tab order is the preorder of gesture elements. |
 | [sched](sched.md) | One frame's events: hit, messages, focus, then the caller rebuilds. |
 | [app](app.md) | Opens a tree, runs frames, and dumps it. The first layout happens before events. |
+| [curve](curve.md) | Unit curves. `ease_in`, `ease_out`, and `ease_in_out` are the CSS cubics. |
+| [tween](tween.md) | Linear interpolation of floats, colors, rects, and sizes. |
+| [anim](anim.md) | Controller, implicit target, and the track a ticker stores. |
+| [ticker](ticker.md) | Per-frame ticks. States run before rebuild; implicit tracks write the render desc after. |
 | [w_box](w_box.md) | Container, padding, sized box, align, and center. |
 | [w_flex](w_flex.md) | Row, column, expanded, and flex. |
 | [w_stack](w_stack.md) | Stack and positioned. |
 | [w_text](w_text.md) | A single-style paragraph. |
 | [w_image](w_image.md) | An image sized to its bitmap, in logical pixels. |
 | [w_gesture](w_gesture.md) | A tap target. The closure returns a message id; 0 means none. |
+| [w_anim](w_anim.md) | Builder and implicit leaves. A leaf keeps its child; the ticker rewrites the render desc. |
 | [w_fx](w_fx.md) | Opacity, clip, and transform. They are repaint boundaries. |

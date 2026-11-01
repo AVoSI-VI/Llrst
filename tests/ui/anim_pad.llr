@@ -1,0 +1,40 @@
+;; Padding switches after the first positive step and moves toward the new inset.
+(use std.io)
+(use ui.anim)
+(use ui.app)
+(use ui.ctx)
+(use ui.curve)
+(use ui.host_null)
+(use ui.key)
+(use ui.state)
+(use ui.w_anim)
+(use ui.w_box)
+(use ui.widget)
+
+(struct phase (on bool))
+
+(fn child () (box (dyn widget.widget)) (w_box.sized 8.0f32 8.0f32 (widget.empty)))
+
+(fn view ((on bool)) (box (dyn widget.widget))
+  (let p (if on 12.0f32 0.0f32))
+  (w_anim.padding p p p p 300 curve.linear (child)))
+
+(impl state.state
+  phase
+  (fn build ((self (& phase)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (view (. self on)))
+  (fn msg ((_s (&mut phase)) (_m i64)) unit ())
+  (fn dispose ((_s (&mut phase))) unit ())
+  (fn ticking ((self (& phase))) bool (not (. self on)))
+  (fn tick ((self (&mut phase)) (dt i64) (_g (& anim.goal))) bool
+    (if (<= dt 0) (ret true))
+    (set (. self on) true)
+    true))
+
+(fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (phase false)))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (root)))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

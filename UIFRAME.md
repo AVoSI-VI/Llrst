@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-11-01|phases=0-13|phase 9 done
+plan|2026-11-01|phases=0-13|phase 10 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -259,14 +259,14 @@ Files: `runtime/llr_ui_android.c`, `runtime/llr_ui_ios.m`, `ui/host_android.llr`
 5. `[x]` `docs/ui/mobile.md`: prerequisites (NDK, SDK build-tools, Xcode), the two pack commands, what is not supported (no background execution, one window).
 6. `[x]` Commit: `ui: android and ios hosts, llr-ui pack`.
 
-### Phase 10: animation `[ ]`
+### Phase 10: animation `[x]`
 
 Files: `ui/ticker.llr`, `ui/anim.llr`, `ui/curve.llr`, `ui/tween.llr`, `ui/w_anim.llr`, `ui/sched.llr`, `tests/ui/`.
 
-1. `[ ]` `ticker`: registered with `sched`, called once per frame with elapsed ms; `anim`: controller `forward reverse repeat stop value status` with a duration; `curve`: `linear ease_in ease_out ease_in_out` plus cubic bezier; `tween`: `f32 color rect size` interpolation.
-2. `[ ]` `w_anim`: `animated_builder`, implicit `animated_container animated_opacity animated_padding`, `hero`-free page transition in Phase 11's `navigator`.
-3. `[ ]` Goldens: the null host accepts `--frames N --step MS` and dumps the render tree after each frame.
-4. `[ ]` Commit: `ui: tickers, controllers, curves, implicit animations`.
+1. `[x]` `ticker`: registered with `sched`, called once per frame with elapsed ms; `anim`: controller `forward reverse repeat stop value status` with a duration; `curve`: `linear ease_in ease_out ease_in_out` plus cubic bezier; `tween`: `f32 color rect size` interpolation.
+2. `[x]` `w_anim`: `animated_builder`, implicit `animated_container animated_opacity animated_padding`, `hero`-free page transition in Phase 11's `navigator`.
+3. `[x]` Goldens: the null host accepts `--frames N --step MS` and dumps the render tree after each frame.
+4. `[x]` Commit: `ui: tickers, controllers, curves, implicit animations`.
 
 ### Phase 11: default widget set `[ ]`
 
@@ -327,3 +327,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-11-01: Phase 7. `host_web` presents on a canvas. `wasm32-unknown-unknown` keeps the WASI import names and adds the canvas imports; `_start` returns and `llr_frame` is the animation callback. `examples/counter.llr` uses `host_web` when `sys.os_id` is 3 and `host_null` otherwise. `llr-ui serve` builds that module, writes the page, and rebuilds when the source mtime changes. File responses pick a content type from the suffix.
 - 2026-11-01: Phase 8. Apple triples link with `xcrun clang` and an SDK. Android links a shared library with the NDK clang at API 21. `tests/a64.sh` runs the `tests/run` goldens as a freestanding aarch64 Linux ELF, under `qemu-aarch64` when the host cannot execute that ELF.
 - 2026-11-01: Phase 9. Android and iOS hosts use the same 64-byte record. Kind 6 is life (pause, resume, destroy) and kind 7 is an inset. Logical size is the safe content rect. `llr-ui pack` shells out to the Android SDK or `codesign`. The simulator slice is arm64. The suite stays headless.
+- 2026-11-01: Phase 10. A state registers by `ticking`. `app.frame` advances it with the host clock before rebuild, then writes implicit targets into the render desc. The null host's `--step` is the elapsed time after the first frame. `w_anim.builder` and the implicit leaves are headless goldens. The navigator's page transition stays in phase 11.

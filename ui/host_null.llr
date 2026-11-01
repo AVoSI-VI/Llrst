@@ -1,4 +1,4 @@
-;; Headless host. Size and events come from argv; present writes a PPM when --shot is set.
+;; Headless host. Size, events, --frames, and --step come from argv. --shot writes a PPM.
 (use std.cli)
 (use std.fs)
 (use std.os)

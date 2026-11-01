@@ -212,6 +212,13 @@ try {
         if (Test-Path -LiteralPath $ppm) { $runArgs = @('--shot', $shot) }
         $ev = Join-Path $_.DirectoryName "$name.events"
         if (Test-Path -LiteralPath $ev) { $runArgs += @('--events', $ev) }
+        $av = Join-Path $_.DirectoryName "$name.argv"
+        if (Test-Path -LiteralPath $av) {
+            foreach ($raw in (Get-Content -LiteralPath $av)) {
+                $line = $raw.Trim()
+                if ($line.Length -gt 0) { $runArgs += $line }
+            }
+        }
         $code = Invoke-Native (Exe-Path $bin) $runArgs $out $stderr $root
         $ok = $true
         if (-not (Same-Bytes $out $want)) {

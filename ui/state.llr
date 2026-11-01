@@ -1,4 +1,5 @@
 ;; Stateful widgets. The element keeps the first state; a later widget's init is dropped.
+(use ui.anim)
 (use ui.ctx)
 (use ui.key)
 (use ui.widget)
@@ -6,7 +7,9 @@
 (pub (trait state
   (fn build ((& Self) (& ctx.ctx)) (box (dyn widget.widget)))
   (fn msg ((&mut Self) i64) unit)
-  (fn dispose ((&mut Self)) unit)))
+  (fn dispose ((&mut Self)) unit)
+  (fn ticking ((& Self)) bool)
+  (fn tick ((&mut Self) i64 (& anim.goal)) bool)))
 
 (pub (struct nostate))
 
@@ -14,7 +17,9 @@
   nostate
   (fn build ((_s (& nostate)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
   (fn msg ((_s (&mut nostate)) (_m i64)) unit ())
-  (fn dispose ((_s (&mut nostate))) unit ()))
+  (fn dispose ((_s (&mut nostate))) unit ())
+  (fn ticking ((_s (& nostate))) bool false)
+  (fn tick ((_s (&mut nostate)) (_d i64) (_g (& anim.goal))) bool false))
 
 (pub (fn no_state () (box (dyn state)) (nostate)))
 
@@ -27,7 +32,9 @@
 (impl widget.widget
   sfull
   (fn ty ((self (& sfull))) i64 (. self ty))
-  (fn name ((_s (& sfull))) (& str) "stateful")
+  (fn name ((self (& sfull))) (& str)
+    (if (== (. self ty) widget.ty_builder) (ret "animated_builder"))
+    "stateful")
   (fn key ((self (& sfull))) key.key (key.key (. (. self k) on) (. (. self k) id)))
   (fn role ((_s (& sfull))) i64 widget.role_full)
   (fn set_key ((self (&mut sfull)) (k key.key)) unit (set (. self k) k))
@@ -37,7 +44,8 @@
   (fn take_children ((_s (&mut sfull))) (vec (box (dyn widget.widget))) (no_kids))
   (fn fill ((_s (&mut sfull)) (_o (&mut widget.rdesc))) unit ())
   (fn pdata ((_s (& sfull))) widget.pdata (widget.no_data))
-  (fn signal ((_s (& sfull))) i64 0))
+  (fn signal ((_s (& sfull))) i64 0)
+  (fn goal ((_s (& sfull)) (_g (&mut anim.goal))) bool false))
 
 (pub (fn stateful ((ty i64) (k key.key) (s (box (dyn state)))) (box (dyn widget.widget))
   (sfull ty k (opt.some s))))

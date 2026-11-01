@@ -1,4 +1,5 @@
 ;; One frame's events: hit, messages, focus, then the caller rebuilds.
+(use ui.anim)
 (use ui.element)
 (use ui.event)
 (use ui.focus)
@@ -17,9 +18,11 @@
   (pub (il f32))
   (pub (it f32))
   (pub (ir f32))
-  (pub (ib f32))))
+  (pub (ib f32))
+  (pub (anims (vec anim.track)))))
 
-(pub (fn ptrs_new () ptrs (ptrs (neg 1) 0u32 false (str.new) false false 0.0f32 0.0f32 0.0f32 0.0f32)))
+(pub (fn ptrs_new () ptrs
+  (ptrs (neg 1) 0u32 false (str.new) false false 0.0f32 0.0f32 0.0f32 0.0f32 (vec.new <anim.track>))))
 
 (fn owner ((es (& element.elems)) (id u32)) (opt u32)
   (let mut cur id)

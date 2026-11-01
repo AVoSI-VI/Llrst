@@ -15,6 +15,8 @@ Source: `ui/state.llr`. Import with `(use ui.state)` for module functions; types
 | `state.build` | `((& Self) (& ctx.ctx))` | `(box (dyn widget.widget))` |
 | `state.msg` | `((&mut Self) i64)` | `unit` |
 | `state.dispose` | `((&mut Self))` | `unit` |
+| `state.ticking` | `((& Self))` | `bool` |
+| `state.tick` | `((&mut Self) i64 (& anim.goal))` | `bool` |
 
 ## Functions
 

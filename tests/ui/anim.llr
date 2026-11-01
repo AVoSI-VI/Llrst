@@ -1,0 +1,22 @@
+;; Sized box width follows a linear builder across --frames and --step.
+(use std.io)
+(use ui.app)
+(use ui.curve)
+(use ui.host_null)
+(use ui.tween)
+(use ui.w_anim)
+(use ui.w_box)
+(use ui.widget)
+
+(fn wide ((t f32)) (box (dyn widget.widget))
+  (w_box.sized (tween.num 10.0f32 40.0f32 t) 8.0f32 (widget.empty)))
+
+(fn root () (box (dyn widget.widget))
+  (w_anim.builder 300 curve.linear (clos ((t f32)) (box (dyn widget.widget)) (wide t))))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (root)))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

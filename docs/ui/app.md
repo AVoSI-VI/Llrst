@@ -6,7 +6,7 @@ Source: `ui/app.llr`. Import with `(use ui.app)` for module functions; types and
 
 ## Types
 
-- `(struct app (host (box (dyn host.host))) (es element.elems) (rt render.rtree) (g render_box.fonts) (root u32) (p sched.ptrs) (vw f32) (vh f32) (sc f32))`
+- `(struct app (host (box (dyn host.host))) (es element.elems) (rt render.rtree) (g render_box.fonts) (root u32) (p sched.ptrs) (vw f32) (vh f32) (sc f32) (last i64))`
 
 ## Functions
 

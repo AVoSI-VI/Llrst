@@ -10,6 +10,7 @@
 (use ui.render_box)
 (use ui.render_paint)
 (use ui.sched)
+(use ui.ticker)
 (use ui.widget)
 
 (pub (struct app
@@ -21,7 +22,8 @@
   (p sched.ptrs)
   (vw f32)
   (vh f32)
-  (sc f32)))
+  (sc f32)
+  (last i64)))
 
 (fn read_host ((a (&mut app))) unit
   (let sz (host.host.size (& (. a host))))
@@ -47,7 +49,8 @@
       (sched.ptrs_new)
       80.0f32
       48.0f32
-      1.0f32))
+      1.0f32
+      0))
   (read_host (&mut a))
   (let id (element.mount (&mut (. a es)) (&mut (. a rt)) root))
   (set (. a root) id)
@@ -56,6 +59,13 @@
 
 (fn pixels ((n f32) (sc f32)) i64 (let v (as i64 (math.ceil32 (* n sc)))) (if (< v 1) 1 v))
 
+(fn elapsed ((a (&mut app))) i64
+  (let now (host.host.now_ms (& (. a host))))
+  (let mut dt (- now (. a last)))
+  (if (< dt 0) (set dt 0))
+  (set (. a last) now)
+  dt)
+
 (pub (fn frame ((a (&mut app))) unit
   (read_host a)
   (let mut ev (vec.new <event.event>))
@@ -63,8 +73,12 @@
   (sched.handle (&mut (. a es)) (&mut (. a rt)) (. a root) (&mut (. a p)) (& ev))
   (if (. (. a p) quit) (host.host.quit (&mut (. a host))))
   (if (. (. a p) paused) (ret))
+  (let dt (elapsed a))
+  (let mut live (ticker.pump_states (&mut (. a es)) (&mut (. a rt)) dt))
   (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) (. a root)))
   (element.rebuild (&mut (. a es)) (&mut (. a rt)) (. a root) (& c))
+  (if (ticker.pump_implicit (& (. a es)) (&mut (. a rt)) (&mut (. a p)) dt) (set live true))
+  (if live (host.host.request_frame (&mut (. a host))))
   (layout_of a)
   (let mut bm (bitmap.bitmap.new (pixels (. a vw) (. a sc)) (pixels (. a vh) (. a sc))))
   (match (render.visual_root (& (. a rt)))

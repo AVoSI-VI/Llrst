@@ -1,0 +1,51 @@
+;; Unit curves. ease_in, ease_out, and ease_in_out are the CSS cubics.
+(use std.math)
+
+(pub (const linear i64 0))
+
+(pub (const ease_in i64 1))
+
+(pub (const ease_out i64 2))
+
+(pub (const ease_in_out i64 3))
+
+(fn bez ((u f32) (c1 f32) (c2 f32)) f32
+  (let o (- 1.0f32 u))
+  (let uu (* u u))
+  (let a (* (* 3.0f32 (* o o)) u))
+  (let b (* (* 3.0f32 o) uu))
+  (+ (* a c1) (+ (* b c2) (* uu u))))
+
+(pub (fn bezier ((x1 f32) (y1 f32) (x2 f32) (y2 f32) (t f32)) f32
+  (if (<= t 0.0f32) (ret 0.0f32))
+  (if (>= t 1.0f32) (ret 1.0f32))
+  (let mut lo 0.0f32)
+  (let mut hi 1.0f32)
+  (let mut u 0.5f32)
+  (for i 0 20
+    (set u (* (+ lo hi) 0.5f32))
+    (if (< (bez u x1 x2) t) (set lo u) (set hi u))
+    (if (== i 19) (set u (* (+ lo hi) 0.5f32))))
+  (bez u y1 y2)))
+
+(pub (fn apply ((id i64) (t f32)) f32
+  (if (== id ease_in) (ret (bezier 0.42f32 0.0f32 1.0f32 1.0f32 t)))
+  (if (== id ease_out) (ret (bezier 0.0f32 0.0f32 0.58f32 1.0f32 t)))
+  (if (== id ease_in_out) (ret (bezier 0.42f32 0.0f32 0.58f32 1.0f32 t)))
+  t))
+
+(fn milli ((x f32)) i64 (as i64 (math.round (* (as f64 x) 1000.0))))
+
+(test curve_ends
+  (assert_eq (milli (apply linear 0.25f32)) 250)
+  (assert_eq (milli (apply ease_in 0.0f32)) 0)
+  (assert_eq (milli (apply ease_in 1.0f32)) 1000)
+  (assert_eq (milli (apply ease_out 0.0f32)) 0)
+  (assert_eq (milli (apply ease_out 1.0f32)) 1000)
+  (assert_eq (milli (apply ease_in_out 0.0f32)) 0)
+  (assert_eq (milli (apply ease_in_out 1.0f32)) 1000)
+  (assert (< (apply ease_in 0.5f32) 0.5f32))
+  (assert (> (apply ease_out 0.5f32) 0.5f32))
+  (assert_eq (milli (apply ease_in_out 0.5f32)) 500)
+  (assert_eq (milli (bezier 0.42f32 0.0f32 1.0f32 1.0f32 0.5f32)) (milli (apply ease_in 0.5f32)))
+  (assert_eq (milli (bezier 0.0f32 0.0f32 1.0f32 1.0f32 0.0f32)) 0))

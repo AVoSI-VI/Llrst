@@ -1,4 +1,5 @@
 ;; Widget trait, leaf descriptors, and stateless. Type ids stand in for a runtime type.
+(use ui.anim)
 (use ui.bitmap)
 (use ui.blend)
 (use ui.ctx)
@@ -43,6 +44,14 @@
 (pub (const ty_clip i64 18))
 
 (pub (const ty_transform i64 19))
+
+(pub (const ty_builder i64 20))
+
+(pub (const ty_acont i64 21))
+
+(pub (const ty_aopac i64 22))
+
+(pub (const ty_apad i64 23))
 
 (pub (const role_leaf i64 0))
 
@@ -125,6 +134,10 @@
   (if (== ty ty_opacity) (ret "opacity"))
   (if (== ty ty_clip) (ret "clip_rect"))
   (if (== ty ty_transform) (ret "transform"))
+  (if (== ty ty_builder) (ret "animated_builder"))
+  (if (== ty ty_acont) (ret "animated_container"))
+  (if (== ty ty_aopac) (ret "animated_opacity"))
+  (if (== ty ty_apad) (ret "animated_padding"))
   "custom"))
 
 (pub (fn nop () (clos () i64) (clos () i64 0)))
@@ -192,7 +205,8 @@
   (fn take_children ((&mut Self)) (vec (box (dyn widget))))
   (fn fill ((&mut Self) (&mut rdesc)) unit)
   (fn pdata ((& Self)) pdata)
-  (fn signal ((& Self)) i64)))
+  (fn signal ((& Self)) i64)
+  (fn goal ((& Self) (&mut anim.goal)) bool)))
 
 (pub (struct leaf
   (ty i64)
@@ -234,7 +248,8 @@
     (let d (mem.replace (&mut (. self d)) (blank)))
     (drop (mem.replace out d)))
   (fn pdata ((self (& leaf))) pdata (leaf_data self))
-  (fn signal ((self (& leaf))) i64 (if (. self gesture) (call (. self tap)) 0)))
+  (fn signal ((self (& leaf))) i64 (if (. self gesture) (call (. self tap)) 0))
+  (fn goal ((_s (& leaf)) (_g (&mut anim.goal))) bool false))
 
 (struct sless (k key.key) (bld (clos ((& ctx.ctx)) (box (dyn widget)))))
 
@@ -250,7 +265,8 @@
   (fn take_children ((_s (&mut sless))) (vec (box (dyn widget))) (no_kids))
   (fn fill ((_s (&mut sless)) (_o (&mut rdesc))) unit ())
   (fn pdata ((_s (& sless))) pdata (no_data))
-  (fn signal ((_s (& sless))) i64 0))
+  (fn signal ((_s (& sless))) i64 0)
+  (fn goal ((_s (& sless)) (_g (&mut anim.goal))) bool false))
 
 (pub (fn empty () (box (dyn widget)) (leaf ty_empty (key.key.none) (no_kids) false (nop) (blank))))
 
