@@ -41,6 +41,7 @@ Source: `std/sys_wasm.llr`. Import with `(use std.sys_wasm)` for module function
 | `sys_wasm.llr_readdir_name` | `((ent (ptr u8)))` | `(ptr u8)` |
 | `sys_wasm.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys_wasm.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys_wasm.llr_now_ms` | `()` | `i64` |
 | `sys_wasm.unlink` | `((path (ptr u8)))` | `i32` |
 | `sys_wasm.mkdir` | `((path (ptr u8)) (mode i32))` | `i32` |
 | `sys_wasm.rmdir` | `((path (ptr u8)))` | `i32` |

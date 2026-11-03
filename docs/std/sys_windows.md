@@ -35,6 +35,7 @@ Source: `std/sys_windows.llr`. Import with `(use std.sys_windows)` for module fu
 | `sys_windows.readdir` | `((d (ptr u8)))` | `(ptr u8)` |
 | `sys_windows.closedir` | `((d (ptr u8)))` | `i32` |
 | `sys_windows.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys_windows.llr_now_ms` | `()` | `i64` |
 | `sys_windows.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys_windows.llr_readdir_name` | `((ent (ptr u8)))` | `(ptr u8)` |
 | `sys_windows.llr_panic_frames` | `()` | `unit` |

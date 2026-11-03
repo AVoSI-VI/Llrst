@@ -35,6 +35,7 @@ Source: `std/sys_posix.llr`. Import with `(use std.sys_posix)` for module functi
 | `sys_posix.readdir` | `((d (ptr u8)))` | `(ptr u8)` |
 | `sys_posix.closedir` | `((d (ptr u8)))` | `i32` |
 | `sys_posix.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys_posix.llr_now_ms` | `()` | `i64` |
 | `sys_posix.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys_posix.llr_readdir_name` | `((ent (ptr u8)))` | `(ptr u8)` |
 | `sys_posix.llr_panic_frames` | `()` | `unit` |

@@ -16,3 +16,7 @@ Source: `std/ast_expr.llr`. Import with `(use std.ast_expr)` for module function
 | `ast_expr.parse_ty` | `((t (& tree)) (n i64))` | `(res ty str)` |
 | `ast_expr.parse_exprs` | `((t (& tree)) (ids (& (vec i64))) (from i64) (out (&mut (vec expr))))` | `(res unit str)` |
 | `ast_expr.parse_expr` | `((t (& tree)) (n i64))` | `(res expr str)` |
+
+## Tests
+
+`ast_expr_pub`

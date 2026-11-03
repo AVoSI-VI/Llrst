@@ -19,6 +19,7 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 | `fs.mkdir` | `((path (& str)))` | `(res unit str)` |
 | `fs.rename` | `((from (& str)) (to (& str)))` | `(res unit str)` |
 | `fs.list` | `((path (& str)))` | `(res (vec str) str)` |
+| `fs.now_ms` | `()` | `i64` |
 | `fs.mtime` | `((path (& str)))` | `(res i64 str)` |
 | `fs.size` | `((path (& str)))` | `(res i64 str)` |
 | `fs.mkdir_all` | `((path (& str)))` | `(res unit str)` |
@@ -27,4 +28,4 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 
 ## Tests
 
-`fs_edit`, `fs_roundtrip`, `fs_list`, `fs_tree`, `fs_read_grow`
+`fs_edit`, `fs_roundtrip`, `fs_list`, `fs_tree`, `fs_now`, `fs_read_grow`

@@ -18,7 +18,9 @@
 | [thread](thread.md) | A pthread pool that grows. A job is a closure. |
 | [http](http.md) | HTTP/1.1, chunked bodies, route templates, and WebSocket messages. |
 | [http_body](http_body.md) | Chunked bodies and `Content-Length`. |
+| [http_mime](http_mime.md) | Test only. No public functions. |
 | [http_route](http_route.md) | Exact paths, a trailing `*`, and `{name}` segments. |
+| [http_type](http_type.md) | Content-Type from a file suffix. Unknown suffixes stay text/plain. |
 | [http_ws](http_ws.md) | WebSocket frames and continuation messages. |
 | [sha](sha.md) | SHA-1 digest and base64, used by the WebSocket handshake. |
 | [gql](gql.md) | GraphQL execution against a schema. |

@@ -106,7 +106,7 @@ commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
 suite|not re-run for the 2026-11-03 gap catalogue|last recorded fails=0 under the self compiler (2026-10-31, history/phases.md)
 self|stage2=equal|scripts/self.sh --stage at 2026-11-01|darwin arm64
 wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
-lines|compiler=9979 rs|self=20131 llr|std=8372 llr (50 modules)|ui=9690 llr|tools=2099 llr|max_file=std/http.llr 499|budget=500 soft, 1000 hard
+lines|compiler=9979 rs|self=20131 llr|std=8372 llr (50 modules)|ui=9690 llr|tools=2099 llr|max_file=runtime/llr_ui_win_a11y.c 596|budget=500 soft, 1000 hard
 ```
 
 ## Implementation notes (things you would otherwise rediscover)
@@ -229,26 +229,44 @@ Tools (`tools/`, `docs/tools/`)
 
 ## Line budget
 
-Raw `wc -l` on 2026-10-27. `self/` rows below were recounted on 2026-10-31. Split before adding if a file is near 500. `scripts/check-lines.sh`
-and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`, `scripts`,
-`tests`, and `self/` for `.rs .llr .md .sh`, plus `runtime/*.c`. `.gitattributes` stores `*.c` and `*.h` as LF.
+Raw `wc -l` on 2026-11-03. Rows are `.llr`, `.rs`, `.c`, and `.m` files under `compiler/src`, `self`, `std`, `ui`, `tools`, and `runtime` at 400 lines or above. Split before adding if a file is near 500. `scripts/check-lines.sh`
+and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `tools`, `docs`, `scripts`,
+`tests`, `self`, and `runtime` for `.rs .llr .md .sh .c .m`. `.gitattributes` stores `*.c` and `*.h` as LF.
 
 | File | Lines | Note |
 | --- | --- | --- |
-| `compiler/src/mir/lower.rs` | 497 | Stage 0; split before a Phase 2 move change |
-| `self/thir_expr.llr` | 493 | Split before Phase 1 span work |
-| `self/lower.llr` | 493 | Statement spans are set before a `let` or `set` is lowered |
-| `compiler/src/resolve.rs` | 487 | Stage 0 |
-| `compiler/src/codegen/func.rs` | 486 | Trace push/pop lives in `codegen/trace.rs` |
+| `runtime/llr_ui_win_a11y.c` | 596 | Over the 500-line soft cap |
 | `std/http.llr` | 499 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
-| `self/collect.llr` | 461 | Trait impl shape and generic bounds |
-| `self/elf.llr` | 450 | aarch64 relocation kinds and `e_machine` |
+| `self/thir_expr.llr` | 497 | |
+| `runtime/llr_win.c` | 496 | |
+| `self/lower.llr` | 496 | |
+| `self/thir.llr` | 492 | |
+| `compiler/src/mir/lower.rs` | 491 | |
+| `compiler/src/codegen/func.rs` | 490 | Trace push/pop lives in `codegen/trace.rs` |
+| `compiler/src/resolve.rs` | 490 | |
+| `self/collect.llr` | 489 | |
+| `ui/text.llr` | 489 | |
+| `compiler/src/check/expr.rs` | 486 | |
+| `runtime/llr_ui_android_in.c` | 485 | |
+| `compiler/src/borrow/holders.rs` | 471 | |
+| `ui/semantics.llr` | 457 | |
+| `std/re.llr` | 452 | |
+| `self/elf.llr` | 450 | |
 | `self/isa_a64.llr` | 443 | integer, branch, and memory seam; fp, frame, and overflow are split out |
-| `self/thir_call.llr` | 424 | Trait calls live in `thir_trait.llr` (82 lines) |
-| `self/cg_frame.llr` | 415 | slot access through the ISA seam |
-| `self/cg_isa.llr` | 381 | dispatches into an x64 or a64 buffer |
-| `self/cg_op.llr` | 269 | Casts live in `cg_cast.llr` |
-| `self/cg_cast.llr` | 217 | Cast emitters moved out of `cg_op.llr` |
+| `self/link.llr` | 440 | |
+| `self/wasm_abi.llr` | 440 | |
+| `self/wasm_op.llr` | 438 | |
+| `ui/element.llr` | 430 | |
+| `self/thir_call.llr` | 427 | Trait calls live in `thir_trait.llr` |
+| `ui/ttf_glyf.llr` | 427 | |
+| `std/ast.llr` | 424 | |
+| `runtime/llr_win_proc.c` | 423 | |
+| `self/holders.llr` | 423 | |
+| `compiler/src/codegen/mod.rs` | 420 | |
+| `ui/widget.llr` | 417 | |
+| `compiler/src/link.rs` | 416 | |
+| `self/cg_frame.llr` | 415 | |
+| `std/xml.llr` | 409 | |
 
 ## Gaps (2026-11-03)
 
@@ -323,15 +341,15 @@ language changes std needs, then protocols, platform, and tooling. Every new fun
 new std module is one file under 500 lines; `str.llr` (257 lines) and `vec.llr` (264) are
 split at 400 if the additions take them there.
 
-### Phase 8: handoff and docs hygiene (no behaviour change) `[ ]`
+### Phase 8: handoff and docs hygiene (no behaviour change) `[x]`
 
 Files: `HANDOFF.md`, `docs/std/README.md`, `docs/std/fs.md`, `docs/std/http_type.md`, `docs/spec/tokens.md`, `std/http_mime.llr`, `std/http.llr`.
 
-1. `[ ]` `llr-doc --out docs/std std/*.llr`: adds `fs.now_ms` to `fs.md` and creates `http_type.md`. Add the `http_type` row to `docs/std/README.md`.
-2. `[ ]` `std/http_mime.llr` is a test with no API. Move `http_mime` into `std/http.llr` tests if `http.llr` can stay under 500 after the Phase 9 split of its helpers, else keep the file and add a README row that says it is test-only.
-3. `[ ]` `docs/spec/tokens.md` documents `0x` integer literals, which both parsers accept.
-4. `[ ]` Recount the **Line budget** table; drop rows under 400.
-5. `[ ]` Commit: `docs: std index complete, hex literals documented, line budget recounted`.
+1. `[x]` `llr-doc --out docs/std std/*.llr`: adds `fs.now_ms` to `fs.md` and creates `http_type.md`. Add the `http_type` row to `docs/std/README.md`.
+2. `[x]` `std/http_mime.llr` is a test with no API. Move `http_mime` into `std/http.llr` tests if `http.llr` can stay under 500 after the Phase 9 split of its helpers, else keep the file and add a README row that says it is test-only.
+3. `[x]` `docs/spec/tokens.md` documents `0x` integer literals, which both parsers accept.
+4. `[x]` Recount the **Line budget** table; drop rows under 400.
+5. `[x]` Commit: `docs: std index complete, hex literals documented, line budget recounted`.
 
 ### Phase 9: strings and numbers `[ ]`
 
@@ -446,4 +464,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 ## Progress log
 
 - 2026-11-03: **Gaps** and Phases 8-15 added from reading `std/`, `self/`, `ui/`, `tools/`, `compiler/src/`, `docs/`, and `tests/err` against the Rust, Go, and Python standard libraries. Each std row cites the private copies that stand in for the missing function; each language row cites the rejection site or the doc line. The **Status** block and the `std/` row (50 modules) were recounted. No code changed. The suite was not re-run.
+- 2026-11-03: Phase 8. `llr-doc` regenerated `docs/std` (`fs.now_ms`, `http_type.md`, `http_mime.md`, and drifted rows for `http.serve_wait`, `net.poll_serve_wait`, `llr_now_ms`, and `ast_expr_pub`). `http_mime.llr` stays; `http.llr` is 499 lines and Phase 9 keeps `eshort`, `hname`, and `hval` there, so the mime test does not fit under 500. `docs/spec/tokens.md` documents `0x`. Line budget recounted; rows under 400 dropped. No `.llr` change. Suite not re-run.
 

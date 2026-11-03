@@ -21,6 +21,7 @@ Source: `std/http.llr`. Import with `(use std.http)` for module functions; types
 | `http.show_req` | `((r (& req)))` | `str` |
 | `http.show_resp` | `((r (& resp)))` | `str` |
 | `http.respond` | `((code i64) (reason (& str)) (ty (& str)) (body (& str)))` | `resp` |
+| `http.serve_wait` | `((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64) (wait i32) (tick (clos () bool)))` | `(res i64 str)` |
 | `http.serve` | `((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64))` | `(res i64 str)` |
 
 ## Tests

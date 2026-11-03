@@ -74,7 +74,8 @@ costs tokens). Dotted name `a.b` means `b` inside module or type `a`.
 
 ## Literals
 
-`123` `123u8` `123i32` `1.5` `1.5f32` `true` `false` `"text"`
+`123` `123u8` `123i32` `0x7F` `0xFFi32` `1.5` `1.5f32` `true` `false` `"text"`
+An integer may be written in hexadecimal as `0x` plus digits. Digits are `0-9`, `a-e`, and `A-F`. The same type suffixes as decimal apply (`0x7Fi32`). The prefix is lowercase `0x`. A lowercase `f`, `i`, or `u` starts a suffix, so a hex digit `f` is written `F`.
 String escapes: `\n \r \t \0 \" \\ \xHH`.
 
 ## Token budget rules (for std and tools authors)

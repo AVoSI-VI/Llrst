@@ -15,6 +15,7 @@ Source: `std/net.llr`. Import with `(use std.net)` for module functions; types a
 | `net.recv` | `((fd i64) (n i64))` | `(res str str)` |
 | `net.send` | `((fd i64) (data (& str)))` | `(res unit str)` |
 | `net.close` | `((fd i64))` | `unit` |
+| `net.poll_serve_wait` | `((listen_fd i64) (max i64) (wait i32) (each (clos (i64 (& str)) bool)) (tick (clos () bool)))` | `(res i64 str)` |
 | `net.poll_serve` | `((listen_fd i64) (max i64) (each (clos (i64 (& str)) bool)))` | `(res i64 str)` |
 
 ## Tests
