@@ -72,7 +72,7 @@ flowchart LR
 |------|------|-----------|
 | `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs` | `llrs.llr` (CLI), `drive.llr` (build) |
 | `compiler/src/` | stage 0 `llrc` (Rust, Cranelift); not installed; reference for `tests/check.sh`, `tests/mir.sh` | `main.rs`, `driver.rs` |
-| `std/` | standard library, 35 modules, all Llrst | `sys.llr` (externs, panic), `str.llr`, `vec.llr` |
+| `std/` | standard library, 50 modules, all Llrst | `sys.llr` (externs, panic), `str.llr`, `vec.llr` |
 | `tools/` | agent tools, one `.llr` per binary; `fmtlint.llr` is a `proj.` module of `llr-fmt` | `llr-read.llr` (smallest) |
 | `runtime/` | C shims: `llr_stat.c` (Unix); `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` (Windows). UI: `llr_ui_win*.c`, `llr_ui_x11*.c`, `llr_ui_mac*.m`. Install compiles the host UI objects | |
 | `tests/` | goldens `run/*.llr+.out`, `err/*.llr+.err`, `warn/`, `panic/`; `run.sh`/`run.ps1` suite; `check`, `mir`, `self` differentials (`.sh` + `.ps1`); `cross.sh` | `run.sh` |
@@ -102,11 +102,11 @@ instances are compiled; std bodies are checked lazily.
 ## Status
 
 ```
-commit|ebaed76|Merge pull request #1 from AVoSI-VI/self-hosting-esty
-suite|tests/run.ps1|fails=3|2026-10-27|run/cast_float panic/cast_f_high panic/cast_f_neg|cranelift emit unreachable
-self|stage2=equal|scripts/self.sh record at 1732bd6|darwin arm64
+commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
+suite|not re-run for the 2026-11-03 gap catalogue|last recorded fails=0 under the self compiler (2026-10-31, history/phases.md)
+self|stage2=equal|scripts/self.sh --stage at 2026-11-01|darwin arm64
 wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
-lines|compiler=9263 rs|self=12731 llr|std=6049 llr|tools=859 llr|max_file=compiler/src/mir/lower.rs 497|budget=500 soft, 1000 hard
+lines|compiler=9979 rs|self=20131 llr|std=8372 llr (50 modules)|ui=9690 llr|tools=2099 llr|max_file=std/http.llr 499|budget=500 soft, 1000 hard
 ```
 
 ## Implementation notes (things you would otherwise rediscover)
@@ -250,10 +250,173 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `tools`, `docs`,
 | `self/cg_op.llr` | 269 | Casts live in `cg_cast.llr` |
 | `self/cg_cast.llr` | 217 | Cast emitters moved out of `cg_op.llr` |
 
+## Gaps (2026-11-03)
+
+Found by reading `std/`, `self/`, `ui/`, `tools/`, `compiler/src/`, `docs/`, and `tests/err`
+against what Rust, Go, and Python ship in their standard libraries. Nothing here was run.
+A count like `x7` is the number of private copies of the same helper outside `std/`; each is
+evidence that `std` lacks the function. Every row is scheduled in a phase below unless it is
+under **Decided out**.
+
+### A. std
+
+| area | missing | evidence |
+| --- | --- | --- |
+| str | `upper`, `trim_start`, `trim_end`, `rfind`, `rfind_byte`, split by `str`, `replace_byte`, `pad_right`, public `is_space` `is_digit` `is_alpha` `is_alnum`, `str` to and from `(vec u8)`, UTF-8 decode and encode, float parse and format, radix parse and format | `last_seg` x4 (`self/collect.llr:14`, `self/load.llr:224`, `self/prog.llr:312`, `tools/deps.llr:33`); `last_slash` private in `std/path.llr:10`; `slash` x6 (`self/load.llr:13`, `self/drive.llr:82`, `ui/font.llr:17`); `is_space` private at `std/str.llr:103`, digit tests inlined at 21 sites; `to_str` x4 (`self/coff.llr:126`, `self/elf_out.llr:89`); `utf8` only in `ui/text.llr:35`; `fmt_f` x4 (`ui/app.llr:219`), `milli` x7, float parser only in `self/cg_bits.llr:60`; `nib` `hex_byte` `hex` x7 (`self/x64.llr:9-15`, `self/a64*.llr`); hex digit parse x5 |
+| numbers | integer `min max clamp abs pow align_up`; `exp` `ln` are private; no `tan asin acos log2 log10 fmod lerp clamp approx`; no `bnot popcount rotl` | `math.min` is `f64` only; `min` inlined x9, `align_up` x4 (`self/cg_lay.llr:17`, `std/alloc.llr:31`); `std/math_trig.llr:98,112`; `near` x3; `clamp` f32 x2 (`ui/layout.llr:8`, `ui/scroll.llr:10`) |
+| vec | `clone <T:Clone>`, `extend (& v)`, `filled`, `resize`, `truncate`, `first`, `sort_by`, `eq`, `dedup`, `retain`, `min`, `max`, `swap_remove`, `each` `map` `filter` | element clone loops x20 (`clone_tys` x11, `self/ty.llr:50`); `append` from a borrow x4 (`self/elf_out.llr:78`); `zeros` x6 (`ui/raster.llr:10`); two hand sorts (`self/diag.llr:82`, `self/macho.llr:90`); `bytes_eq` `self/wasm_mod.llr:108`; `docs/canon/collections.md` "No map or filter in v1" |
+| map, set, deque | no value or entry iteration, `clear`, `get_or_insert`; no `set`; no deque or heap; traits only for `i64` and `str` | `docs/std/map.md`; linear scans as sets (`tools/deps.llr:43`, `self/cg_mod.llr:278`); `std/cmp.llr:10-37` |
+| opt, res | `map and_then ok_or expect unwrap_or_else take` on `opt`; `map map_err ok err expect` on `res` | 15 inline `match` sites that are `opt.or` (`ui/event.llr:81`, `self/drive.llr:235`) |
+| fmt | no `Show` trait; no hex, float, or `pad_right`; no pipe-record reader | 7 hand parsers of `a\|b\|c` (`ui/event.llr:128`, `ui/reload.llr:62`, `self/load.llr:252`) |
+| io, fs, path, os | no line reader; no `fs.copy is_file temp_dir abs`; `path` is `/` only; no `os.set_env home pid`, no stdin or stderr in `capture` | `copy_file` `tools/serve.llr:17`; `std/path.llr:1`; `docs/std/os.md` |
+| time, random | clock is `fs.now_ms`; no monotonic clock, sleep, calendar, ISO 8601; no random | `std/fs.llr:84`; `random_get` extern only (`std/sys_wasm.llr:37`) |
+| bytes, encoding, hash | no LE or BE read and write, no varint; base64 encode only, SHA-1 only; no sha256, crc32, percent-encoding, UTF-8 validation | ~20 copies (`self/elf.llr:214`, `ui/ttf.llr:31`, `std/h2.llr:2`, `std/sha.llr:54`); varint in `self/wasm.llr:7` and `std/pb.llr:2` |
+| json | no floats; `\u` above 255 is `?`; encoder takes `(vec str)` only; no pretty print | `std/json_read.llr:39,54`; `docs/std/json.md` |
+| net, thread | dotted IPv4 only; no DNS, UDP, IPv6, timeouts; pool only; mutex externs not exposed; no channel, no join value | `docs/std/net.md`; `std/thread.llr:24` |
+| test, cli | `eq_str eq_int eq_bool` only; no float assert, no `assert_ne`; `cli` has no subcommands or repeated options | `std/test.llr:22-29`; `docs/std/cli.md` |
+| std-internal duplication | scanner `peek` `skip` `is_name` x5; `eshort` x3; `hname` `hval` x2; `nan` `pow2` `near` x2; BE push and read x5 | `std/gql_parse.llr:13`, `std/sexp.llr:22`, `std/re.llr:29`, `std/xml.llr:20`; `std/http.llr:26`, `std/http_body.llr:2`, `std/http_ws.llr:2`; `std/math.llr:7,39`; `std/h2.llr:2`, `std/mqtt_pkt.llr:2` |
+
+### B. Language
+
+| feature | status | evidence |
+| --- | --- | --- |
+| tuples, fixed arrays, slices, `i128`, `usize` | absent | `docs/spec/types.md`; unknown type head is `name.not_type` (`compiler/src/parse/ty.rs:70`) |
+| match guards, or-patterns, range patterns, `if let` | absent | arm is `(PAT EXPR)` (`compiler/src/parse/expr.rs:198`); `Pat` is `Wild Bind Lit Variant` (`compiler/src/ast.rs:173`) |
+| struct patterns, string literal patterns | rejected `match.not_enum`, `match.bad_lit` | `compiler/src/check/pat.rs:108-125` |
+| `for` over a collection, step, descending, labeled `brk`, `brk` with a value | absent | `compiler/src/parse/expr.rs:172-185`; `docs/canon/flow.md` |
+| trait impl for a generic type, trait type parameters, supertraits, operator overloading | rejected at parse | `is_trait_impl` wants an atom (`compiler/src/parse/mod.rs:212`); `(trait ...)` children are `(fn ...)` only (`parse/mod.rs:131`) |
+| const generics, generic consts, where clauses | absent | `compiler/src/parse/ty.rs:81-111` |
+| struct and enum generic bounds | parsed, silently dropped | `compiler/src/resolve.rs:318,322` keep `generics.types` only |
+| non-literal `const` | silently lowered to `unit` | `compiler/src/mir/lower.rs:293-296` |
+| `static`, thread-locals, `cfg` | absent | top-level heads in `docs/spec/grammar.md`; `parse.bad_head` |
+| literals `0b` `0o` `_` `1e9` `\u` | absent; `0x` works but is undocumented | `compiler/src/parse/expr.rs:85-92`; `docs/spec/tokens.md:76` |
+| `bnot` | absent | unary forms are `not neg wneg` (`compiler/src/parse/expr.rs:232`) |
+| `try` with error conversion | absent | error type must unify (`compiler/src/check/expr.rs:419`) |
+| nested `proj` directories, `pub use`, packages, manifest | absent | `compiler/src/resolve.rs:272-286`; `tests/err/parse_expect.err` |
+| `(box T)` for a non-dyn `T`, `Rc`, interior mutability | rejected `trait.object\|why=dyn`; absent | `tests/err/box_dyn.err` |
+| aggregate or variadic externs, callbacks from C | scalars only | Implementation notes above; `compiler/src/codegen/mod.rs:216` |
+
+### C. Implementation and tooling
+
+| item | evidence |
+| --- | --- |
+| `docs/std` has no `http_type.md` or `http_mime.md` and `README.md` lacks both rows; `fs.md` lacks `fs.now_ms`; `std/http_mime.llr` has zero `pub` functions and exists only for one test | `docs/std/README.md`; `std/http_mime.llr` |
+| Line budget table is dated 2026-10-27 and names files that have since moved | this file |
+| `self/` has no register allocation, no optimizer, no debug info | `docs/spec/types.md` "Every local is a stack slot"; no DWARF in `self/elf*.llr` |
+| `riscv64` and `s390x` stay on stage 0; `x86_64-apple-darwin` is rejected; wasm has no net, threads, shell, or `llrc run` | `docs/spec/targets.md` |
+| no language server (`llr-ls` lists directories), package manager, coverage, benchmark harness; `llr-doc` skips private items; no `link.failed` golden | `docs/tools/README.md`; `docs/tools/llr-doc.md`; `docs/spec/errors.md` |
+
+### D. Decided out
+
+Listed so they are not re-proposed; each is a row under **Decisions** or a canon rule: a garbage
+collector, a second syntax, Unicode-aware regex, trait default methods, a `char` type
+(`docs/canon/strings.md`), `+=` and `else if` (`docs/canon/bind.md`, `docs/canon/flow.md`),
+`==` on `str` (`str.eq`), and widening the language only for `self/`.
+
 ## Phases
 
 Phases 0 through 7 are done. The plan and its progress log are
-[history/phases.md](history/phases.md).
+[history/phases.md](history/phases.md). Phases 8 to 15 below schedule every row of **Gaps**.
+Order: general-purpose parity (strings, numbers, collections, io, time) first, then the
+language changes std needs, then protocols, platform, and tooling. Every new function gets a
+`(test ...)`, a `docs/std` row from `llr-doc`, and a canon line when the call shape is new. A
+new std module is one file under 500 lines; `str.llr` (257 lines) and `vec.llr` (264) are
+split at 400 if the additions take them there.
+
+### Phase 8: handoff and docs hygiene (no behaviour change) `[ ]`
+
+Files: `HANDOFF.md`, `docs/std/README.md`, `docs/std/fs.md`, `docs/std/http_type.md`, `docs/spec/tokens.md`, `std/http_mime.llr`, `std/http.llr`.
+
+1. `[ ]` `llr-doc --out docs/std std/*.llr`: adds `fs.now_ms` to `fs.md` and creates `http_type.md`. Add the `http_type` row to `docs/std/README.md`.
+2. `[ ]` `std/http_mime.llr` is a test with no API. Move `http_mime` into `std/http.llr` tests if `http.llr` can stay under 500 after the Phase 9 split of its helpers, else keep the file and add a README row that says it is test-only.
+3. `[ ]` `docs/spec/tokens.md` documents `0x` integer literals, which both parsers accept.
+4. `[ ]` Recount the **Line budget** table; drop rows under 400.
+5. `[ ]` Commit: `docs: std index complete, hex literals documented, line budget recounted`.
+
+### Phase 9: strings and numbers `[ ]`
+
+Files: `std/str.llr`, new `std/str_more.llr` if `str.llr` passes 400 (verify first that the resolver allows a second `(impl str ...)` in another std file; else the new functions are module functions `str_more.X`), `std/math.llr`, `std/math_trig.llr`, `std/fmt.llr`, new `std/scan.llr`, `docs/canon/strings.md`, then `self/`, `ui/`, `tools/` callers.
+
+1. `[ ]` `str`: `upper trim_start trim_end rfind rfind_byte split_str replace_byte pad_right`; `is_space is_digit is_alpha is_alnum` become `pub`; `from_bytes ((& (vec u8)))` and `to_bytes`; `utf8_at ((& str) i)` returning codepoint and length, `push_utf8 ((&mut str) cp)`, `utf8_ok`; `to_int_radix from_int_radix`; `to_f64` and `from_f64 (x digits)` (shortest-roundtrip is out of scope; fixed digits). `str.to_int` keeps its signature.
+2. `[ ]` `math`: `imin imax iclamp iabs ipow align_up approx`; export `exp ln`; add `tan asin acos log2 log10 fmod lerp clamp`, each with a `32` twin; one `nan` `inf` `pow2` definition shared by `math.llr` and `math_trig.llr`.
+3. `[ ]` `fmt`: `hex (n width)`, `float (x digits)`, `pad_right`, and `fields ((& str))` returning `(vec str)` for a pipe record, with `field_int`.
+4. `[ ]` `std/scan.llr`: a cursor over `(& str)` with `peek at skip_ws is_name read_name hex_dig expect`. `gql_parse gql_schema sexp re xml json_read` use it and drop their copies. `eshort` `hname` `hval` live once in `http.llr` and are `pub` for `http_body` and `http_ws`.
+5. `[ ]` Delete the duplicates outside std and call the new functions: `nib hex_byte hex` (7 files in `self/`), `fmt_f` and `milli` (`ui/`), `slash` (6), `last_seg` (4), `last_dot` (2), `cstr_eq` (3), `exe_dir` (`self/load.llr:29`, `ui/font.llr:48` use `os.exe_path` and `path.dir`), `ui/font.llr` `dir_of`, `self/cg_drop.llr` and `self/wasm_drop.llr` `cat`. The compiler must stay byte-equal: `tests/x64_ref.sh`, `tests/check.sh`, `tests/mir.sh`.
+6. `[ ]` Canon rows in `docs/canon/strings.md` for every new form; `docs/std` regenerated.
+7. `[ ]` Commit: `std: str, math, fmt, and scan cover the helpers self and ui had copied`.
+
+### Phase 10: collections, opt, res `[ ]`
+
+Files: `std/vec.llr`, new `std/vec_more.llr` under the Phase 9 split rule, `std/map.llr`, `std/opt.llr`, `std/res.llr`, `std/cmp.llr`, new `std/set.llr`, new `std/deque.llr`, `docs/canon/collections.md`, `docs/canon/errors.md`.
+
+1. `[ ]` `vec`: `clone <T:Clone>`, `extend ((& (vec T))) <T:Clone>`, `filled (n x) <T:Clone>`, `resize`, `truncate`, `first`, `swap_remove`, `eq <T:Eq>`, `dedup <T:Eq>`, `min max <T:Ord>`, `sort_by ((clos ((& T) (& T)) i64))` (stable, same merge as `sort`), `retain ((clos ((& T)) bool))`. `vec.clone_str` stays as a forwarder for one release.
+2. `[ ]` `map`: `values ((& m)) (vec (& V))`, `each ((clos ((& K) (& V)) unit))`, `clear`, `take`, `get_or_insert ((&mut m) k (clos () V)) (&mut V)`; `del` keeps `bool`.
+3. `[ ]` `std/set.llr`: `(set K)` over `(map K unit)` with `new add has del len items <K:Clone:Ord>`. `tools/deps.llr` `seen` and the parallel-vector lookups in `self/cg_mod.llr:278` and `self/wasm_mod.llr:166` use it where the compiler output stays byte-equal.
+4. `[ ]` `std/deque.llr`: ring buffer `(deque T)` with `push_back push_front pop_front pop_back len get`.
+5. `[ ]` `opt`: `map and_then ok_or expect unwrap_or_else take`; `res`: `map map_err ok err expect`. Closure-taking forms follow `vec.any`. Replace the 15 inline `(match x ((opt.some n) n) ((opt.none) d))` sites with `opt.or`.
+6. `[ ]` `cmp`: `Eq Ord Hash Clone` for `u8 i32 u32 u64 bool`; `Eq Clone` for `f64 f32` (no `Ord`, no `Hash`). `Eq Ord Hash Clone` for `vec opt res` wait for Phase 12 item 1.
+7. `[ ]` `vec.each map filter` as closure forms, last, and the `docs/canon/collections.md` line "No map or filter in v1" becomes the blessed form. Replace the 20 element-clone loops with `vec.clone`; the compiler stays byte-equal (`tests/x64_ref.sh`).
+8. `[ ]` Commit: `std: vec clone and sort_by, map iteration, set, deque, opt and res combinators`.
+
+### Phase 11: io, fs, path, os, time, random, bytes, encoding, json, test `[ ]`
+
+Files: `std/io.llr`, `std/fs.llr`, `std/path.llr`, `std/os.llr`, new `std/time.llr`, new `std/rand.llr`, new `std/bytes.llr`, new `std/url.llr`, `std/sha.llr`, new `std/sha256.llr`, `std/json.llr`, `std/json_read.llr`, `std/test.llr`, `std/sys_posix.llr`, `std/sys_windows.llr`, `std/sys_wasm.llr`, `runtime/llr_now.c` (or `llr_stat.c`), `runtime/llr_win.c`, `docs/canon/io.md`, `docs/canon/tests.md`.
+
+1. `[ ]` `io.read_line (fd) (opt str)` with a per-fd buffer, `io.lines (fd) (vec str)`. `fs.copy is_file temp_dir abs`. `path.sep` is `/` or `\` by `sys.os_id`; `join base dir` accept both on `os_id` 2; `clean` normalizes to `/`.
+2. `[ ]` `os.set_env home pid`, `os.run (file args stdin) (res cmd str)` where `cmd` gains `err`; `os.capture` is unchanged.
+3. `[ ]` `std/time.llr`: `now_ms mono_ms sleep_ms utc (ms) date` with `(struct date (pub year month day hour min sec ms))`, `iso8601 parse_iso`. `fs.now_ms` forwards to `time.now_ms` for one release. Shims: `llr_mono_ms`, `llr_sleep_ms`, `llr_entropy` in the host runtime; wasm uses `clock_time_get` and `random_get`.
+4. `[ ]` `std/rand.llr`: xorshift64\* `(struct rng (s u64))` with `seed next below f64 shuffle <T>`, `rand.entropy () rng`.
+5. `[ ]` `std/bytes.llr`: `rd_le rd_be (b (& (vec u8)) at n) i64`, `wr_le wr_be ((&mut (vec u8)) v n)`, `uvar svar` and their readers, `str` to and from `(vec u8)` through `str.from_bytes`. `h2 hpack http_ws mqtt_pkt pb sha` use it; `self/elf* coff macho* x64_buf wasm` and `ui/ttf*` follow when byte-equal.
+6. `[ ]` `sha.b64_decode`, `std/sha256.llr` `sha256`, `bytes.crc32`; `std/url.llr` `encode decode` (RFC 3986 unreserved set), `url.parse` into `(struct url (pub scheme host port path query))`; `str.utf8_ok` from Phase 9 is the validator.
+7. `[ ]` `json`: `jval` kind 2 carries floats, `json_read` parses `-?d+(.d+)?([eE][+-]?d+)?` and `\u` escapes as UTF-8 including surrogate pairs; `json.show (v (& jval)) str` and `json.pretty (v indent)`; `json.quote` unchanged.
+8. `[ ]` `test.eq_f64 (loc got want eps)`, `test.ne_int`, `test.ne_str`; `assert_near` and `assert_ne` forms in both compilers lower to them (grammar, `docs/canon/tests.md`, `tests/run/assert_more`).
+9. `[ ]` Commit: `std: time, rand, bytes, url, sha256, line io, json floats, float asserts`.
+
+### Phase 12: language changes std needs `[ ]`
+
+Files: `compiler/src/parse/mod.rs`, `compiler/src/parse/expr.rs`, `compiler/src/resolve.rs`, `compiler/src/check/traits.rs`, `compiler/src/check/expr.rs`, `compiler/src/traitres.rs`, `compiler/src/mir/lower.rs`, `self/collect.llr`, `self/thir_trait.llr`, `self/thir_expr.llr`, `self/lit.llr`, `self/lower.llr`, `std/cmp.llr`, `std/test.llr`, `docs/spec/grammar.md`, `docs/spec/tokens.md`, `docs/spec/types.md`, `docs/spec/errors.md`, `tests/err`, `tests/run`.
+
+1. `[ ]` Generic trait impls: `(impl Eq (vec T) <T:Eq> (fn eq ...))`. `is_trait_impl` accepts a list type; the impl is monomorphized per instance like a generic fn; `trait.dup` compares the head type only. Then `Eq Ord Hash Clone` for `(vec T)`, `(opt T)`, `(res T E)` in `std/cmp.llr`, and `vec.clone_str` is deleted.
+2. `[ ]` `(pub (trait Show (fn show ((& Self)) str)))` in `std/cmp.llr` with impls for every primitive, `str`, `vec`, `opt`, `res`. `assert_eq` and `assert_ne` resolve through `Show` and `Eq` when the operand is not `(& str)`, `i64`, `bool`, or `u8`, so `type.assert_eq` is emitted only for a type with no `Show`. `f64` and `f32` use `Show` plus `test.eq_f64` with an exact compare.
+3. `[ ]` `bnot` as a unary integer form in both parsers and both backends (`x64_int`, `a64_int`, `wasm_op`).
+4. `[ ]` Literals: `0b` `0o`, `_` separators, `1e9` and `1.5e-3` floats, `\u{HHHH}` string escapes encoded as UTF-8. `docs/spec/tokens.md` lists all of them.
+5. `[ ]` New errors: `const.not_lit` for a `const` whose initializer is not a literal (today silent, `compiler/src/mir/lower.rs:293`); struct and enum bounds are either honored at instantiation or reported `type.bound_unused`. Goldens in `tests/err`, rows in `docs/spec/errors.md`.
+6. `[ ]` `tests/check.sh` and `tests/mir.sh` byte-equal; `scripts/self.sh --stage` reaches `stage2=equal`.
+7. `[ ]` Commit: `lang: generic trait impls, Show, bnot, numeric literal forms, const.not_lit`.
+
+### Phase 13: concurrency and net `[ ]`
+
+Files: `std/thread.llr`, new `std/sync.llr`, `std/net.llr`, new `std/net_dns.llr`, `std/sys_posix.llr`, `std/sys_windows.llr`, `std/sys_wasm.llr`, `runtime/llr_win_sock.c`, `runtime/llr_stat.c`, `docs/canon/io.md`.
+
+1. `[ ]` `std/sync.llr`: `(mutex T)` with `new lock ((&mut m) (clos ((&mut T)) unit))` so the guard cannot escape, and `(chan T)` with `new send recv try_recv close` over a mutex and condition variable (`pthread_cond_*` externs on POSIX, `CONDITION_VARIABLE` on Windows). Sending requires nothing beyond ownership; there is no `Send` trait, documented in `docs/spec/memory.md`.
+2. `[ ]` `thread.spawn ((clos () T)) (handle T)` and `thread.join (handle T) T`; the pool is unchanged.
+3. `[ ]` `net.resolve (host) (res (vec str) str)` over `getaddrinfo`; `connect` accepts a name or an IPv6 literal; `listen6`; `net.udp_bind udp_send udp_recv`; `net.set_timeout (fd ms)`. Windows maps the new errno values in `map_wsa`.
+4. `[ ]` wasm: every new extern writes `target.unsupported` and returns `-1` as the existing ones do.
+5. `[ ]` Commit: `std: mutex, channel, spawn and join, dns, udp, ipv6, socket timeouts`.
+
+### Phase 14: language ergonomics `[ ]`
+
+Files: both parsers, both checkers, both lowerers (`compiler/src/parse/expr.rs`, `check/pat.rs`, `mir/lower_match.rs`; `self/thir_pat.llr`, `self/lower_match.llr`, `self/lower_cf.llr`, `self/load.llr`, `self/resolve.llr`), `docs/spec/grammar.md`, `docs/canon/flow.md`, `docs/canon/program.md`, `tests/err`, `tests/run`.
+
+Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at the end.
+
+1. `[ ]` Patterns: guard `(PAT (if EXPR) EXPR)`, or-pattern `(or PAT PAT...)`, string literal patterns through `str.eq`, struct patterns `(point x y)`. `match.missing` still covers the result.
+2. `[ ]` `(for NAME lo hi step BODY...)` with a signed step; `(brk LABEL)` and `(cont LABEL)` with `(loop LABEL ...)`; `(while ...)` unchanged. Canon keeps `[lo hi)` as the default.
+3. `[ ]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
+4. `[ ]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
+5. `[ ]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
+
+### Phase 15: compiler and tooling `[ ]`
+
+Files: `self/cg_frame.llr`, `self/cg_op.llr`, `self/isa_*.llr`, `self/elf.llr`, `self/elf_out.llr`, `self/macho_out.llr`, `self/coff.llr`, `self/drive.llr`, `tools/llr-doc.llr`, new `tools/llr-bench.llr`, new `tools/llr-lsp.llr`, `docs/tools/`, `docs/spec/targets.md`.
+
+Large; listed last. Each item is its own commit.
+
+1. `[ ]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green.
+2. `[ ]` `--debug` emits `.debug_line` (DWARF 5) in ELF and Mach-O and a line table in COFF, from the statement spans `self/lower.llr` already sets.
+3. `[ ]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
+4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
+5. `[ ]` Commit per item: `self: registers for scalar locals`, `self: debug line tables`, `self: riscv64 and x86_64 darwin`, `tools: llr-doc private, llr-bench, llr-lsp`.
 
 ## How to verify each phase
 
@@ -281,4 +444,6 @@ The installed `llrc` reads its executable path from `llr_exe_path`, not `argv[0]
 accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works for `llr-test`.
 
 ## Progress log
+
+- 2026-11-03: **Gaps** and Phases 8-15 added from reading `std/`, `self/`, `ui/`, `tools/`, `compiler/src/`, `docs/`, and `tests/err` against the Rust, Go, and Python standard libraries. Each std row cites the private copies that stand in for the missing function; each language row cites the rejection site or the doc line. The **Status** block and the `std/` row (50 modules) were recounted. No code changed. The suite was not re-run.
 
