@@ -1,0 +1,144 @@
+(use ui.geom)
+(use ui.path)
+
+(struct edge (x0 i32) (y0 i32) (x1 i32) (y1 i32) (dir i32))
+
+(struct cur (i i64) (cx i32) (cy i32) (sx i32) (sy i32) (on bool))
+
+(fn sub ((x f32)) i32 (as i32 (* (as f64 x) 256.0)))
+
+(fn zeros ((n i64)) (vec u8) (let mut v (vec.new <u8>)) (for i 0 n (vec.push (&mut v) 0u8)) v)
+
+(fn zeros32 ((n i64)) (vec i32) (let mut v (vec.new <i32>)) (for i 0 n (vec.push (&mut v) 0i32)) v)
+
+(fn push_edge ((es (&mut (vec edge))) (x0 i32) (y0 i32) (x1 i32) (y1 i32)) unit
+  (if (== y0 y1) (ret))
+  (if (< y0 y1) (vec.push es (edge x0 y0 x1 y1 1i32)) (vec.push es (edge x1 y1 x0 y0 -1i32))))
+
+(fn take_pt ((p (& path.path)) (i (&mut i64))) geom.pt
+  (let q (path.path.at p (@ i)))
+  (set (@ i) (+ (@ i) 1))
+  q)
+
+(fn verb_move ((p (& path.path)) (c (&mut cur))) unit
+  (let q (take_pt p (&mut (. c i))))
+  (set (. c cx) (sub (. q x)))
+  (set (. c cy) (sub (. q y)))
+  (set (. c sx) (. c cx))
+  (set (. c sy) (. c cy))
+  (set (. c on) true))
+
+(fn verb_line ((p (& path.path)) (es (&mut (vec edge))) (c (&mut cur))) unit
+  (let q (take_pt p (&mut (. c i))))
+  (let nx (sub (. q x)))
+  (let ny (sub (. q y)))
+  (push_edge es (. c cx) (. c cy) nx ny)
+  (set (. c cx) nx)
+  (set (. c cy) ny))
+
+(fn verb_close ((es (&mut (vec edge))) (c (&mut cur))) unit
+  (if (. c on) (push_edge es (. c cx) (. c cy) (. c sx) (. c sy)))
+  (set (. c cx) (. c sx))
+  (set (. c cy) (. c sy)))
+
+(fn build ((p (& path.path))) (vec edge)
+  (let mut es (vec.new <edge>))
+  (let mut c (cur 0 0i32 0i32 0i32 0i32 false))
+  (for k 0 (vec.len (& (. p verb)))
+    (let v (path.path.verb_at p k))
+    (if (== v 0u8) (verb_move p (&mut c)))
+    (if (== v 1u8) (verb_line p (&mut es) (&mut c)))
+    (if (== v 4u8) (verb_close (&mut es) (&mut c))))
+  es)
+
+(fn div_floor ((a i64) (b i64)) i64 (let q (/ a b)) (if (and (< a 0) (!= (* q b) a)) (- q 1) q))
+
+(fn add_at ((d (&mut (vec i32))) (i i64) (v i32)) unit
+  (if (or (< i 0) (>= i (vec.len d))) (ret))
+  (let p (@ (vec.get d i)))
+  (let n (+ p v))
+  (vec.set d i n))
+
+(fn add_slice ((d (&mut (vec i32))) (x i64) (dir i32) (w i64)) unit
+  (let pix (div_floor x 256))
+  (if (< pix 0) (ret))
+  (let frac (- x (* pix 256)))
+  (if (>= pix w)
+    (add_at d 0 (* 256i32 dir))
+    (do
+      (add_at d 0 (* 256i32 dir))
+      (add_at d pix (* (as i32 (- frac 256)) dir))
+      (add_at d (+ pix 1) (* (neg (as i32 frac)) dir)))))
+
+(fn x_at ((x0 i32) (y0 i32) (x1 i32) (y1 i32) (y i32)) i32
+  (let dy (- (as i64 y1) (as i64 y0)))
+  (if (== dy 0) (ret x0))
+  (let dx (- (as i64 x1) (as i64 x0)))
+  (let t (- (as i64 y) (as i64 y0)))
+  (as i32 (+ (as i64 x0) (/ (* dx t) dy))))
+
+(fn cover_edge ((d (&mut (vec i32))) (e (& edge)) (y i64) (w i64)) unit
+  (let top (as i32 (* y 256)))
+  (let bot (+ top 256i32))
+  (let y0 (. e y0))
+  (let y1 (. e y1))
+  (let yt (if (> y0 top) y0 top))
+  (let yb (if (< y1 bot) y1 bot))
+  (if (>= yt yb) (ret))
+  (for yy (as i64 yt) (as i64 yb)
+    (add_slice d (as i64 (x_at (. e x0) y0 (. e x1) y1 (as i32 yy))) (. e dir) w)))
+
+(fn to_byte ((run i32) (rule i64)) u8
+  (let mut v (/ (if (< run 0) (neg run) run) 256i32))
+  (if (== rule 1)
+    (do (set v (% v 512i32)) (if (> v 256i32) (set v (- 512i32 v))))
+    (if (> v 256i32) (set v 256i32)))
+  (as u8 (/ (* v 255i32) 256i32)))
+
+(fn fill_row ((es (& (vec edge))) (y i64) (w i64) (rule i64) (out (&mut (vec u8)))) unit
+  (let mut d (zeros32 w))
+  (for i 0 (vec.len es) (cover_edge (&mut d) (vec.get es i) y w))
+  (let mut run 0i32)
+  (for x 0 w (set run (+ run (@ (vec.get (& d) x)))) (vec.set out (+ (* y w) x) (to_byte run rule))))
+
+(pub (fn coverage ((p (& path.path)) (w i64) (h i64) (rule i64)) (vec u8)
+  (let flat (path.path.flatten p 0.25f32))
+  (let es (build (& flat)))
+  (let mut out (zeros (* w h)))
+  (for y 0 h (fill_row (& es) y w rule (&mut out)))
+  out))
+
+(fn at ((cov (& (vec u8))) (x i64) (y i64) (w i64)) u8 (@ (vec.get cov (+ (* y w) x))))
+
+(fn box ((x0 f32) (y0 f32) (x1 f32) (y1 f32)) path.path
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (geom.pt x0 y0))
+  (path.path.line (&mut p) (geom.pt x1 y0))
+  (path.path.line (&mut p) (geom.pt x1 y1))
+  (path.path.line (&mut p) (geom.pt x0 y1))
+  (path.path.close (&mut p))
+  p)
+
+(test raster_rect
+  (let p (box 2.0f32 2.0f32 6.0f32 6.0f32))
+  (let cov (coverage (& p) 8 8 0))
+  (assert_eq (at (& cov) 3 3 8) 255u8)
+  (assert_eq (at (& cov) 0 0 8) 0u8)
+  (assert_eq (at (& cov) 2 2 8) 255u8)
+  (assert_eq (at (& cov) 6 6 8) 0u8)
+  (assert_eq (at (& cov) 5 4 8) 255u8))
+
+(test raster_even
+  (let mut p (box 1.0f32 1.0f32 7.0f32 7.0f32))
+  (let inner (box 3.0f32 3.0f32 5.0f32 5.0f32))
+  (for i 0 (vec.len (& (. inner verb)))
+    (vec.push (&mut (. p verb)) (path.path.verb_at (& inner) i)))
+  (for i 0 (vec.len (& (. inner pts))) (vec.push (&mut (. p pts)) (path.path.at (& inner) i)))
+  (let nz (coverage (& p) 8 8 0))
+  (let eo (coverage (& p) 8 8 1))
+  (assert_eq (at (& nz) 4 4 8) 255u8)
+  (assert_eq (at (& eo) 4 4 8) 0u8)
+  (assert_eq (at (& eo) 2 2 8) 255u8)
+  (drop (sub 1.0f32))
+  (drop (div_floor -10 256))
+  (drop (x_at 0i32 0i32 256i32 256i32 128i32)))

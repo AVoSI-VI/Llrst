@@ -1,0 +1,115 @@
+;; Todo list. One state owns the items, the draft, and the route.
+(use std.str)
+(use std.sys)
+(use ui.anim)
+(use ui.app)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.host_web)
+(use ui.key)
+(use ui.m_button)
+(use ui.m_field)
+(use ui.m_shell)
+(use ui.m_tile)
+(use ui.m_toggle)
+(use ui.state)
+(use ui.w_flex)
+(use ui.w_gesture)
+(use ui.widget)
+
+(struct model (items (vec str)) (on (vec bool)) (route i64))
+
+(fn add_item ((self (&mut model)) (text (& str))) unit
+  (if (== (str.len text) 0) (ret))
+  (vec.push (&mut (. self items)) (str.clone text))
+  (vec.push (&mut (. self on)) false))
+
+(fn at_s ((items (& (vec str))) (i i64)) str
+  (if (or (< i 0) (>= i (vec.len items))) (ret (str.from "")))
+  (str.clone (vec.get items i)))
+
+(fn at_b ((on (& (vec bool))) (i i64)) bool
+  (if (or (< i 0) (>= i (vec.len on))) (ret false))
+  (@ (vec.get on i)))
+
+(fn toggle ((self (&mut model)) (i i64)) unit
+  (if (or (< i 0) (>= i (vec.len (& (. self on))))) (ret))
+  (let cur (at_b (& (. self on)) i))
+  (vec.set (&mut (. self on)) i (not cur)))
+
+(fn tile ((self (& model)) (i i64)) (box (dyn widget.widget))
+  (let box (m_toggle.checkbox (at_b (& (. self on)) i) (neg (+ i 1))))
+  (let row (m_tile.list_tile (at_s (& (. self items)) i) box))
+  (w_gesture.tap (+ 101 i) row))
+
+(fn home ((self (& model))) (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (m_field.field))
+  (vec.push (&mut ks) (m_button.button (str.from "Add") 10))
+  (let mut i 0)
+  (while (< i (vec.len (& (. self items)))) (vec.push (&mut ks) (tile self i)) (set i (+ i 1)))
+  (m_shell.scaffold (m_shell.app_bar (str.from "Todo")) (w_flex.column ks)))
+
+(fn detail ((self (& model))) (box (dyn widget.widget))
+  (let bar (m_shell.app_bar (at_s (& (. self items)) (- (. self route) 1))))
+  (m_shell.scaffold bar (m_button.icon_button (str.from "<") 1)))
+
+(fn todo_save ((self (& model))) str
+  (let mut s (str.from_int (. self route)))
+  (str.push_byte (&mut s) 10u8)
+  (for i 0 (vec.len (& (. self items)))
+    (do
+      (str.push (&mut s) (& (str.from_int (if (at_b (& (. self on)) i) 1 0))))
+      (str.push_byte (&mut s) 9u8)
+      (str.push (&mut s) (vec.get (& (. self items)) i))
+      (str.push_byte (&mut s) 10u8)))
+  s)
+
+(fn todo_row ((self (&mut model)) (line (& str))) unit
+  (match (str.find_byte line 9u8)
+    ((opt.none) ())
+    ((opt.some at)
+      (do
+        (let bit (str.slice line 0 at))
+        (vec.push (&mut (. self items)) (str.slice line (+ at 1) (str.len line)))
+        (vec.push (&mut (. self on)) (str.eq (& bit) "1"))))))
+
+(fn todo_load ((self (&mut model)) (text (& str))) unit
+  (let ls (str.lines text))
+  (if (== (vec.len (& ls)) 0) (ret))
+  (match (str.to_int (vec.get (& ls) 0)) ((opt.some n) (set (. self route) n)) ((opt.none) ()))
+  (set (. self items) (vec.new <str>))
+  (set (. self on) (vec.new <bool>))
+  (for i 1 (vec.len (& ls)) (todo_row self (vec.get (& ls) i))))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (if (== (. self route) 0) (ret (home self)))
+    (detail self))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (do (set (. self route) 0) (ret true)))
+    (if (>= m 100) (do (set (. self route) (- m 100)) (ret true)))
+    (if (< m 0) (do (toggle self (- (neg m) 1)) (ret true)))
+    false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (_o (&mut state.out))) bool
+    (if (== (. e kind) state.in_back) (do (set (. self route) 0) (ret true)))
+    (if (!= (. e kind) state.in_submit) (ret false))
+    (add_item self (& (. e text)))
+    true)
+  (fn route ((self (& model))) i64 (if (== (. self route) 0) 1 2))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((_s (& model))) bool false)
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (todo_save self))
+  (fn load ((self (&mut model)) (text (& str))) unit (todo_load self text))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
+
+(fn root () (box (dyn widget.widget))
+  (state.stateful widget.ty_nav (key.key.none) (model (vec.new <str>) (vec.new <bool>) 0)))
+
+(fn main () unit
+  (if (== sys.os_id 3) (ret (host_web.run (root))))
+  (let mut h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (app.run h (root) n))

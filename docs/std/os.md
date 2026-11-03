@@ -21,7 +21,9 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 | `os.capture` | `((command (& str)))` | `cmd` |
 | `os.arch` | `()` | `(& str)` |
 | `os.is_tty` | `((fd i64))` | `bool` |
+| `os.exec` | `((file (& str)) (args (& (vec str))))` | `i64` |
+| `os.exe_path` | `()` | `str` |
 
 ## Tests
 
-`os_cwd`, `os_args`, `os_env`, `os_capture`
+`os_cwd`, `os_args`, `os_env`, `os_capture`, `os_exec_args`, `os_exec`

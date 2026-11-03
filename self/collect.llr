@@ -49,7 +49,7 @@
 
 (fn def_kind ((k u8)) u8 (if (== k 4u8) (ret 0u8)) (if (== k 5u8) (ret 1u8)) 4u8)
 
-(fn add_type ((p (&mut prog.prog)) (mi i64) (it (& item))) unit
+(fn add_type ((p (&mut prog.prog)) (mi i64) (it (& item))) (res unit str)
   (let mut d (prog.blank_def (str.clone (& (. it name))) mi (def_kind (. it kind))))
   (set (. d is_pub) (. it is_pub))
   (set (. d gens) (resolve.type_gens (& (. it gens))))
@@ -57,8 +57,24 @@
   (set (. d col) (. it col))
   (set (. d len) (. it len))
   (let id (add_named p mi (str.clone (& (. it name))) d))
-  (if (and (. (vec.get (& (. p mods)) mi) is_std) (. it is_pub))
-    (prog.add_pre p (str.clone (& (. it name))) id)))
+  (if (not (and (. (vec.get (& (. p mods)) mi) is_std) (. it is_pub))) (ret (res.ok ())))
+  (if (>= (prog.pre_id p (& (. it name))) 0) (ret (res.err (pre_dup p mi it))))
+  (prog.add_pre p (str.clone (& (. it name))) id)
+  (res.ok ()))
+
+;; A second pub std type with a prelude name. The first keeps it, so every checker agrees.
+(fn pre_dup ((p (& prog.prog)) (mi i64) (it (& item))) str
+  (let m (vec.get (& (. p mods)) mi))
+  (let mut d
+    (diag.make true
+      (str.clone (& (. m file)))
+      (. it line)
+      (. it col)
+      (. it len)
+      (str.from "name.dup")))
+  (diag.add (&mut d) "name" (str.clone (& (. it name))))
+  (diag.add (&mut d) "module" (str.clone (& (. m path))))
+  (diag.render (& d)))
 
 (pub (fn collect ((srcs (vec src.loaded))) (res prog.prog str)
   (let mut p (prog.blank_prog))
@@ -77,14 +93,15 @@
       (let it (vec.get (& (. s items)) k))
       (if (== (. it kind) 0u8) (try (add_use p srcs it (&mut m)))))
     (vec.push (&mut (. p mods)) m))
-  (for i 0 (vec.len srcs) (add_types p srcs i))
+  (for i 0 (vec.len srcs) (try (add_types p srcs i)))
   (res.ok ()))
 
-(fn add_types ((p (&mut prog.prog)) (srcs (& (vec src.loaded))) (mi i64)) unit
+(fn add_types ((p (&mut prog.prog)) (srcs (& (vec src.loaded))) (mi i64)) (res unit str)
   (let s (vec.get srcs mi))
   (for k 0 (vec.len (& (. s items)))
     (let it (vec.get (& (. s items)) k))
-    (if (type_kind (. it kind)) (add_type p mi it))))
+    (if (type_kind (. it kind)) (try (add_type p mi it))))
+  (res.ok ()))
 
 (fn has_clos ((e (& expr))) bool
   (if (== (. e kind) 31u8) (ret true))
@@ -242,6 +259,7 @@
         "name.unknown"
         "name"
         (str.clone (& (. it name)))))))
+  (if (not (prog.visible p mi tr)) (ret (res.err (priv_tr p mi it tr))))
   (let tyn (str.clone (& (. (. it ret) text))))
   (let self_ty (try (resolve.resolve p mi (& (vec.new <str>)) (& (. it ret)))))
   (if (>= (prog.impl_of p tr (& self_ty)) 0)
@@ -459,3 +477,13 @@
   (let mut o (vec.new <i64>))
   (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
   o)
+
+(fn priv_tr ((p (& prog.prog)) (mi i64) (it (& item)) (tr i64)) str
+  (let d (vec.get (& (. p defs)) tr))
+  (let file (& (. (vec.get (& (. p mods)) mi) file)))
+  (let mut g
+    (diag.make true (str.clone file) (. it line) (. it col) (. it len) (str.from "name.private")))
+  (diag.add (&mut g) "name" (str.clone (& (. d name))))
+  (diag.add (&mut g) "module" (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (diag.add (&mut g) "fix" (str.from "(pub ...)"))
+  (diag.render (& g)))

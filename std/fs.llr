@@ -81,6 +81,8 @@
   (res.ok out)))
 
 ;; mtime seconds and byte size come from runtime/llr_stat.c, which uses the host stat.
+(pub (fn now_ms () i64 (sys.llr_now_ms)))
+
 (pub (fn mtime ((path (& str))) (res i64 str)
   (let c (str.cstr path))
   (let mut n 0)
@@ -175,6 +177,8 @@
   (res.unwrap (mkdir (& empty)))
   (res.unwrap (rmdir (& empty)))
   (assert (not (exists (& empty)))))
+
+(test fs_now (assert (>= (now_ms) 0)))
 
 (test fs_read_grow
   (let p (str.from "/tmp/llr_fs_grow.txt"))

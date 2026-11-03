@@ -1,0 +1,119 @@
+(use ui.geom)
+(use ui.path)
+(use ui.raster)
+
+(pub (struct layer (pub (x i64)) (pub (y i64)) (pub (w i64)) (pub (h i64)) (pub (mask (vec u8)))))
+
+(pub (struct clips (pub (layers (vec layer))) (pub (bw i64)) (pub (bh i64))))
+
+(fn copy_u8 ((m (& (vec u8)))) (vec u8)
+  (let mut o (vec.new <u8>))
+  (for i 0 (vec.len m) (vec.push (&mut o) (@ (vec.get m i))))
+  o)
+
+(fn zeros ((n i64) (v u8)) (vec u8) (let mut o (vec.new <u8>)) (for i 0 n (vec.push (&mut o) v)) o)
+
+(impl clips
+  (pub (fn new ((w i64) (h i64)) clips
+    (let mut layers (vec.new <layer>))
+    (vec.push (&mut layers) (layer 0 0 w h (vec.new <u8>)))
+    (clips layers w h)))
+  (pub (fn clone_top ((self (& clips))) layer
+    (let n (- (vec.len (& (. self layers))) 1))
+    (let t (vec.get (& (. self layers)) n))
+    (layer (. t x) (. t y) (. t w) (. t h) (copy_u8 (& (. t mask))))))
+  (pub (fn save ((self (&mut clips))) unit
+    (let t (clips.clone_top self))
+    (vec.push (&mut (. self layers)) t)))
+  (pub (fn restore ((self (&mut clips))) unit
+    (if (> (vec.len (& (. self layers))) 1) (drop (vec.pop (&mut (. self layers))))))))
+
+(fn put_top ((self (&mut clips)) (t layer)) unit
+  (let n (- (vec.len (& (. self layers))) 1))
+  (vec.set (&mut (. self layers)) n t))
+
+(fn zero_out ((m (&mut (vec u8))) (bw i64) (x i64) (y i64) (w i64) (h i64)) unit
+  (for yy 0 (vec.len m)
+    (let px (% yy bw))
+    (let py (/ yy bw))
+    (if (or (< px x) (or (>= px (+ x w)) (or (< py y) (>= py (+ y h)))))
+      (do (let z 0u8) (vec.set m yy z)))))
+
+(fn mul_mask ((m (&mut (vec u8))) (c (& (vec u8)))) unit
+  (for i 0 (vec.len m)
+    (let a (@ (vec.get m i)))
+    (let b (@ (vec.get c i)))
+    (let v (as u8 (/ (* (as i64 a) (as i64 b)) 255)))
+    (vec.set m i v)))
+
+(fn full ((bw i64) (bh i64) (x i64) (y i64) (w i64) (h i64)) (vec u8)
+  (let mut m (zeros (* bw bh) 0u8))
+  (for py y (+ y h)
+    (for px x (+ x w)
+      (if (and (>= px 0) (and (< px bw) (and (>= py 0) (< py bh))))
+        (do (let z 255u8) (vec.set (&mut m) (+ (* py bw) px) z)))))
+  m)
+
+(impl clips
+  (pub (fn clip_rect ((self (&mut clips)) (x i64) (y i64) (w i64) (h i64)) unit
+    (let t (clips.clone_top self))
+    (let x0 (if (> (. t x) x) (. t x) x))
+    (let y0 (if (> (. t y) y) (. t y) y))
+    (let x1 (if (< (+ (. t x) (. t w)) (+ x w)) (+ (. t x) (. t w)) (+ x w)))
+    (let y1 (if (< (+ (. t y) (. t h)) (+ y h)) (+ (. t y) (. t h)) (+ y h)))
+    (let nw (if (> x1 x0) (- x1 x0) 0))
+    (let nh (if (> y1 y0) (- y1 y0) 0))
+    (let mut mask (copy_u8 (& (. t mask))))
+    (if (> (vec.len (& mask)) 0) (zero_out (&mut mask) (. self bw) x0 y0 nw nh))
+    (put_top self (layer x0 y0 nw nh mask))))
+  (pub (fn clip_path ((self (&mut clips)) (p (& path.path))) unit
+    (let cov (raster.coverage p (. self bw) (. self bh) 0))
+    (let t (clips.clone_top self))
+    (let mut mask
+      (if (== (vec.len (& (. t mask))) 0)
+        (full (. self bw) (. self bh) (. t x) (. t y) (. t w) (. t h))
+        (copy_u8 (& (. t mask)))))
+    (mul_mask (&mut mask) (& cov))
+    (put_top self (layer (. t x) (. t y) (. t w) (. t h) mask))))
+  (pub (fn cover ((self (& clips)) (x i64) (y i64) (k u8)) u8
+    (let n (- (vec.len (& (. self layers))) 1))
+    (let t (vec.get (& (. self layers)) n))
+    (if (or (< x (. t x))
+       (or (>= x (+ (. t x) (. t w))) (or (< y (. t y)) (>= y (+ (. t y) (. t h))))))
+      (ret 0u8))
+    (if (== (vec.len (& (. t mask))) 0) (ret k))
+    (let m (@ (vec.get (& (. t mask)) (+ (* y (. self bw)) x))))
+    (as u8 (/ (* (as i64 k) (as i64 m)) 255))))
+  (pub (fn apply ((self (& clips)) (cov (&mut (vec u8)))) unit
+    (for y 0 (. self bh)
+      (for x 0 (. self bw)
+        (let i (+ (* y (. self bw)) x))
+        (let k (@ (vec.get cov i)))
+        (let n (clips.cover self x y k))
+        (vec.set cov i n))))))
+
+(test clip_rect
+  (let mut c (clips.new 8 8))
+  (clips.clip_rect (&mut c) 0 0 4 8)
+  (assert_eq (clips.cover (& c) 1 1 255u8) 255u8)
+  (assert_eq (clips.cover (& c) 6 1 255u8) 0u8)
+  (clips.save (&mut c))
+  (clips.clip_rect (&mut c) 0 0 0 0)
+  (assert_eq (clips.cover (& c) 1 1 255u8) 0u8)
+  (clips.restore (&mut c))
+  (assert_eq (clips.cover (& c) 1 1 255u8) 255u8)
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (geom.pt 0.0f32 0.0f32))
+  (path.path.line (&mut p) (geom.pt 4.0f32 0.0f32))
+  (path.path.line (&mut p) (geom.pt 4.0f32 8.0f32))
+  (path.path.line (&mut p) (geom.pt 0.0f32 8.0f32))
+  (path.path.close (&mut p))
+  (let mut d (clips.new 8 8))
+  (clips.clip_path (&mut d) (& p))
+  (assert_eq (clips.cover (& d) 1 1 255u8) 255u8)
+  (assert_eq (clips.cover (& d) 6 1 255u8) 0u8)
+  (let mut cov (vec.new <u8>))
+  (vec.push (&mut cov) 255u8)
+  (let one (clips.new 1 1))
+  (clips.apply (& one) (&mut cov))
+  (assert_eq (@ (vec.get (& cov) 0)) 255u8))

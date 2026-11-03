@@ -11,7 +11,7 @@ llr-doc FILE.llr... [--out DIR]
 | `FILE.llr` | | one or more modules |
 | `--out` | stdout | write `DIR/NAME.md` for each file |
 
-Private items are skipped. A public field is printed as `(pub (name type))`. A method is `TYPE.name`; a free function is `module.name`. The module name is the file stem.
+Private items are skipped. A public field is printed as `(pub (name type))`. A method is `TYPE.name`; a free function is `module.name`. The module name is the file stem. The heading package is the parent directory, so `ui/widget.llr` is `ui.widget`.
 
 When `DIR/NAME.md` already exists, the text before the first `## ` is kept. A new page uses the file's first comment as the summary.
 

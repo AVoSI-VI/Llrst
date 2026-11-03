@@ -1,0 +1,78 @@
+;; Apple link. xcrun clang with the platform SDK, for macOS and iOS.
+(use std.os)
+(use std.str)
+
+(fn sh ((s (& str))) str
+  (let mut o (str.from "'"))
+  (for i 0 (str.len s)
+    (if (== (str.at s i) 39u8) (str.push (&mut o) "'\\''") (str.push_byte (&mut o) (str.at s i))))
+  (str.push_byte (&mut o) 39u8)
+  o)
+
+(pub (fn apple ((t (& str))) bool (str.has t "apple")))
+
+(pub (fn ios ((t (& str))) bool (str.has t "ios")))
+
+(pub (fn sim ((t (& str))) bool (str.has t "simulator")))
+
+(pub (fn target_name ((ios bool) (sim bool)) str
+  (if (and ios sim) (ret (str.from "arm64-apple-ios-simulator")))
+  (if ios (ret (str.from "arm64-apple-ios")))
+  (str.from "arm64-apple-macos")))
+
+(pub (fn sdk_flag ((ios bool) (sim bool)) str
+  (if (and ios sim) (ret (str.from "iphonesimulator")))
+  (if ios (ret (str.from "iphoneos")))
+  (str.from "macosx")))
+
+(fn sdk_query ((ios bool) (sim bool)) str
+  (let mut cmd (str.from "xcrun --sdk "))
+  (str.push (&mut cmd) (& (sdk_flag ios sim)))
+  (str.push (&mut cmd) " --show-sdk-path 2>/dev/null")
+  cmd)
+
+(pub (fn sdk_path ((ios bool) (sim bool)) str
+  (let q (sdk_query ios sim))
+  (let r (os.capture (& q)))
+  (if (!= (. r code) 0) (ret (str.new)))
+  (str.trim (& (. r out)))))
+
+(fn min_flag ((target (& str))) str
+  (if (not (ios target)) (ret (str.new)))
+  (if (sim target) (ret (str.from " -mios-simulator-version-min=14.0")))
+  (str.from " -miphoneos-version-min=14.0"))
+
+(pub (fn cmd ((obj (& str)) (out (& str)) (target (& str)) (sdk (& str))) str
+  (let mut c (str.from "xcrun clang -target "))
+  (str.push (&mut c) (& (target_name (ios target) (sim target))))
+  (str.push (&mut c) (& (min_flag target)))
+  (str.push (&mut c) " -isysroot ")
+  (str.push (&mut c) (& (sh sdk)))
+  (str.push (&mut c) " ")
+  (str.push (&mut c) (& (sh obj)))
+  (str.push (&mut c) " -o ")
+  (str.push (&mut c) (& (sh out)))
+  c))
+
+(test mac_cmd
+  (assert (apple "aarch64-apple-darwin"))
+  (assert (apple "arm64-apple-ios"))
+  (assert (not (apple "aarch64-unknown-linux-gnu")))
+  (assert (ios "arm64-apple-ios"))
+  (assert (ios "arm64-apple-ios-simulator"))
+  (assert (not (ios "aarch64-apple-darwin")))
+  (assert (sim "arm64-apple-ios-simulator"))
+  (assert (not (sim "arm64-apple-ios")))
+  (assert_eq (& (target_name false false)) "arm64-apple-macos")
+  (assert_eq (& (target_name true false)) "arm64-apple-ios")
+  (assert_eq (& (target_name true true)) "arm64-apple-ios-simulator")
+  (assert_eq (& (sdk_flag false false)) "macosx")
+  (assert_eq (& (sdk_flag true false)) "iphoneos")
+  (assert_eq (& (sdk_flag true true)) "iphonesimulator")
+  (let m (cmd "a.o" "a" "aarch64-apple-darwin" "/S"))
+  (assert (str.has (& m) "xcrun clang -target arm64-apple-macos -isysroot '/S' 'a.o' -o 'a'"))
+  (let i (cmd "b.o" "b" "arm64-apple-ios" "/I"))
+  (assert (str.has (& i)
+     "xcrun clang -target arm64-apple-ios -miphoneos-version-min=14.0 -isysroot '/I' 'b.o' -o 'b'"))
+  (let s (cmd "c.o" "c" "arm64-apple-ios-simulator" "/P"))
+  (assert (str.has (& s) "arm64-apple-ios-simulator -mios-simulator-version-min=14.0")))

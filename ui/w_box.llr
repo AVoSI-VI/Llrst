@@ -1,0 +1,60 @@
+;; Container, padding, sized box, align, and center.
+(use ui.blend)
+(use ui.key)
+(use ui.widget)
+
+(fn child_of ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(fn paint ((c blend.color) (l f32) (t f32) (r f32) (b f32)) widget.rdesc
+  (let mut d (widget.blank))
+  (set (. d has_color) true)
+  (set (. d color) c)
+  (set (. d pad_l) l)
+  (set (. d pad_t) t)
+  (set (. d pad_r) r)
+  (set (. d pad_b) b)
+  d)
+
+(pub (fn container ((c blend.color) (l f32) (t f32) (r f32) (b f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (widget.make widget.ty_container
+    (key.key.none)
+    (child_of child)
+    (paint c l t r b)
+    false
+    (widget.nop))))
+
+(pub (fn padding ((l f32) (t f32) (r f32) (b f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d pad_l) l)
+  (set (. d pad_t) t)
+  (set (. d pad_r) r)
+  (set (. d pad_b) b)
+  (widget.make widget.ty_padding (key.key.none) (child_of child) d false (widget.nop))))
+
+(pub (fn sized ((w f32) (h f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (if (>= w 0.0f32) (do (set (. d min_w) w) (set (. d max_w) w)))
+  (if (>= h 0.0f32) (do (set (. d min_h) h) (set (. d max_h) h)))
+  (set (. d tight) (and (>= w 0.0f32) (>= h 0.0f32)))
+  (widget.make widget.ty_sized (key.key.none) (child_of child) d false (widget.nop))))
+
+(pub (fn align ((x f32) (y f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d ax) x)
+  (set (. d ay) y)
+  (widget.make widget.ty_align (key.key.none) (child_of child) d false (widget.nop))))
+
+(pub (fn center ((child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d ax) 0.5f32)
+  (set (. d ay) 0.5f32)
+  (widget.make widget.ty_center (key.key.none) (child_of child) d false (widget.nop))))
+
+(test w_box_ty
+  (let w (sized 4.0f32 5.0f32 (widget.empty)))
+  (assert_eq (widget.widget.ty (& w)) widget.ty_sized)
+  (let c (center (widget.empty)))
+  (assert_eq (widget.widget.name (& c)) "center"))

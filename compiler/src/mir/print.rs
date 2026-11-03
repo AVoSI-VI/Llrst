@@ -70,6 +70,8 @@ fn rvalue(r: &Rvalue) -> String {
         Rvalue::Vtable(..) => "vtable".into(),
         Rvalue::Static(_) => "static".into(),
         Rvalue::Closure { idx, caps } => format!("clos{} {{{}}}", idx, ops(caps)),
+        Rvalue::BoxPack { value, trait_id, .. } => format!("box#{} {}", trait_id.0, operand(value)),
+        Rvalue::BoxBorrow { mutable, place: p } => format!("&{}box {}", if *mutable { "mut " } else { "" }, place(p)),
     }
 }
 

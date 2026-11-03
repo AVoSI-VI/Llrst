@@ -1,0 +1,43 @@
+;; A tap in the same frame applies message 1. The key is the count.
+(use std.io)
+(use std.str)
+(use ui.anim)
+(use ui.app)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.key)
+(use ui.state)
+(use ui.w_box)
+(use ui.w_gesture)
+(use ui.widget)
+
+(struct model (n i64))
+
+(fn view ((n i64)) (box (dyn widget.widget))
+  (widget.with_key (w_gesture.tap 1 (w_box.sized 20.0f32 20.0f32 (widget.empty)))
+    (key.key.value (as u32 n))))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (view (. self n)))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (do (set (. self n) (+ (. self n) 1)) (ret true)))
+    false)
+  (fn input ((_s (&mut model)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((_s (& model))) bool false)
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (str.from_int (. self n)))
+  (fn load ((self (&mut model)) (text (& str))) unit
+    (match (str.to_int text) ((opt.some n) (set (. self n) n)) ((opt.none) ())))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
+
+(fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (model 0)))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (root)))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

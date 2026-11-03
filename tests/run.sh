@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Golden tests: tests/run/*.llr (stdout must equal .out; stderr equals .err when that
-# file exists, and must be empty otherwise; exit status is 0 unless .code exists), tests/err/*.llr (stderr must equal .err),
+# file exists, and must be empty otherwise; exit status is 0 unless .code exists),
+# tests/ui/*.llr (same, built with --std std --ui ui; NAME.ppm is compared to --shot
+# output; NAME.events is passed as --events),
+# tests/err/*.llr (stderr must equal .err),
 # tests/panic/*.llr (stderr must equal .err and exit 101), tests/warn/*.llr (stderr must equal
 # .err and exit 0), and every std/*.llr compiled with --test. Output: ok|NAME or fail|NAME|...
 set -u
@@ -12,10 +15,48 @@ if [ -z "$llrc" ] || [ ! -x "$llrc" ]; then
   exit 1
 fi
 export LLRST_STD="$root/std"
+export LLRST_UI="$root/ui"
+export LLRC="$llrc"   # llr-check runs this compiler
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$root/runtime/llr_stat.o" || {
   echo "fail|setup|cc=llr_stat.c"
   exit 1
 }
+cc -c -fPIC "$root/runtime/llr_now.c" -o "$root/runtime/llr_now.o" || {
+  echo "fail|setup|cc=llr_now.c"
+  exit 1
+}
+cc -c -fPIC "$root/runtime/llr_reload.c" -o "$root/runtime/llr_reload.o" || {
+  echo "fail|setup|cc=llr_reload.c"
+  exit 1
+}
+cc -c -fPIC "$root/runtime/llr_dl.c" -o "$root/runtime/llr_dl.o" || {
+  echo "fail|setup|cc=llr_dl.c"
+  exit 1
+}
+cc -c -fPIC "$root/runtime/llr_ui_web.c" -o "$root/runtime/llr_ui_web.o" || {
+  echo "fail|setup|cc=llr_ui_web.c"
+  exit 1
+}
+os_name="$(uname -s)"
+if [ "$os_name" = "Darwin" ]; then
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac.m" -o "$root/runtime/llr_ui_mac.o" || {
+    echo "fail|setup|cc=llr_ui_mac.m"
+    exit 1
+  }
+  clang -fobjc-arc -c "$root/runtime/llr_ui_mac_in.m" -o "$root/runtime/llr_ui_mac_in.o" || {
+    echo "fail|setup|cc=llr_ui_mac_in.m"
+    exit 1
+  }
+elif [ "$os_name" = "Linux" ]; then
+  cc -c -fPIC "$root/runtime/llr_ui_x11.c" -o "$root/runtime/llr_ui_x11.o" || {
+    echo "fail|setup|cc=llr_ui_x11.c|fix=install libx11-dev"
+    exit 1
+  }
+  cc -c -fPIC "$root/runtime/llr_ui_x11_in.c" -o "$root/runtime/llr_ui_x11_in.o" || {
+    echo "fail|setup|cc=llr_ui_x11_in.c|fix=install libx11-dev"
+    exit 1
+  }
+fi
 export LLRST_RUNTIME="$root/runtime"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -81,6 +122,62 @@ for f in "$root"/tests/run/*.llr; do
   fi
 done
 
+for f in "$root"/tests/ui/*.llr; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f" .llr)"
+  want="${f%.llr}.out"
+  [ -e "$want" ] || continue
+  set +u
+  ( cd "$root" && "$llrc" build "tests/ui/$name.llr" --std std --ui ui -o "$tmp/ui_$name" 2>"$tmp/ui_$name.cerr" )
+  built=$?
+  set -u
+  if [ "$built" -ne 0 ]; then
+    echo "fail|ui/$name|compile|$(head -1 "$tmp/ui_$name.cerr")"; fails=$((fails+1)); continue
+  fi
+  shot="$tmp/ui_$name.shot"
+  args=()
+  if [ -f "${f%.llr}.ppm" ]; then
+    args=(--shot "$shot")
+  fi
+  if [ -f "${f%.llr}.events" ]; then
+    args+=(--events "${f%.llr}.events")
+  fi
+  if [ -f "${f%.llr}.argv" ]; then
+    while IFS= read -r arg || [ -n "$arg" ]; do
+      [ -n "$arg" ] || continue
+      args+=("$arg")
+    done < "${f%.llr}.argv"
+  fi
+  set +u
+  "$tmp/ui_$name" "${args[@]}" >"$tmp/ui_$name.out" 2>"$tmp/ui_$name.stderr"
+  code=$?
+  set -u
+  ok=1
+  if ! cmp -s "$tmp/ui_$name.out" "$want"; then
+    echo "fail|ui/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/ui_$name.out" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ -s "$tmp/ui_$name.stderr" ]; then
+    echo "fail|ui/$name|stderr|got=$(head -c 200 "$tmp/ui_$name.stderr" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$code" -ne 0 ]; then
+    echo "fail|ui/$name|code=$code"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ -f "${f%.llr}.ppm" ] && ! cmp -s "$shot" "${f%.llr}.ppm"; then
+    echo "fail|ui/$name|ppm|want=$(head -c 200 "${f%.llr}.ppm" | tr '\n' ' ')|got=$(head -c 200 "$shot" | tr '\n' ' ')"
+    fails=$((fails+1))
+    ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    echo "ok|ui/$name"
+  fi
+done
+
 "$llrc" build "$root/tools/llr-check.llr" -o "$tmp/llr-check" 2>"$tmp/llr-check.err" || {
   echo "fail|setup|llr-check=$(head -1 "$tmp/llr-check.err")"
   exit 1
@@ -98,14 +195,12 @@ for f in "$root"/tests/err/*.llr; do
     echo "fail|err/$name|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.err" | tr '\n' ' ')"
     fails=$((fails+1))
   fi
-  if ! grep -Eq '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read' "$want"; then
-    ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
-    if cmp -s "$tmp/$name.lerr" "$want"; then
-      echo "ok|err/$name|llr-check"
-    else
-      echo "fail|err/$name|llr-check|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.lerr" | tr '\n' ' ')"
-      fails=$((fails+1))
-    fi
+  ( cd "$root" && "$tmp/llr-check" "tests/err/$name.llr" >/dev/null 2>"$tmp/$name.lerr" || true )
+  if cmp -s "$tmp/$name.lerr" "$want"; then
+    echo "ok|err/$name|llr-check"
+  else
+    echo "fail|err/$name|llr-check|want=$(head -c 200 "$want" | tr '\n' ' ')|got=$(head -c 200 "$tmp/$name.lerr" | tr '\n' ' ')"
+    fails=$((fails+1))
   fi
 done
 
@@ -183,6 +278,20 @@ for f in "$root"/std/*.llr; do
     echo "ok|std/$name"
   else
     echo "fail|std/$name|$(grep -E '^(fail|F)\|' "$tmp/std_$name.out" | head -3 | tr '\n' ' ')"
+    fails=$((fails+1))
+  fi
+done
+
+for f in "$root"/ui/*.llr; do
+  name="$(basename "$f" .llr)"
+  grep -q "^(test " "$f" || continue
+  if ! "$llrc" build "$f" --test --std std --ui ui -o "$tmp/uimod_$name" 2>"$tmp/uimod_$name.err"; then
+    echo "fail|ui-mod/$name|compile|$(head -1 "$tmp/uimod_$name.err")"; fails=$((fails+1)); continue
+  fi
+  if "$tmp/uimod_$name" >"$tmp/uimod_$name.out" 2>&1; then
+    echo "ok|ui-mod/$name"
+  else
+    echo "fail|ui-mod/$name|$(grep -E '^(fail|F)\|' "$tmp/uimod_$name.out" | head -3 | tr '\n' ' ')"
     fails=$((fails+1))
   fi
 done

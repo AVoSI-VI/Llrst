@@ -1,0 +1,99 @@
+;; Free-list allocator. The heap header is four i64s: base, brk, end, free.
+(use std.sys)
+
+(pub (fn malloc ((h (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
+  (if (too_big n) (ret (ptr.null <u8>)))
+  (let need (align16 (if (== n 0u64) 1u64 n)))
+  (let hit (find h need))
+  (if (!= hit 0) (ret (from (+ hit 16))))
+  (bump h need grow)))
+
+(pub (fn free ((h (ptr u8)) (p (ptr u8))) unit
+  (if (ptr.eq p (ptr.null <u8>)) (ret))
+  (let blk (as i64 (- (as i64 (as u64 p)) 16)))
+  (wr_at blk 8 (rd h 24))
+  (wr h 24 blk)))
+
+(pub (fn realloc ((h (ptr u8)) (p (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
+  (if (ptr.eq p (ptr.null <u8>)) (ret (malloc h n grow)))
+  (if (too_big n) (ret (ptr.null <u8>)))
+  (let need (align16 (if (== n 0u64) 1u64 n)))
+  (let old (rd_at (as i64 (- (as i64 (as u64 p)) 16)) 0))
+  (if (>= old (as i64 need)) (ret p))
+  (let q (malloc h need grow))
+  (if (ptr.eq q (ptr.null <u8>)) (ret q))
+  (copy q p (if (< old (as i64 need)) old (as i64 need)))
+  (free h p)
+  q))
+
+(fn too_big ((n u64)) bool (> n 2147483647u64))
+
+(fn align16 ((n u64)) u64 (as u64 (* (/ (+ (as i64 n) 15) 16) 16)))
+
+(fn from ((n i64)) (ptr u8) (as (ptr u8) (as u64 n)))
+
+(fn rd ((h (ptr u8)) (off i64)) i64 (ptr.read (as (ptr i64) (ptr.add h off))))
+
+(fn wr ((h (ptr u8)) (off i64) (n i64)) unit (ptr.write (as (ptr i64) (ptr.add h off)) n))
+
+(fn rd_at ((a i64) (off i64)) i64 (ptr.read (as (ptr i64) (ptr.add (from a) off))))
+
+(fn wr_at ((a i64) (off i64) (n i64)) unit (ptr.write (as (ptr i64) (ptr.add (from a) off)) n))
+
+(fn find ((h (ptr u8)) (n u64)) i64
+  (let mut prev 0)
+  (let mut cur (rd h 24))
+  (while (!= cur 0)
+    (if (>= (rd_at cur 0) (as i64 n)) (ret (unlink h prev cur)))
+    (set prev cur)
+    (set cur (rd_at cur 8)))
+  0)
+
+(fn unlink ((h (ptr u8)) (prev i64) (cur i64)) i64
+  (let nxt (rd_at cur 8))
+  (if (== prev 0) (wr h 24 nxt) (wr_at prev 8 nxt))
+  cur)
+
+(fn bump ((h (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
+  (let need (+ (as i64 n) 16))
+  (if (and (> (+ (rd h 8) need) (rd h 16)) (not (extend h need grow))) (ret (ptr.null <u8>)))
+  (let at (rd h 8))
+  (wr_at at 0 (as i64 n))
+  (wr h 8 (+ at need))
+  (from (+ at 16)))
+
+(fn extend ((h (ptr u8)) (need i64) (grow (fn (i32) i32))) bool
+  (let missing (- (+ (rd h 8) need) (rd h 16)))
+  (let pages (as i32 (/ (+ missing 65535) 65536)))
+  (let prev (call grow (if (<= pages 0i32) 1i32 pages)))
+  (if (< prev 0i32) (ret false))
+  (wr h 16 (* (as i64 (+ prev pages)) 65536))
+  true)
+
+(fn copy ((d (ptr u8)) (s (ptr u8)) (n i64)) unit
+  (for i 0 n (ptr.write (ptr.add d i) (ptr.read (ptr.add s i)))))
+
+(fn no_grow ((pages i32)) i32 (let _ pages) (neg 1))
+
+(test alloc_fit
+  (let mem (sys.alloc 8192))
+  (let base (as i64 (as u64 mem)))
+  (ptr.write (as (ptr i64) mem) (+ base 64))
+  (ptr.write (as (ptr i64) (ptr.add mem 8)) (+ base 64))
+  (ptr.write (as (ptr i64) (ptr.add mem 16)) (+ base 8192))
+  (ptr.write (as (ptr i64) (ptr.add mem 24)) 0)
+  (let p (malloc mem 24u64 no_grow))
+  (assert (not (ptr.eq p (ptr.null <u8>))))
+  (ptr.write p 7u8)
+  (let q (malloc mem 24u64 no_grow))
+  (assert (not (ptr.eq p q)))
+  (free mem p)
+  (let r (malloc mem 24u64 no_grow))
+  (assert (ptr.eq r p))
+  (let s (realloc mem q 8u64 no_grow))
+  (assert (ptr.eq s q))
+  (let t (realloc mem (ptr.null <u8>) 8u64 no_grow))
+  (assert (not (ptr.eq t (ptr.null <u8>))))
+  (assert (ptr.eq (malloc mem 9000000000u64 no_grow) (ptr.null <u8>)))
+  (free mem (ptr.null <u8>))
+  (sys.free mem))

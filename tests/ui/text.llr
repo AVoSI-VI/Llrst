@@ -1,0 +1,12 @@
+;; A paragraph dumped and painted.
+(use std.io)
+(use ui.app)
+(use ui.blend)
+(use ui.host_null)
+(use ui.w_text)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_text.text "Hi" 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

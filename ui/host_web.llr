@@ -1,0 +1,151 @@
+;; Browser host. The wasm imports live in module llr. A native stub satisfies the link.
+(use std.str)
+(use std.sys)
+(use ui.a11y_web)
+(use ui.app)
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.widget)
+
+(extern llr_web_present ((px (ptr u8)) (w i64) (h i64)) unit)
+
+(extern llr_web_size ((w (ptr i32)) (h (ptr i32))) unit)
+
+(extern llr_web_scale () f32)
+
+(extern llr_web_now_ms () i64)
+
+(extern llr_web_request_frame () unit)
+
+(extern llr_web_poll_event ((p (ptr u8))) i32)
+
+(extern llr_web_set_cursor ((id i64)) unit)
+
+(extern llr_web_clip_get ((buf (ptr u8)) (cap i64)) i32)
+
+(extern llr_web_clip_set ((buf (ptr u8)) (n i64)) unit)
+
+(extern llr_web_text_input ((on i64) (x f32) (y f32) (w f32) (h f32)) unit)
+
+(extern llr_web_quit () unit)
+
+(extern llr_web_history ((n i64)) unit)
+
+(extern llr_web_bind ((p (ptr u8))) unit)
+
+(extern llr_web_app () i32)
+
+(pub (struct host_web (on bool)))
+
+(fn pixels ((bm (& bitmap.bitmap))) (ptr u8)
+  (if (== (vec.len (& (. bm px))) 0) (ret (ptr.null <u8>)))
+  (vec.ptr (& (. bm px))))
+
+(fn i32_at ((n i32)) f32 (as f32 (as i64 n)))
+
+(impl host_web (pub (fn make () host_web (host_web true))))
+
+(impl host.host
+  host_web
+  (fn size ((_s (& host_web))) geom.size
+    (let mut w 0i32)
+    (let mut h 0i32)
+    (llr_web_size (as (ptr i32) (&mut w)) (as (ptr i32) (&mut h)))
+    (geom.size (i32_at w) (i32_at h)))
+  (fn scale ((_s (& host_web))) f32 (llr_web_scale))
+  (fn present ((_s (&mut host_web)) (bm (& bitmap.bitmap))) unit
+    (llr_web_present (pixels bm) (. bm w) (. bm h)))
+  (fn poll ((_s (&mut host_web)) (out (&mut (vec event.event)))) unit (drain out))
+  (fn request_frame ((_s (&mut host_web))) unit (llr_web_request_frame))
+  (fn now_ms ((_s (& host_web))) i64 (llr_web_now_ms))
+  (fn set_cursor ((_s (&mut host_web)) (id i64)) unit (llr_web_set_cursor id))
+  (fn clipboard_get ((_s (& host_web))) str (clip_get))
+  (fn clipboard_set ((_s (&mut host_web)) (text (& str))) unit (clip_set text))
+  (fn text_input ((_s (&mut host_web)) (on bool) (r (& geom.rect))) unit (text_on on r))
+  (fn quit ((_s (&mut host_web))) unit (llr_web_quit))
+  (fn history ((_s (&mut host_web)) (n i64)) unit (llr_web_history n))
+  (fn a11y ((_s (&mut host_web)) (b (& (vec u8)))) unit (a11y_web.update b)))
+
+(fn drain ((out (&mut (vec event.event)))) unit
+  (let mut b (vec.new <u8>))
+  (let cap (* event.rec_bytes 64))
+  (vec.reserve (&mut b) cap)
+  (let n (take_some (&mut b)))
+  (event.take_rec (vec.ptr (& b)) n out))
+
+(fn take_some ((b (&mut (vec u8)))) i64
+  (let mut n 0)
+  (while (< n 64)
+    (let at (ptr.add (vec.ptr b) (* n event.rec_bytes)))
+    (if (== (as i64 (llr_web_poll_event at)) 0) (ret n))
+    (set n (+ n 1)))
+  n)
+
+(fn clip_get () str
+  (let n (as i64 (llr_web_clip_get (ptr.null <u8>) 0)))
+  (if (<= n 0) (ret (str.new)))
+  (let mut o (str.new))
+  (str.reserve (&mut o) n)
+  (let got (as i64 (llr_web_clip_get (. o p) n)))
+  (if (<= got 0) (ret (str.new)))
+  (set (. o len) (if (> got n) n got))
+  o)
+
+(fn clip_set ((text (& str))) unit
+  (let c (str.cstr text))
+  (llr_web_clip_set (. c p) (str.len text)))
+
+(fn text_on ((on bool) (r (& geom.rect))) unit
+  (llr_web_text_input (if on 1 0) (. r x) (. r y) (. r w) (. r h)))
+
+(fn stash ((a app.app)) (ptr u8)
+  (let p (sys.alloc (as i64 (sizeof app.app))))
+  (ptr.write (as (ptr app.app) p) a)
+  p)
+
+(pub (fn run ((root (box (dyn widget.widget)))) unit
+  (let p (stash (app.open (host_web.make) root)))
+  (llr_web_bind p)
+  (llr_frame)))
+
+(fn app_ptr () (ptr app.app)
+  (let raw (llr_web_app))
+  (if (== (as i64 raw) 0) (ret (ptr.null <app.app>)))
+  (as (ptr app.app) (as u64 (as i64 raw))))
+
+(pub (fn llr_frame () unit
+  (let p (app_ptr))
+  (if (ptr.eq p (ptr.null <app.app>)) (ret))
+  (let mut a (ptr.read p))
+  (app.frame (&mut a))
+  (ptr.write p a)
+  (llr_web_request_frame)))
+
+(pub (fn llr_keep () i64
+  (let p (app_ptr))
+  (if (ptr.eq p (ptr.null <app.app>)) (ret 0))
+  (let a (ptr.read p))
+  (let keep (app.keep_blob (& a)))
+  (mem.forget a)
+  (if keep 1 0)))
+
+(pub (fn llr_save () i64
+  (let p (app_ptr))
+  (if (ptr.eq p (ptr.null <app.app>)) (ret 0))
+  (let a (ptr.read p))
+  (let mut s (app.save_blob (& a)))
+  (mem.forget a)
+  (str.push_byte (&mut s) 0u8)
+  (let raw (as i64 (as u64 (. s p))))
+  (mem.forget s)
+  raw))
+
+(pub (fn llr_load ((p i64) (n i64)) unit
+  (let ap (app_ptr))
+  (if (ptr.eq ap (ptr.null <app.app>)) (ret))
+  (let mut a (ptr.read ap))
+  (let text (str.from_raw (as (ptr u8) (as u64 p)) n))
+  (app.load_blob (&mut a) (& text))
+  (ptr.write ap a)))

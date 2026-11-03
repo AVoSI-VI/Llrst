@@ -1,0 +1,81 @@
+;; Wasm binary pieces: LEB128, sections, and a byte buffer.
+(use std.str)
+(use std.vec)
+
+(pub (fn byte ((b (&mut (vec u8))) (n i64)) unit (vec.push b (as u8 (band n 255)))))
+
+(pub (fn uleb ((b (&mut (vec u8))) (n i64)) unit
+  (let mut v n)
+  (loop
+    (let mut c (band v 127))
+    (set v (shr v 7))
+    (if (!= v 0) (set c (bor c 128)))
+    (byte b c)
+    (if (== v 0) (ret)))))
+
+(pub (fn sleb ((b (&mut (vec u8))) (n i64)) unit
+  (let mut v n)
+  (loop
+    (let c (band v 127))
+    (set v (shr v 7))
+    (let sign (!= (band c 64) 0))
+    (let done (or (and (== v 0) (not sign)) (and (== v (neg 1)) sign)))
+    (byte b (if done c (bor c 128)))
+    (if done (ret)))))
+
+(pub (fn bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit
+  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i))))))
+
+(pub (fn section ((out (&mut (vec u8))) (id i64) (body (& (vec u8)))) unit
+  (byte out id)
+  (uleb out (vec.len body))
+  (bytes out body)))
+
+(pub (fn magic ((out (&mut (vec u8)))) unit
+  (byte out 0)
+  (byte out 97)
+  (byte out 115)
+  (byte out 109)
+  (byte out 1)
+  (byte out 0)
+  (byte out 0)
+  (byte out 0)))
+
+(pub (fn vec_len ((b (&mut (vec u8))) (n i64)) unit (uleb b n)))
+
+(pub (fn name ((b (&mut (vec u8))) (s (& str))) unit
+  (uleb b (str.len s))
+  (for i 0 (str.len s) (byte b (as i64 (str.at s i))))))
+
+(pub (fn i32_const ((b (&mut (vec u8))) (n i64)) unit (byte b 65) (sleb b n)))
+
+(pub (fn i64_const ((b (&mut (vec u8))) (n i64)) unit (byte b 66) (sleb b n)))
+
+(pub (fn f32_const ((b (&mut (vec u8))) (bits i64)) unit
+  (byte b 67)
+  (for i 0 4 (byte b (band (shr bits (* i 8)) 255)))))
+
+(pub (fn f64_const ((b (&mut (vec u8))) (bits i64)) unit
+  (byte b 68)
+  (for i 0 8 (byte b (band (shr bits (* i 8)) 255)))))
+
+(pub (fn end ((b (&mut (vec u8)))) unit (byte b 11)))
+
+(fn u8_at ((v (& (vec u8))) (i i64)) i64 (as i64 (@ (vec.get v i))))
+
+(test leb128
+  (let mut u (vec.new <u8>))
+  (uleb (&mut u) 0)
+  (uleb (&mut u) 127)
+  (uleb (&mut u) 128)
+  (assert_eq (u8_at (& u) 0) 0)
+  (assert_eq (u8_at (& u) 1) 127)
+  (assert_eq (u8_at (& u) 2) 128)
+  (assert_eq (u8_at (& u) 3) 1)
+  (let mut s (vec.new <u8>))
+  (sleb (&mut s) 0)
+  (sleb (&mut s) (neg 1))
+  (sleb (&mut s) 1)
+  (assert_eq (u8_at (& s) 0) 0)
+  (assert_eq (u8_at (& s) 1) 127)
+  (assert_eq (u8_at (& s) 2) 1))

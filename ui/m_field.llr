@@ -1,0 +1,227 @@
+;; One-line field. It owns the string, the caret, and the selection.
+(use std.str)
+(use ui.anim)
+(use ui.blend)
+(use ui.ctx)
+(use ui.semantics)
+(use ui.event)
+(use ui.font)
+(use ui.geom)
+(use ui.key)
+(use ui.state)
+(use ui.text)
+(use ui.theme)
+(use ui.w_box)
+(use ui.w_fx)
+(use ui.w_gesture)
+(use ui.w_stack)
+(use ui.w_text)
+(use ui.widget)
+
+(pub (struct edit
+  (pub (text str))
+  (pub (at i64))
+  (pub (mark i64))
+  (pub (on bool))
+  (pub (send bool))))
+
+(pub (fn edit_new () edit (edit (str.new) 0 0 false false)))
+
+(fn lo ((a i64) (b i64)) i64 (if (< a b) a b))
+
+(fn hi ((a i64) (b i64)) i64 (if (> a b) a b))
+
+(fn prev ((s (& str)) (i i64)) i64
+  (if (<= i 0) (ret 0))
+  (let mut j (- i 1))
+  (while (and (> j 0) (== (band (as i64 (str.at s j)) 192) 128)) (set j (- j 1)))
+  j)
+
+(fn splice ((s (& str)) (a i64) (b i64) (add (& str))) str
+  (let mut o (str.slice s 0 a))
+  (str.push (&mut o) add)
+  (let right (str.slice s b (str.len s)))
+  (str.push (&mut o) (& right))
+  o)
+
+(fn put ((self (&mut edit)) (add (& str))) unit
+  (let a (lo (. self at) (. self mark)))
+  (let b (hi (. self at) (. self mark)))
+  (let next (splice (& (. self text)) a b add))
+  (set (. self at) (+ a (str.len add)))
+  (set (. self mark) (. self at))
+  (set (. self text) next))
+
+(fn rub ((self (&mut edit))) unit
+  (if (!= (. self at) (. self mark)) (ret (put self "")))
+  (set (. self mark) (prev (& (. self text)) (. self at)))
+  (put self ""))
+
+(fn ctrl ((mods i64)) bool (!= (band mods 2) 0))
+
+(fn copy_out ((self (& edit)) (o (&mut state.out))) unit
+  (let a (lo (. self at) (. self mark)))
+  (let b (hi (. self at) (. self mark)))
+  (if (== a b) (ret))
+  (set (. o do_copy) true)
+  (set (. o text) (str.slice (& (. self text)) a b)))
+
+(fn submit ((self (&mut edit)) (o (&mut state.out))) unit
+  (set (. o submit) true)
+  (set (. o text) (str.clone (& (. self text))))
+  (set (. self text) (str.new))
+  (set (. self at) 0)
+  (set (. self mark) 0))
+
+(fn on_key ((self (&mut edit)) (e (& state.ev)) (o (&mut state.out))) bool
+  (if (== (. e code) 8) (do (rub self) (ret true)))
+  (if (== (. e code) 13) (do (submit self o) (ret true)))
+  (if (not (ctrl (. e mods))) (ret false))
+  (if (== (. e code) 99) (do (copy_out self o) (ret true)))
+  (if (== (. e code) 120) (do (copy_out self o) (rub self) (ret true)))
+  (if (== (. e code) 118) (do (set (. o do_paste) true) (ret true)))
+  false)
+
+(fn measure ((text (& str)) (size f32) (color blend.color)) (opt text.para)
+  (match (font.font.bundled)
+    ((res.err _) (opt.none <text.para>))
+    ((res.ok f)
+      (do
+        (let mut runs (vec.new <text.run>))
+        (vec.push (&mut runs) (text.run (str.clone text) size color))
+        (match (text.layout (& f) (& runs) 1000.0f32 1 0 false)
+          ((res.ok p) (opt.some p))
+          ((res.err _) (opt.none <text.para>)))))))
+
+(fn place ((self (& edit)) (p (& text.para)) (o (&mut state.out))) unit
+  (let r (text.caret p (. self at)))
+  (set (. o caret) r)
+  (set (. o ime) (. self on)))
+
+(fn hit_at ((self (&mut edit)) (x f32) (y f32) (size f32) (color blend.color) (drag bool)) unit
+  (match (measure (& (. self text)) size color)
+    ((opt.none) ())
+    ((opt.some p)
+      (do
+        (let pt (geom.pt x y))
+        (set (. self at) (text.hit (& p) (& pt)))
+        (if (not drag) (set (. self mark) (. self at)))))))
+
+(fn replace_all ((self (&mut edit)) (add (& str))) unit
+  (set (. self at) 0)
+  (set (. self mark) (str.len (& (. self text))))
+  (put self add))
+
+(pub (fn on_input ((self (&mut edit)) (e (& state.ev)) (o (&mut state.out))) bool
+  (if (== (. e kind) state.in_value) (do (replace_all self (& (. e text))) (ret true)))
+  (if (== (. e kind) state.in_text) (do (put self (& (. e text))) (ret true)))
+  (if (== (. e kind) state.in_paste) (do (put self (& (. e text))) (ret true)))
+  (if (== (. e kind) state.in_key) (ret (on_key self e o)))
+  (if (== (. e kind) state.in_focus) (do (set (. self on) true) (ret true)))
+  (if (and (== (. e kind) state.in_flush) (. self send)) (do (set (. self send) false) (submit self o) (ret true)))
+  (if (!= (. e kind) state.in_ptr) (ret false))
+  (if (== (. e code) event.down) (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) false) (ret true)))
+  (if (== (. e code) event.move) (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) true) (ret true)))
+  false)
+)
+(fn sel ((p (& text.para)) (a i64) (b i64) (color blend.color)) (box (dyn widget.widget))
+  (let ra (text.caret p a))
+  (let rb (text.caret p b))
+  (let x (if (< (. ra x) (. rb x)) (. ra x) (. rb x)))
+  (let w (if (< (. ra x) (. rb x)) (- (. rb x) (. ra x)) (- (. ra x) (. rb x))))
+  (let box (w_box.sized w (. ra h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (w_stack.positioned x (. ra y) w (. ra h) box))
+
+(fn caret_w ((p (& text.para)) (at i64) (color blend.color)) (box (dyn widget.widget))
+  (let r (text.caret p at))
+  (let box (w_box.sized 1.0f32 (. r h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (w_stack.positioned (. r x) (. r y) 1.0f32 (. r h) box))
+
+(fn face ((c (& ctx.ctx)) (self (& edit))) (box (dyn widget.widget))
+  (let th (ctx.ctx.theme c))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (w_box.sized 120.0f32 (. th body) (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (match (measure (& (. self text)) (. th body) (theme.ink (& (. th fg))))
+    ((opt.some p)
+      (do
+        (if (!= (. self at) (. self mark))
+          (vec.push (&mut ks) (sel (& p) (. self at) (. self mark) (theme.ink (& (. th primary))))))
+        (if (. self on) (vec.push (&mut ks) (caret_w (& p) (. self at) (theme.ink (& (. th fg))))))))
+    ((opt.none) ()))
+  (vec.push (&mut ks) (w_text.text (& (. self text)) (. th body) (theme.ink (& (. th fg)))))
+  (w_gesture.tap 0 (w_fx.clip_rect (w_stack.stack ks))))
+
+(struct model (ed edit))
+
+(fn bit ((on bool)) i64 (if on 1 0))
+
+(fn field_text ((self (& model))) str
+  (let ed (& (. self ed)))
+  (let mut s (str.from_int (. ed at)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. ed mark))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (bit (. ed on)))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (bit (. ed send)))))
+  (str.push_byte (&mut s) 10u8)
+  (str.push (&mut s) (& (. ed text)))
+  s)
+
+(fn field_num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn field_read ((self (&mut model)) (text (& str))) unit
+  (match (str.find_byte text 10u8)
+    ((opt.none) ())
+    ((opt.some at)
+      (do
+        (let head (str.slice text 0 at))
+        (let ps (str.split (& head) 124u8))
+        (if (< (vec.len (& ps)) 4) (ret))
+        (set (. (. self ed) at) (field_num (vec.get (& ps) 0)))
+        (set (. (. self ed) mark) (field_num (vec.get (& ps) 1)))
+        (set (. (. self ed) on) (== (field_num (vec.get (& ps) 2)) 1))
+        (set (. (. self ed) send) (== (field_num (vec.get (& ps) 3)) 1))
+        (set (. (. self ed) text) (str.slice text (+ at 1) (str.len text)))))))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (semantics.wrap semantics.role_field
+      (str.new)
+      (str.clone (& (. (. self ed) text)))
+      semantics.flag_focus
+      (+ semantics.act_focus semantics.act_value)
+      true
+      (face c (& (. self ed)))))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 10) (do (set (. (. self ed) send) true) (ret true)))
+    false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (o (&mut state.out))) bool
+    (let hit (on_input (&mut (. self ed)) e o))
+    (match (measure (& (. (. self ed) text)) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8))
+      ((opt.some p) (place (& (. self ed)) (& p) o))
+      ((opt.none) ()))
+    hit)
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((_s (& model))) bool false)
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (field_text self))
+  (fn load ((self (&mut model)) (text (& str))) unit (field_read self text))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
+
+(pub (fn field () (box (dyn widget.widget))
+  (state.stateful widget.ty_field (key.key.none) (model (edit_new))))
+)
+(test field_edit
+  (let mut ed (edit_new))
+  (let mut o (state.out_new))
+  (let e (state.ev_text state.in_text (str.from "ab")))
+  (assert (on_input (&mut ed) (& e) (&mut o)))
+  (assert (str.eq (& (. ed text)) "ab"))
+  (let back (state.ev  state.in_key 8 0 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 (str.new)))
+  (assert (on_input (&mut ed) (& back) (&mut o)))
+  (assert (str.eq (& (. ed text)) "a"))
+  (assert_eq (widget.widget.name (& (field))) "text_field"))

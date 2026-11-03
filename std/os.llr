@@ -79,6 +79,39 @@
   (let raw (str.cstr packed))
   (as i64 (sys.llr_exec (. f p) (. raw p) (as u64 (str.len packed)))))
 
+;; Runs file with args (no shell; PATH is searched). The child's exit code, -1 on failure,
+;; 127 when the file is not found.
+(pub (fn exec ((file (& str)) (args (& (vec str)))) i64
+  (let mut packed (str.new))
+  (for i 0 (vec.len args)
+    (str.push (&mut packed) (vec.get args i))
+    (str.push_byte (&mut packed) 0u8))
+  (exec_at file (& packed))))
+
+;; Path of the running executable, or empty when the host cannot say.
+(pub (fn exe_path () str
+  (let mut buf (str.new))
+  (let mut n 256)
+  (while (<= n 65536)
+    (str.reserve (&mut buf) (- n (. buf len)))
+    (let got (sys.llr_exe_path (. buf p) (as u64 n)))
+    (if (> got 0) (do (set (. buf len) got) (ret buf)))
+    (set n (* n 2)))
+  (str.new)))
+
+(test os_exec_args
+  (let mut a (vec.new <str>))
+  (if (== sys.os_id 2)
+    (do
+      (vec.push (&mut a) (str.from "/c"))
+      (vec.push (&mut a) (str.from "exit 0"))
+      (assert_eq (exec "cmd.exe" (& a)) 0))
+    (do (vec.push (&mut a) (str.from "0")) (assert_eq (exec "true" (& a)) 0)))
+  (let none (vec.new <str>))
+  (if (!= sys.os_id 2) (assert_eq (exec "llrst-no-such-program" (& none)) 127))
+  (let p (exe_path))
+  (if (!= sys.os_id 3) (assert (> (str.len (& p)) 0))))
+
 (test os_exec
   (if (== sys.os_id 2)
     (do

@@ -1,0 +1,123 @@
+;; Dialog scrim and a snack bar that leaves after a short tick.
+(use std.str)
+(use ui.anim)
+(use ui.blend)
+(use ui.ctx)
+(use ui.semantics)
+(use ui.key)
+(use ui.state)
+(use ui.theme)
+(use ui.w_box)
+(use ui.w_gesture)
+(use ui.w_stack)
+(use ui.w_text)
+(use ui.widget)
+
+(fn scrim ((msg i64) (w f32) (h f32)) (box (dyn widget.widget))
+  (let face (w_box.sized w h (w_box.container (blend.color.rgba 0u8 0u8 0u8 120u8) 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (w_gesture.tap msg face))
+
+(fn layer ((c (& ctx.ctx)) (msg i64) (body (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let th (ctx.ctx.theme c))
+  (let card (w_box.padding (. th space) (. th space) (. th space) (. th space) body))
+  (let face (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 card))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (scrim msg (. c w) (. c h)))
+  (vec.push (&mut ks) (w_box.center face))
+  (w_stack.stack ks))
+
+(fn first ((kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (let mut rest kids)
+  (if (== (vec.len (& rest)) 0) (ret (widget.empty)))
+  (vec.remove (&mut rest) 0))
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(pub (fn dialog ((msg i64) (body (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (widget.view_kids widget.ty_dialog
+    (one body)
+    (clos ((c (& ctx.ctx)) (ks (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+      (semantics.wrap semantics.role_dialog
+        (str.new)
+        (str.new)
+        0
+        semantics.act_dismiss
+        false
+        (layer c msg (first ks))))))
+)
+(fn bar ((c (& ctx.ctx)) (text (& str))) (box (dyn widget.widget))
+  (let th (ctx.ctx.theme c))
+  (let label (w_text.text text (. th body) (theme.ink (& (. th on_primary)))))
+  (let pad (w_box.padding (. th space) (. th space) (. th space) (. th space) label))
+  (w_box.container (theme.ink (& (. th fg))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+
+(struct model (text str) (left i64) (on bool))
+
+(fn snack_text ((self (& model))) str
+  (let mut s (str.from_int (. self left)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (if (. self on) 1 0))))
+  (str.push_byte (&mut s) 10u8)
+  (str.push (&mut s) (& (. self text)))
+  s)
+
+(fn snack_head ((text (& str))) i64
+  (match (str.find_byte text 10u8)
+    ((opt.none) 0)
+    ((opt.some n) n)))
+
+(fn snack_num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn snack_read ((self (&mut model)) (text (& str))) unit
+  (let at (snack_head text))
+  (if (== at 0) (ret))
+  (let head (str.slice text 0 at))
+  (let ps (str.split (& head) 124u8))
+  (if (< (vec.len (& ps)) 2) (ret))
+  (set (. self left) (snack_num (vec.get (& ps) 0)))
+  (set (. self on) (== (snack_num (vec.get (& ps) 1)) 1))
+  (set (. self text) (str.slice text (+ at 1) (str.len text))))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (if (not (. self on)) (ret (widget.empty)))
+    (semantics.wrap semantics.role_status
+      (str.clone (& (. self text)))
+      (str.new)
+      0
+      0
+      true
+      (bar c (& (. self text)))))
+  (fn msg ((_s (&mut model)) (_m i64)) bool false)
+  (fn input ((_s (&mut model)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((self (& model))) bool (. self on))
+  (fn tick ((self (&mut model)) (dt i64) (_g (& anim.goal))) bool
+    (if (not (. self on)) (ret false))
+    (set (. self left) (- (. self left) dt))
+    (if (> (. self left) 0) (ret true))
+    (set (. self on) false)
+    true)
+  (fn save ((self (& model))) str (snack_text self))
+  (fn load ((self (&mut model)) (text (& str))) unit (snack_read self text))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
+
+(pub (fn snack_bar ((text str)) (box (dyn widget.widget))
+  (state.stateful widget.ty_snack (key.key.none) (model text 400 true)))
+)
+(test m_layer_name
+  (assert_eq (widget.widget.name (& (dialog 1 (widget.empty)))) "dialog")
+  (let w (snack_bar (str.from "Saved")))
+  (assert_eq (widget.widget.name (& w)) "snack_bar")
+  (let mut m (model (str.from "Saved") 20 true))
+  (let g (anim.goal_new))
+  (assert (state.state.tick (&mut m) 16 (& g)))
+  (assert (. m on))
+  (assert (state.state.tick (&mut m) 30 (& g)))
+  (assert (not (. m on))))

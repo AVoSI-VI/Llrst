@@ -1,11 +1,11 @@
 ;; GraphQL schema. type, fields, arguments, and Int, String, Boolean, or an object type.
 (pub (struct arg (pub (name str)) (pub (ty str))))
 
-(pub (struct field (pub (name str)) (pub (ty str)) (pub (args (vec arg)))))
+(pub (struct gfield (pub (name str)) (pub (ty str)) (pub (args (vec arg)))))
 
-(pub (struct ty (pub (name str)) (pub (fields (vec field)))))
+(pub (struct gtype (pub (name str)) (pub (fields (vec gfield)))))
 
-(pub (struct schema (pub (query str)) (pub (types (vec ty)))))
+(pub (struct schema (pub (query str)) (pub (types (vec gtype)))))
 
 (struct rd (src str) (i i64))
 
@@ -14,7 +14,7 @@
 
 (fn skip ((r (&mut rd))) unit
   (while (or (== (peek r) 32u8)
-      (or (== (peek r) 10u8) (or (== (peek r) 9u8) (or (== (peek r) 13u8) (== (peek r) 44u8)))))
+     (or (== (peek r) 10u8) (or (== (peek r) 9u8) (or (== (peek r) 13u8) (== (peek r) 44u8)))))
     (set (. r i) (+ (. r i) 1))))
 
 (fn is_name ((b u8)) bool
@@ -46,8 +46,8 @@
     (set (. r i) (+ (. r i) 1))
     (vec.push (&mut args) (arg name (ty_name r)))))
 
-(fn parse_fields ((r (&mut rd))) (res (vec field) str)
-  (let mut fields (vec.new <field>))
+(fn parse_fields ((r (&mut rd))) (res (vec gfield) str)
+  (let mut fields (vec.new <gfield>))
   (loop
     (skip r)
     (if (== (peek r) 125u8) (do (set (. r i) (+ (. r i) 1)) (ret (res.ok fields))))
@@ -59,11 +59,11 @@
     (skip r)
     (if (!= (peek r) 58u8) (ret (res.err (str.from "gql.parse"))))
     (set (. r i) (+ (. r i) 1))
-    (vec.push (&mut fields) (field name (ty_name r) args))))
+    (vec.push (&mut fields) (gfield name (ty_name r) args))))
 
 (pub (fn read ((src (& str))) (res schema str)
   (let mut r (rd (str.from src) 0))
-  (let mut types (vec.new <ty>))
+  (let mut types (vec.new <gtype>))
   (let mut query (str.from "Query"))
   (loop
     (skip (&mut r))
@@ -76,7 +76,7 @@
     (set (. r i) (+ (. r i) 1))
     (let fields (try (parse_fields (&mut r))))
     (if (str.eq (& name) "Query") (set query (str.from "Query")))
-    (vec.push (&mut types) (ty name fields)))
+    (vec.push (&mut types) (gtype name fields)))
   (res.ok (schema query types))))
 
 (pub (fn builtin () schema
@@ -87,7 +87,7 @@
     (if (str.eq (& (. (vec.get (& (. s types)) i) name)) name) (ret (opt.some i))))
   (opt.none)))
 
-(pub (fn find_field ((t (& ty)) (name (& str))) (opt i64)
+(pub (fn find_field ((t (& gtype)) (name (& str))) (opt i64)
   (for i 0 (vec.len (& (. t fields)))
     (if (str.eq (& (. (vec.get (& (. t fields)) i) name)) name) (ret (opt.some i))))
   (opt.none)))

@@ -1,0 +1,13 @@
+(use std.cli)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.str)
+
+(fn main () unit
+  (let mut c (cli.new "shot" "write a ppm"))
+  (cli.opt (&mut c) "shot" "")
+  (cli.parse (&mut c) (os.args))
+  (let path (cli.get (& c) "shot"))
+  (if (> (str.len path) 0) (let _ (fs.write path "P3\n1 1\n255\n255 0 0\n")))
+  (io.puts "shot"))

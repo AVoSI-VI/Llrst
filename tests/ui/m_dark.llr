@@ -1,0 +1,17 @@
+;; Dark theme around the same column.
+(use std.io)
+(use ui.app)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.m_show)
+(use ui.w_theme)
+(use ui.widget)
+
+(fn root () (box (dyn widget.widget))
+  (w_theme.dark (clos ((_c (& ctx.ctx))) (box (dyn widget.widget)) (m_show.column))))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (root)))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

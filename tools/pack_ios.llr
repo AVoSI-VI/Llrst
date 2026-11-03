@@ -1,0 +1,164 @@
+;; iOS app bundle. codesign and the SDK are invoked; they are not reimplemented.
+(use proj.pack_util)
+(use proj.ui_tool)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.path)
+(use std.str)
+
+(pub (fn sim ((target (& str))) bool (str.has target "simulator")))
+
+(pub (fn sign_id ((sim bool) (sign (& str))) str
+  (if (> (str.len sign) 0) (ret (str.clone sign)))
+  (if sim (ret (str.from "-")))
+  (str.new)))
+
+(pub (fn clang_target ((sim bool)) str
+  (if sim (ret (str.from "arm64-apple-ios-simulator")))
+  (str.from "arm64-apple-ios")))
+
+(pub (fn sdk_name ((sim bool)) str (if sim (ret (str.from "iphonesimulator"))) (str.from "iphoneos")))
+
+(pub (fn plist ((stem (& str))) str
+  (let mut s (str.from "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"))
+  (str.push (&mut s) "<plist version=\"1.0\"><dict>\n")
+  (str.push (&mut s) "<key>CFBundleExecutable</key><string>")
+  (str.push (&mut s) stem)
+  (str.push (&mut s) "</string>\n<key>CFBundleIdentifier</key><string>llr.")
+  (str.push (&mut s) stem)
+  (str.push (&mut s) "</string>\n<key>CFBundleName</key><string>")
+  (str.push (&mut s) stem)
+  (str.push (&mut s) "</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n")
+  (str.push (&mut s) "<key>CFBundleVersion</key><string>1</string>\n")
+  (str.push (&mut s) "<key>CFBundleShortVersionString</key><string>1.0</string>\n")
+  (str.push (&mut s) "<key>MinimumOSVersion</key><string>14.0</string>\n")
+  (str.push (&mut s) "</dict></plist>\n")
+  s))
+
+(fn push_name ((v (&mut (vec str))) (name str)) unit (vec.push v name))
+
+(pub (fn obj_names ((sim bool)) (vec str)
+  (let mut v (vec.new <str>))
+  (if sim
+    (do
+      (push_name (&mut v) (str.from "llr_stat_ios_sim.o"))
+      (push_name (&mut v) (str.from "llr_now_ios_sim.o"))
+      (push_name (&mut v) (str.from "llr_ios_main_sim.o"))
+      (push_name (&mut v) (str.from "llr_ui_ios_sim.o"))
+      (push_name (&mut v) (str.from "llr_ui_ios_sim_in.o")))
+    (do
+      (push_name (&mut v) (str.from "llr_stat_ios.o"))
+      (push_name (&mut v) (str.from "llr_now_ios.o"))
+      (push_name (&mut v) (str.from "llr_ios_main.o"))
+      (push_name (&mut v) (str.from "llr_ui_ios.o"))
+      (push_name (&mut v) (str.from "llr_ui_ios_in.o"))))
+  v))
+
+(fn cap ((cmd (& str))) str
+  (let r (os.capture cmd))
+  (if (!= (. r code) 0) (ret (str.new)))
+  (str.trim (& (. r out))))
+
+(fn cc_line ((arc bool) (tgt (& str)) (sdk (& str)) (src (& str)) (out (& str)) (inc (& str))) str
+  (let mut c (str.from "xcrun clang "))
+  (if arc (str.push (&mut c) "-fobjc-arc "))
+  (str.push (&mut c) "-c -target ")
+  (str.push (&mut c) tgt)
+  (str.push (&mut c) " -isysroot ")
+  (str.push (&mut c) (& (pack_util.sh sdk)))
+  (str.push (&mut c) " -I")
+  (str.push (&mut c) (& (pack_util.sh inc)))
+  (str.push (&mut c) " ")
+  (str.push (&mut c) (& (pack_util.sh src)))
+  (str.push (&mut c) " -o ")
+  (str.push (&mut c) (& (pack_util.sh out)))
+  c)
+
+(fn src_of ((bin (& str))) str
+  (ui_tool.pick "runtime"
+    (& (ui_tool.beside bin "../../runtime"))
+    (& (ui_tool.beside bin "../runtime"))))
+
+(fn compile_set ((sim bool) (sdk (& str)) (src (& str)) (rt (& str))) unit
+  (let tgt (clang_target sim))
+  (let stat (if sim "llr_stat_ios_sim.o" "llr_stat_ios.o"))
+  (let now (if sim "llr_now_ios_sim.o" "llr_now_ios.o"))
+  (let main (if sim "llr_ios_main_sim.o" "llr_ios_main.o"))
+  (let ui (if sim "llr_ui_ios_sim.o" "llr_ui_ios.o"))
+  (let inn (if sim "llr_ui_ios_sim_in.o" "llr_ui_ios_in.o"))
+  (pack_util.must (& (cc_line false (& tgt) sdk (& (path.join src "llr_stat.c")) (& (path.join rt stat)) src))
+    "clang")
+  (pack_util.must (& (cc_line false (& tgt) sdk (& (path.join src "llr_now.c")) (& (path.join rt now)) src))
+    "clang")
+  (pack_util.must (& (cc_line true (& tgt) sdk (& (path.join src "llr_ios_main.m")) (& (path.join rt main)) src))
+    "clang")
+  (pack_util.must (& (cc_line true (& tgt) sdk (& (path.join src "llr_ui_ios.m")) (& (path.join rt ui)) src))
+    "clang")
+  (pack_util.must (& (cc_line true (& tgt) sdk (& (path.join src "llr_ui_ios_in.m")) (& (path.join rt inn)) src))
+    "clang"))
+
+(fn ensure ((bin (& str)) (out (& str)) (sim bool)) str
+  (let names (obj_names sim))
+  (if (not (pack_util.missing bin (& names))) (ret (str.new)))
+  (let sdk_flag (sdk_name sim))
+  (let q (str.cat "xcrun --sdk " (& sdk_flag)))
+  (let query (str.cat (& q) " --show-sdk-path"))
+  (let sdk (cap (& query)))
+  (if (== (str.len (& sdk)) 0) (pack_util.fail "sdk" "missing"))
+  (let src (src_of bin))
+  (if (== (str.len (& src)) 0) (pack_util.fail "runtime" "missing"))
+  (let rt (path.join out "rt"))
+  (drop (fs.mkdir_all (& rt)))
+  (compile_set sim (& sdk) (& src) (& rt))
+  rt)
+
+(pub (fn run ((file (& str)) (target (& str)) (out (& str)) (sign (& str))) unit
+  (if (not (fs.exists file)) (pack_util.fail "path" file))
+  (let is_sim (sim target))
+  (let ident (sign_id is_sim sign))
+  (if (== (str.len (& ident)) 0) (pack_util.fail "sign" "missing"))
+  (let bin (ui_tool.which))
+  (if (== (str.len (& bin)) 0) (pack_util.fail "llrc" "missing"))
+  (drop (fs.mkdir_all out))
+  (let stem (path.stem file))
+  (let app_name (str.cat (& stem) ".app"))
+  (let app (path.join out (& app_name)))
+  (drop (fs.mkdir_all (& app)))
+  (let rt (ensure (& bin) out is_sim))
+  (let exe (path.join (& app) (& stem)))
+  (let cmd
+    (pack_util.build_cmd (& bin)
+      file
+      target
+      (& (ui_tool.std_of (& bin)))
+      (& (ui_tool.ui_of (& bin)))
+      (& exe)
+      (& rt)))
+  (pack_util.must (& cmd) "build")
+  (drop (fs.write (& (path.join (& app) "Info.plist")) (& (plist (& stem)))))
+  (let mut cs (str.from "codesign --force --sign "))
+  (str.push (&mut cs) (& (pack_util.sh (& ident))))
+  (str.push (&mut cs) " --timestamp=none ")
+  (str.push (&mut cs) (& (pack_util.sh (& app))))
+  (pack_util.must (& cs) "codesign")
+  (let mut line (str.from "pack|app="))
+  (str.push (&mut line) (& app))
+  (io.puts (& line))))
+
+(test pack_ios_pure
+  (assert (sim "arm64-apple-ios-simulator"))
+  (assert (not (sim "arm64-apple-ios")))
+  (assert_eq (& (sign_id true "")) "-")
+  (assert_eq (& (sign_id false "")) "")
+  (assert_eq (& (sign_id false "Dev")) "Dev")
+  (assert_eq (& (clang_target true)) "arm64-apple-ios-simulator")
+  (assert_eq (& (sdk_name false)) "iphoneos")
+  (let names (obj_names true))
+  (assert_eq (vec.len (& names)) 5)
+  (assert (str.eq (vec.get (& names) 2) "llr_ios_main_sim.o"))
+  (let p (plist "counter"))
+  (assert (str.has (& p) "<key>CFBundleExecutable</key><string>counter</string>"))
+  (assert (str.has (& p) "llr.counter"))
+  (assert (str.has (& p) "MinimumOSVersion"))
+  (assert (not (str.has (& p) "UIApplicationSceneManifest"))))

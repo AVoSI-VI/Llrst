@@ -4,6 +4,18 @@ use crate::diag::{Diag, Diags, PResult, Span};
 use crate::resolve::{resolve_ty, Def, DefKind, Program, TraitDef};
 use crate::ty::{DefId, Ty};
 
+/// `(box (dyn Trait))`. The single argument must be `(dyn Trait)`.
+pub fn box_ty(prog: &Program, module: u32, args: &[ast::TyExpr], sp: Span) -> PResult<Ty> {
+    let Some(ast::TyExpr::Dyn(name, _)) = args.first() else {
+        return Err(Diag::error(sp, "trait.object").kv("why", "dyn"));
+    };
+    if args.len() != 1 {
+        return Err(Diag::error(sp, "trait.object").kv("why", "dyn"));
+    }
+    let Ty::Dyn { trait_id, .. } = dyn_ty(prog, module, false, name, sp)? else { unreachable!() };
+    Ok(Ty::BoxDyn { trait_id })
+}
+
 pub fn dyn_ty(prog: &Program, module: u32, mutable: bool, name: &str, sp: Span) -> PResult<Ty> {
     let id = lookup(prog, module, name).ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", name))?;
     let tr = prog.trait_def(id).ok_or_else(|| Diag::error(sp, "name.not_type").kv("name", name))?;
@@ -78,6 +90,9 @@ fn fill_trait(prog: &mut Program, mi: u32, t: &ast::TraitDecl, diags: &Diags) ->
 fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> PResult<()> {
     let tr = lookup(prog, mi, &t.trait_name).ok_or_else(|| Diag::error(t.span, "name.unknown").kv("name", t.trait_name.clone()))?;
     let td = prog.trait_def(tr).ok_or_else(|| Diag::error(t.span, "name.not_type").kv("name", t.trait_name.clone()))?;
+    if !prog.visible(mi, tr) {
+        return Err(prog.private_diag(t.span, tr));
+    }
     let self_ty = resolve_ty(prog, mi, &[], &ast::TyExpr::Name(t.ty_name.clone(), t.span))?;
     let sigs = td.methods.clone();
     if t.methods.len() != sigs.len() {
@@ -146,6 +161,12 @@ fn trait_ids(prog: &Program, module: u32, names: &[String], sp: Span) -> PResult
 }
 
 pub fn lookup(prog: &Program, module: u32, name: &str) -> Option<DefId> {
+    if let Some((alias, item)) = name.split_once('.') {
+        let m = &prog.modules[module as usize];
+        let mi = *m.uses.get(alias)?;
+        prog.used_uses.borrow_mut().insert((module, alias.to_string()));
+        return prog.modules[mi as usize].items.get(item).copied();
+    }
     let m = &prog.modules[module as usize];
     if let Some(id) = m.items.get(name) {
         return Some(*id);

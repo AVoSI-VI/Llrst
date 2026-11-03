@@ -1,0 +1,391 @@
+;; WASI preview1, appended to std.sys for a wasm32 target. os_id is 3.
+(use std.alloc)
+(use std.str)
+
+(pub (const os_id i64 3))
+
+(extern fd_write ((fd i32) (iovs i32) (n i32) (out i32)) i32)
+
+(extern fd_read ((fd i32) (iovs i32) (n i32) (out i32)) i32)
+
+(extern path_open
+  ((fd i32)
+    (dirflags i32)
+    (path i32)
+    (len i32)
+    (oflags i32)
+    (base i64)
+    (inh i64)
+    (fdflags i32)
+    (out i32))
+  i32)
+
+(extern fd_close ((fd i32)) i32)
+
+(extern clock_time_get ((id i32) (prec i64) (out i32)) i32)
+
+(extern proc_exit ((code i32)) never)
+
+(extern args_get ((argv i32) (buf i32)) i32)
+
+(extern args_sizes_get ((argc i32) (size i32)) i32)
+
+(extern environ_get ((env i32) (buf i32)) i32)
+
+(extern environ_sizes_get ((count i32) (size i32)) i32)
+
+(extern random_get ((buf i32) (len i32)) i32)
+
+(extern llr_memory_grow ((pages i32)) i32)
+
+(extern llr_heap_base () i64)
+
+(extern llr_trace_slot () (ptr u8))
+
+(extern llr_argc_slot () (ptr i64))
+
+(extern llr_argv_slot () (ptr i64))
+
+(extern llr_heap_slot () (ptr u8))
+
+(struct iov (buf i32) (len i32))
+
+(fn low ((p (ptr u8))) i32 (as i32 (as i64 (as u64 p))))
+
+(fn grow_pages ((pages i32)) i32 (llr_memory_grow pages))
+
+(fn ready () unit
+  (let h (llr_heap_slot))
+  (if (!= (ptr.read (as (ptr i64) h)) 0) (ret))
+  (let b (llr_heap_base))
+  (let pages (llr_memory_grow 0i32))
+  (let end (* (as i64 pages) 65536))
+  (ptr.write (as (ptr i64) h) b)
+  (ptr.write (as (ptr i64) (ptr.add h 8)) b)
+  (ptr.write (as (ptr i64) (ptr.add h 16)) end)
+  (ptr.write (as (ptr i64) (ptr.add h 24)) 0))
+
+(pub (fn malloc ((n u64)) (ptr u8) (ready) (alloc.malloc (llr_heap_slot) n grow_pages)))
+
+(pub (fn realloc ((p (ptr u8)) (n u64)) (ptr u8) (ready) (alloc.realloc (llr_heap_slot) p n grow_pages)))
+
+(pub (fn free ((p (ptr u8))) unit (ready) (alloc.free (llr_heap_slot) p)))
+
+(pub (fn write ((fd i32) (buf (ptr u8)) (n u64)) i64
+  (let mut iv (iov 0i32 0i32))
+  (ptr.write (as (ptr i32) (&mut iv)) (low buf))
+  (ptr.write (ptr.add (as (ptr i32) (&mut iv)) 1) (as i32 n))
+  (let mut nw 0i32)
+  (let err (fd_write fd (low (as (ptr u8) (&mut iv))) 1i32 (low (as (ptr u8) (&mut nw)))))
+  (if (!= err 0i32) (ret (neg 1)))
+  (as i64 nw)))
+
+(pub (fn read ((fd i32) (buf (ptr u8)) (n u64)) i64
+  (let mut iv (iov 0i32 0i32))
+  (ptr.write (as (ptr i32) (&mut iv)) (low buf))
+  (ptr.write (ptr.add (as (ptr i32) (&mut iv)) 1) (as i32 n))
+  (let mut nr 0i32)
+  (let err (fd_read fd (low (as (ptr u8) (&mut iv))) 1i32 (low (as (ptr u8) (&mut nr)))))
+  (if (!= err 0i32) (ret (neg 1)))
+  (as i64 nr)))
+
+(fn bad ((name (& str))) unit
+  (let mut s (str.from "E|sys_wasm.llr|0|0|0|target.unsupported|fn="))
+  (str.push (&mut s) name)
+  (str.push_byte (&mut s) 10u8)
+  (let _ (write 2i32 (. s p) (as u64 (. s len)))))
+
+(fn fail_i ((name (& str))) i32 (bad name) (neg 1))
+
+(fn fail_p ((name (& str))) (ptr u8) (bad name) (ptr.null <u8>))
+
+(pub (fn memcpy ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8)
+  (for i 0 (as i64 n) (ptr.write (ptr.add d i) (ptr.read (ptr.add s i))))
+  d))
+
+(pub (fn memmove ((d (ptr u8)) (s (ptr u8)) (n u64)) (ptr u8)
+  (if (<= (as u64 d) (as u64 s)) (ret (memcpy d s n)))
+  (let mut i (as i64 n))
+  (while (> i 0) (do (set i (- i 1)) (ptr.write (ptr.add d i) (ptr.read (ptr.add s i)))))
+  d))
+
+(pub (fn memcmp ((a (ptr u8)) (b (ptr u8)) (n u64)) i32
+  (for i 0 (as i64 n)
+    (let x (ptr.read (ptr.add a i)))
+    (let y (ptr.read (ptr.add b i)))
+    (if (< x y) (ret (neg 1)))
+    (if (> x y) (ret 1)))
+  0i32))
+
+(pub (fn strlen ((s (ptr u8))) u64
+  (let mut i 0)
+  (while (!= (ptr.read (ptr.add s i)) 0u8) (set i (+ i 1)))
+  (as u64 i)))
+
+(pub (fn exit ((code i32)) never (proc_exit code)))
+
+(pub (fn _exit ((code i32)) never (proc_exit code)))
+
+(fn oflags ((flags i32)) i32
+  (let mut o 0i32)
+  (if (!= (band flags 64i32) 0i32) (set o (bor o 1i32)))
+  (if (!= (band flags 512i32) 0i32) (set o (bor o 4i32)))
+  o)
+
+(fn fdflags ((flags i32)) i32 (if (!= (band flags 1024i32) 0i32) 1i32 0i32))
+
+(pub (fn open ((path (ptr u8)) (flags i32) (mode i32)) i32
+  (let _ mode)
+  (let mut fd 0i32)
+  (let rights (if (!= (band flags 1i32) 0i32) 66 2))
+  (let err
+    (path_open 3i32
+      0i32
+      (low path)
+      (as i32 (strlen path))
+      (oflags flags)
+      rights
+      rights
+      (fdflags flags)
+      (low (as (ptr u8) (&mut fd)))))
+  (if (!= err 0i32) (ret (neg 1)))
+  fd))
+
+(pub (fn close ((fd i32)) i32 (if (!= (fd_close fd) 0i32) (ret (neg 1))) 0i32))
+
+(pub (fn llr_boot () unit
+  (let mut argc 0i32)
+  (let mut asz 0i32)
+  (if (!= (args_sizes_get (low (as (ptr u8) (&mut argc))) (low (as (ptr u8) (&mut asz)))) 0i32)
+    (ret))
+  (let n (as i64 argc))
+  (if (<= n 0) (ret))
+  (let buf (malloc (as u64 asz)))
+  (let ip (malloc (* (as u64 n) 4u64)))
+  (let lp (malloc (* (as u64 n) 8u64)))
+  (if (ptr.eq buf (ptr.null <u8>)) (ret))
+  (if (!= (args_get (low ip) (low buf)) 0i32) (ret))
+  (widen lp ip n)
+  (ptr.write (llr_argc_slot) n)
+  (ptr.write (llr_argv_slot) (as i64 (as u64 lp)))))
+
+(fn widen ((lp (ptr u8)) (ip (ptr u8)) (n i64)) unit
+  (for i 0 n
+    (let w (as i64 (ptr.read (as (ptr i32) (ptr.add ip (* i 4))))))
+    (ptr.write (as (ptr i64) (ptr.add lp (* i 8))) w)))
+
+(pub (fn getenv ((name (ptr u8))) (ptr u8)
+  (let mut count 0i32)
+  (let mut sz 0i32)
+  (if (!= (environ_sizes_get (low (as (ptr u8) (&mut count))) (low (as (ptr u8) (&mut sz)))) 0i32)
+    (ret (ptr.null <u8>)))
+  (let buf (malloc (as u64 sz)))
+  (let ep (malloc (* (as u64 count) 4u64)))
+  (if (!= (environ_get (low ep) (low buf)) 0i32) (ret (ptr.null <u8>)))
+  (find_env name ep (as i64 count))))
+
+(fn find_env ((name (ptr u8)) (ep (ptr u8)) (n i64)) (ptr u8)
+  (for i 0 n
+    (let ent (as (ptr u8) (as u64 (as i64 (ptr.read (as (ptr i32) (ptr.add ep (* i 4))))))))
+    (let hit (env_hit name ent))
+    (if (not (ptr.eq hit (ptr.null <u8>))) (ret hit)))
+  (ptr.null <u8>))
+
+(fn env_hit ((name (ptr u8)) (ent (ptr u8))) (ptr u8)
+  (let n (strlen name))
+  (for i 0 (as i64 n)
+    (if (!= (ptr.read (ptr.add name i)) (ptr.read (ptr.add ent i))) (ret (ptr.null <u8>))))
+  (if (!= (ptr.read (ptr.add ent (as i64 n))) 61u8) (ret (ptr.null <u8>)))
+  (ptr.add ent (+ (as i64 n) 1)))
+
+(pub (fn llr_trace_push ((slot (ptr u8))) unit
+  (let head (llr_trace_slot))
+  (let prev (ptr.read (as (ptr (ptr u8)) head)))
+  (ptr.write (as (ptr (ptr u8)) slot) prev)
+  (ptr.write (as (ptr (ptr u8)) head) slot)))
+
+(pub (fn llr_trace_pop ((slot (ptr u8))) unit
+  (let prev (ptr.read (as (ptr (ptr u8)) slot)))
+  (ptr.write (as (ptr (ptr u8)) (llr_trace_slot)) prev)))
+
+(fn skip_name ((p (ptr u8))) bool (or (cstr_eq p "sys.abort") (cstr_eq p "sys.panic")))
+
+(fn cstr_eq ((p (ptr u8)) (s (& str))) bool
+  (for i 0 (str.len s) (if (!= (ptr.read (ptr.add p i)) (str.at s i)) (ret false)))
+  (== (ptr.read (ptr.add p (str.len s))) 0u8))
+
+(fn emit_name ((p (ptr u8))) unit
+  (let _ (write 2i32 (. "P|" p) 2u64))
+  (let n (strlen p))
+  (let _ (write 2i32 p n))
+  (let _ (write 2i32 (. "\n" p) 1u64)))
+
+(pub (fn llr_panic_frames () unit
+  (let mut f (ptr.read (as (ptr (ptr u8)) (llr_trace_slot))))
+  (let mut n 0)
+  (while (and (not (ptr.eq f (ptr.null <u8>))) (< n 32))
+    (do
+      (let name (ptr.read (as (ptr (ptr u8)) (ptr.add f 8))))
+      (if (not (skip_name name)) (emit_name name))
+      (set f (ptr.read (as (ptr (ptr u8)) f)))
+      (set n (+ n 1))))))
+
+(pub (fn fork () i32 (fail_i "fork")))
+
+(pub (fn waitpid ((pid i32) (status (ptr i32)) (opts i32)) i32
+  (let _ pid)
+  (let _ status)
+  (let _ opts)
+  (fail_i "waitpid")))
+
+(pub (fn getcwd ((buf (ptr u8)) (n u64)) (ptr u8) (let _ buf) (let _ n) (fail_p "getcwd")))
+
+(pub (fn opendir ((path (ptr u8))) (ptr u8) (let _ path) (fail_p "opendir")))
+
+(pub (fn readdir ((d (ptr u8))) (ptr u8) (let _ d) (fail_p "readdir")))
+
+(pub (fn closedir ((d (ptr u8))) i32 (let _ d) (fail_i "closedir")))
+
+(pub (fn llr_readdir_name ((ent (ptr u8))) (ptr u8) (let _ ent) (fail_p "llr_readdir_name")))
+
+(pub (fn llr_stat_mtime ((path (ptr u8)) (out (ptr i64))) i64
+  (let _ path)
+  (let _ out)
+  (as i64 (fail_i "llr_stat_mtime"))))
+
+(pub (fn llr_stat_size ((path (ptr u8)) (out (ptr i64))) i64
+  (let _ path)
+  (let _ out)
+  (as i64 (fail_i "llr_stat_size"))))
+
+(pub (fn llr_now_ms () i64 0))
+
+(pub (fn unlink ((path (ptr u8))) i32 (let _ path) (fail_i "unlink")))
+
+(pub (fn mkdir ((path (ptr u8)) (mode i32)) i32 (let _ path) (let _ mode) (fail_i "mkdir")))
+
+(pub (fn rmdir ((path (ptr u8))) i32 (let _ path) (fail_i "rmdir")))
+
+(pub (fn rename ((a (ptr u8)) (b (ptr u8))) i32 (let _ a) (let _ b) (fail_i "rename")))
+
+(pub (fn system ((cmd (ptr u8))) i32 (let _ cmd) (fail_i "system")))
+
+(pub (fn popen ((cmd (ptr u8)) (mode (ptr u8))) (ptr u8) (let _ cmd) (let _ mode) (fail_p "popen")))
+
+(pub (fn fileno ((f (ptr u8))) i32 (let _ f) (fail_i "fileno")))
+
+(pub (fn pclose ((f (ptr u8))) i32 (let _ f) (fail_i "pclose")))
+
+(pub (fn isatty ((fd i32)) i32 (let _ fd) 0i32))
+
+(pub (fn socket ((domain i32) (ty i32) (proto i32)) i32
+  (let _ domain)
+  (let _ ty)
+  (let _ proto)
+  (fail_i "socket")))
+
+(pub (fn bind ((fd i32) (addr (ptr u8)) (len u32)) i32
+  (let _ fd)
+  (let _ addr)
+  (let _ len)
+  (fail_i "bind")))
+
+(pub (fn listen ((fd i32) (backlog i32)) i32 (let _ fd) (let _ backlog) (fail_i "listen")))
+
+(pub (fn accept ((fd i32) (addr (ptr u8)) (len (ptr u32))) i32
+  (let _ fd)
+  (let _ addr)
+  (let _ len)
+  (fail_i "accept")))
+
+(pub (fn connect ((fd i32) (addr (ptr u8)) (len u32)) i32
+  (let _ fd)
+  (let _ addr)
+  (let _ len)
+  (fail_i "connect")))
+
+(pub (fn getsockname ((fd i32) (addr (ptr u8)) (len (ptr u32))) i32
+  (let _ fd)
+  (let _ addr)
+  (let _ len)
+  (fail_i "getsockname")))
+
+(pub (fn send ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64
+  (let _ fd)
+  (let _ buf)
+  (let _ n)
+  (let _ flags)
+  (bad "send")
+  (neg 1)))
+
+(pub (fn recv ((fd i32) (buf (ptr u8)) (n u64) (flags i32)) i64
+  (let _ fd)
+  (let _ buf)
+  (let _ n)
+  (let _ flags)
+  (bad "recv")
+  (neg 1)))
+
+(pub (fn poll ((fds (ptr u8)) (n u64) (timeout i32)) i32
+  (let _ fds)
+  (let _ n)
+  (let _ timeout)
+  (fail_i "poll")))
+
+(pub (fn fcntl ((fd i32) (cmd i32) (arg i32)) i32 (let _ fd) (let _ cmd) (let _ arg) (fail_i "fcntl")))
+
+(pub (fn __errno_location () (ptr i32) (as (ptr i32) (fail_p "__errno_location"))))
+
+(pub (fn pthread_create ((thread (ptr u8)) (attr (ptr u8)) (start (fn ((ptr u8)) (ptr u8))) (arg (ptr u8))) i32
+  (let _ thread)
+  (let _ attr)
+  (let _ start)
+  (let _ arg)
+  (fail_i "pthread_create")))
+
+(pub (fn pthread_join ((thread u64) (ret (ptr u8))) i32
+  (let _ thread)
+  (let _ ret)
+  (fail_i "pthread_join")))
+
+(pub (fn pthread_mutex_init ((m (ptr u8)) (attr (ptr u8))) i32
+  (let _ m)
+  (let _ attr)
+  (fail_i "pthread_mutex_init")))
+
+(pub (fn pthread_mutex_lock ((m (ptr u8))) i32 (let _ m) (fail_i "pthread_mutex_lock")))
+
+(pub (fn pthread_mutex_unlock ((m (ptr u8))) i32 (let _ m) (fail_i "pthread_mutex_unlock")))
+
+(pub (fn pthread_mutex_destroy ((m (ptr u8))) i32 (let _ m) (fail_i "pthread_mutex_destroy")))
+
+(pub (fn pthread_cond_init ((c (ptr u8)) (attr (ptr u8))) i32
+  (let _ c)
+  (let _ attr)
+  (fail_i "pthread_cond_init")))
+
+(pub (fn pthread_cond_wait ((c (ptr u8)) (m (ptr u8))) i32
+  (let _ c)
+  (let _ m)
+  (fail_i "pthread_cond_wait")))
+
+(pub (fn pthread_cond_broadcast ((c (ptr u8))) i32 (let _ c) (fail_i "pthread_cond_broadcast")))
+
+(pub (fn pthread_cond_destroy ((c (ptr u8))) i32 (let _ c) (fail_i "pthread_cond_destroy")))
+
+(pub (fn setrlimit ((resource i32) (lim (ptr u8))) i32 (let _ resource) (let _ lim) (fail_i "setrlimit")))
+
+(pub (fn llr_call_child ((f (fn (i64) i32)) (arg i64)) i32
+  (let _ f)
+  (let _ arg)
+  (fail_i "llr_call_child")))
+
+(pub (fn llr_spawn_self ((arg (ptr u8))) i32 (let _ arg) (fail_i "llr_spawn_self")))
+
+(pub (fn llr_exec ((file (ptr u8)) (args (ptr u8)) (n u64)) i32
+  (let _ file)
+  (let _ args)
+  (let _ n)
+  (fail_i "llr_exec")))
+
+(pub (fn llr_exe_path ((buf (ptr u8)) (n u64)) i64 (let _ buf) (let _ n) (neg 1)))

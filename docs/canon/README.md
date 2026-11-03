@@ -14,6 +14,7 @@ Each file lists tasks and the single blessed form. Forms marked `no` are rejecte
 | [io.md](io.md) | stdout, stderr, files, args, exit codes |
 | [tests.md](tests.md) | test forms, asserts, golden files |
 | [refactor.md](refactor.md) | extracting functions, moving modules, renaming |
+| [ui.md](ui.md) | stateless, stateful, callback, custom render |
 
 Rules that apply everywhere:
 

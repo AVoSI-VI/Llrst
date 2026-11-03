@@ -1,0 +1,27 @@
+;; Stack and positioned. A negative width or height means the child chooses that axis.
+(use ui.key)
+(use ui.widget)
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(pub (fn stack ((kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (widget.make widget.ty_stack (key.key.none) kids (widget.blank) false (widget.nop))))
+
+(pub (fn positioned ((x f32) (y f32) (w f32) (h f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d has_pos) true)
+  (set (. d px) x)
+  (set (. d py) y)
+  (set (. d pw) w)
+  (set (. d ph) h)
+  (widget.make widget.ty_positioned (key.key.none) (one child) d false (widget.nop))))
+
+(test w_stack_ty
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (let w (stack ks))
+  (assert_eq (widget.widget.name (& w)) "stack")
+  (let p (positioned 1.0f32 2.0f32 3.0f32 (neg 1.0f32) (widget.empty)))
+  (assert_eq (widget.widget.ty (& p)) widget.ty_positioned))

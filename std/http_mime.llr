@@ -1,0 +1,42 @@
+;; Served files carry a Content-Type from the suffix.
+(use std.fs)
+(use std.http)
+(use std.net)
+(use std.str)
+(use std.sys)
+
+(fn grab ((port i64) (path (& str))) str
+  (let c (res.unwrap (net.connect "127.0.0.1" port)))
+  (let mut q (str.from "GET "))
+  (str.push (&mut q) path)
+  (str.push (&mut q) " HTTP/1.1\r\nHost: x\r\n\r\n")
+  (res.unwrap (net.send c (& q)))
+  (let body (res.unwrap (net.recv c 512)))
+  (net.close c)
+  body)
+
+(fn mime_client ((port i64)) i32
+  (if (not (str.has (& (grab port "/page.html")) "text/html")) (ret 1))
+  (if (not (str.has (& (grab port "/app.wasm")) "application/wasm")) (ret 1))
+  (if (not (str.has (& (grab port "/hello.txt")) "text/plain")) (ret 1))
+  0)
+
+(fn wait_child ((pid i32)) unit
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
+
+(test http_mime
+  (fs.mkdir "/tmp/llr_http_mime")
+  (res.unwrap (fs.write "/tmp/llr_http_mime/page.html" "html-body"))
+  (res.unwrap (fs.write "/tmp/llr_http_mime/app.wasm" "wasm-body"))
+  (res.unwrap (fs.write "/tmp/llr_http_mime/hello.txt" "hello-body"))
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.llr_call_child mime_client port))
+  (let mut routes (vec.new <http.route>))
+  (let n (res.unwrap (http.serve l "/tmp/llr_http_mime" (& routes) 3)))
+  (assert_eq n 3)
+  (net.close l)
+  (wait_child pid))

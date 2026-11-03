@@ -1,0 +1,122 @@
+;; llr-ui run: build a shared library, own the arenas, reload when sources change.
+(use proj.deps)
+(use proj.ui_tool)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.path)
+(use std.str)
+(use std.sys)
+
+(extern llr_dlopen ((path (ptr u8))) (ptr u8))
+
+(extern llr_dlclose ((lib (ptr u8))) unit)
+
+(extern llr_dl_boot ((lib (ptr u8)) (prev i64) (argc i64) (argv (ptr u8))) i64)
+
+(extern llr_dl_frame ((lib (ptr u8))) unit)
+
+(extern llr_dl_drop ((lib (ptr u8)) (app i64)) unit)
+
+(extern llr_dl_app ((lib (ptr u8))) i64)
+
+(fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<llr-ui>|0|0|0" e))) (os.exit 1))
+
+(fn ext () str (if (== sys.os_id 2) (str.from ".dll") (str.from ".so")))
+
+(pub (fn lib_path ((dir (& str)) (n i64)) str (path.join dir (& (str.cat (& (str.cat "app-" (& (str.from_int n)))) (& (ext)))))))
+
+(fn build ((file (& str)) (dest (& str))) bool
+  (let bin (ui_tool.which))
+  (if (== (str.len (& bin)) 0) (die "ui.llrc|name=llrc"))
+  (let mut cmd (str.from (& bin)))
+  (str.push (&mut cmd) " build")
+  (ui_tool.push_arg (&mut cmd) file)
+  (let stdd (ui_tool.std_of (& bin)))
+  (let uid (ui_tool.ui_of (& bin)))
+  (if (> (str.len (& stdd)) 0) (do (str.push (&mut cmd) " --std") (ui_tool.push_arg (&mut cmd) (& stdd))))
+  (if (> (str.len (& uid)) 0) (do (str.push (&mut cmd) " --ui") (ui_tool.push_arg (&mut cmd) (& uid))))
+  (str.push (&mut cmd) " --emit-dylib -o")
+  (ui_tool.push_arg (&mut cmd) dest)
+  (let t0 (fs.now_ms))
+  (let code (os.shell (& cmd)))
+  (let ms (str.from_int (- (fs.now_ms) t0)))
+  (if (== code 0)
+    (do (io.puts (& (fmt.pipe3 "build" "ok" (& (fmt.kv "ms" (& ms)))))) (ret true)))
+  (io.puts (& (fmt.pipe3 "build" "fail" (& (fmt.kv "code" (& (str.from_int code)))))))
+  false)
+
+(fn pack ((args (& (vec str)))) (ptr u8)
+  (let n (vec.len args))
+  (let p (sys.alloc (* (+ n 1) 8)))
+  (for i 0 n
+    (let c (str.cstr (vec.get args i)))
+    (let raw (. c p))
+    (mem.forget c)
+    (ptr.write (ptr.add (as (ptr (ptr u8)) p) i) raw))
+  (ptr.write (ptr.add (as (ptr (ptr u8)) p) n) (ptr.null <u8>))
+  p)
+
+(fn argv_of ((state (& str))) (ptr u8)
+  (let mut a (vec.new <str>))
+  (vec.push (&mut a) (str.from "llr-ui"))
+  (vec.push (&mut a) (str.from "--llr-hosted"))
+  (vec.push (&mut a) (str.from "--llr-state"))
+  (vec.push (&mut a) (str.from state))
+  (pack (& a)))
+
+(fn open_lib ((path (& str))) (ptr u8)
+  (let c (str.cstr path))
+  (let lib (llr_dlopen (. c p)))
+  (drop c)
+  lib)
+
+(fn boot_at ((lib (ptr u8)) (prev i64) (argv (ptr u8))) i64 (llr_dl_boot lib prev 4 argv))
+
+(fn swap ((dir (& str)) (n (&mut i64)) (lib (ptr u8)) (argv (ptr u8)) (file (& str))) (ptr u8)
+  (set (@ n) (+ (@ n) 1))
+  (let path (lib_path dir (@ n)))
+  (if (not (build file (& path))) (ret lib))
+  (let neu (open_lib (& path)))
+  (if (ptr.eq neu (ptr.null <u8>)) (die "ui.dlopen|name=llr_dlopen"))
+  (let prev (llr_dl_app lib))
+  (let code (boot_at neu prev argv))
+  (if (== code 2)
+    (do
+      (llr_dl_drop lib prev)
+      (llr_dlclose lib)
+      (llr_dlclose neu)
+      (let again (open_lib (& path)))
+      (drop (boot_at again 0 argv))
+      (io.puts "run|restart")
+      (ret again)))
+  (llr_dlclose lib)
+  (io.puts "run|reload")
+  neu)
+
+(pub (fn run ((file (& str)) (dir (& str))) unit
+  (if (not (fs.exists file)) (die (& (str.cat "ui.missing|path=" file))))
+  (drop (fs.mkdir_all dir))
+  (let bin (ui_tool.which))
+  (let uid (ui_tool.ui_of (& bin)))
+  (let mut n 0)
+  (let path (lib_path dir 0))
+  (if (not (build file (& path))) (os.exit 1))
+  (let mut lib (open_lib (& path)))
+  (if (ptr.eq lib (ptr.null <u8>)) (die "ui.dlopen|name=llr_dlopen"))
+  (let state (path.join dir "state.txt"))
+  (let argv (argv_of (& state)))
+  (let code (boot_at lib 0 argv))
+  (if (== code (neg 1)) (die "ui.boot|name=llr_ui_boot"))
+  (let mut watch (deps.list file (& uid)))
+  (while true
+    (llr_dl_frame lib)
+    (if (deps.changed (& watch))
+      (do
+        (set lib (swap dir (&mut n) lib argv file))
+        (set watch (deps.list file (& uid))))))))
+
+(test run_path
+  (let want (if (== sys.os_id 2) (str.from "app-2.dll") (str.from "app-2.so")))
+  (assert (str.ends (& (lib_path "out" 2)) (& want))))

@@ -1,0 +1,9 @@
+(trait Id (fn n ((& Self)) i64))
+
+(impl Id i64 (fn n ((self (& i64))) i64 (@ self)))
+
+(fn main () unit
+  (let a (box (dyn Id)) 1)
+  (let b a)
+  (let _ (Id.n (& b)))
+  (let _ (Id.n (& a))))

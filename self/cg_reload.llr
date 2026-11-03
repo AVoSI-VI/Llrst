@@ -1,0 +1,107 @@
+;; --emit-dylib entry. The library exports boot, frame, and drop; main stays in the exe.
+(use proj.cg_frame)
+(use proj.cg_isa)
+(use proj.cg_mod)
+(use proj.elf)
+(use proj.prog)
+(use proj.ty)
+(use std.str)
+
+(fn ui_fn ((p (& prog.prog)) (name (& str))) i64
+  (for i 0 (vec.len (& (. p mods)))
+    (if (str.eq (& (. (vec.get (& (. p mods)) i) path)) "ui.app") (ret (prog.mod_fn p i name))))
+  (neg 1))
+
+(fn sym_of ((g (&mut cg_mod.cg)) (p (& prog.prog)) (id i64)) i64
+  (if (< id 0) (ret (neg 1)))
+  (cg_mod.func_sym g p id (vec.new <ty.sty>)))
+
+(pub (fn queue ((g (&mut cg_mod.cg)) (p (& prog.prog))) unit
+  (let _ (sym_of g p (ui_fn p "pump")))
+  (let _ (sym_of g p (ui_fn p "release")))))
+
+(fn hw ((g (& cg_mod.cg))) cg_isa.isa (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+
+(fn undef ((g (&mut cg_mod.cg)) (name (& str))) i64
+  (elf.add_sym (&mut (. g obj)) name elf.global elf.st_func elf.sec_undef 0 0))
+
+(fn global ((g (&mut cg_mod.cg)) (name (& str))) i64
+  (elf.add_sym (&mut (. g obj)) name elf.global elf.st_func elf.sec_text 0 0))
+
+(fn shadow ((b (&mut cg_isa.code)) (g (& cg_mod.cg))) unit
+  (cg_isa.sub_ri b (& (hw g)) 8 cg_isa.sp 32))
+
+(fn restore ((b (&mut cg_isa.code)) (g (& cg_mod.cg))) unit
+  (let s (hw g))
+  (if (. g win) (cg_isa.mov_rr b (& s) 8 cg_isa.sp cg_isa.fp))
+  (cg_isa.pop_fp b (& s))
+  (cg_isa.ret b (& s)))
+
+(fn emit_to ((g (&mut cg_mod.cg)) (name (& str)) (b (&mut cg_isa.code))) unit
+  (let sym (global g name))
+  (let _ (cg_isa.finish_code b (& (hw g))))
+  (cg_mod.append_fn g sym b))
+
+(fn save_in ((b (&mut cg_isa.code)) (g (& cg_mod.cg))) unit
+  (let s (hw g))
+  (cg_frame.bstore b (& s) 8 cg_isa.fp (neg 8) (cg_isa.arg_i 0))
+  (cg_frame.bstore b (& s) 8 cg_isa.fp (neg 16) (cg_isa.arg_i 1))
+  (cg_frame.bstore b (& s) 8 cg_isa.fp (neg 24) (cg_isa.arg_i 2)))
+
+(fn load_arg ((b (&mut cg_isa.code)) (g (& cg_mod.cg)) (reg i64) (disp i64)) unit
+  (cg_frame.bload b (& (hw g)) 8 reg cg_isa.fp disp))
+
+(fn store_argv ((b (&mut cg_isa.code)) (g (& cg_mod.cg))) unit
+  (let s (hw g))
+  (load_arg b g (cg_isa.arg_i 1) (neg 16))
+  (load_arg b g (cg_isa.arg_i 2) (neg 24))
+  (cg_isa.sym_addr b (& s) cg_isa.dst (. g argc))
+  (cg_frame.bstore b (& s) 8 cg_isa.dst 0 (cg_isa.arg_i 1))
+  (cg_isa.sym_addr b (& s) cg_isa.dst (. g argv))
+  (cg_frame.bstore b (& s) 8 cg_isa.dst 0 (cg_isa.arg_i 2)))
+
+(fn emit_boot ((g (&mut cg_mod.cg)) (entry i64) (set_prev i64) (code i64)) unit
+  (let mut b (cg_isa.new_code))
+  (let s (hw g))
+  (cg_isa.prologue (&mut b) (& s))
+  (shadow (&mut b) g)
+  (save_in (&mut b) g)
+  (load_arg (&mut b) g (cg_isa.arg_i 0) (neg 8))
+  (cg_isa.call_sym (&mut b) (& s) set_prev)
+  (store_argv (&mut b) g)
+  (cg_isa.call_sym (&mut b) (& s) entry)
+  (cg_isa.call_sym (&mut b) (& s) code)
+  (cg_isa.to_ret (&mut b) (& s))
+  (restore (&mut b) g)
+  (emit_to g "llr_ui_boot" (&mut b)))
+
+(fn emit_frame ((g (&mut cg_mod.cg)) (pump i64)) unit
+  (let mut b (cg_isa.new_code))
+  (let s (hw g))
+  (cg_isa.prologue (&mut b) (& s))
+  (shadow (&mut b) g)
+  (if (>= pump 0) (cg_isa.call_sym (&mut b) (& s) pump))
+  (cg_isa.zero (&mut b) (& s) cg_isa.acc)
+  (cg_isa.to_ret (&mut b) (& s))
+  (restore (&mut b) g)
+  (emit_to g "llr_ui_frame" (&mut b)))
+
+(fn emit_drop ((g (&mut cg_mod.cg)) (rel i64)) unit
+  (let mut b (cg_isa.new_code))
+  (let s (hw g))
+  (cg_isa.prologue (&mut b) (& s))
+  (shadow (&mut b) g)
+  (if (>= rel 0) (cg_isa.call_sym (&mut b) (& s) rel))
+  (cg_isa.zero (&mut b) (& s) cg_isa.acc)
+  (cg_isa.to_ret (&mut b) (& s))
+  (restore (&mut b) g)
+  (emit_to g "llr_ui_drop" (&mut b)))
+
+(pub (fn emit ((g (&mut cg_mod.cg)) (p (& prog.prog)) (entry i64)) unit
+  (let set_prev (undef g "llr_reload_set_prev"))
+  (let code (undef g "llr_reload_code"))
+  (let pump (sym_of g p (ui_fn p "pump")))
+  (let rel (sym_of g p (ui_fn p "release")))
+  (emit_boot g entry set_prev code)
+  (emit_frame g pump)
+  (emit_drop g rel)))

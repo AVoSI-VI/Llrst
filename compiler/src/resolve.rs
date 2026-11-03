@@ -208,13 +208,14 @@ pub struct Loader<'a> {
     pub diags: &'a Diags,
     pub std_dir: PathBuf,
     pub proj_dir: PathBuf,
+    pub ui_dir: Option<PathBuf>,
     parsed: Vec<(String, u32, Vec<Item>, bool)>,
     by_path: HashMap<String, u32>,
 }
 
 impl<'a> Loader<'a> {
-    pub fn new(sm: &'a mut SourceMap, diags: &'a Diags, std_dir: PathBuf, proj_dir: PathBuf) -> Self {
-        Loader { sm, diags, std_dir, proj_dir, parsed: Vec::new(), by_path: HashMap::new() }
+    pub fn new(sm: &'a mut SourceMap, diags: &'a Diags, std_dir: PathBuf, proj_dir: PathBuf, ui_dir: Option<PathBuf>) -> Self {
+        Loader { sm, diags, std_dir, proj_dir, ui_dir, parsed: Vec::new(), by_path: HashMap::new() }
     }
 
     fn load_file(&mut self, mod_path: &str, file: &Path, is_std: bool) -> PResult<u32> {
@@ -246,7 +247,7 @@ impl<'a> Loader<'a> {
         let main_canon = std::fs::canonicalize(main).ok();
         for f in std_files {
             let name = f.file_stem().unwrap().to_string_lossy().to_string();
-            if name == "sys_posix" || name == "sys_windows" {
+            if name == "sys_posix" || name == "sys_windows" || name == "sys_wasm" {
                 continue;
             }
             if std::fs::canonicalize(&f).ok() == main_canon {
@@ -272,6 +273,12 @@ impl<'a> Loader<'a> {
                 let path = p.join(".");
                 if p.len() == 2 && p[0] == "proj" {
                     let f = self.proj_dir.join(format!("{}.llr", p[1]));
+                    self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
+                } else if p.len() == 2 && p[0] == "ui" {
+                    let dir = self.ui_dir.clone().ok_or_else(|| {
+                        Diag::error(Span::default(), "io.read").kv("path", "ui").kv("fix", "set LLRST_UI")
+                    })?;
+                    let f = dir.join(format!("{}.llr", p[1]));
                     self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
                 } else if !(p.len() == 2 && p[0] == "std" && self.by_path.contains_key(&path)) {
                     return Err(Diag::error(sp, "name.not_module").kv("name", path));
@@ -309,21 +316,15 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                 }
                 Item::Struct(s) => {
                     let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
-                    if *is_std && s.is_pub {
-                        prog.prelude.insert(s.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, s.is_pub, path, &s.name, id, s.span, diags);
                 }
                 Item::Enum(e) => {
                     let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), e.is_pub, diags);
-                    if *is_std && e.is_pub {
-                        prog.prelude.insert(e.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, e.is_pub, path, &e.name, id, e.span, diags);
                 }
                 Item::Trait(t) => {
                     let id = push_def(&mut prog, &mut m, &t.name, mi, t.span, DefKind::Trait(TraitDef { methods: Vec::new(), object_safe: true }), t.is_pub, diags);
-                    if *is_std && t.is_pub {
-                        prog.prelude.insert(t.name.clone(), id);
-                    }
+                    crate::prelude::add(&mut prog, *is_std, t.is_pub, path, &t.name, id, t.span, diags);
                 }
                 _ => {}
             }
@@ -463,6 +464,7 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
             }
             Ty::Adt(d, Vec::new())
         }
+        TyExpr::App(n, args, sp) if n == "box" => return crate::traitres::box_ty(prog, module, args, *sp),
         TyExpr::App(n, args, sp) => {
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
             if !prog.visible(module, d) {

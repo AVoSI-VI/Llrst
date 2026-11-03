@@ -10,6 +10,7 @@ mod inl;
 mod link;
 mod mir;
 mod parse;
+mod prelude;
 mod resolve;
 mod sexpr;
 mod thir;
@@ -20,10 +21,10 @@ use driver::Options;
 use std::path::PathBuf;
 use std::process::Command;
 
-const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
-usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]
-usage|llrc check FILE [--std DIR] [--deny CODE]
-usage|llrc emit-mir FILE [--std DIR] [--deny CODE]
+const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]
+usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]
+usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]
+usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc version";
 
 fn main() {
@@ -33,8 +34,10 @@ fn main() {
         output: None,
         target: None,
         std_dir: None,
+        ui_dir: None,
         test: false,
         emit_obj: false,
+        emit_dylib: false,
         emit_mir: false,
         check_only: false,
         checked: false,
@@ -57,8 +60,13 @@ fn main() {
                 i += 1;
                 opt.std_dir = args.get(i).map(PathBuf::from);
             }
+            "--ui" => {
+                i += 1;
+                opt.ui_dir = args.get(i).map(PathBuf::from);
+            }
             "--test" => opt.test = true,
             "--emit-obj" => opt.emit_obj = true,
+            "--emit-dylib" => opt.emit_dylib = true,
             "--checked" => opt.checked = true,
             "--deny" => {
                 i += 1;
@@ -88,7 +96,7 @@ fn main() {
     }
     match cmd.as_str() {
         "version" => {
-            println!("llrc|0.1.0");
+            println!("llrc|0.4.5");
             return;
         }
         "build" | "run" | "check" | "emit-mir" => {}

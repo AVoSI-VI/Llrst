@@ -1,0 +1,17 @@
+;; Content-Type from a file suffix. Unknown suffixes stay text/plain.
+(use std.path)
+(use std.str)
+
+(pub (fn mime ((path (& str))) str
+  (let e (path.ext path))
+  (if (str.eq (& e) "html") (ret (str.from "text/html")))
+  (if (str.eq (& e) "wasm") (ret (str.from "application/wasm")))
+  (if (str.eq (& e) "js") (ret (str.from "text/javascript")))
+  (str.from "text/plain")))
+
+(test http_type_mime
+  (assert_eq (& (mime "a.html")) "text/html")
+  (assert_eq (& (mime "dir/a.wasm")) "application/wasm")
+  (assert_eq (& (mime "a.js")) "text/javascript")
+  (assert_eq (& (mime "a.txt")) "text/plain")
+  (assert_eq (& (mime "noext")) "text/plain"))

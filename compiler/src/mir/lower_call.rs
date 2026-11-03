@@ -12,9 +12,10 @@ impl<'a> Lower<'a> {
         }
         let mut ops = Vec::new();
         for a in args {
-            // two-phase &mut borrows directly in argument position
+            // two-phase &mut borrows directly in argument position.
+            // `(&mut box)` is a fat pointer (BoxBorrow), not a thin address.
             if let ExprKind::Ref { mutable: true, place } = &a.kind {
-                if place.is_place() {
+                if place.is_place() && !matches!(a.ty, Ty::Dyn { .. }) {
                     let p = self.as_place(place);
                     let t = self.temp(a.ty.clone(), a.span);
                     self.assign(&Place::local(t), Rvalue::Ref { mutable: true, place: p, two_phase: true }, a.span);
@@ -143,6 +144,24 @@ impl<'a> Lower<'a> {
         if !vty.is_unit() {
             self.assign(&dest, Rvalue::Use(vop), sp);
         }
+    }
+
+    pub fn lower_ref(&mut self, mutable: bool, place: &Expr, ty: &Ty, dest: Place, sp: Span) {
+        if let Some(c) = super::lower::const_static(self.prog, place) {
+            self.assign(&dest, Rvalue::Static(c), sp);
+            return;
+        }
+        let p = self.as_place(place);
+        if matches!(ty, Ty::Dyn { .. }) {
+            self.assign(&dest, Rvalue::BoxBorrow { mutable, place: p }, sp);
+            return;
+        }
+        self.assign(&dest, Rvalue::Ref { mutable, place: p, two_phase: false }, sp);
+    }
+
+    pub fn lower_box_pack(&mut self, data: &Expr, trait_id: crate::ty::DefId, self_ty: &Ty, dest: Place, sp: Span) {
+        let value = self.as_operand(data);
+        self.assign(&dest, Rvalue::BoxPack { value, trait_id, self_ty: self_ty.clone() }, sp);
     }
 
     pub fn lower_dyn_pack(&mut self, data: &Expr, trait_id: crate::ty::DefId, self_ty: &Ty, dest: Place, sp: Span) {

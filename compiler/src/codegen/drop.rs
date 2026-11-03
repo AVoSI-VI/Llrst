@@ -28,8 +28,13 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
         if matches!(t, Ty::Clos(..)) {
             drop_clos(cg, &mut b, addr);
             b.ins().jump(leave, &[]);
-        } else {
+        } else if matches!(t, Ty::BoxDyn { .. }) {
+            drop_box(cg, &mut b, addr);
+            b.ins().jump(leave, &[]);
+        } else if matches!(t, Ty::Adt(..)) {
             drop_adt(cg, &mut b, t, addr, leave);
+        } else {
+            b.ins().jump(leave, &[]);
         }
         b.switch_to_block(leave);
         super::trace::unlink(cg, &mut b, slot);
@@ -41,6 +46,24 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
     cg.module
         .define_function(id, &mut ctx)
         .map_err(|e| Diag::error(Span::default(), "codegen.define").kv("fn", format!("drop {}", t)).kv("got", e.to_string()))
+}
+
+fn drop_box(cg: &mut Codegen, b: &mut FunctionBuilder, addr: cranelift_codegen::ir::Value) {
+    let ptr = cg.ptr_ty;
+    let data = b.ins().load(ptr, mf(), addr, 0);
+    let vt = b.ins().load(ptr, mf(), addr, 8);
+    let fp = b.ins().load(ptr, mf(), vt, 0);
+    let mut sig = cranelift_codegen::ir::Signature::new(cg.call_conv);
+    sig.params.push(cranelift_codegen::ir::AbiParam::new(ptr));
+    let sr = b.import_signature(sig);
+    b.ins().call_indirect(sr, fp, &[data]);
+    let free = cg.func_id(&(sys_free(cg.prog), Vec::new()));
+    let fr = cg.module.declare_func_in_func(free, b.func);
+    b.ins().call(fr, &[data]);
+}
+
+fn sys_free(prog: &crate::resolve::Program) -> crate::ty::DefId {
+    prog.modules.iter().find(|m| m.path == "std.sys").and_then(|m| m.items.get("free").copied()).expect("std.sys free")
 }
 
 fn drop_clos(cg: &mut Codegen, b: &mut FunctionBuilder, addr: cranelift_codegen::ir::Value) {
@@ -117,6 +140,7 @@ fn drop_enum(cg: &mut Codegen, b: &mut FunctionBuilder, t: &Ty, addr: cranelift_
 fn drop_frame(cg: &Codegen, t: &Ty) -> String {
     match t {
         Ty::Clos(..) => "drop.clos".into(),
+        Ty::BoxDyn { .. } => "drop.box".into(),
         Ty::Adt(d, args) => framed(cg, &cg.prog.type_name(*d), args),
         other => format!("drop.{}", other),
     }

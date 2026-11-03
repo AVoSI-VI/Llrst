@@ -1,0 +1,363 @@
+;; Pointer drags, wheels, keys, text, and clipboard. A false message walks upward.
+(use std.math)
+(use ui.element)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.semantics)
+(use ui.render)
+(use ui.ptrs)
+(use ui.scroll)
+(use ui.state)
+(use ui.w_scroll)
+(use ui.widget)
+
+(fn parent_of ((es (& element.elems)) (id u32)) (opt u32)
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (if (not (. n has_parent)) (ret (opt.none <u32>)))
+  (opt.some (. n parent)))
+
+(fn owner ((es (& element.elems)) (id u32)) (opt u32)
+  (let mut cur id)
+  (let mut n 0)
+  (while (< n 64)
+    (if (== (element.role_at es cur) widget.role_full) (ret (opt.some cur)))
+    (match (parent_of es cur) ((opt.some p) (set cur p)) ((opt.none) (ret (opt.none <u32>))))
+    (set n (+ n 1)))
+  (opt.none <u32>))
+
+(fn above ((es (& element.elems)) (id u32)) (opt u32)
+  (match (parent_of es id) ((opt.some p) (owner es p)) ((opt.none) (opt.none <u32>))))
+
+(fn scroll_ty ((ty i64)) bool (or (== ty widget.ty_scroll) (== ty widget.ty_list)))
+
+(fn scroll_of ((es (& element.elems)) (id u32)) (opt u32)
+  (let mut cur id)
+  (let mut n 0)
+  (while (< n 64)
+    (if (and (scroll_ty (element.ty_at es cur)) (== (element.role_at es cur) widget.role_full))
+      (ret (opt.some cur)))
+    (match (parent_of es cur) ((opt.some p) (set cur p)) ((opt.none) (ret (opt.none <u32>))))
+    (set n (+ n 1)))
+  (opt.none <u32>))
+
+(struct spot (x f32) (y f32) (w f32) (h f32))
+
+(fn spot_of ((es (& element.elems)) (rt (& render.rtree)) (id u32)) spot
+  (if (not (element.has_render_at es id)) (ret (spot 0.0f32 0.0f32 0.0f32 0.0f32)))
+  (let n (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))))
+  (spot (. n x) (. n y) (. n w) (. n h)))
+
+(fn ask ((es (&mut element.elems)) (id u32) (e (& state.ev)) (o (&mut state.out))) bool
+  (if (not (. (vec.get (& (. es nodes)) (as i64 id)) has_st)) (ret false))
+  (let n (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+  (state.state.input (&mut (. n st)) e o))
+
+(fn local_ev ((code i64) (x f32) (y f32) (dy f32) (s spot)) state.ev
+  (state.ev_ptr code (- x (. s x)) (- y (. s y)) dy (. s w) (. s h)))
+
+(fn sized ((es (& element.elems)) (rt (& render.rtree)) (id u32) (e (&mut state.ev))) unit
+  (if (not (scroll_ty (element.ty_at es id))) (ret))
+  (let mut view 0.0f32)
+  (let mut span 0.0f32)
+  (w_scroll.metrics es rt id (&mut view) (&mut span))
+  (set (. e w) view)
+  (set (. e h) span))
+
+(fn tell ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (e (&mut state.ev))) bool
+  (sized es rt id e)
+  (let mut o (state.out_new))
+  (let hit (ask es id e (&mut o)))
+  (if hit (element.mark es rt id))
+  (apply es rt host p id e (& o))
+  hit)
+
+(fn apply ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (h (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (e (& state.ev))
+   (o (& state.out))) unit
+  (if (. o do_copy) (host.host.clipboard_set (&mut (@ h)) (& (. o text))))
+  (ime h p e o)
+  (if (. o do_paste) (paste es rt h p id))
+  (if (. o submit) (submit es rt h p id (& (. o text)))))
+
+(fn ime ((h (&mut (box (dyn host.host)))) (p (&mut ptrs.ptrs)) (e (& state.ev)) (o (& state.out))) unit
+  (if (. o ime) (do (host.host.text_input (&mut (@ h)) true (& (. o caret))) (set (. p ime) true) (ret)))
+  (if (and (== (. e kind) state.in_focus) (. p ime))
+    (do
+      (let z (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32))
+      (host.host.text_input (&mut (@ h)) false (& z))
+      (set (. p ime) false))))
+
+(fn paste ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (h (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)) unit
+  (let mut e (state.ev_text state.in_paste (host.host.clipboard_get (& (@ h)))))
+  (drop (tell es rt h p id (&mut e))))
+
+(fn submit ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (text (& str))) unit
+  (match (above es id)
+    ((opt.some parent)
+      (do
+        (let mut e (state.ev_text state.in_submit (str.clone text)))
+        (drop (walk es rt host p parent (&mut e)))))
+    ((opt.none) ())))
+
+(fn walk ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (e (&mut state.ev))) bool
+  (let mut cur (owner es id))
+  (let mut n 0)
+  (while (< n 32)
+    (match cur
+      ((opt.some s)
+        (do
+          (if (tell es rt host p s e) (ret true))
+          (set cur (above es s))))
+      ((opt.none) (ret false)))
+    (set n (+ n 1)))
+  false)
+
+(pub (fn bubble ((es (&mut element.elems)) (rt (&mut render.rtree)) (id u32)) unit
+  (let msg (widget.widget.signal (& (. (vec.get (& (. es nodes)) (as i64 id)) widget))))
+  (if (== msg 0) (ret))
+  (let mut cur (owner es id))
+  (let mut n 0)
+  (while (< n 32)
+    (match cur
+      ((opt.some s)
+        (do
+          (if (send es rt s msg) (ret))
+          (set cur (above es s))))
+      ((opt.none) (ret)))
+    (set n (+ n 1)))))
+
+(fn msg_at ((es (&mut element.elems)) (id u32) (msg i64)) bool
+  (let n (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+  (state.state.msg (&mut (. n st)) msg))
+
+(fn send ((es (&mut element.elems)) (rt (&mut render.rtree)) (id u32) (msg i64)) bool
+  (if (not (. (vec.get (& (. es nodes)) (as i64 id)) has_st)) (ret false))
+  (let hit (msg_at es id msg))
+  (if hit (element.mark es rt id))
+  hit)
+
+(pub (fn focus_to ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)) unit
+  (set (. p focus) (as i64 id))
+  (let mut e (state.ev_new))
+  (set (. e kind) state.in_focus)
+  (let s (spot_of es rt id))
+  (set (. e x) (. s x))
+  (set (. e y) (. s y))
+  (set (. e w) (. s w))
+  (set (. e h) (. s h))
+  (drop (walk es rt host p id (&mut e)))))
+
+(fn far ((x f32) (y f32) (sx f32) (sy f32)) bool
+  (or (>= (math.abs32 (- x sx)) scroll.slop) (>= (math.abs32 (- y sy)) scroll.slop)))
+
+(fn down ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (x f32)
+   (y f32)) unit
+  (set (. p cap) id)
+  (set (. p has_cap) true)
+  (set (. p sx) x)
+  (set (. p sy) y)
+  (set (. p lx) x)
+  (set (. p ly) y)
+  (set (. p drag) false)
+  (focus_to es rt host p id)
+  (let mut e (local_ev event.down x y 0.0f32 (spot_of es rt id)))
+  (drop (walk es rt host p id (&mut e))))
+
+(fn drag_to ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (x f32)
+   (y f32)) unit
+  (if (and (not (. p drag)) (far x y (. p sx) (. p sy)))
+    (match (scroll_of es (. p cap)) ((opt.some _) (set (. p drag) true)) ((opt.none) ())))
+  (let dy (- y (. p ly)))
+  (set (. p lx) x)
+  (set (. p ly) y)
+  (if (. p drag) (ret (drag_scroll es rt host p dy)))
+  (let mut e (local_ev event.move x y dy (spot_of es rt (. p cap))))
+  (drop (walk es rt host p (. p cap) (&mut e))))
+
+(fn drag_scroll ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (dy f32)) unit
+  (match (scroll_of es (. p cap))
+    ((opt.some s)
+      (do
+        (let mut e (state.ev_ptr event.move 0.0f32 0.0f32 dy 0.0f32 0.0f32))
+        (sized es rt s (&mut e))
+        (drop (tell es rt host p s (&mut e)))))
+    ((opt.none) ())))
+
+(fn up ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (hit (opt u32))
+   (x f32)
+   (y f32)) unit
+  (if (not (. p has_cap)) (ret))
+  (if (. p drag)
+    (do
+      (let mut e (state.ev_ptr event.up 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32))
+      (match (scroll_of es (. p cap))
+        ((opt.some s) (do (sized es rt s (&mut e)) (drop (tell es rt host p s (&mut e)))))
+        ((opt.none) ()))
+      (set (. p drag) false)
+      (set (. p has_cap) false)
+      (ret)))
+  (if (same hit (. p cap)) (bubble es rt (. p cap)))
+  (let mut e (local_ev event.up x y 0.0f32 (spot_of es rt (. p cap))))
+  (drop (walk es rt host p (. p cap) (&mut e)))
+  (set (. p has_cap) false))
+
+(fn same ((hit (opt u32)) (cap u32)) bool
+  (match hit ((opt.some id) (== id cap)) ((opt.none) false)))
+
+(pub (fn pointer ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (hit (opt u32))
+   (kind i64)
+   (x f32)
+   (y f32)
+   (dy f32)) unit
+  (if (== kind event.scroll) (ret (wheel es rt host p hit x y dy)))
+  (if (== kind event.down) (ret (match hit ((opt.some id) (down es rt host p id x y)) ((opt.none) (set (. p has_cap) false)))))
+  (if (== kind event.cancel) (do (set (. p has_cap) false) (set (. p drag) false) (ret)))
+  (if (== kind event.move) (do (if (. p has_cap) (drag_to es rt host p x y)) (ret)))
+  (if (== kind event.up) (up es rt host p hit x y))))
+
+(fn wheel ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (hit (opt u32))
+   (x f32)
+   (y f32)
+   (dy f32)) unit
+  (match hit
+    ((opt.some id)
+      (do
+        (let mut e (local_ev event.scroll x y dy (spot_of es rt id)))
+        (sized es rt id (&mut e))
+        (drop (walk es rt host p id (&mut e)))))
+    ((opt.none) ())))
+
+(pub (fn key ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (code i64)
+   (mods i64)) unit
+  (if (< (. p focus) 0) (ret))
+  (let mut e (state.ev_new))
+  (set (. e kind) state.in_key)
+  (set (. e code) code)
+  (set (. e mods) mods)
+  (drop (walk es rt host p (as u32 (. p focus)) (&mut e)))))
+
+(pub (fn text ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (s (& str))) unit
+  (if (< (. p focus) 0) (ret))
+  (let mut e (state.ev_text state.in_text (str.clone s)))
+  (drop (walk es rt host p (as u32 (. p focus)) (&mut e)))))
+
+(pub (fn back ((es (&mut element.elems)) (rt (&mut render.rtree)) (host (&mut (box (dyn host.host)))) (p (&mut ptrs.ptrs))) unit
+  (let n (vec.len (& (. es nodes))))
+  (for i 0 n
+    (let id (as u32 i))
+    (if (and (element.live_at es id) (== (element.ty_at es id) widget.ty_nav))
+      (do
+        (let mut e (state.ev_new))
+        (set (. e kind) state.in_back)
+        (drop (tell es rt host p id (&mut e))))))))
+
+(pub (fn flush ((es (&mut element.elems)) (rt (&mut render.rtree)) (host (&mut (box (dyn host.host)))) (p (&mut ptrs.ptrs))) unit
+  (let n (vec.len (& (. es nodes))))
+  (for i 0 n
+    (let id (as u32 i))
+    (if (and (element.live_at es id) (. (vec.get (& (. es nodes)) i) has_st))
+      (do
+        (let mut e (state.ev_new))
+        (set (. e kind) state.in_flush)
+        (drop (tell es rt host p id (&mut e))))))))
+
+(fn target_of ((sem (& semantics.tree)) (id i64)) (opt u32)
+  (let i (semantics.find sem id))
+  (if (< i 0) (ret (opt.none <u32>)))
+  (let n (vec.get (& (. sem nodes)) i))
+  (if (. n has_hit) (ret (opt.some (. n hit))))
+  (opt.some (. n elem)))
+
+(fn put_value ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (text (& str))) unit
+  (let mut e (state.ev_text state.in_value (str.clone text)))
+  (drop (walk es rt host p id (&mut e))))
+
+(fn one_bit ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (id u32)
+   (bit i64)
+   (text (& str))) unit
+  (if (!= (band bit semantics.act_tap) 0) (bubble es rt id))
+  (if (!= (band bit semantics.act_dismiss) 0) (bubble es rt id))
+  (if (!= (band bit semantics.act_focus) 0) (focus_to es rt host p id))
+  (if (!= (band bit semantics.act_value) 0) (put_value es rt host p id text))
+  (if (!= (band bit semantics.act_scroll) 0)
+    (wheel es rt host p (opt.some id) 0.0f32 0.0f32 (- 0.0f32 32.0f32))))
+
+(pub (fn action ((es (&mut element.elems))
+   (rt (&mut render.rtree))
+   (host (&mut (box (dyn host.host))))
+   (p (&mut ptrs.ptrs))
+   (sem (& semantics.tree))
+   (bit i64)
+   (id i64)
+   (text (& str))) unit
+  (match (target_of sem id) ((opt.some el) (one_bit es rt host p el bit text)) ((opt.none) ()))))

@@ -17,7 +17,7 @@ function Compile-Shim($dir, $name) {
     $obj = Join-Path $dir ($name -replace '\.c$', '.obj')
     $cl = Get-Command cl -ErrorAction SilentlyContinue
     if ($cl) {
-        & cl.exe /nologo /c "/Fo$obj" $c
+        & cl.exe /nologo /std:c11 /c "/Fo$obj" $c
         if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
         return
     }
@@ -26,7 +26,7 @@ function Compile-Shim($dir, $name) {
     $inst = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
     if (-not $inst) { Die 'setup|cl=missing' }
     $bat = Join-Path $inst.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
-    cmd /c "call `"$bat`" >nul && cl /nologo /c /Fo`"$obj`" `"$c`""
+    cmd /c "call `"$bat`" >nul && cl /nologo /std:c11 /c /Fo`"$obj`" `"$c`""
     if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
 }
 
@@ -47,17 +47,50 @@ New-Item -ItemType Directory -Force -Path $bin, $share | Out-Null
 $stdDest = Join-Path $share 'std'
 if (Test-Path -LiteralPath $stdDest) { Remove-Item -LiteralPath $stdDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'std') -Destination $stdDest -Recurse
+$uiDest = Join-Path $share 'ui'
+if (Test-Path -LiteralPath $uiDest) { Remove-Item -LiteralPath $uiDest -Recurse -Force }
+Copy-Item -LiteralPath (Join-Path $root 'ui') -Destination $uiDest -Recurse
 $exDest = Join-Path $share 'examples'
 if (Test-Path -LiteralPath $exDest) { Remove-Item -LiteralPath $exDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'examples') -Destination $exDest -Recurse
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
+$webDest = Join-Path $share 'web'
+if (Test-Path -LiteralPath $webDest) { Remove-Item -LiteralPath $webDest -Recurse -Force }
+Copy-Item -LiteralPath (Join-Path $root 'web') -Destination $webDest -Recurse
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_reload.c', 'llr_dl.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c', 'llr_ui.h', 'llr_ui_a11y.h', 'llr_ui_win.h')) {
     Copy-Item -LiteralPath (Join-Path $root "runtime\$name") -Destination (Join-Path $share $name) -Force
 }
 Write-Output 'step|runtime'
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_reload.c', 'llr_dl.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c')) {
     Compile-Shim $share $name
 }
 Write-Output "ok|runtime|$share"
+
+function Compile-Android {
+    $ndk = $env:ANDROID_NDK
+    if (-not $ndk) { Write-Output 'skip|runtime|android=ndk-missing'; return }
+    $cc = Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android21-clang.cmd'
+    if (-not (Test-Path -LiteralPath $cc)) { Write-Output 'skip|runtime|android=clang-missing'; return }
+    $glue = Join-Path $ndk 'sources\android\native_app_glue'
+    $inc = @('-I', (Join-Path $root 'runtime'), '-I', $glue)
+    $pairs = @(
+        @('llr_stat.c', 'llr_stat_android.o'),
+        @('llr_now.c', 'llr_now_android.o'),
+        @('llr_android_main.c', 'llr_android_main.o'),
+        @('llr_ui_android.c', 'llr_ui_android.o'),
+        @('llr_ui_android_in.c', 'llr_ui_android_in.o'),
+        @('llr_ui_android_a11y.c', 'llr_ui_android_a11y.o')
+    )
+    foreach ($pair in $pairs) {
+        $src = Join-Path $root "runtime\$($pair[0])"
+        $out = Join-Path $share $pair[1]
+        & $cc -c -fPIC @inc $src -o $out
+        if ($LASTEXITCODE -ne 0) { Die "build-runtime|cc=$($pair[0])|target=android" }
+    }
+    & $cc -c -fPIC @inc (Join-Path $glue 'android_native_app_glue.c') -o (Join-Path $share 'llr_ui_android_glue.o')
+    if ($LASTEXITCODE -ne 0) { Die 'build-runtime|cc=android_native_app_glue.c' }
+    Write-Output "ok|runtime|$share\llr_ui_android.o"
+}
+Compile-Android
 $savedLlrc = $env:LLRC
 $env:LLRC = $llrc
 & powershell.exe -NoProfile -File (Join-Path $PSScriptRoot 'self.ps1') --stage
@@ -72,6 +105,7 @@ $llrs2 = Join-Path $root 'target\self\llrs2.exe'
 Copy-Item -LiteralPath $llrs2 -Destination (Join-Path $bin 'llrc.exe') -Force
 Write-Output "ok|llrs2|$bin\llrc.exe"
 Write-Output "ok|std|$stdDest"
+Write-Output "ok|ui|$uiDest"
 Remove-Item Env:LLRST_RUNTIME -ErrorAction SilentlyContinue
 $env:LLRST_STD = $stdDest
 $tools = @(Get-ChildItem -LiteralPath (Join-Path $root 'tools') -Filter 'llr-*.llr')

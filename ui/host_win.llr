@@ -1,0 +1,33 @@
+;; Win32 host. The shim object is chosen at link time.
+(use ui.a11y_win)
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.host_shim)
+
+(pub (struct host_win (s host_shim.slot)))
+
+(impl host_win
+  (pub (fn open ((w i64) (h i64)) host_win (host_win (host_shim.open w h))))
+  (pub (fn drop ((self (&mut host_win))) unit (host_shim.close (&mut (. self s))))))
+
+(impl host.host
+  host_win
+  (fn size ((self (& host_win))) geom.size (host_shim.size (& (. self s))))
+  (fn scale ((self (& host_win))) f32 (host_shim.scale (& (. self s))))
+  (fn present ((self (&mut host_win)) (bm (& bitmap.bitmap))) unit
+    (host_shim.present (& (. self s)) bm))
+  (fn poll ((self (&mut host_win)) (out (&mut (vec event.event)))) unit
+    (host_shim.poll (& (. self s)) out))
+  (fn request_frame ((self (&mut host_win))) unit (host_shim.request_frame (& (. self s))))
+  (fn now_ms ((self (& host_win))) i64 (host_shim.now_ms (& (. self s))))
+  (fn set_cursor ((self (&mut host_win)) (id i64)) unit (host_shim.set_cursor (& (. self s)) id))
+  (fn clipboard_get ((self (& host_win))) str (host_shim.clip_get (& (. self s))))
+  (fn clipboard_set ((self (&mut host_win)) (text (& str))) unit
+    (host_shim.clip_set (& (. self s)) text))
+  (fn text_input ((self (&mut host_win)) (on bool) (r (& geom.rect))) unit
+    (host_shim.text_input (& (. self s)) on r))
+  (fn quit ((self (&mut host_win))) unit (host_shim.quit (&mut (. self s))))
+  (fn history ((_s (&mut host_win)) (_n i64)) unit ())
+  (fn a11y ((self (&mut host_win)) (b (& (vec u8)))) unit (a11y_win.update (& (. self s)) b)))

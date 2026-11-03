@@ -1,0 +1,12 @@
+;; Type, select, copy, cut, paste, and enter.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.m_field)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (m_field.field)))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

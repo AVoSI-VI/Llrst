@@ -1,0 +1,75 @@
+;; llr-ui dump and shot. Both run the first frames on the null host.
+(use proj.ui_tool)
+(use std.fmt)
+(use std.io)
+(use std.os)
+(use std.str)
+
+(fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<llr-ui>|0|0|0" e))) (os.exit 1))
+
+(fn push_opt ((cmd (&mut str)) (name (& str)) (val (& str))) unit
+  (if (== (str.len val) 0) (ret))
+  (str.push cmd " --")
+  (str.push cmd name)
+  (ui_tool.push_arg cmd val))
+
+(fn run_cmd ((file (& str)) (tail (& str))) str
+  (let bin (ui_tool.which))
+  (if (== (str.len (& bin)) 0) (die "ui.llrc|name=llrc"))
+  (let mut cmd (str.from (& bin)))
+  (str.push (&mut cmd) " run")
+  (ui_tool.push_arg (&mut cmd) file)
+  (let stdd (ui_tool.std_of (& bin)))
+  (let uid (ui_tool.ui_of (& bin)))
+  (if (> (str.len (& stdd)) 0) (do (str.push (&mut cmd) " --std") (ui_tool.push_arg (&mut cmd) (& stdd))))
+  (if (> (str.len (& uid)) 0) (do (str.push (&mut cmd) " --ui") (ui_tool.push_arg (&mut cmd) (& uid))))
+  (str.push (&mut cmd) " -- ")
+  (str.push (&mut cmd) tail)
+  cmd)
+
+(pub (fn cut ((text (& str)) (max i64)) str
+  (if (<= max 0) (ret (str.clone text)))
+  (let lines (str.lines text))
+  (let n (vec.len (& lines)))
+  (if (<= n max) (ret (str.clone text)))
+  (let mut o (str.new))
+  (for i 0 max
+    (if (> i 0) (str.push_byte (&mut o) 10u8))
+    (str.push (&mut o) (vec.get (& lines) i)))
+  (str.push_byte (&mut o) 10u8)
+  (str.push (&mut o) (& (fmt.pipe2 "more" (& (str.from_int (- n max))))))
+  o))
+
+(fn show ((text (& str)) (max i64)) unit (io.puts (& (cut text max))))
+
+(pub (fn dump ((file (& str)) (max i64) (w (& str)) (h (& str)) (scale (& str))) unit
+  (let mut tail (str.from "--dump --frames 1"))
+  (push_opt (&mut tail) "w" w)
+  (push_opt (&mut tail) "h" h)
+  (push_opt (&mut tail) "scale" scale)
+  (let got (os.capture (& (run_cmd file (& tail)))))
+  (if (!= (. got code) 0) (die "ui.dump|code"))
+  (show (& (. got out)) max)))
+
+(pub (fn shot ((file (& str))
+   (ppm (& str))
+   (max i64)
+   (w (& str))
+   (h (& str))
+   (scale (& str))
+   (frames (& str))) unit
+  (let _ max)
+  (let mut tail (str.from "--shot"))
+  (ui_tool.push_arg (&mut tail) ppm)
+  (push_opt (&mut tail) "w" w)
+  (push_opt (&mut tail) "h" h)
+  (push_opt (&mut tail) "scale" scale)
+  (push_opt (&mut tail) "frames" frames)
+  (let got (os.capture (& (run_cmd file (& tail)))))
+  (if (!= (. got code) 0) (die "ui.shot|code"))
+  (io.puts (& (fmt.pipe2 "shot" (& (fmt.kv "file" ppm)))))))
+
+(test shot_cut
+  (let text (str.from "a\nb\nc"))
+  (assert_eq (& (cut (& text) 0)) "a\nb\nc")
+  (assert_eq (& (cut (& text) 2)) "a\nb\nmore|1"))

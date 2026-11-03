@@ -1,0 +1,112 @@
+;; Fixed-extent list. Only the rows in the host window are mounted.
+(use std.math)
+(use std.str)
+(use ui.anim)
+(use ui.ctx)
+(use ui.key)
+(use ui.scroll)
+(use ui.state)
+(use ui.w_box)
+(use ui.w_flex)
+(use ui.w_scroll)
+(use ui.widget)
+
+(struct model
+  (off f32)
+  (vel f32)
+  (drag bool)
+  (extent f32)
+  (count i64)
+  (body (clos (i64) (box (dyn widget.widget)))))
+
+(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
+
+(fn f_of ((n i64)) f32 (/ (as f32 n) 1000.0f32))
+
+(fn pack ((off f32) (vel f32) (drag bool)) str
+  (let mut s (str.from "L|"))
+  (str.push (&mut s) (& (str.from_int (milli off))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (milli vel))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (if drag 1 0))))
+  s)
+
+(fn part ((s (& str)) (i i64)) i64
+  (let ps (str.split s 124u8))
+  (if (>= i (vec.len (& ps))) (ret 0))
+  (match (str.to_int (vec.get (& ps) i)) ((opt.some n) n) ((opt.none) 0)))
+
+(fn restore ((self (&mut model)) (text (& str))) unit
+  (if (not (str.starts text "L|")) (ret))
+  (let rest (str.slice text 2 (str.len text)))
+  (set (. self off) (f_of (part (& rest) 0)))
+  (set (. self vel) (f_of (part (& rest) 1)))
+  (set (. self drag) (== (part (& rest) 2) 1)))
+
+(pub (fn window ((off f32) (extent f32) (h f32) (count i64) (lo (&mut i64)) (hi (&mut i64))) unit
+  (set (@ lo) 0)
+  (set (@ hi) 0)
+  (if (or (<= extent 0.0f32) (<= count 0)) (ret))
+  (let mut a (as i64 (math.floor32 (/ off extent))))
+  (if (< a 0) (set a 0))
+  (if (> a count) (set a count))
+  (let mut n (as i64 (math.ceil32 (/ h extent))))
+  (if (< n 1) (set n 1))
+  (let mut b (+ a (+ n 1)))
+  (if (> b count) (set b count))
+  (set (@ lo) a)
+  (set (@ hi) b))
+)
+(fn rows ((self (& model)) (c (& ctx.ctx))) (box (dyn widget.widget))
+  (let mut lo 0)
+  (let mut hi 0)
+  (window (. self off) (. self extent) (. c h) (. self count) (&mut lo) (&mut hi))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (let mut i lo)
+  (while (< i hi)
+    (let row (w_box.sized (neg 1.0f32) (. self extent) (call (. self body) i)))
+    (vec.push (&mut ks) (widget.with_key row (key.key.value (as u32 i))))
+    (set i (+ i 1)))
+  (w_flex.column ks))
+
+(fn rem ((off f32) (extent f32)) f32
+  (if (<= extent 0.0f32) (ret 0.0f32))
+  (let a (as i64 (math.floor32 (/ off extent))))
+  (- off (* (as f32 a) extent)))
+
+(fn span_of ((self (& model))) f32 (* (as f32 (. self count)) (. self extent)))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (w_scroll.leaf (rem (. self off) (. self extent)) (rows self c)))
+  (fn msg ((_s (&mut model)) (_m i64)) bool false)
+  (fn input ((self (&mut model)) (e (& state.ev)) (o (&mut state.out))) bool
+    (if (== (. e kind) state.in_flush) (do (set (. o handoff) true) (set (. o text) (pack (. self off) (. self vel) (. self drag))) (ret false)))
+    (if (== (. e kind) state.in_paste) (do (restore self (& (. e text))) (ret true)))
+    (if (!= (. e kind) state.in_ptr) (ret false))
+    (scroll.touch (&mut (. self off)) (&mut (. self vel)) (&mut (. self drag)) (. e code) (. e dy) (. e w) (span_of self)))
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((self (& model))) bool (scroll.live (. self vel) (. self drag)))
+  (fn tick ((self (&mut model)) (dt i64) (g (& anim.goal))) bool
+    (scroll.coast (&mut (. self off)) (&mut (. self vel)) (. self drag) (. g w) (span_of self) dt))
+  (fn save ((self (& model))) str (pack (. self off) (. self vel) (. self drag)))
+  (fn load ((self (&mut model)) (text (& str))) unit (restore self text))
+  (fn layout ((_s (& model))) i64 (neg 1)))
+
+(pub (fn list ((extent f32) (count i64) (body (clos (i64) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (state.stateful widget.ty_list (key.key.none) (model 0.0f32 0.0f32 false extent count body)))
+)
+(test w_list_window
+  (let mut lo 0)
+  (let mut hi 0)
+  (window 0.0f32 20.0f32 48.0f32 100 (&mut lo) (&mut hi))
+  (assert_eq lo 0)
+  (assert_eq hi 4)
+  (window 50.0f32 20.0f32 48.0f32 100 (&mut lo) (&mut hi))
+  (assert_eq lo 2)
+  (assert_eq hi 6)
+  (let w (list 20.0f32 3 (clos ((i i64)) (box (dyn widget.widget)) (widget.with_key (widget.empty) (key.key.value (as u32 i))))))
+  (assert_eq (widget.widget.name (& w)) "list"))

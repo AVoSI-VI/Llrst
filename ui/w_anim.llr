@@ -1,0 +1,278 @@
+;; Builder and implicit leaves. A leaf keeps its child; the ticker rewrites the render desc.
+(use std.str)
+(use ui.anim)
+(use ui.blend)
+(use ui.ctx)
+(use ui.curve)
+(use ui.element)
+(use ui.key)
+(use ui.render)
+(use ui.render_box)
+(use ui.ptrs)
+(use ui.state)
+(use ui.ticker)
+(use ui.tween)
+(use ui.widget)
+
+(struct drive (c anim.ctrl) (cur i64) (body (clos (f32) (box (dyn widget.widget)))))
+
+(fn drive_at ((text (& str)) (i i64)) i64
+  (let ps (str.split text 124u8))
+  (if (>= i (vec.len (& ps))) (ret 0))
+  (match (str.to_int (vec.get (& ps) i)) ((opt.some n) n) ((opt.none) 0)))
+
+(fn push_n ((s (&mut str)) (n i64) (bar bool)) unit
+  (if bar (str.push_byte s 124u8))
+  (str.push s (& (str.from_int n))))
+
+(fn drive_text ((self (& drive))) str
+  (let c (& (. self c)))
+  (let mut s (str.new))
+  (push_n (&mut s) (. self cur) false)
+  (push_n (&mut s) (. c dur) true)
+  (push_n (&mut s) (. c pos) true)
+  (push_n (&mut s) (. c dir) true)
+  (push_n (&mut s) (. c rep) true)
+  (push_n (&mut s) (. c status) true)
+  s)
+
+(fn drive_read ((self (&mut drive)) (text (& str))) unit
+  (set (. self cur) (drive_at text 0))
+  (set (. (. self c) dur) (drive_at text 1))
+  (set (. (. self c) pos) (drive_at text 2))
+  (set (. (. self c) dir) (drive_at text 3))
+  (set (. (. self c) rep) (drive_at text 4))
+  (set (. (. self c) status) (drive_at text 5)))
+
+(impl state.state
+  drive
+  (fn build ((self (& drive)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (let t (curve.apply (. self cur) (anim.ctrl.value (& (. self c)))))
+    (call (. self body) t))
+  (fn msg ((self (&mut drive)) (m i64)) bool
+    (if (== m 1) (do (anim.ctrl.forward (&mut (. self c))) (ret true)))
+    (if (== m 2) (do (anim.ctrl.reverse (&mut (. self c))) (ret true)))
+    (if (== m 3) (do (anim.ctrl.repeat (&mut (. self c)) false) (ret true)))
+    (if (== m 4) (do (anim.ctrl.stop (&mut (. self c))) (ret true)))
+    false)
+  (fn input ((_s (&mut drive)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& drive))) i64 (neg 1))
+  (fn dispose ((_s (&mut drive))) unit ())
+  (fn ticking ((self (& drive))) bool (anim.ctrl.running (& (. self c))))
+  (fn tick ((self (&mut drive)) (dt i64) (_g (& anim.goal))) bool
+    (let was (anim.ctrl.value (& (. self c))))
+    (let live (anim.ctrl.advance (&mut (. self c)) dt))
+    (or live (!= (anim.ctrl.value (& (. self c))) was)))
+  (fn save ((self (& drive))) str (drive_text self))
+  (fn load ((self (&mut drive)) (text (& str))) unit (drive_read self text))
+  (fn layout ((_s (& drive))) i64 (neg 1)))
+
+(pub (fn builder ((dur i64) (cur i64) (body (clos (f32) (box (dyn widget.widget))))) (box (dyn widget.widget))
+  (let mut c (anim.ctrl.make dur))
+  (anim.ctrl.forward (&mut c))
+  (state.stateful widget.ty_builder (key.key.none) (drive c cur body))))
+
+(struct iw (ty i64) (k key.key) (kids (vec (box (dyn widget.widget)))) (g anim.goal))
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(fn none_st () (opt (box (dyn state.state))) (opt.none < (box (dyn state.state)) >))
+
+(fn no_kids () (vec (box (dyn widget.widget))) (vec.new < (box (dyn widget.widget)) >))
+
+(fn col ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a)))
+
+(fn store ((out (&mut anim.goal)) (g (& anim.goal))) unit
+  (set (. out on) true)
+  (set (. out mask) (. g mask))
+  (set (. out color) (col (& (. g color))))
+  (set (. out l) (. g l))
+  (set (. out t) (. g t))
+  (set (. out r) (. g r))
+  (set (. out b) (. g b))
+  (set (. out w) (. g w))
+  (set (. out h) (. g h))
+  (set (. out opacity) (. g opacity))
+  (set (. out dur) (. g dur))
+  (set (. out curve) (. g curve)))
+
+(fn base ((mask i64) (dur i64) (cur i64)) anim.goal
+  (let mut g (anim.goal_new))
+  (set (. g on) true)
+  (set (. g mask) mask)
+  (set (. g dur) dur)
+  (set (. g curve) cur)
+  g)
+
+(fn put_pad ((g (&mut anim.goal)) (l f32) (t f32) (r f32) (b f32)) unit
+  (set (. g l) l)
+  (set (. g t) t)
+  (set (. g r) r)
+  (set (. g b) b))
+
+(impl widget.widget
+  iw
+  (fn ty ((self (& iw))) i64 (. self ty))
+  (fn name ((self (& iw))) (& str) (widget.name_of (. self ty)))
+  (fn key ((self (& iw))) key.key (key.key (. (. self k) on) (. (. self k) id)))
+  (fn role ((_s (& iw))) i64 widget.role_leaf)
+  (fn set_key ((self (&mut iw)) (k key.key)) unit (set (. self k) k))
+  (fn build ((_s (&mut iw)) (_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
+  (fn take_state ((_s (&mut iw))) (opt (box (dyn state.state))) (none_st))
+  (fn take_children ((self (&mut iw))) (vec (box (dyn widget.widget)))
+    (mem.replace (&mut (. self kids)) (no_kids)))
+  (fn fill ((self (&mut iw)) (out (&mut widget.rdesc))) unit (ticker.write_desc out (& (. self g))))
+  (fn pdata ((self (& iw))) widget.pdata
+    (let mut p (widget.no_data))
+    (if (== (. self ty) widget.ty_aopac) (set (. p repaint) true))
+    p)
+  (fn signal ((_s (& iw))) i64 0)
+  (fn goal ((self (& iw)) (out (&mut anim.goal))) bool (do (store out (& (. self g))) true))
+  (fn sem ((_s (& iw))) widget.ann (widget.no_ann)))
+
+(fn leaf ((ty i64) (g anim.goal) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (iw ty (key.key.none) (one child) g))
+
+(pub (fn padding ((l f32) (t f32) (r f32) (b f32) (dur i64) (cur i64) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut g (base anim.bit_pad dur cur))
+  (put_pad (&mut g) l t r b)
+  (leaf widget.ty_apad g child)))
+
+(pub (fn opacity ((a f32) (dur i64) (cur i64) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut g (base anim.bit_opacity dur cur))
+  (set (. g opacity) a)
+  (leaf widget.ty_aopac g child)))
+
+(pub (fn container ((c blend.color)
+   (l f32)
+   (t f32)
+   (r f32)
+   (b f32)
+   (dur i64)
+   (cur i64)
+   (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut g (base (bor anim.bit_color anim.bit_pad) dur cur))
+  (set (. g color) (col (& c)))
+  (put_pad (&mut g) l t r b)
+  (leaf widget.ty_acont g child)))
+
+(fn wide ((t f32)) (box (dyn widget.widget))
+  (let w (tween.num 10.0f32 40.0f32 t))
+  (let mut d (widget.blank))
+  (set (. d min_w) w)
+  (set (. d max_w) w)
+  (set (. d min_h) 8.0f32)
+  (set (. d max_h) 8.0f32)
+  (set (. d tight) true)
+  (widget.make widget.ty_sized
+    (key.key.none)
+    (vec.new < (box (dyn widget.widget)) >)
+    d
+    false
+    (widget.nop)))
+
+(fn root_ctx ((id u32)) ctx.ctx (ctx.ctx.root 80.0f32 48.0f32 1.0f32 id))
+
+(fn lay ((rt (&mut render.rtree)) (g (&mut render_box.fonts))) unit
+  (match (render.visual_root rt)
+    ((opt.some id) (drop (render_box.layout_tree rt g id 80.0f32 48.0f32)))
+    ((opt.none) ())))
+
+(fn span ((rt (& render.rtree))) i64
+  (let mut w 0.0f32)
+  (for i 0 (vec.len (& (. rt nodes)))
+    (let n (vec.get (& (. rt nodes)) i))
+    (if (and (. n live) (> (. n w) w)) (set w (. n w))))
+  (as i64 w))
+
+(test w_anim_names
+  (let b (builder 300 curve.linear (clos ((t f32)) (box (dyn widget.widget)) (wide t))))
+  (assert_eq (widget.widget.name (& b)) "animated_builder")
+  (let p (padding 1.0f32 2.0f32 3.0f32 4.0f32 100 curve.linear (widget.empty)))
+  (assert_eq (widget.widget.name (& p)) "animated_padding")
+  (let o (opacity 0.5f32 100 curve.ease_in (widget.empty)))
+  (assert (. (widget.widget.pdata (& o)) repaint))
+  (assert_eq (widget.widget.name (& o)) "animated_opacity")
+  (let c
+    (container (blend.color.rgba 10u8 20u8 30u8 255u8)
+      1.0f32
+      1.0f32
+      1.0f32
+      1.0f32
+      80
+      curve.ease_out
+      (widget.empty)))
+  (assert_eq (widget.widget.name (& c)) "animated_container")
+  (let mut q (padding 0.0f32 0.0f32 0.0f32 0.0f32 10 curve.linear (widget.empty)))
+  (widget.widget.set_key (&mut q) (key.key.value 2u32))
+  (let ctx (root_ctx 0u32))
+  (drop (widget.widget.build (&mut q) (& ctx)))
+  (drop (widget.widget.take_state (&mut q))))
+
+(test w_anim_msg
+  (let mut c (anim.ctrl.make 100))
+  (anim.ctrl.forward (&mut c))
+  (let mut s (drive c curve.linear (clos ((t f32)) (box (dyn widget.widget)) (wide t))))
+  (assert (state.state.ticking (& s)))
+  (drop (state.state.msg (&mut s) 4))
+  (assert (not (state.state.ticking (& s))))
+  (drop (state.state.msg (&mut s) 1))
+  (let g (anim.goal_new))
+  (assert (state.state.tick (&mut s) 40 (& g)))
+  (drop (state.state.msg (&mut s) 2))
+  (assert_eq (anim.ctrl.status (& (. s c))) anim.reverse)
+  (drop (state.state.msg (&mut s) 3))
+  (assert_eq (anim.ctrl.status (& (. s c))) anim.forward)
+  (assert (state.state.ticking (& s)))
+  (let ctx (root_ctx 0u32))
+  (let ks (vec.new < (box (dyn widget.widget)) >))
+  (drop (state.state.build (& s) (& ctx) ks))
+  (state.state.dispose (&mut s)))
+
+(fn pad_child () (box (dyn widget.widget)) (wide 0.0f32))
+
+(test w_anim_frames
+  (let mut es (element.new))
+  (let mut rt (render.new))
+  (let mut g (render_box.fonts_new))
+  (element.set_view (&mut es) 80.0f32 48.0f32 1.0f32)
+  (let id
+    (element.mount (&mut es)
+      (&mut rt)
+      (builder 300 curve.linear (clos ((t f32)) (box (dyn widget.widget)) (wide t)))))
+  (lay (&mut rt) (&mut g))
+  (assert_eq (span (& rt)) 10)
+  (assert (ticker.pump_states (&mut es) (&mut rt) 100))
+  (let ctx (root_ctx id))
+  (element.rebuild (&mut es) (&mut rt) id (& ctx))
+  (lay (&mut rt) (&mut g))
+  (assert_eq (span (& rt)) 20))
+
+(test w_anim_pad
+  (let mut es (element.new))
+  (let mut rt (render.new))
+  (let mut g (render_box.fonts_new))
+  (let mut p (ptrs.ptrs_new))
+  (element.set_view (&mut es) 80.0f32 48.0f32 1.0f32)
+  (let pid
+    (element.mount (&mut es)
+      (&mut rt)
+      (padding 0.0f32 0.0f32 0.0f32 0.0f32 100 curve.linear (pad_child))))
+  (drop (ticker.pump_implicit (& es) (&mut rt) (&mut p) 0))
+  (lay (&mut rt) (&mut g))
+  (assert_eq (span (& rt)) 10)
+  (let c2 (root_ctx pid))
+  (element.update (&mut es)
+    (&mut rt)
+    pid
+    (padding 12.0f32 12.0f32 12.0f32 12.0f32 100 curve.linear (pad_child))
+    (& c2))
+  (assert (ticker.pump_implicit (& es) (&mut rt) (&mut p) 0))
+  (lay (&mut rt) (&mut g))
+  (assert_eq (span (& rt)) 10)
+  (assert (not (ticker.pump_implicit (& es) (&mut rt) (&mut p) 100)))
+  (lay (&mut rt) (&mut g))
+  (assert_eq (span (& rt)) 34))

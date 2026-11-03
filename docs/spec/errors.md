@@ -69,7 +69,7 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 |--------|-----------|
 | `lex.*` | `lex.unterminated_string` `lex.bad_escape` `lex.bad_suffix` (`got=` on stage 0) |
 | `parse.*` | `parse.unbalanced` (`got=` or `want=`) `parse.expect` (`want=` `got=`) `parse.arity` (`form= want= got=`) `parse.bad_head` (`got=` when a known head is rejected; omitted when the head is not an atom) |
-| `name.*` | `name.unknown` (`name=`) `name.dup` `name.not_module` (`name=`) `name.not_type` (`name=`) `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) `name.private_variant` (`variant= ty= module= fix=(pub (name type*))`) |
+| `name.*` | `name.unknown` (`name=`) `name.dup` (`name=`; `module=` when a `pub` std type repeats a prelude name) `name.not_module` (`name=`) `name.not_type` (`name=`) `name.private` (`name= module= fix=`) `name.private_field` (`field= ty= module= fix=`) `name.private_variant` (`variant= ty= module= fix=(pub (name type*))`) |
 | `type.*` | `type.mismatch` (`want=` `got=`) `type.arity` (`want=` `got=`) `type.not_callable` (`got=`) `type.no_field` (`ty=` `field=`) `type.no_variant` (`ty=` `variant=`) `type.infer` (`name=` `got=` or `fix=`) `type.not_numeric` (`got=` or `op=` `got=`) `type.not_bool` (`got=`) `type.generic_arity` (`name=` `want=` `got=`) `type.generic_fn_value` (`name=`) `type.unit_bind` (`name=`) `type.not_ref` (`got=`) `type.not_place` `type.bad_cast` (`from=` `to=` on stage 0) `type.try` (`got=` `ret=` on stage 0) `type.assert_eq` (`got=` on stage 0) `type.bad` |
 | `lit.*` | `lit.overflow` (`ty=` `got=` on stage 0) |
 | `match.*` | `match.missing` (`missing=` or `fix=`) `match.bad_lit` `match.not_enum` (`got=` on stage 0) |
@@ -77,9 +77,9 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `flow.*` | `flow.brk_outside` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |
 | `clos.nested` | a closure body contains a closure |
-| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self` or `why=ref`) `trait.method` (`name=`) |
+| `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self`, `why=ref`, or `why=dyn`) `trait.method` (`name=`) |
 | `link.*` | `link.failed` (`cmd=` `got=`). The two compilers do not print the same `cmd=` text, so there is no shared `tests/err` golden |
-| `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `use=` when a `proj.` file is missing) `io.write` (`path=` `got=`) |
+| `io.*` | `io.read` (`path=`; `fix=set LLRST_STD` when `std` is missing; `fix=set LLRST_UI` when `ui` is missing; `use=` when a `proj.` or `ui.` file is missing) `io.write` (`path=` `got=`) |
 | `cli.*` | `cli.unknown_flag` (`flag=`) |
 | `target.*` | `target.unsupported` (`got=`) |
 

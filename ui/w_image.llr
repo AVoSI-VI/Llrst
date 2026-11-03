@@ -1,0 +1,19 @@
+;; An image sized to its bitmap, in logical pixels.
+(use ui.bitmap)
+(use ui.key)
+(use ui.widget)
+
+(pub (fn image ((bm bitmap.bitmap)) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d has_image) true)
+  (set (. d image) bm)
+  (widget.make widget.ty_image
+    (key.key.none)
+    (vec.new < (box (dyn widget.widget)) >)
+    d
+    false
+    (widget.nop))))
+
+(test w_image_ty
+  (let w (image (bitmap.bitmap.new 2 2)))
+  (assert_eq (widget.widget.ty (& w)) widget.ty_image))

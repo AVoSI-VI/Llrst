@@ -1,0 +1,11 @@
+down|8|8
+text|Hello
+frame
+move|0|8
+key|down|99|2
+frame
+key|down|120|2
+frame
+key|down|118|2
+frame
+key|down|13|0

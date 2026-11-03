@@ -1,0 +1,21 @@
+;; Light and dark palettes. Descendants read them through ctx.theme.
+(use ui.blend)
+(use ui.ctx)
+
+(pub (fn ink ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a))))
+
+(pub (fn light () ctx.palette (ctx.palette_light)))
+
+(pub (fn dark () ctx.palette (ctx.palette_dark)))
+
+(pub (fn copy ((t (& ctx.palette))) ctx.palette (ctx.copy_pal t)))
+
+(test theme_pair
+  (let day (light))
+  (let night (dark))
+  (assert_eq (. (. day bg) r) 255u8)
+  (assert_eq (. (. night fg) r) 255u8)
+  (assert_eq (as i64 (. day space)) 8)
+  (assert_eq (as i64 (. day title)) 20)
+  (let c (copy (& night)))
+  (assert_eq (. (. c bg) r) 18u8))

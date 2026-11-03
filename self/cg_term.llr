@@ -1,4 +1,5 @@
 ;; Statements, calls, and one MIR body.
+(use proj.cg_box)
 (use proj.cg_clos)
 (use proj.cg_drop)
 (use proj.cg_frame)
@@ -37,6 +38,8 @@
 (fn assign ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (s (& mir.st))) unit
   (if (== (. (. s rv) kind) 7u8) (ret (store_rec g p fx b s false)))
   (if (== (. (. s rv) kind) 8u8) (ret (store_rec g p fx b s true)))
+  (if (== (. (. s rv) kind) 19u8) (ret (do (cg_box.pack g p fx (& (. b locs)) (& (. s rv)) s) (wrote fx s))))
+  (if (== (. (. s rv) kind) 20u8) (ret (do (cg_box.borrow g p fx (& (. b locs)) s) (wrote fx s))))
   (if (== (. (. s rv) kind) 18u8)
     (ret (do
        (cg_clos.fill g p fx (& (. b locs)) b (& (. s rv)) (. s local) (& (. s pk)) (& (. s pi)))
@@ -279,7 +282,7 @@
   (cg_frame.st fx 8 cg_isa.fp data cg_isa.acc)
   (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp fat)
   (cg_frame.ld fx 8 cg_isa.acc cg_isa.acc 8)
-  (cg_frame.ld fx 8 cg_isa.acc cg_isa.acc (* (. t slot) 8))
+  (cg_frame.ld fx 8 cg_isa.acc cg_isa.acc (* (+ (. t slot) 1) 8))
   (let fp (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 cg_isa.fp fp cg_isa.acc)
   (let d (vec.get (& (. p defs)) (. t fid)))

@@ -1,5 +1,5 @@
 ;; Semantic types. kind: 0 int, 1 f32, 2 f64, 3 bool, 4 unit, 5 never, 6 ref,
-;; 7 ptr, 8 adt, 9 fn, 10 clos, 11 dyn, 12 self, 13 param, 14 infer.
+;; 7 ptr, 8 adt, 9 fn, 10 clos, 11 dyn, 12 self, 13 param, 14 infer, 15 box dyn.
 ;; Int id is 0 i8, 1 i16, 2 i32, 3 i64, 4 u8, 5 u16, 6 u32, 7 u64.
 ;; Ref flag is mut and text is the lifetime without the quote.
 (use std.str)
@@ -42,6 +42,8 @@
 (pub (fn fun ((clos bool) (args (vec sty))) sty (mk (if clos 10u8 9u8) 0 false (str.new) args)))
 
 (pub (fn dyn_ty ((m bool) (tr i64)) sty (mk 11u8 tr m (str.new) (vec.new <sty>))))
+
+(pub (fn box_ty ((tr i64)) sty (mk 15u8 tr false (str.new) (vec.new <sty>))))
 
 (pub (fn self_ty () sty (mk 12u8 0 false (str.new) (vec.new <sty>))))
 
@@ -147,6 +149,7 @@
   (if (== (. t kind) 9u8) (ret (show_fun "fn" t)))
   (if (== (. t kind) 10u8) (ret (show_fun "clos" t)))
   (if (== (. t kind) 11u8) (ret (show_dyn t)))
+  (if (== (. t kind) 15u8) (ret (show_box t)))
   (if (== (. t kind) 12u8) (ret (str.from "Self")))
   (if (== (. t kind) 13u8) (ret (str.clone (& (. t text)))))
   (if (. t flag) (str.from "{int}") (str.from "?"))))
@@ -155,6 +158,12 @@
   (let mut s (str.from "(ptr "))
   (str.push (&mut s) (& (show (vec.get (& (. t args)) 0))))
   (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn show_box ((t (& sty))) str
+  (let mut s (str.from "(box (dyn adt"))
+  (str.push (&mut s) (& (str.from_int (. t id))))
+  (str.push (&mut s) "))")
   s)
 
 (fn show_dyn ((t (& sty))) str

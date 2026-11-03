@@ -132,6 +132,13 @@
     (do (str.push_byte (&mut s) 95u8) (str.push (&mut s) (& (hex8 (hash_tys args))))))
   s))
 
+(pub (fn sym_name ((p (& prog.prog)) (id i64) (args (& (vec ty.sty)))) str
+  (let mut s (mangle (& (prog.fn_path p id)) args))
+  (let d (vec.get (& (. p defs)) id))
+  (if (>= (. d owner) 0)
+    (do (str.push_byte (&mut s) 95u8) (str.push (&mut s) (& (str.from_int id)))))
+  s))
+
 (fn args_eq ((a (& (vec ty.sty))) (b (& (vec ty.sty)))) bool
   (if (!= (vec.len a) (vec.len b)) (ret false))
   (for i 0 (vec.len a) (if (not (ty.eq (vec.get a i) (vec.get b i))) (ret false)))
@@ -151,7 +158,7 @@
   (if (>= hit 0) (ret (@ (vec.get (& (. g fsym)) hit))))
   (let d (vec.get (& (. p defs)) id))
   (if (. d extern) (ret (extern_sym g p id)))
-  (let sym (decl_fn g (& (mangle (& (prog.fn_path p id)) (& args)))))
+  (let sym (decl_fn g (& (sym_name p id (& args)))))
   (vec.push (&mut (. g fid)) id)
   (vec.push (&mut (. g fargs)) args)
   (vec.push (&mut (. g fsym)) sym)

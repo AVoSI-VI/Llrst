@@ -41,7 +41,7 @@
     (if (str.eq (vec.get names i) name) (ret (opt.some (str.from (vec.get codes i))))))
   (opt.none))
 
-(fn var_default ((d (& gql_parse.doc)) (name (& str))) (opt str)
+(fn var_default ((d (& gql_parse.gdoc)) (name (& str))) (opt str)
   (for i 0 (vec.len (& (. d vars)))
     (let n (@ (vec.get (& (. d vars)) i)))
     (if (str.eq (gql_parse.text d n) name)
@@ -49,7 +49,7 @@
         (ret (opt.some (str.from (gql_parse.alt d (gql_parse.child d n 0))))))))
   (opt.none))
 
-(fn resolve ((d (& gql_parse.doc)) (code (& str)) (names (& (vec str))) (codes (& (vec str)))) (res str str)
+(fn resolve ((d (& gql_parse.gdoc)) (code (& str)) (names (& (vec str))) (codes (& (vec str)))) (res str str)
   (if (not (str.starts code "V")) (ret (res.ok (str.from code))))
   (let name (str.slice code 1 (str.len code)))
   (match (given names codes (& name))
@@ -65,19 +65,19 @@
     ((opt.some n) (res.ok n))
     ((opt.none) (res.err (str.from "gql.parse")))))
 
-(fn find_arg ((d (& gql_parse.doc)) (field i64) (name (& str))) i64
+(fn find_arg ((d (& gql_parse.gdoc)) (field i64) (name (& str))) i64
   (for i 0 (gql_parse.count d field)
     (let c (gql_parse.child d field i))
     (if (and (== (gql_parse.kind d c) 2u8) (str.eq (gql_parse.text d c) name))
       (if (> (gql_parse.count d c) 0) (ret (gql_parse.child d c 0)))))
   -1)
 
-(fn int_arg ((d (& gql_parse.doc)) (field i64) (name (& str)) (names (& (vec str))) (codes (& (vec str)))) (res i64 str)
+(fn int_arg ((d (& gql_parse.gdoc)) (field i64) (name (& str)) (names (& (vec str))) (codes (& (vec str)))) (res i64 str)
   (let v (find_arg d field name))
   (if (< v 0) (ret (res.ok 0)))
   (as_int (& (try (resolve d (gql_parse.alt d v) names codes)))))
 
-(fn sel_of ((d (& gql_parse.doc)) (field i64)) i64
+(fn sel_of ((d (& gql_parse.gdoc)) (field i64)) i64
   (for i 0 (gql_parse.count d field)
     (let c (gql_parse.child d field i))
     (if (and (== (gql_parse.kind d c) 1u8) (== (str.len (gql_parse.text d c)) 0)) (ret c)))
@@ -93,7 +93,7 @@
   (if (str.eq field "add") (ret (res.ok (str.from_int (+ a b)))))
   (res.err (field_err field)))
 
-(fn frag_set ((d (& gql_parse.doc)) (name (& str))) (res i64 str)
+(fn frag_set ((d (& gql_parse.gdoc)) (name (& str))) (res i64 str)
   (for i 0 (vec.len (& (. d frags)))
     (let n (@ (vec.get (& (. d frags)) i)))
     (if (str.eq (gql_parse.text d n) name)
@@ -103,7 +103,7 @@
 (fn type_ok ((cond (& str)) (parent (& str))) bool (or (== (str.len cond) 0) (str.eq cond parent)))
 
 (fn eval_set ((sc (& gql_schema.schema))
-   (d (& gql_parse.doc))
+   (d (& gql_parse.gdoc))
    (setn i64)
    (parent (& str))
    (a i64)
@@ -117,7 +117,7 @@
   (res.ok ()))
 
 (fn eval_one ((sc (& gql_schema.schema))
-   (d (& gql_parse.doc))
+   (d (& gql_parse.gdoc))
    (n i64)
    (parent (& str))
    (a i64)
@@ -139,7 +139,7 @@
   (res.ok ()))
 
 (fn eval_spread ((sc (& gql_schema.schema))
-   (d (& gql_parse.doc))
+   (d (& gql_parse.gdoc))
    (n i64)
    (parent (& str))
    (a i64)
@@ -158,14 +158,14 @@
   (if (not (type_ok (& host) parent)) (ret (res.ok ())))
   (eval_set sc d setn parent a b names codes keys vals))
 
-(fn frag_ty ((d (& gql_parse.doc)) (name (& str))) str
+(fn frag_ty ((d (& gql_parse.gdoc)) (name (& str))) str
   (for i 0 (vec.len (& (. d frags)))
     (let n (@ (vec.get (& (. d frags)) i)))
     (if (str.eq (gql_parse.text d n) name) (ret (str.from (gql_parse.alt d n)))))
   (str.new))
 
 (fn eval_field ((sc (& gql_schema.schema))
-   (d (& gql_parse.doc))
+   (d (& gql_parse.gdoc))
    (n i64)
    (parent (& str))
    (a i64)
@@ -189,7 +189,7 @@
   (leaf parent (gql_parse.text d n) ia ib))
 
 (fn eval_obj ((sc (& gql_schema.schema))
-   (d (& gql_parse.doc))
+   (d (& gql_parse.gdoc))
    (sel i64)
    (ret (& str))
    (n i64)
@@ -205,7 +205,7 @@
   (try (eval_set sc d sel ret ca cb names codes (&mut keys) (&mut vals)))
   (res.ok (json.obj (& keys) (& vals))))
 
-(fn load_vars ((d (& gql_parse.doc)) (src (& str)) (names (&mut (vec str))) (codes (&mut (vec str)))) (res unit str)
+(fn load_vars ((d (& gql_parse.gdoc)) (src (& str)) (names (&mut (vec str))) (codes (&mut (vec str)))) (res unit str)
   (if (== (str.len src) 0) (ret (res.ok ())))
   (let doc (try (gql_parse.input src)))
   (let root (. doc root))

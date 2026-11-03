@@ -1,0 +1,457 @@
+;; Semantics tree. Rects come from render objects after layout. An explicit node hides or parents its subtree.
+(use ui.anim)
+(use ui.blend)
+(use ui.ctx)
+(use ui.element)
+(use ui.geom)
+(use ui.key)
+(use ui.render)
+(use ui.state)
+(use ui.w_gesture)
+(use ui.w_text)
+(use ui.widget)
+
+(pub (const role_button i64 1))
+
+(pub (const role_check i64 2))
+
+(pub (const role_switch i64 3))
+
+(pub (const role_slider i64 4))
+
+(pub (const role_field i64 5))
+
+(pub (const role_header i64 6))
+
+(pub (const role_dialog i64 7))
+
+(pub (const role_item i64 8))
+
+(pub (const role_group i64 9))
+
+(pub (const role_sep i64 10))
+
+(pub (const role_progress i64 11))
+
+(pub (const role_status i64 12))
+
+(pub (const role_text i64 13))
+
+(pub (const role_image i64 14))
+
+(pub (const flag_focus i64 1))
+
+(pub (const flag_checked i64 2))
+
+(pub (const flag_disabled i64 4))
+
+(pub (const flag_selected i64 8))
+
+(pub (const act_tap i64 1))
+
+(pub (const act_focus i64 2))
+
+(pub (const act_value i64 4))
+
+(pub (const act_dismiss i64 8))
+
+(pub (const act_scroll i64 16))
+
+(pub (const no_parent i64 -1))
+
+(pub (struct node
+  (pub (id u32))
+  (pub (parent i64))
+  (pub (role i64))
+  (pub (label str))
+  (pub (value str))
+  (pub (flags i64))
+  (pub (actions i64))
+  (pub (x f32))
+  (pub (y f32))
+  (pub (w f32))
+  (pub (h f32))
+  (pub (elem u32))
+  (pub (hit u32))
+  (pub (has_hit bool))))
+
+(pub (struct tree (pub (nodes (vec node)))))
+
+(pub (fn empty () tree (tree (vec.new <node>))))
+
+(struct semw
+  (role i64)
+  (label str)
+  (value str)
+  (flags i64)
+  (actions i64)
+  (hide bool)
+  (k key.key)
+  (kids (vec (box (dyn widget.widget)))))
+
+(fn no_kids () (vec (box (dyn widget.widget))) (vec.new < (box (dyn widget.widget)) >))
+
+(fn one_kid ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (no_kids))
+  (vec.push (&mut ks) w)
+  ks)
+
+(fn ann_of ((self (& semw))) widget.ann
+  (widget.ann true
+    (. self role)
+    (str.clone (& (. self label)))
+    (str.clone (& (. self value)))
+    (. self flags)
+    (. self actions)
+    (. self hide)))
+
+(impl widget.widget
+  semw
+  (fn ty ((_s (& semw))) i64 widget.ty_sem)
+  (fn name ((_s (& semw))) (& str) "semantics")
+  (fn key ((self (& semw))) key.key (key.key (. (. self k) on) (. (. self k) id)))
+  (fn role ((_s (& semw))) i64 widget.role_less)
+  (fn set_key ((self (&mut semw)) (k key.key)) unit (set (. self k) k))
+  (fn build ((self (&mut semw)) (_c (& ctx.ctx))) (box (dyn widget.widget))
+    (let mut ks (mem.replace (&mut (. self kids)) (no_kids)))
+    (if (== (vec.len (& ks)) 0) (ret (widget.empty)))
+    (vec.remove (&mut ks) 0))
+  (fn take_state ((_s (&mut semw))) (opt (box (dyn state.state)))
+    (opt.none < (box (dyn state.state)) >))
+  (fn take_children ((_s (&mut semw))) (vec (box (dyn widget.widget))) (no_kids))
+  (fn fill ((_s (&mut semw)) (_o (&mut widget.rdesc))) unit ())
+  (fn pdata ((_s (& semw))) widget.pdata (widget.no_data))
+  (fn signal ((_s (& semw))) i64 0)
+  (fn goal ((_s (& semw)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((self (& semw))) widget.ann (ann_of self)))
+
+(pub (fn wrap ((role i64)
+   (label str)
+   (value str)
+   (flags i64)
+   (actions i64)
+   (hide bool)
+   (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (semw role label value flags actions hide (key.key.none) (one_kid child))))
+
+(fn role_name ((role i64)) (& str)
+  (if (== role role_button) (ret "button"))
+  (if (== role role_check) (ret "checkbox"))
+  (if (== role role_switch) (ret "switch"))
+  (if (== role role_slider) (ret "slider"))
+  (if (== role role_field) (ret "text_field"))
+  (if (== role role_header) (ret "header"))
+  (if (== role role_dialog) (ret "dialog"))
+  (if (== role role_item) (ret "list_item"))
+  (if (== role role_group) (ret "group"))
+  (if (== role role_sep) (ret "separator"))
+  (if (== role role_progress) (ret "progress"))
+  (if (== role role_status) (ret "status"))
+  (if (== role role_text) (ret "text"))
+  (if (== role role_image) (ret "image"))
+  "generic")
+
+(fn ann_at ((es (& element.elems)) (id u32)) widget.ann
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (widget.widget.sem (& (. n widget))))
+
+(fn box_of ((es (& element.elems)) (rt (& render.rtree)) (id u32)) geom.rect
+  (if (not (element.has_render_at es id)) (ret (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32)))
+  (let n (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))))
+  (geom.rect (. n x) (. n y) (. n w) (. n h)))
+
+(fn unite ((acc (&mut geom.rect)) (r (& geom.rect))) unit
+  (let u (geom.rect.union acc r))
+  (set (. acc x) (. u x))
+  (set (. acc y) (. u y))
+  (set (. acc w) (. u w))
+  (set (. acc h) (. u h)))
+
+(fn measure ((es (& element.elems)) (rt (& render.rtree)) (id u32) (acc (&mut geom.rect))) unit
+  (if (not (element.live_at es id)) (ret))
+  (let r (box_of es rt id))
+  (unite acc (& r))
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks)) (measure es rt (@ (vec.get (& ks) i)) acc)))
+
+(fn span ((es (& element.elems)) (rt (& render.rtree)) (id u32)) geom.rect
+  (let mut r (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32))
+  (measure es rt id (&mut r))
+  r)
+
+(fn gestured ((es (& element.elems)) (rt (& render.rtree)) (id u32)) bool
+  (if (not (element.has_render_at es id)) (ret false))
+  (let n (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))))
+  (. n gesture))
+
+(fn find_hit ((es (& element.elems)) (rt (& render.rtree)) (id u32)) (opt u32)
+  (if (not (element.live_at es id)) (ret (opt.none <u32>)))
+  (if (gestured es rt id) (ret (opt.some id)))
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks))
+    (match (find_hit es rt (@ (vec.get (& ks) i)))
+      ((opt.some h) (ret (opt.some h)))
+      ((opt.none) ())))
+  (opt.none <u32>))
+
+(struct hitp (has bool) (id u32))
+
+(fn hit_of ((hit (opt u32))) hitp
+  (match hit ((opt.some e) (hitp true e)) ((opt.none) (hitp false 0u32))))
+
+(fn push_node ((nodes (&mut (vec node)))
+   (parent i64)
+   (role i64)
+   (label str)
+   (value str)
+   (flags i64)
+   (actions i64)
+   (r (& geom.rect))
+   (hit (opt u32))
+   (elem u32)) u32
+  (let idn (as u32 (vec.len nodes)))
+  (let h (hit_of hit))
+  (vec.push nodes
+    (node idn
+      parent
+      role
+      label
+      value
+      flags
+      actions
+      (. r x)
+      (. r y)
+      (. r w)
+      (. r h)
+      elem
+      (. h id)
+      (. h has)))
+  idn)
+
+(fn text_of ((es (& element.elems)) (rt (& render.rtree)) (id u32)) str
+  (if (not (and (element.has_render_at es id) (== (element.ty_at es id) widget.ty_text)))
+    (ret (str.new)))
+  (let n (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))))
+  (str.clone (& (. (. n d) text))))
+
+(fn image_at ((es (& element.elems)) (rt (& render.rtree)) (id u32)) bool
+  (if (not (and (element.has_render_at es id) (== (element.ty_at es id) widget.ty_image)))
+    (ret false))
+  (let n (vec.get (& (. rt nodes)) (as i64 (element.render_at es id))))
+  (. (. n d) has_image))
+
+(fn same_label ((nodes (& (vec node))) (parent i64) (text (& str))) bool
+  (let mut p parent)
+  (let mut n 0)
+  (while (and (>= p 0) (< n 64))
+    (let cur (vec.get nodes p))
+    (let up (. cur parent))
+    (let eq (str.eq (& (. cur label)) text))
+    (if eq (ret true))
+    (set p up)
+    (set n (+ n 1)))
+  false)
+
+(fn emit_text ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (nodes (&mut (vec node)))) unit
+  (let lab (text_of es rt id))
+  (if (== (str.len (& lab)) 0) (ret))
+  (if (same_label nodes parent (& lab)) (ret))
+  (let r (box_of es rt id))
+  (drop (push_node nodes parent role_text lab (str.new) 0 0 (& r) (opt.none <u32>) id)))
+
+(fn emit_image ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (nodes (&mut (vec node)))) unit
+  (if (not (image_at es rt id)) (ret))
+  (let r (box_of es rt id))
+  (drop (push_node nodes parent role_image (str.new) (str.new) 0 0 (& r) (opt.none <u32>) id)))
+
+(fn emit_gesture ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (nodes (&mut (vec node)))) unit
+  (if (or (>= parent 0) (not (gestured es rt id))) (ret))
+  (let r (box_of es rt id))
+  (drop (push_node nodes parent role_button (str.new) (str.new) flag_focus act_tap (& r) (opt.some id) id)))
+
+(fn emit_default ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (nodes (&mut (vec node)))) unit
+  (let ty (element.ty_at es id))
+  (if (== ty widget.ty_text) (ret (emit_text es rt id parent nodes)))
+  (if (== ty widget.ty_image) (ret (emit_image es rt id parent nodes)))
+  (if (== ty widget.ty_gesture) (emit_gesture es rt id parent nodes)))
+
+(fn visit ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (nodes (&mut (vec node)))) unit
+  (if (not (element.live_at es id)) (ret))
+  (let a (ann_at es id))
+  (if (. a on) (ret (emit_on es rt id parent (& a) nodes)))
+  (emit_default es rt id parent nodes)
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks)) (visit es rt (@ (vec.get (& ks) i)) parent nodes)))
+
+(fn emit_on ((es (& element.elems))
+   (rt (& render.rtree))
+   (id u32)
+   (parent i64)
+   (a (& widget.ann))
+   (nodes (&mut (vec node)))) unit
+  (let lab (str.clone (& (. a label))))
+  (let val (str.clone (& (. a value))))
+  (let hide (. a hide))
+  (let r (span es rt id))
+  (let hit (find_hit es rt id))
+  (let nid
+    (push_node nodes parent (. a role) lab val (. a flags) (. a actions) (& r) hit id))
+  (if hide (ret))
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks)) (visit es rt (@ (vec.get (& ks) i)) (as i64 nid) nodes)))
+
+(pub (fn build ((es (& element.elems)) (rt (& render.rtree)) (root u32)) tree
+  (let mut nodes (vec.new <node>))
+  (visit es rt root no_parent (&mut nodes))
+  (tree nodes)))
+
+(fn fmt_f ((x f32)) str
+  (let mut n (as i64 (* (as f64 x) 1000.0)))
+  (let mut neg false)
+  (if (< n 0) (do (set neg true) (set n (neg n))))
+  (let ip (/ n 1000))
+  (let fp (% n 1000))
+  (let mut s (str.new))
+  (if neg (str.push_byte (&mut s) 45u8))
+  (str.push (&mut s) (& (str.from_int ip)))
+  (str.push_byte (&mut s) 46u8)
+  (if (< fp 100) (str.push_byte (&mut s) 48u8))
+  (if (< fp 10) (str.push_byte (&mut s) 48u8))
+  (str.push (&mut s) (& (str.from_int fp)))
+  s)
+
+(fn pipe ((s (&mut str)) (t (& str))) unit
+  (str.push_byte s 124u8)
+  (str.push s t))
+
+(fn line_of ((n (& node))) str
+  (let mut s (str.from "sem|"))
+  (str.push (&mut s) (& (str.from_int (as i64 (. n id)))))
+  (pipe (&mut s) (role_name (. n role)))
+  (pipe (&mut s) (& (. n label)))
+  (pipe (&mut s) (& (fmt_f (. n x))))
+  (pipe (&mut s) (& (fmt_f (. n y))))
+  (pipe (&mut s) (& (fmt_f (. n w))))
+  (pipe (&mut s) (& (fmt_f (. n h))))
+  s)
+
+(fn add_line ((s (&mut str)) (line str)) unit
+  (if (> (str.len s) 0) (str.push_byte s 10u8))
+  (str.push s (& line)))
+
+(pub (fn dump ((t (& tree))) str
+  (let mut s (str.new))
+  (let n (vec.len (& (. t nodes))))
+  (for i 0 n (add_line (&mut s) (line_of (vec.get (& (. t nodes)) i))))
+  s))
+
+(pub (fn find ((t (& tree)) (id i64)) i64
+  (let n (vec.len (& (. t nodes))))
+  (for i 0 n
+    (let cur (vec.get (& (. t nodes)) i))
+    (if (== (as i64 (. cur id)) id) (ret i)))
+  (neg 1)))
+
+(fn put_u32 ((b (&mut (vec u8))) (n i64)) unit
+  (let at (vec.len b))
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (ptr.write (as (ptr i32) (ptr.add (vec.ptr b) at)) (as i32 n)))
+
+(fn put_f32 ((b (&mut (vec u8))) (x f32)) unit
+  (let at (vec.len b))
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (vec.push b 0u8)
+  (ptr.write (as (ptr f32) (ptr.add (vec.ptr b) at)) x))
+
+(fn put_bytes ((b (&mut (vec u8))) (s (& str))) unit
+  (put_u32 b (str.len s))
+  (for i 0 (str.len s) (vec.push b (str.at s i))))
+
+(fn put_one ((b (&mut (vec u8))) (n (& node))) unit
+  (let parent (if (< (. n parent) 0) (neg 1) (. n parent)))
+  (put_u32 b (as i64 (. n id)))
+  (put_u32 b parent)
+  (put_u32 b (. n role))
+  (put_u32 b (. n flags))
+  (put_u32 b (. n actions))
+  (put_f32 b (. n x))
+  (put_f32 b (. n y))
+  (put_f32 b (. n w))
+  (put_f32 b (. n h))
+  (put_bytes b (& (. n label)))
+  (put_bytes b (& (. n value))))
+
+(pub (fn pack ((t (& tree))) (vec u8)
+  (let mut b (vec.new <u8>))
+  (put_u32 (&mut b) (vec.len (& (. t nodes))))
+  (let n (vec.len (& (. t nodes))))
+  (for i 0 n (put_one (&mut b) (vec.get (& (. t nodes)) i)))
+  b))
+
+(fn u32_at ((b (& (vec u8))) (off i64)) i64
+  (as i64 (ptr.read (as (ptr i32) (ptr.add (vec.ptr b) off)))))
+
+(fn ink () blend.color (blend.color.rgba 0u8 0u8 0u8 255u8))
+
+(fn mount ((w (box (dyn widget.widget)))) tree
+  (let mut es (element.new))
+  (let mut rt (render.new))
+  (let root (element.mount (&mut es) (&mut rt) w))
+  (build (& es) (& rt) root))
+
+(fn sample ((hide bool) (label str)) tree
+  (let text (w_text.text "Hi" 16.0f32 (ink)))
+  (mount (wrap role_button label (str.from "v") flag_focus act_tap hide text)))
+
+(test semantics_hide
+  (let t (sample true (str.from "Go")))
+  (assert_eq (vec.len (& (. t nodes))) 1)
+  (let n (vec.get (& (. t nodes)) 0))
+  (assert_eq (. n role) role_button)
+  (assert (str.eq (& (. n label)) "Go"))
+  (assert (str.eq (& (. n value)) "v"))
+  (assert_eq (. n flags) flag_focus)
+  (assert_eq (. n actions) act_tap)
+  (assert (str.eq (& (dump (& t))) "sem|0|button|Go|0.000|0.000|0.000|0.000"))
+  (let raw (pack (& t)))
+  (assert_eq (u32_at (& raw) 0) 1)
+  (assert_eq (u32_at (& raw) 12) role_button)
+  (assert_eq (u32_at (& raw) 8) (neg 1))
+  (assert_eq (u32_at (& raw) 40) 2))
+
+(test semantics_child
+  (let t (sample false (str.from "Hi")))
+  (assert_eq (vec.len (& (. t nodes))) 1)
+  (let open (sample false (str.from "Go")))
+  (assert_eq (vec.len (& (. open nodes))) 2)
+  (assert_eq (. (vec.get (& (. open nodes)) 1) role) role_text)
+  (let g (mount (w_gesture.tap 1 (widget.empty))))
+  (assert_eq (vec.len (& (. g nodes))) 1)
+  (assert_eq (. (vec.get (& (. g nodes)) 0) role) role_button)
+  (assert_eq (find (& g) 0) 0)
+  (assert_eq (find (& g) 4) (neg 1)))

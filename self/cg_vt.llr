@@ -1,4 +1,4 @@
-;; Vtables for (& (dyn Trait)). Each slot is the address of one method.
+;; Vtables. Word 0 is drop-in-place. Methods follow, in trait order.
 (use std.str)
 (use proj.cg_mod)
 (use proj.elf)
@@ -20,16 +20,19 @@
   (let im (prog.impl_of p tr t))
   (let ids (& (. (vec.get (& (. p ims)) im) ids)))
   (let n (vec.len ids))
+  (let words (+ n 1))
   (while (!= (% (vec.len (& (. (. g obj) rodata))) 8) 0) (vec.push (&mut (. (. g obj) rodata)) 0u8))
   (let at (vec.len (& (. (. g obj) rodata))))
-  (let bytes (zeros (* n 8)))
+  (let bytes (zeros (* words 8)))
   (for i 0 (vec.len (& bytes)) (vec.push (&mut (. (. g obj) rodata)) (@ (vec.get (& bytes) i))))
   (let mut name (str.from "llr_vt"))
   (str.push (&mut name) (& (str.from_int (vec.len (& (. g vkey))))))
   (let data
-    (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_object elf.sec_rodata at (* n 8)))
+    (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_object elf.sec_rodata at (* words 8)))
+  (let drop (cg_mod.drop_sym g t))
+  (elf.add_rel (&mut (. g obj)) elf.sec_rodata at (cg_mod.ptr_kind g) drop 0)
   (for i 0 n
     (let fs (cg_mod.func_sym g p (@ (vec.get ids i)) (vec.new <ty.sty>)))
-    (elf.add_rel (&mut (. g obj)) elf.sec_rodata (+ at (* i 8)) (cg_mod.ptr_kind g) fs 0))
+    (elf.add_rel (&mut (. g obj)) elf.sec_rodata (+ at (* (+ i 1) 8)) (cg_mod.ptr_kind g) fs 0))
   (cg_mod.vt_put g k data)
   data))

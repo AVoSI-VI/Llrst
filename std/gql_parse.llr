@@ -1,7 +1,7 @@
 ;; GraphQL document. One operation, nested selections, aliases, fragments, and variables.
 (struct node (kind u8) (text str) (alt str) (lo i64) (hi i64))
 
-(pub (struct doc
+(pub (struct gdoc
   (nodes (vec node))
   (kids (vec i64))
   (pub (root i64))
@@ -35,11 +35,11 @@
   (while (is_name (peek r)) (bump r))
   (str.slice (& (. r src)) start (. r i)))
 
-(fn push ((d (&mut doc)) (n node)) i64
+(fn push ((d (&mut gdoc)) (n node)) i64
   (vec.push (&mut (. d nodes)) n)
   (- (vec.len (& (. d nodes))) 1))
 
-(fn close ((d (&mut doc)) (kind u8) (text str) (alt str) (items (& (vec i64)))) i64
+(fn close ((d (&mut gdoc)) (kind u8) (text str) (alt str) (items (& (vec i64)))) i64
   (let lo (vec.len (& (. d kids))))
   (for k 0 (vec.len items) (vec.push (&mut (. d kids)) (@ (vec.get items k))))
   (push d (node kind text alt lo (vec.len (& (. d kids))))))
@@ -68,7 +68,7 @@
   (if (not any) (ret (res.err (str.from "gql.parse"))))
   (res.ok (str.slice (& (. r src)) start (. r i))))
 
-(fn parse_value ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_value ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (skip r)
   (let b (peek r))
   (if (== b 36u8)
@@ -86,7 +86,7 @@
   (if (str.eq (& name) "false") (ret (res.ok (push d (node 7u8 (str.new) (str.from "B0") 0 0)))))
   (res.ok (push d (node 7u8 (str.new) (str.cat "E" (& name)) 0 0))))
 
-(fn parse_list ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_list ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (bump r)
   (let mut items (vec.new <i64>))
   (loop
@@ -95,7 +95,7 @@
       (do (bump r) (ret (res.ok (close d 7u8 (str.new) (str.from "L") (& items))))))
     (vec.push (&mut items) (try (parse_value r d)))))
 
-(fn parse_obj ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_obj ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (bump r)
   (let mut items (vec.new <i64>))
   (loop
@@ -112,7 +112,7 @@
     (vec.push (&mut one) val)
     (vec.push (&mut items) (close d 2u8 name (str.new) (& one)))))
 
-(fn parse_args ((r (&mut rd)) (d (&mut doc)) (items (&mut (vec i64)))) (res unit str)
+(fn parse_args ((r (&mut rd)) (d (&mut gdoc)) (items (&mut (vec i64)))) (res unit str)
   (bump r)
   (loop
     (skip r)
@@ -127,7 +127,7 @@
     (vec.push (&mut one) val)
     (vec.push items (close d 2u8 name (str.new) (& one)))))
 
-(fn parse_sel ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_sel ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (skip r)
   (if (== (peek r) 46u8) (ret (parse_spread r d)))
   (let mut alias (str.new))
@@ -144,7 +144,7 @@
   (if (== (peek r) 123u8) (vec.push (&mut items) (try (parse_set r d))))
   (res.ok (close d 1u8 name alias (& items))))
 
-(fn parse_set ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_set ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (if (!= (peek r) 123u8) (ret (res.err (str.from "gql.parse"))))
   (bump r)
   (let mut items (vec.new <i64>))
@@ -155,7 +155,7 @@
     (if (== (peek r) 64u8) (ret (res.err (str.from "gql.parse"))))
     (vec.push (&mut items) (try (parse_sel r d)))))
 
-(fn parse_spread ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_spread ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (bump r)
   (bump r)
   (bump r)
@@ -172,7 +172,7 @@
   (if (== (str.len (& name)) 0) (ret (res.err (str.from "gql.parse"))))
   (res.ok (close d 5u8 name (str.new) (& (vec.new <i64>)))))
 
-(fn parse_vars ((r (&mut rd)) (d (&mut doc))) (res unit str)
+(fn parse_vars ((r (&mut rd)) (d (&mut gdoc))) (res unit str)
   (bump r)
   (loop
     (skip r)
@@ -190,7 +190,7 @@
     (let id (close d 3u8 name ty (& items)))
     (vec.push (&mut (. d vars)) id)))
 
-(fn parse_op ((r (&mut rd)) (d (&mut doc))) (res i64 str)
+(fn parse_op ((r (&mut rd)) (d (&mut gdoc))) (res i64 str)
   (let kw (read_name r))
   (if (or (str.eq (& kw) "subscription") (str.eq (& kw) "mutation"))
     (ret (res.err (str.from "gql.parse"))))
@@ -202,7 +202,7 @@
   (skip r)
   (parse_set r d))
 
-(fn parse_frag ((r (&mut rd)) (d (&mut doc))) (res unit str)
+(fn parse_frag ((r (&mut rd)) (d (&mut gdoc))) (res unit str)
   (drop (read_name r))
   (let name (read_name r))
   (let on (read_name r))
@@ -216,9 +216,9 @@
   (vec.push (&mut (. d frags)) id)
   (res.ok ()))
 
-(pub (fn read ((src (& str))) (res doc str)
+(pub (fn read ((src (& str))) (res gdoc str)
   (let mut r (rd (str.from src) 0))
-  (let mut d (doc (vec.new <node>) (vec.new <i64>) -1 (vec.new <i64>) (vec.new <i64>)))
+  (let mut d (gdoc (vec.new <node>) (vec.new <i64>) -1 (vec.new <i64>) (vec.new <i64>)))
   (let mut op -1)
   (loop
     (skip (&mut r))
@@ -240,24 +240,24 @@
   (set (. d root) op)
   (res.ok d)))
 
-(pub (fn input ((src (& str))) (res doc str)
+(pub (fn input ((src (& str))) (res gdoc str)
   (let mut r (rd (str.from src) 0))
-  (let mut d (doc (vec.new <node>) (vec.new <i64>) -1 (vec.new <i64>) (vec.new <i64>)))
+  (let mut d (gdoc (vec.new <node>) (vec.new <i64>) -1 (vec.new <i64>) (vec.new <i64>)))
   (let v (try (parse_value (&mut r) (&mut d))))
   (skip (&mut r))
   (if (!= (peek (& r)) 0u8) (ret (res.err (str.from "gql.parse"))))
   (set (. d root) v)
   (res.ok d)))
 
-(pub (fn kind ((d (& doc)) (n i64)) u8 (. (vec.get (& (. d nodes)) n) kind)))
+(pub (fn kind ((d (& gdoc)) (n i64)) u8 (. (vec.get (& (. d nodes)) n) kind)))
 
-(pub (fn text ((d (& doc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) text))))
+(pub (fn text ((d (& gdoc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) text))))
 
-(pub (fn alt ((d (& doc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) alt))))
+(pub (fn alt ((d (& gdoc)) (n i64)) (& str) (& (. (vec.get (& (. d nodes)) n) alt))))
 
-(pub (fn count ((d (& doc)) (n i64)) i64 (let nd (vec.get (& (. d nodes)) n)) (- (. nd hi) (. nd lo))))
+(pub (fn count ((d (& gdoc)) (n i64)) i64 (let nd (vec.get (& (. d nodes)) n)) (- (. nd hi) (. nd lo))))
 
-(pub (fn child ((d (& doc)) (n i64) (k i64)) i64
+(pub (fn child ((d (& gdoc)) (n i64) (k i64)) i64
   (let nd (vec.get (& (. d nodes)) n))
   (@ (vec.get (& (. d kids)) (+ (. nd lo) k)))))
 

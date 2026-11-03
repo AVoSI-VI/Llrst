@@ -122,6 +122,10 @@ pub enum Rvalue {
     Static(Const),
     /// Closure value. `idx` selects `Body::closures`. `caps` are stored into the heap env.
     Closure { idx: u32, caps: Vec<Operand> },
+    /// Move `value` of `self_ty` onto the heap and pair it with the trait vtable.
+    BoxPack { value: Operand, trait_id: DefId, self_ty: Ty },
+    /// Copy the box fat pointer out as `(& (dyn Trait))` or `(&mut (dyn Trait))`. Loans `place`.
+    BoxBorrow { mutable: bool, place: Place },
 }
 
 #[derive(Clone, Debug)]
@@ -244,7 +248,7 @@ pub fn is_copy(prog: &Program, t: &Ty) -> bool {
 /// Whether values of this type run code when dropped.
 pub fn needs_drop(prog: &Program, t: &Ty) -> bool {
     match t {
-        Ty::Clos(..) => true,
+        Ty::Clos(..) | Ty::BoxDyn { .. } => true,
         Ty::Adt(d, args) => {
             if prog.methods.get(d).map_or(false, |m| m.contains_key("drop")) {
                 return true;

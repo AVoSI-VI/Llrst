@@ -1,0 +1,122 @@
+;; Build snapshot. size is the host, not the element. Ancestors are nearest first.
+(use ui.blend)
+(use ui.geom)
+
+(pub (struct palette
+  (pub (bg blend.color))
+  (pub (surface blend.color))
+  (pub (primary blend.color))
+  (pub (on_primary blend.color))
+  (pub (fg blend.color))
+  (pub (muted blend.color))
+  (pub (line blend.color))
+  (pub (danger blend.color))
+  (pub (title f32))
+  (pub (body f32))
+  (pub (label f32))
+  (pub (space f32))))
+
+(pub (struct ctx
+  (pub (w f32))
+  (pub (h f32))
+  (pub (scale f32))
+  (th palette)
+  (pub (id u32))
+  (anc (vec u32))
+  (tys (vec i64))))
+
+(fn copy_u ((src (& (vec u32)))) (vec u32)
+  (let mut o (vec.new <u32>))
+  (for i 0 (vec.len src) (vec.push (&mut o) (@ (vec.get src i))))
+  o)
+
+(fn copy_i ((src (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len src) (vec.push (&mut o) (@ (vec.get src i))))
+  o)
+
+(fn col ((r u8) (g u8) (b u8)) blend.color (blend.color.rgba r g b 255u8))
+
+(fn copy_c ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a)))
+
+(fn pack ((bg blend.color)
+   (surface blend.color)
+   (primary blend.color)
+   (on_p blend.color)
+   (fg blend.color)
+   (muted blend.color)
+   (line blend.color)
+   (danger blend.color)) palette
+  (palette bg surface primary on_p fg muted line danger 20.0f32 16.0f32 14.0f32 8.0f32))
+
+(pub (fn copy_pal ((t (& palette))) palette
+  (palette (copy_c (& (. t bg)))
+    (copy_c (& (. t surface)))
+    (copy_c (& (. t primary)))
+    (copy_c (& (. t on_primary)))
+    (copy_c (& (. t fg)))
+    (copy_c (& (. t muted)))
+    (copy_c (& (. t line)))
+    (copy_c (& (. t danger)))
+    (. t title)
+    (. t body)
+    (. t label)
+    (. t space))))
+
+(pub (fn palette_light () palette
+  (pack (col 255u8 255u8 255u8)
+    (col 245u8 245u8 245u8)
+    (col 21u8 101u8 192u8)
+    (col 255u8 255u8 255u8)
+    (col 33u8 33u8 33u8)
+    (col 117u8 117u8 117u8)
+    (col 224u8 224u8 224u8)
+    (col 176u8 0u8 32u8))))
+
+(pub (fn palette_dark () palette
+  (pack (col 18u8 18u8 18u8)
+    (col 30u8 30u8 30u8)
+    (col 144u8 202u8 249u8)
+    (col 0u8 0u8 0u8)
+    (col 255u8 255u8 255u8)
+    (col 189u8 189u8 189u8)
+    (col 44u8 44u8 44u8)
+    (col 207u8 102u8 121u8))))
+
+(impl ctx
+  (pub (fn root ((w f32) (h f32) (scale f32) (id u32)) ctx
+    (ctx w h scale (palette_light) id (vec.new <u32>) (vec.new <i64>))))
+  (pub (fn size ((self (& ctx))) geom.size (geom.size (. self w) (. self h))))
+  (pub (fn theme ((self (& ctx))) palette (copy_pal (& (. self th)))))
+  (pub (fn with_theme ((self (& ctx)) (th palette)) ctx
+    (ctx (. self w)
+      (. self h)
+      (. self scale)
+      th
+      (. self id)
+      (copy_u (& (. self anc)))
+      (copy_i (& (. self tys))))))
+  (pub (fn find_ancestor ((self (& ctx)) (ty i64)) (opt u32)
+    (for i 0 (vec.len (& (. self anc)))
+      (if (== (@ (vec.get (& (. self tys)) i)) ty)
+        (ret (opt.some (@ (vec.get (& (. self anc)) i))))))
+    (opt.none <u32>)))
+  (pub (fn child ((self (& ctx)) (id u32) (parent_ty i64)) ctx
+    (let mut anc (copy_u (& (. self anc))))
+    (let mut tys (copy_i (& (. self tys))))
+    (vec.insert (&mut anc) 0 (. self id))
+    (vec.insert (&mut tys) 0 parent_ty)
+    (ctx (. self w) (. self h) (. self scale) (ctx.theme self) id anc tys))))
+
+(test ctx_ancestor
+  (let c (ctx.root 80.0f32 48.0f32 1.0f32 1u32))
+  (assert (opt.is_none (& (ctx.find_ancestor (& c) 3))))
+  (let d (ctx.child (& c) 2u32 9))
+  (match (ctx.find_ancestor (& d) 9)
+    ((opt.some id) (assert_eq (as i64 id) 1))
+    ((opt.none) (assert false)))
+  (let s (ctx.size (& c)))
+  (assert_eq (as i64 (. s w)) 80)
+  (assert_eq (. (. (ctx.theme (& c)) bg) r) 255u8)
+  (let n (ctx.with_theme (& c) (palette_dark)))
+  (assert_eq (. (. (ctx.theme (& n)) bg) r) 18u8))

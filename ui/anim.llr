@@ -1,0 +1,267 @@
+;; Controller, implicit target, and the track a ticker stores.
+(use ui.blend)
+(use ui.curve)
+(use ui.tween)
+
+(pub (const dismissed i64 0))
+
+(pub (const forward i64 1))
+
+(pub (const reverse i64 2))
+
+(pub (const completed i64 3))
+
+(pub (const bit_color i64 1))
+
+(pub (const bit_pad i64 2))
+
+(pub (const bit_size i64 4))
+
+(pub (const bit_opacity i64 8))
+
+(pub (const rep_none i64 0))
+
+(pub (const rep_restart i64 1))
+
+(pub (const rep_reverse i64 2))
+
+(pub (struct ctrl (pub (dur i64)) (pub (pos i64)) (pub (dir i64)) (pub (rep i64)) (pub (status i64))))
+
+(pub (struct goal
+  (pub (on bool))
+  (pub (mask i64))
+  (pub (color blend.color))
+  (pub (l f32))
+  (pub (t f32))
+  (pub (r f32))
+  (pub (b f32))
+  (pub (w f32))
+  (pub (h f32))
+  (pub (opacity f32))
+  (pub (dur i64))
+  (pub (curve i64))))
+
+(pub (struct track (pub (elem u32)) (pub (ctrl ctrl)) (pub (from goal)) (pub (to goal)) (pub (cur goal))))
+
+(impl ctrl
+  (pub (fn make ((dur i64)) ctrl (ctrl dur 0 0 rep_none dismissed)))
+  (pub (fn value ((self (& ctrl))) f32
+    (if (<= (. self dur) 0) (ret (if (== (. self status) completed) 1.0f32 0.0f32)))
+    (/ (as f32 (. self pos)) (as f32 (. self dur)))))
+  (pub (fn running ((self (& ctrl))) bool (!= (. self dir) 0)))
+  (pub (fn status ((self (& ctrl))) i64 (. self status)))
+  (pub (fn forward ((self (&mut ctrl))) unit
+    (if (and (> (. self dur) 0) (>= (. self pos) (. self dur)))
+      (ret (do (set (. self dir) 0) (set (. self status) completed))))
+    (set (. self dir) 1)
+    (set (. self rep) rep_none)
+    (set (. self status) forward)))
+  (pub (fn reverse ((self (&mut ctrl))) unit
+    (if (<= (. self pos) 0) (ret (do (set (. self dir) 0) (set (. self status) dismissed))))
+    (set (. self dir) (neg 1))
+    (set (. self rep) rep_none)
+    (set (. self status) reverse)))
+  (pub (fn repeat ((self (&mut ctrl)) (rev bool)) unit
+    (set (. self rep) (if rev rep_reverse rep_restart))
+    (if (>= (. self pos) (. self dur)) (set (. self pos) 0))
+    (set (. self dir) 1)
+    (set (. self status) forward)))
+  (pub (fn stop ((self (&mut ctrl))) unit
+    (set (. self dir) 0)
+    (set (. self rep) rep_none)
+    (if (<= (. self pos) 0) (ret (set (. self status) dismissed)))
+    (if (>= (. self pos) (. self dur)) (set (. self status) completed)))))
+
+(fn hit_hi ((self (&mut ctrl))) bool
+  (if (== (. self rep) rep_restart)
+    (ret (do (set (. self pos) (- (. self pos) (. self dur))) (set (. self status) forward) true)))
+  (if (== (. self rep) rep_reverse)
+    (ret (do
+       (set (. self pos) (- (* (. self dur) 2) (. self pos)))
+       (set (. self dir) (neg 1))
+       (set (. self status) reverse)
+       true)))
+  (set (. self pos) (. self dur))
+  (set (. self dir) 0)
+  (set (. self status) completed)
+  false)
+
+(fn hit_lo ((self (&mut ctrl))) bool
+  (if (== (. self rep) rep_restart)
+    (ret (do
+       (set (. self pos) (+ (. self pos) (. self dur)))
+       (set (. self dir) 1)
+       (set (. self status) forward)
+       true)))
+  (if (== (. self rep) rep_reverse)
+    (ret (do
+       (set (. self pos) (neg (. self pos)))
+       (set (. self dir) 1)
+       (set (. self status) forward)
+       true)))
+  (set (. self pos) 0)
+  (set (. self dir) 0)
+  (set (. self status) dismissed)
+  false)
+
+(fn outside ((self (& ctrl))) bool
+  (or (and (> (. self dir) 0) (>= (. self pos) (. self dur)))
+    (and (< (. self dir) 0) (<= (. self pos) 0))))
+
+(fn step ((self (&mut ctrl))) bool
+  (let mut guard 0)
+  (while (and (outside self) (< guard 8))
+    (set guard (+ guard 1))
+    (if (> (. self dir) 0)
+      (if (not (hit_hi self)) (ret false))
+      (if (not (hit_lo self)) (ret false))))
+  true)
+
+(fn jump_end ((self (&mut ctrl))) bool
+  (if (> (. self dir) 0)
+    (do (set (. self pos) (. self dur)) (set (. self status) completed))
+    (do (set (. self pos) 0) (set (. self status) dismissed)))
+  (set (. self dir) 0)
+  false)
+
+(impl ctrl
+  (pub (fn advance ((self (&mut ctrl)) (dt i64)) bool
+    (if (== (. self dir) 0) (ret false))
+    (if (<= dt 0) (ret true))
+    (if (<= (. self dur) 0) (ret (jump_end self)))
+    (set (. self pos) (+ (. self pos) (* (. self dir) dt)))
+    (step self))))
+
+(fn col ((c (& blend.color))) blend.color (blend.color (. c b) (. c g) (. c r) (. c a)))
+
+(fn col_eq ((a (& blend.color)) (b (& blend.color))) bool
+  (and (== (. a b) (. b b)) (== (. a g) (. b g)) (== (. a r) (. b r)) (== (. a a) (. b a))))
+
+(pub (fn goal_new () goal
+  (goal false
+    0
+    (blend.color 0u8 0u8 0u8 0u8)
+    0.0f32
+    0.0f32
+    0.0f32
+    0.0f32
+    (neg 1.0f32)
+    (neg 1.0f32)
+    (neg 1.0f32)
+    0
+    curve.linear)))
+
+(pub (fn copy_goal ((g (& goal))) goal
+  (goal (. g on)
+    (. g mask)
+    (col (& (. g color)))
+    (. g l)
+    (. g t)
+    (. g r)
+    (. g b)
+    (. g w)
+    (. g h)
+    (. g opacity)
+    (. g dur)
+    (. g curve))))
+
+(pub (fn same ((a (& goal)) (b (& goal))) bool
+  (and (== (. a mask) (. b mask))
+    (== (. a dur) (. b dur))
+    (== (. a curve) (. b curve))
+    (col_eq (& (. a color)) (& (. b color)))
+    (== (. a l) (. b l))
+    (== (. a t) (. b t))
+    (== (. a r) (. b r))
+    (== (. a b) (. b b))
+    (== (. a w) (. b w))
+    (== (. a h) (. b h))
+    (== (. a opacity) (. b opacity)))))
+
+(fn mix ((a (& goal)) (b (& goal)) (t f32)) goal
+  (goal true
+    (. b mask)
+    (tween.color (& (. a color)) (& (. b color)) t)
+    (tween.num (. a l) (. b l) t)
+    (tween.num (. a t) (. b t) t)
+    (tween.num (. a r) (. b r) t)
+    (tween.num (. a b) (. b b) t)
+    (tween.num (. a w) (. b w) t)
+    (tween.num (. a h) (. b h) t)
+    (tween.num (. a opacity) (. b opacity) t)
+    (. b dur)
+    (. b curve)))
+
+(pub (fn track_make ((elem u32) (g (& goal))) track
+  (let mut c (ctrl.make (. g dur)))
+  (set (. c pos) (. g dur))
+  (set (. c status) completed)
+  (track elem c (copy_goal g) (copy_goal g) (copy_goal g))))
+
+(pub (fn track_sync ((tr (&mut track)) (g (& goal))) bool
+  (if (same (& (. tr to)) g) (ret false))
+  (set (. tr from) (copy_goal (& (. tr cur))))
+  (set (. tr to) (copy_goal g))
+  (set (. (. tr ctrl) dur) (. g dur))
+  (set (. (. tr ctrl) pos) 0)
+  (set (. (. tr ctrl) rep) rep_none)
+  (ctrl.forward (&mut (. tr ctrl)))
+  true))
+
+(pub (fn track_show ((tr (&mut track)) (skip bool) (dt i64)) bool
+  (let live (if skip (ctrl.running (& (. tr ctrl))) (ctrl.advance (&mut (. tr ctrl)) dt)))
+  (let t (curve.apply (. (. tr to) curve) (ctrl.value (& (. tr ctrl)))))
+  (set (. tr cur) (mix (& (. tr from)) (& (. tr to)) t))
+  live))
+
+(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
+
+(test anim_drive
+  (let mut c (ctrl.make 100))
+  (ctrl.forward (&mut c))
+  (assert (ctrl.running (& c)))
+  (assert_eq (ctrl.status (& c)) forward)
+  (assert (ctrl.advance (&mut c) 50))
+  (assert_eq (milli (ctrl.value (& c))) 500)
+  (assert (not (ctrl.advance (&mut c) 50)))
+  (assert_eq (ctrl.status (& c)) completed)
+  (assert (not (ctrl.running (& c))))
+  (ctrl.forward (&mut c))
+  (assert (not (ctrl.running (& c))))
+  (ctrl.reverse (&mut c))
+  (assert (not (ctrl.advance (&mut c) 100)))
+  (assert (not (ctrl.running (& c))))
+  (assert_eq (ctrl.status (& c)) dismissed)
+  (ctrl.forward (&mut c))
+  (drop (ctrl.advance (&mut c) 40))
+  (ctrl.stop (&mut c))
+  (assert (not (ctrl.running (& c))))
+  (assert_eq (ctrl.status (& c)) forward)
+  (assert_eq (. c pos) 40)
+  (assert (not (ctrl.advance (&mut c) 40)))
+  (let mut r (ctrl.make 100))
+  (ctrl.repeat (&mut r) false)
+  (assert (ctrl.advance (&mut r) 150))
+  (assert_eq (. r pos) 50)
+  (let mut y (ctrl.make 100))
+  (ctrl.repeat (&mut y) true)
+  (assert (ctrl.advance (&mut y) 150))
+  (assert_eq (. y dir) (neg 1))
+  (assert_eq (. y pos) 50))
+
+(test anim_track
+  (let mut a (goal_new))
+  (set (. a on) true)
+  (set (. a mask) bit_pad)
+  (set (. a l) 1.0f32)
+  (set (. a dur) 100)
+  (let b (copy_goal (& a)))
+  (assert (same (& a) (& b)))
+  (let mut tr (track_make 1u32 (& a)))
+  (assert (not (track_sync (&mut tr) (& b))))
+  (set (. a l) 4.0f32)
+  (assert (track_sync (&mut tr) (& a)))
+  (assert (track_show (&mut tr) true 50))
+  (assert_eq (milli (. (. tr cur) l)) 1000)
+  (assert (not (track_show (&mut tr) false 100)))
+  (assert_eq (milli (. (. tr cur) l)) 4000))

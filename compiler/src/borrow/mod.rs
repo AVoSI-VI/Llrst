@@ -82,8 +82,10 @@ pub fn stmt_accesses(s: &Stmt, span: Span) -> Vec<Access> {
     match s {
         Stmt::Assign(dest, rv) => {
             match rv {
-                Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) => operand_access(op, span, &mut out),
-                Rvalue::Ref { mutable, place, .. } => {
+                Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
+                    operand_access(op, span, &mut out);
+                }
+                Rvalue::Ref { mutable, place, .. } | Rvalue::BoxBorrow { mutable, place } => {
                     let kind = if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
                     out.push(Access { place: place.clone(), kind, span });
                 }

@@ -56,7 +56,7 @@ impl<'a> Layouts<'a> {
             Ty::Unit | Ty::Never => Layout { size: 0, align: 1, fields: Vec::new(), variants: Vec::new() },
             Ty::Ref { .. } | Ty::Ptr(_) | Ty::Fn(..) => scalar(PTR_BYTES),
             Ty::Clos(..) => Layout { size: PTR_BYTES * 3, align: PTR_BYTES, fields: vec![0, PTR_BYTES, PTR_BYTES * 2], variants: Vec::new() },
-            Ty::Dyn { .. } => Layout { size: PTR_BYTES * 2, align: PTR_BYTES, fields: vec![0, PTR_BYTES], variants: Vec::new() },
+            Ty::Dyn { .. } | Ty::BoxDyn { .. } => Layout { size: PTR_BYTES * 2, align: PTR_BYTES, fields: vec![0, PTR_BYTES], variants: Vec::new() },
             Ty::SelfTy => panic!("layout of Self"),
             Ty::Adt(d, args) => match &self.prog.def(*d).kind {
                 DefKind::Struct(s) => {

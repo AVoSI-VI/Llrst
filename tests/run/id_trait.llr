@@ -1,0 +1,7 @@
+(pub (trait Id (fn n ((& Self)) i64)))
+
+(pub (struct tick (pub (v i64))))
+
+(impl Id tick (fn n ((self (& tick))) i64 (. self v)))
+
+(pub (fn make ((n i64)) (box (dyn Id)) (tick n)))

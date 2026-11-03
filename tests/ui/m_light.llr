@@ -1,0 +1,11 @@
+;; Light theme: every named widget, tree and pixels.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.m_show)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (m_show.column)))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

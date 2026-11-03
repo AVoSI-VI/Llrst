@@ -1,0 +1,14 @@
+(use std.io)
+
+(struct tick (n i64))
+
+(trait Id (fn bump ((&mut Self) i64) i64))
+
+(impl Id
+  tick
+  (fn bump ((self (&mut tick)) (d i64)) i64 (set (. self n) (+ (. self n) d)) (. self n)))
+
+(fn main () unit
+  (let mut b (box (dyn Id)) (tick 1))
+  (io.puts (& (str.from_int (Id.bump (&mut b) 4))))
+  (io.puts (& (str.from_int (Id.bump (&mut b) 2)))))

@@ -1,0 +1,199 @@
+(use std.math)
+(use ui.geom)
+(use ui.mat)
+
+(pub (struct path (pub (verb (vec u8))) (pub (pts (vec geom.pt)))))
+
+(struct pen (i i64) (cur geom.pt) (start geom.pt) (open bool))
+
+(impl path
+  (pub (fn new () path (path (vec.new <u8>) (vec.new <geom.pt>))))
+  (pub (fn at ((self (& path)) (i i64)) geom.pt
+    (let p (vec.get (& (. self pts)) i))
+    (geom.pt (. p x) (. p y))))
+  (pub (fn verb_at ((self (& path)) (i i64)) u8 (@ (vec.get (& (. self verb)) i))))
+  (pub (fn move ((self (&mut path)) (p geom.pt)) unit
+    (vec.push (&mut (. self verb)) 0u8)
+    (vec.push (&mut (. self pts)) p)))
+  (pub (fn line ((self (&mut path)) (p geom.pt)) unit
+    (vec.push (&mut (. self verb)) 1u8)
+    (vec.push (&mut (. self pts)) p)))
+  (pub (fn quad ((self (&mut path)) (a geom.pt) (b geom.pt)) unit
+    (vec.push (&mut (. self verb)) 2u8)
+    (vec.push (&mut (. self pts)) a)
+    (vec.push (&mut (. self pts)) b)))
+  (pub (fn cubic ((self (&mut path)) (a geom.pt) (b geom.pt) (c geom.pt)) unit
+    (vec.push (&mut (. self verb)) 3u8)
+    (vec.push (&mut (. self pts)) a)
+    (vec.push (&mut (. self pts)) b)
+    (vec.push (&mut (. self pts)) c)))
+  (pub (fn close ((self (&mut path))) unit (vec.push (&mut (. self verb)) 4u8)))
+  (pub (fn bounds ((self (& path))) geom.rect
+    (let n (vec.len (& (. self pts))))
+    (if (== n 0) (ret (geom.rect 0.0f32 0.0f32 0.0f32 0.0f32)))
+    (let p0 (path.at self 0))
+    (let mut x0 (. p0 x))
+    (let mut y0 (. p0 y))
+    (let mut x1 (. p0 x))
+    (let mut y1 (. p0 y))
+    (for i 1 n
+      (let p (path.at self i))
+      (set x0 (math.min32 x0 (. p x)))
+      (set y0 (math.min32 y0 (. p y)))
+      (set x1 (math.max32 x1 (. p x)))
+      (set y1 (math.max32 y1 (. p y))))
+    (geom.rect x0 y0 (- x1 x0) (- y1 y0))))
+  (pub (fn transform ((self (& path)) (m (& mat.mat))) path
+    (let mut out (path.new))
+    (for i 0 (vec.len (& (. self verb))) (vec.push (&mut (. out verb)) (path.verb_at self i)))
+    (for i 0 (vec.len (& (. self pts)))
+      (let p (path.at self i))
+      (vec.push (&mut (. out pts)) (mat.mat.apply m (& p))))
+    out)))
+
+(fn dist2 ((a (& geom.pt)) (b (& geom.pt))) f32
+  (let dx (- (. a x) (. b x)))
+  (let dy (- (. a y) (. b y)))
+  (+ (* dx dx) (* dy dy)))
+
+(fn near_seg ((p (& geom.pt)) (a (& geom.pt)) (b (& geom.pt)) (tol f32)) bool
+  (let abx (- (. b x) (. a x)))
+  (let aby (- (. b y) (. a y)))
+  (let len2 (+ (* abx abx) (* aby aby)))
+  (let tol2 (* tol tol))
+  (if (<= len2 0.0f32) (ret (< (dist2 p a) tol2)))
+  (let cross (- (* abx (- (. p y) (. a y))) (* aby (- (. p x) (. a x)))))
+  (< (* cross cross) (* tol2 len2)))
+
+(fn mid ((a (& geom.pt)) (b (& geom.pt))) geom.pt
+  (geom.pt (/ (+ (. a x) (. b x)) 2.0f32) (/ (+ (. a y) (. b y)) 2.0f32)))
+
+(fn push_line ((out (&mut path)) (p (& geom.pt))) unit (path.line out (geom.pt (. p x) (. p y))))
+
+(fn quad_to ((out (&mut path)) (p0 (& geom.pt)) (p1 (& geom.pt)) (p2 (& geom.pt)) (tol f32) (depth i64)) unit
+  (if (or (== depth 0) (near_seg p1 p0 p2 tol)) (ret (push_line out p2)))
+  (let a (mid p0 p1))
+  (let b (mid p1 p2))
+  (let m (mid (& a) (& b)))
+  (quad_to out p0 (& a) (& m) tol (- depth 1))
+  (quad_to out (& m) (& b) p2 tol (- depth 1)))
+
+(fn cubic_to ((out (&mut path))
+   (p0 (& geom.pt))
+   (p1 (& geom.pt))
+   (p2 (& geom.pt))
+   (p3 (& geom.pt))
+   (tol f32)
+   (depth i64)) unit
+  (if (or (== depth 0) (and (near_seg p1 p0 p3 tol) (near_seg p2 p0 p3 tol)))
+    (ret (push_line out p3)))
+  (let a (mid p0 p1))
+  (let b (mid p1 p2))
+  (let c (mid p2 p3))
+  (let d (mid (& a) (& b)))
+  (let e (mid (& b) (& c)))
+  (let m (mid (& d) (& e)))
+  (cubic_to out p0 (& a) (& d) (& m) tol (- depth 1))
+  (cubic_to out (& m) (& e) (& c) p3 tol (- depth 1)))
+
+(fn take ((p (& path)) (pen (&mut pen))) geom.pt
+  (let q (path.at p (. pen i)))
+  (set (. pen i) (+ (. pen i) 1))
+  q)
+
+(fn put_cur ((pn (&mut pen)) (q (& geom.pt))) unit (set (. pn cur) (geom.pt (. q x) (. q y))))
+
+(fn step_move ((p (& path)) (out (&mut path)) (pen (&mut pen))) unit
+  (let q (take p pen))
+  (path.move out (geom.pt (. q x) (. q y)))
+  (put_cur pen (& q))
+  (set (. pen start) (geom.pt (. q x) (. q y)))
+  (set (. pen open) true))
+
+(fn step_line ((p (& path)) (out (&mut path)) (pen (&mut pen))) unit
+  (let q (take p pen))
+  (push_line out (& q))
+  (put_cur pen (& q)))
+
+(fn step_quad ((p (& path)) (out (&mut path)) (pen (&mut pen)) (tol f32)) unit
+  (let c (geom.pt (. (. pen cur) x) (. (. pen cur) y)))
+  (let a (take p pen))
+  (let b (take p pen))
+  (quad_to out (& c) (& a) (& b) tol 16)
+  (put_cur pen (& b)))
+
+(fn step_cubic ((p (& path)) (out (&mut path)) (pen (&mut pen)) (tol f32)) unit
+  (let c (geom.pt (. (. pen cur) x) (. (. pen cur) y)))
+  (let a (take p pen))
+  (let b (take p pen))
+  (let d (take p pen))
+  (cubic_to out (& c) (& a) (& b) (& d) tol 16)
+  (put_cur pen (& d)))
+
+(fn same ((a (& geom.pt)) (b (& geom.pt))) bool (and (== (. a x) (. b x)) (== (. a y) (. b y))))
+
+(fn step_close ((out (&mut path)) (pen (&mut pen))) unit
+  (if (and (. pen open) (not (same (& (. pen cur)) (& (. pen start)))))
+    (push_line out (& (. pen start))))
+  (path.close out)
+  (set (. pen cur) (geom.pt (. (. pen start) x) (. (. pen start) y)))
+  (set (. pen open) false))
+
+(fn step ((p (& path)) (out (&mut path)) (pen (&mut pen)) (v u8) (tol f32)) unit
+  (if (== v 0u8) (step_move p out pen))
+  (if (== v 1u8) (step_line p out pen))
+  (if (== v 2u8) (step_quad p out pen tol))
+  (if (== v 3u8) (step_cubic p out pen tol))
+  (if (== v 4u8) (step_close out pen)))
+
+(impl path
+  (pub (fn flatten ((self (& path)) (tol f32)) path
+    (let mut out (path.new))
+    (let z (geom.pt 0.0f32 0.0f32))
+    (let mut pen (pen 0 (geom.pt (. z x) (. z y)) (geom.pt (. z x) (. z y)) false))
+    (for i 0 (vec.len (& (. self verb)))
+      (step self (&mut out) (&mut pen) (path.verb_at self i) tol))
+    out)))
+
+(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
+
+(fn lines_only ((p (& path))) bool
+  (let mut ok true)
+  (for i 0 (vec.len (& (. p verb)))
+    (let v (path.verb_at p i))
+    (if (and (!= v 0u8) (and (!= v 1u8) (!= v 4u8))) (set ok false)))
+  ok)
+
+(test path_bounds
+  (let mut p (path.new))
+  (path.move (&mut p) (geom.pt 1.0f32 2.0f32))
+  (path.line (&mut p) (geom.pt 5.0f32 2.0f32))
+  (path.line (&mut p) (geom.pt 5.0f32 6.0f32))
+  (path.close (&mut p))
+  (let b (path.bounds (& p)))
+  (assert_eq (milli (. b x)) 1000)
+  (assert_eq (milli (. b y)) 2000)
+  (assert_eq (milli (. b w)) 4000)
+  (assert_eq (milli (. b h)) 4000)
+  (assert_eq (path.verb_at (& p) 0) 0u8)
+  (assert_eq (milli (. (path.at (& p) 0) x)) 1000)
+  (let m (mat.mat.translate 10.0f32 0.0f32))
+  (let t (path.transform (& p) (& m)))
+  (assert_eq (milli (. (path.bounds (& t)) x)) 11000)
+  (let empty (path.new))
+  (assert (geom.rect.empty (& (path.bounds (& empty))))))
+
+(test path_flat
+  (let mut p (path.new))
+  (path.move (&mut p) (geom.pt 0.0f32 0.0f32))
+  (path.quad (&mut p) (geom.pt 0.0f32 10.0f32) (geom.pt 10.0f32 10.0f32))
+  (path.cubic (&mut p) (geom.pt 10.0f32 0.0f32) (geom.pt 0.0f32 0.0f32) (geom.pt 0.0f32 10.0f32))
+  (let f (path.flatten (& p) 0.25f32))
+  (assert (lines_only (& f)))
+  (assert (> (vec.len (& (. f verb))) 2))
+  (let a (geom.pt 0.0f32 0.0f32))
+  (let b (geom.pt 10.0f32 0.0f32))
+  (let c (geom.pt 5.0f32 1.0f32))
+  (assert (near_seg (& c) (& a) (& b) 2.0f32))
+  (drop (dist2 (& a) (& b)))
+  (drop (mid (& a) (& b))))

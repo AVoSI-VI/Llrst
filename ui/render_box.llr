@@ -1,0 +1,398 @@
+;; Box layout. A clean relayout boundary keeps its size when constraints match.
+(use std.math)
+(use std.str)
+(use ui.blend)
+(use ui.font)
+(use ui.geom)
+(use ui.layout)
+(use ui.paint)
+(use ui.render)
+(use ui.text)
+(use ui.widget)
+
+(pub (struct fonts (f (opt font.font))))
+
+(pub (struct constraints (pub (min_w f32)) (pub (max_w f32)) (pub (min_h f32)) (pub (max_h f32))))
+
+(pub (fn fonts_new () fonts (fonts (opt.none <font.font>))))
+
+(pub (fn loose ((w f32) (h f32)) constraints (constraints 0.0f32 w 0.0f32 h)))
+
+(fn node ((rt (& render.rtree)) (id u32)) (& render.rnode) (vec.get (& (. rt nodes)) (as i64 id)))
+
+(fn node_mut ((rt (&mut render.rtree)) (id u32)) (&mut render.rnode)
+  (vec.get_mut (&mut (. rt nodes)) (as i64 id)))
+
+(fn ty_of ((rt (& render.rtree)) (id u32)) i64 (. (node rt id) ty))
+
+(fn ax_of ((rt (& render.rtree)) (id u32)) f32 (. (. (node rt id) d) ax))
+
+(fn ay_of ((rt (& render.rtree)) (id u32)) f32 (. (. (node rt id) d) ay))
+
+(fn custom_of ((rt (& render.rtree)) (id u32)) bool (. (. (node rt id) d) has_custom))
+
+(fn kid0 ((rt (& render.rtree)) (id u32)) (opt u32)
+  (let ks (render.kids_of rt id))
+  (if (== (vec.len (& ks)) 0) (ret (opt.none <u32>)))
+  (let k (@ (vec.get (& ks) 0)))
+  (opt.some k))
+
+(fn same_c ((n (& render.rnode)) (c (& constraints))) bool
+  (and (. n has_c)
+    (and (== (. n cminw) (. c min_w))
+      (and (== (. n cmaxw) (. c max_w))
+        (and (== (. n cminh) (. c min_h)) (== (. n cmaxh) (. c max_h)))))))
+
+(fn can_skip ((rt (& render.rtree)) (id u32) (c (& constraints)) (force bool)) bool
+  (if force (ret false))
+  (let n (node rt id))
+  (and (. n relayout_b) (and (not (. n dirty_lay)) (same_c n c))))
+
+(fn store ((rt (&mut render.rtree)) (id u32) (c (& constraints)) (x f32) (y f32) (w f32) (h f32)) unit
+  (let n (node_mut rt id))
+  (set (. n x) x)
+  (set (. n y) y)
+  (set (. n w) w)
+  (set (. n h) h)
+  (set (. n cminw) (. c min_w))
+  (set (. n cmaxw) (. c max_w))
+  (set (. n cminh) (. c min_h))
+  (set (. n cmaxh) (. c max_h))
+  (set (. n has_c) true)
+  (set (. n dirty_lay) false))
+
+(fn size_now ((rt (& render.rtree)) (id u32)) geom.size
+  (let n (node rt id))
+  (geom.size (. n w) (. n h)))
+
+(fn fit ((c (& constraints)) (w f32) (h f32)) geom.size
+  (geom.size (layout.clamp w (. c min_w) (. c max_w)) (layout.clamp h (. c min_h) (. c max_h))))
+
+(fn axis_c ((main_lo f32) (main_hi f32) (cross_hi f32) (axis i64)) constraints
+  (if (== axis 0)
+    (constraints main_lo main_hi 0.0f32 cross_hi)
+    (constraints 0.0f32 cross_hi main_lo main_hi)))
+
+(fn main_of ((sz (& geom.size)) (axis i64)) f32 (if (== axis 0) (. sz w) (. sz h)))
+
+(fn cross_of ((sz (& geom.size)) (axis i64)) f32 (if (== axis 0) (. sz h) (. sz w)))
+
+(fn main_max ((c (& constraints)) (axis i64)) f32 (if (== axis 0) (. c max_w) (. c max_h)))
+
+(fn main_min ((c (& constraints)) (axis i64)) f32 (if (== axis 0) (. c min_w) (. c min_h)))
+
+(fn cross_max ((c (& constraints)) (axis i64)) f32 (if (== axis 0) (. c max_h) (. c max_w)))
+
+(fn cross_min ((c (& constraints)) (axis i64)) f32 (if (== axis 0) (. c min_h) (. c min_w)))
+
+(struct tally (used f32) (flex i64) (cross f32))
+
+(fn measure_one ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (axis i64) (cross_hi f32) (flex i64)) f32
+  (if (> flex 0) (ret 0.0f32))
+  (let c (axis_c 0.0f32 layout.unbound cross_hi axis))
+  (let sz (layout_id rt g id (& c) 0.0f32 0.0f32 false))
+  (main_of (& sz) axis))
+
+(fn flex_of ((rt (& render.rtree)) (id u32)) i64 (. (node rt id) flex))
+
+(fn measure_all ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (axis i64) (cross_hi f32)) tally
+  (let ks (render.kids_of rt id))
+  (let mut used 0.0f32)
+  (let mut flex 0)
+  (let mut cross 0.0f32)
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (let f (flex_of rt kid))
+    (set flex (+ flex f))
+    (let m (measure_one rt g kid axis cross_hi f))
+    (set used (+ used m))
+    (if (and (<= f 0) (> (cross_of (& (size_now rt kid)) axis) cross))
+      (set cross (cross_of (& (size_now rt kid)) axis))))
+  (tally used flex cross))
+
+(fn give_flex ((rt (&mut render.rtree))
+   (g (&mut fonts))
+   (id u32)
+   (axis i64)
+   (cross_hi f32)
+   (free f32)
+   (total i64)) unit
+  (let ks (render.kids_of rt id))
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (let f (flex_of rt kid))
+    (if (> f 0)
+      (do
+        (let share (layout.share free f total))
+        (let c (axis_c share share cross_hi axis))
+        (drop (layout_id rt g kid (& c) 0.0f32 0.0f32 false))))))
+
+(fn place_main ((rt (&mut render.rtree)) (id u32) (x f32) (y f32) (axis i64)) geom.size
+  (let ks (render.kids_of rt id))
+  (let mut off 0.0f32)
+  (let mut cross 0.0f32)
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (let sz (size_now rt kid))
+    (let main (main_of (& sz) axis))
+    (let cr (cross_of (& sz) axis))
+    (if (> cr cross) (set cross cr))
+    (if (== axis 0) (render.set_rel rt kid off 0.0f32) (render.set_rel rt kid 0.0f32 off))
+    (if (== axis 0) (render.place_abs rt kid (+ x off) y) (render.place_abs rt kid x (+ y off)))
+    (set off (+ off main)))
+  (geom.size off cross))
+
+(fn lay_flex ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32) (axis i64)) geom.size
+  (let t (measure_all rt g id axis (cross_max c axis)))
+  (let free (layout.free_main (main_max c axis) (. t used)))
+  (give_flex rt g id axis (cross_max c axis) free (. t flex))
+  (let placed (place_main rt id x y axis))
+  (let main
+    (if (> (. t flex) 0)
+      (layout.span (main_max c axis) (. placed w) (main_min c axis))
+      (layout.clamp (. placed w) (main_min c axis) (main_max c axis))))
+  (let cross (layout.clamp (. placed h) (cross_min c axis) (cross_max c axis)))
+  (if (== axis 0) (geom.size main cross) (geom.size cross main)))
+
+(fn sized_c ((c (& constraints)) (dw f32) (dh f32)) constraints
+  (let max_w (if (>= dw 0.0f32) (layout.clamp dw (. c min_w) (. c max_w)) (. c max_w)))
+  (let min_w (if (>= dw 0.0f32) max_w (. c min_w)))
+  (let max_h (if (>= dh 0.0f32) (layout.clamp dh (. c min_h) (. c max_h)) (. c max_h)))
+  (let min_h (if (>= dh 0.0f32) max_h (. c min_h)))
+  (constraints min_w max_w min_h max_h))
+
+(fn deflate ((c (& constraints)) (l f32) (t f32) (r f32) (b f32)) constraints
+  (let mw
+    (if (layout.bounded (. c max_w))
+      (layout.clamp (- (. c max_w) (+ l r)) 0.0f32 (. c max_w))
+      layout.unbound))
+  (let mh
+    (if (layout.bounded (. c max_h))
+      (layout.clamp (- (. c max_h) (+ t b)) 0.0f32 (. c max_h))
+      layout.unbound))
+  (constraints (layout.clamp (- (. c min_w) (+ l r)) 0.0f32 mw)
+    mw
+    (layout.clamp (- (. c min_h) (+ t b)) 0.0f32 mh)
+    mh))
+
+(fn lay_one ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
+  (match (kid0 rt id)
+    ((opt.some k) (layout_id rt g k c x y false))
+    ((opt.none) (geom.size 0.0f32 0.0f32))))
+
+(struct insets (l f32) (t f32) (r f32) (b f32) (dw f32) (dh f32))
+
+(fn insets_of ((rt (& render.rtree)) (id u32)) insets
+  (let n (node rt id))
+  (insets (. (. n d) pad_l)
+    (. (. n d) pad_t)
+    (. (. n d) pad_r)
+    (. (. n d) pad_b)
+    (. (. n d) max_w)
+    (. (. n d) max_h)))
+
+(fn lay_box ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
+  (let box (insets_of rt id))
+  (let l (. box l))
+  (let t (. box t))
+  (let r (. box r))
+  (let b (. box b))
+  (let dw (. box dw))
+  (let dh (. box dh))
+  (let outer (sized_c c dw dh))
+  (let inner (deflate (& outer) l t r b))
+  (let sz (lay_one rt g id (& inner) (+ x l) (+ y t)))
+  (match (kid0 rt id)
+    ((opt.some k) (do (render.set_rel rt k l t) (render.place_abs rt k (+ x l) (+ y t))))
+    ((opt.none) ()))
+  (let w (if (>= dw 0.0f32) (. outer max_w) (+ (. sz w) (+ l r))))
+  (let h (if (>= dh 0.0f32) (. outer max_h) (+ (. sz h) (+ t b))))
+  (geom.size w h))
+
+(fn lay_align ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
+  (let ax (ax_of rt id))
+  (let ay (ay_of rt id))
+  (let loose (constraints 0.0f32 (. c max_w) 0.0f32 (. c max_h)))
+  (let sz (lay_one rt g id (& loose) x y))
+  (let pw (if (and (layout.bounded (. c max_w)) (== (. c min_w) (. c max_w))) (. c max_w) (. sz w)))
+  (let ph (if (and (layout.bounded (. c max_h)) (== (. c min_h) (. c max_h))) (. c max_h) (. sz h)))
+  (let ox (layout.align_off pw (. sz w) ax))
+  (let oy (layout.align_off ph (. sz h) ay))
+  (match (kid0 rt id)
+    ((opt.some k) (do (render.set_rel rt k ox oy) (render.place_abs rt k (+ x ox) (+ y oy))))
+    ((opt.none) ()))
+  (geom.size pw ph))
+
+(fn missing ((g (& fonts))) bool (opt.is_none (& (. g f))))
+
+(fn ensure ((g (&mut fonts))) unit
+  (if (not (missing g)) (ret))
+  (match (font.font.bundled) ((res.ok f) (set (. g f) (opt.some f))) ((res.err _) ())))
+
+(fn para_of ((f (& font.font)) (text (& str)) (size f32) (max_w f32) (col blend.color)) (opt text.para)
+  (let mut runs (vec.new <text.run>))
+  (vec.push (&mut runs) (text.run (str.clone text) size col))
+  (match (text.layout f (& runs) max_w 0 0 true)
+    ((res.ok p) (opt.some p))
+    ((res.err _) (opt.none <text.para>))))
+
+(fn text_size_in ((g (& fonts)) (text (& str)) (size f32) (max_w f32)) geom.size
+  (match (& (. g f))
+    ((opt.some f)
+      (match (para_of f text size max_w (blend.color 0u8 0u8 0u8 255u8))
+        ((opt.some p) (geom.size (text.width (& p)) (text.height (& p))))
+        ((opt.none) (geom.size 0.0f32 0.0f32))))
+    ((opt.none) (geom.size 0.0f32 0.0f32))))
+
+(fn with_font ((g (&mut fonts)) (text (& str)) (size f32) (max_w f32)) geom.size
+  (ensure g)
+  (text_size_in g text size max_w))
+
+(fn text_of ((rt (& render.rtree)) (id u32)) str (str.clone (& (. (. (node rt id) d) text))))
+
+(fn font_px ((rt (& render.rtree)) (id u32)) f32 (. (. (node rt id) d) font_size))
+
+(fn lay_text ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints))) geom.size
+  (let text (text_of rt id))
+  (let size (font_px rt id))
+  (let max_w (if (layout.bounded (. c max_w)) (. c max_w) layout.unbound))
+  (let sz (with_font g (& text) size max_w))
+  (fit c (. sz w) (. sz h)))
+
+(fn lay_image ((rt (& render.rtree)) (id u32) (c (& constraints))) geom.size
+  (let n (node rt id))
+  (fit c (as f32 (. (. (. n d) image) w)) (as f32 (. (. (. n d) image) h))))
+
+(fn lay_custom ((rt (&mut render.rtree)) (id u32) (c (& constraints))) geom.size
+  (let n (node_mut rt id))
+  (render.render.layout (&mut (. (. n d) custom)) c))
+
+(fn lay_stack ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
+  (let ks (render.kids_of rt id))
+  (let mut mw 0.0f32)
+  (let mut mh 0.0f32)
+  (let mut any false)
+  (for i 0 (vec.len (& ks))
+    (let kid (@ (vec.get (& ks) i)))
+    (if (not (. (node rt kid) has_pos))
+      (do
+        (let sz (layout_id rt g kid c x y false))
+        (render.set_rel rt kid 0.0f32 0.0f32)
+        (if (> (. sz w) mw) (set mw (. sz w)))
+        (if (> (. sz h) mh) (set mh (. sz h)))
+        (set any true))))
+  (let sw
+    (if any (layout.clamp mw (. c min_w) (. c max_w)) (layout.clamp 0.0f32 (. c min_w) (. c max_w))))
+  (let sh
+    (if any (layout.clamp mh (. c min_h) (. c max_h)) (layout.clamp 0.0f32 (. c min_h) (. c max_h))))
+  (place_stack rt g id x y sw sh)
+  (geom.size sw sh))
+
+(fn pos_c ((pw f32) (ph f32) (sw f32) (sh f32)) constraints
+  (let max_w (if (>= pw 0.0f32) pw sw))
+  (let min_w (if (>= pw 0.0f32) pw 0.0f32))
+  (let max_h (if (>= ph 0.0f32) ph sh))
+  (let min_h (if (>= ph 0.0f32) ph 0.0f32))
+  (constraints min_w max_w min_h max_h))
+
+(fn flag_pos ((rt (& render.rtree)) (id u32)) bool (. (node rt id) has_pos))
+
+(fn px_of ((rt (& render.rtree)) (id u32)) f32 (. (node rt id) px))
+
+(fn py_of ((rt (& render.rtree)) (id u32)) f32 (. (node rt id) py))
+
+(fn pw_of ((rt (& render.rtree)) (id u32)) f32 (. (node rt id) pw))
+
+(fn ph_of ((rt (& render.rtree)) (id u32)) f32 (. (node rt id) ph))
+
+(fn place_one ((rt (&mut render.rtree)) (g (&mut fonts)) (kid u32) (x f32) (y f32) (sw f32) (sh f32)) unit
+  (if (not (flag_pos rt kid)) (ret (render.place_abs rt kid x y)))
+  (let px (px_of rt kid))
+  (let py (py_of rt kid))
+  (let c (pos_c (pw_of rt kid) (ph_of rt kid) sw sh))
+  (drop (layout_id rt g kid (& c) (+ x px) (+ y py) false))
+  (render.set_rel rt kid px py)
+  (render.place_abs rt kid (+ x px) (+ y py)))
+
+(fn place_stack ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (x f32) (y f32) (sw f32) (sh f32)) unit
+  (let ks (render.kids_of rt id))
+  (for i 0 (vec.len (& ks)) (place_one rt g (@ (vec.get (& ks) i)) x y sw sh)))
+
+(fn span_of ((max f32) (child f32)) f32 (if (layout.bounded max) max child))
+
+(fn scroll_off ((rt (& render.rtree)) (id u32)) f32 (. (. (node rt id) d) off))
+
+(fn lay_scroll ((rt (&mut render.rtree))
+   (g (&mut fonts))
+   (id u32)
+   (c (& constraints))
+   (x f32)
+   (y f32)) geom.size
+  (let off (scroll_off rt id))
+  (let max_w (if (layout.bounded (. c max_w)) (. c max_w) layout.unbound))
+  (let inner (constraints 0.0f32 max_w 0.0f32 layout.unbound))
+  (let y0 (- y off))
+  (let sz (lay_one rt g id (& inner) x y0))
+  (match (kid0 rt id)
+    ((opt.some k) (do (render.set_rel rt k 0.0f32 (neg off)) (render.place_abs rt k x y0)))
+    ((opt.none) ()))
+  (geom.size (span_of (. c max_w) (. sz w)) (span_of (. c max_h) (. sz h))))
+
+(fn dispatch ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (c (& constraints)) (x f32) (y f32)) geom.size
+  (let ty (ty_of rt id))
+  (if (== ty widget.ty_row) (ret (lay_flex rt g id c x y 0)))
+  (if (or (== ty widget.ty_column) (== ty widget.ty_scaffold)) (ret (lay_flex rt g id c x y 1)))
+  (if (== ty widget.ty_stack) (ret (lay_stack rt g id c x y)))
+  (if (== ty widget.ty_scroll) (ret (lay_scroll rt g id c x y)))
+  (if (== ty widget.ty_text) (ret (lay_text rt g id c)))
+  (if (== ty widget.ty_image) (ret (lay_image rt id c)))
+  (if (custom_of rt id) (ret (lay_custom rt id c)))
+  (if (>= (ax_of rt id) 0.0f32) (ret (lay_align rt g id c x y)))
+  (lay_box rt g id c x y))
+
+(fn layout_id ((rt (&mut render.rtree))
+   (g (&mut fonts))
+   (id u32)
+   (c (& constraints))
+   (x f32)
+   (y f32)
+   (force bool)) geom.size
+  (if (not (render.live rt id)) (ret (geom.size 0.0f32 0.0f32)))
+  (if (can_skip rt id c force) (do (render.place_abs rt id x y) (ret (size_now rt id))))
+  (let sz (dispatch rt g id c x y))
+  (let fit (fit c (. sz w) (. sz h)))
+  (store rt id c x y (. fit w) (. fit h))
+  fit)
+
+(fn stamp ((f (&mut font.font)) (text (& str)) (size f32) (max_w f32) (col blend.color)) (vec paint.stamp)
+  (match (para_of f text size max_w col)
+    ((opt.some p)
+      (match (text.stamps (& p) f) ((res.ok s) s) ((res.err _) (vec.new <paint.stamp>))))
+    ((opt.none) (vec.new <paint.stamp>))))
+
+(struct drawn (gs (vec paint.stamp)) (font (opt font.font)))
+
+(fn draw_opt ((f (opt font.font)) (text (& str)) (size f32) (max_w f32) (col blend.color)) drawn
+  (match f
+    ((opt.some font)
+      (do
+        (let mut font font)
+        (let gs (stamp (&mut font) text size max_w col))
+        (drawn gs (opt.some font))))
+    ((opt.none) (drawn (vec.new <paint.stamp>) (opt.none <font.font>)))))
+
+(fn take_font ((g (&mut fonts))) (opt font.font)
+  (mem.replace (&mut (. g f)) (opt.none <font.font>)))
+
+(fn put_font ((g (&mut fonts)) (f (opt font.font))) unit (set (. g f) f))
+
+(pub (fn glyphs ((g (&mut fonts)) (text (& str)) (size f32) (max_w f32) (col blend.color)) (vec paint.stamp)
+  (ensure g)
+  (let mut d (draw_opt (take_font g) text size max_w col))
+  (put_font g (mem.replace (&mut (. d font)) (opt.none <font.font>)))
+  (let gs (mem.replace (&mut (. d gs)) (vec.new <paint.stamp>)))
+  gs))
+
+(pub (fn layout_tree ((rt (&mut render.rtree)) (g (&mut fonts)) (id u32) (w f32) (h f32)) geom.size
+  (let c (loose w h))
+  (layout_id rt g id (& c) 0.0f32 0.0f32 true)))

@@ -1,6 +1,6 @@
 # std.sys
 
-libc externs and the panic runtime. Not for programs; std only. `sys.os_id` is `1` on POSIX and `2` on Windows, defined in the host file.
+libc externs and the panic runtime. Not for programs; std only. `sys.os_id` is `1` on POSIX, `2` on Windows, and `3` on wasm32, defined in the host file.
 
 Source: `std/sys.llr`, with externs from `std/sys_posix.llr` or `std/sys_windows.llr`. Import with `(use std.sys)` for module functions; types and methods need no import.
 

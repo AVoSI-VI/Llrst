@@ -1,0 +1,8 @@
+;; Android bridge. The shim installs an AccessibilityNodeProvider.
+(use ui.host_shim)
+(use ui.semantics)
+
+(pub (fn update ((s (& host_shim.slot)) (bytes (& (vec u8)))) unit
+  (host_shim.a11y s bytes)))
+
+(test a11y_android_bits (assert_eq semantics.act_value 4))

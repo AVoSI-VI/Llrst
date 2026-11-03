@@ -48,9 +48,9 @@
 
 (fn rv_acc ((r (& mir.rv)) (line i64) (col i64) (len i64) (out (&mut (vec acc)))) unit
   (let k (. r kind))
-  (if (or (== k 0u8) (or (== k 3u8) (or (== k 4u8) (or (== k 5u8) (== k 6u8)))))
+  (if (or (== k 0u8) (or (== k 3u8) (or (== k 4u8) (or (== k 5u8) (or (== k 6u8) (== k 19u8))))))
     (if (> (vec.len (& (. r ops))) 0) (op_acc (vec.get (& (. r ops)) 0) line col len out)))
-  (if (== k 1u8)
+  (if (or (== k 1u8) (== k 20u8))
     (vec.push out
       (mk_acc (mir.place (. r local) (pk_rv r) (pi_rv r)) (if (. r flag) 4u8 3u8) line col len)))
   (if (or (== k 2u8) (or (== k 11u8) (== k 12u8)))

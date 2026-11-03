@@ -1,0 +1,21 @@
+;; Stack size follows the non-positioned child. Positioned uses its offsets.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.w_box)
+(use ui.w_stack)
+(use ui.widget)
+
+(fn sized ((w f32) (h f32)) (box (dyn widget.widget)) (w_box.sized w h (widget.empty)))
+
+(fn kids () (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (sized 20.0f32 10.0f32))
+  (vec.push (&mut ks) (w_stack.positioned 2.0f32 3.0f32 8.0f32 6.0f32 (sized 8.0f32 6.0f32)))
+  ks)
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (w_stack.stack (kids))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a)))))

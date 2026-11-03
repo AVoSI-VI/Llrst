@@ -1,0 +1,29 @@
+;; Platform surface. The framework paints; a host only presents pixels and reports events.
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+
+(pub (trait host
+  (fn size ((& Self)) geom.size)
+  (fn scale ((& Self)) f32)
+  (fn present ((&mut Self) (& bitmap.bitmap)) unit)
+  (fn poll ((&mut Self) (&mut (vec event.event))) unit)
+  (fn request_frame ((&mut Self)) unit)
+  (fn now_ms ((& Self)) i64)
+  (fn set_cursor ((&mut Self) i64) unit)
+  (fn clipboard_get ((& Self)) str)
+  (fn clipboard_set ((&mut Self) (& str)) unit)
+  (fn text_input ((&mut Self) bool (& geom.rect)) unit)
+  (fn quit ((&mut Self)) unit)
+  (fn history ((&mut Self) i64) unit)
+  (fn a11y ((&mut Self) (& (vec u8))) unit)))
+
+(pub (const cursor_arrow i64 0))
+
+(pub (const cursor_text i64 1))
+
+(pub (const cursor_hand i64 2))
+
+(pub (const cursor_cross i64 3))
+
+(pub (const cursor_wait i64 4))

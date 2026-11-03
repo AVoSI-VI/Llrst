@@ -1,0 +1,157 @@
+;; Save and load of state values, and the layout list a reload compares.
+(use std.fmt)
+(use std.fs)
+(use std.os)
+(use std.str)
+(use ui.element)
+(use ui.state)
+
+(fn at ((es (& element.elems)) (id u32)) (& element.elem) (vec.get (& (. es nodes)) (as i64 id)))
+
+(fn kids ((es (& element.elems)) (id u32)) (vec u32)
+  (let n (at es id))
+  (let mut o (vec.new <u32>))
+  (for i 0 (vec.len (& (. n kids))) (vec.push (&mut o) (@ (vec.get (& (. n kids)) i))))
+  o)
+
+(fn unesc ((s (& str))) str
+  (let mut o (str.new))
+  (let mut i 0)
+  (while (< i (str.len s))
+    (if (and (== (str.at s i) 92u8) (< (+ i 1) (str.len s)))
+      (do
+        (let c (str.at s (+ i 1)))
+        (if (== c 110u8) (do (str.push_byte (&mut o) 10u8) (set i (+ i 2)) (cont)))
+        (if (and (== c 120u8) (< (+ i 4) (+ (str.len s) 1)))
+          (if (str.eq (& (str.slice s i (+ i 4))) "\\x7c")
+            (do (str.push_byte (&mut o) 124u8) (set i (+ i 4)) (cont))))))
+    (str.push_byte (&mut o) (str.at s i))
+    (set i (+ i 1)))
+  o)
+
+(fn add_line ((out (&mut str)) (index i64) (ty i64) (lay i64) (text (& str))) unit
+  (if (> (str.len out) 0) (str.push_byte out 10u8))
+  (let a (str.from "st"))
+  (let b (str.from_int index))
+  (let c (str.from_int ty))
+  (let d (str.from_int lay))
+  (let e (fmt.field text))
+  (let line (fmt.pipe5 (& a) (& b) (& c) (& d) (& e)))
+  (str.push out (& line)))
+
+(fn walk_save ((es (& element.elems)) (id u32) (out (&mut str)) (n (&mut i64))) unit
+  (if (not (. (at es id) live)) (ret))
+  (let has (. (at es id) has_st))
+  (let ty (. (at es id) ty))
+  (if has
+    (do
+      (let lay (state.state.layout (& (. (at es id) st))))
+      (let text (state.state.save (& (. (at es id) st))))
+      (add_line out (@ n) ty lay (& text))
+      (set (@ n) (+ (@ n) 1))))
+  (let ks (kids es id))
+  (for i 0 (vec.len (& ks)) (walk_save es (@ (vec.get (& ks) i)) out n)))
+
+(pub (fn save_tree ((es (& element.elems)) (id u32)) str
+  (let mut s (str.new))
+  (let mut n 0)
+  (walk_save es id (&mut s) (&mut n))
+  s))
+
+(fn field_at ((line (& str)) (i i64)) str
+  (let ps (str.split line 124u8))
+  (if (>= i (vec.len (& ps))) (ret (str.new)))
+  (str.clone (vec.get (& ps) i)))
+
+(fn apply_line ((es (&mut element.elems)) (id u32) (line (& str))) unit
+  (let lay (field_at line 3))
+  (let text (unesc (& (field_at line 4))))
+  (let _ lay)
+  (state.state.load (&mut (. (at_mut es id) st)) (& text)))
+
+(fn at_mut ((es (&mut element.elems)) (id u32)) (&mut element.elem)
+  (vec.get_mut (&mut (. es nodes)) (as i64 id)))
+
+(fn walk_load ((es (&mut element.elems)) (id u32) (lines (& (vec str))) (n (&mut i64))) unit
+  (if (not (. (at es id) live)) (ret))
+  (let has (. (at es id) has_st))
+  (if (and has (< (@ n) (vec.len lines)))
+    (do (apply_line es id (vec.get lines (@ n))) (set (@ n) (+ (@ n) 1))))
+  (let ks (kids es id))
+  (for i 0 (vec.len (& ks)) (walk_load es (@ (vec.get (& ks) i)) lines n)))
+
+(pub (fn load_tree ((es (&mut element.elems)) (id u32) (text (& str))) unit
+  (if (== (str.len text) 0) (ret))
+  (let lines (str.lines text))
+  (let mut n 0)
+  (walk_load es id (& lines) (&mut n))))
+
+(fn walk_marks ((es (& element.elems)) (id u32) (out (&mut (vec i64)))) unit
+  (if (not (. (at es id) live)) (ret))
+  (if (. (at es id) has_st) (vec.push out (state.state.layout (& (. (at es id) st)))))
+  (let ks (kids es id))
+  (for i 0 (vec.len (& ks)) (walk_marks es (@ (vec.get (& ks) i)) out)))
+
+(pub (fn marks ((es (& element.elems)) (id u32)) (vec i64)
+  (let mut o (vec.new <i64>))
+  (walk_marks es id (&mut o))
+  o))
+
+(pub (fn bad_marks ((v (& (vec i64)))) bool
+  (for i 0 (vec.len v) (if (< (@ (vec.get v i)) 0) (ret true)))
+  false))
+
+(pub (fn differ ((a (& (vec i64))) (b (& (vec i64)))) bool
+  (if (!= (vec.len a) (vec.len b)) (ret true))
+  (if (or (bad_marks a) (bad_marks b)) (ret true))
+  (for i 0 (vec.len a) (if (!= (@ (vec.get a i)) (@ (vec.get b i))) (ret true)))
+  false))
+
+(pub (fn flag ((name (& str))) bool
+  (let args (os.args))
+  (let mut needle (str.from "--"))
+  (str.push (&mut needle) name)
+  (for i 0 (vec.len (& args)) (if (str.eq (vec.get (& args) i) (& needle)) (ret true)))
+  false))
+
+(pub (fn opt ((name (& str))) str
+  (let args (os.args))
+  (let mut needle (str.from "--"))
+  (str.push (&mut needle) name)
+  (let mut i 0)
+  (while (< i (vec.len (& args)))
+    (if (str.eq (vec.get (& args) i) (& needle))
+      (do
+        (if (>= (+ i 1) (vec.len (& args))) (ret (str.new)))
+        (ret (str.clone (vec.get (& args) (+ i 1))))))
+    (set i (+ i 1)))
+  (str.new)))
+
+(pub (fn write_state ((text (& str))) unit
+  (let path (opt "llr-state"))
+  (if (== (str.len (& path)) 0) (ret))
+  (drop (fs.write (& path) text))))
+
+(pub (fn read_state () str
+  (let path (opt "llr-state"))
+  (if (or (== (str.len (& path)) 0) (not (fs.exists (& path)))) (ret (str.new)))
+  (match (fs.read (& path)) ((res.ok s) s) ((res.err _) (str.new)))))
+
+(pub (fn clear_state () unit
+  (let path (opt "llr-state"))
+  (if (and (> (str.len (& path)) 0) (fs.exists (& path))) (drop (fs.remove (& path))))))
+
+(test reload_marks
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 8)
+  (vec.push (&mut v) (neg 1))
+  (assert (bad_marks (& v)))
+  (assert (differ (& v) (& v)))
+  (let mut w (vec.new <i64>))
+  (vec.push (&mut w) 8)
+  (assert (not (bad_marks (& w))))
+  (assert (differ (& v) (& w)))
+  (assert (not (differ (& w) (& w))))
+  (let raw (str.from "a|b\nc"))
+  (let back (unesc (& (fmt.field (& raw)))))
+  (assert (str.eq (& back) (& raw))))

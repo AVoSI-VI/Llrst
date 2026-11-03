@@ -24,7 +24,7 @@
   (for si 0 (vec.len (& (. blk stmts))) (collect_st (vec.get (& (. blk stmts)) si) bi si o)))
 
 (fn collect_st ((s (& mir.st)) (bb i64) (idx i64) (o (&mut (vec loan)))) unit
-  (if (and (== (. s kind) 0u8) (== (. (. s rv) kind) 1u8))
+  (if (and (== (. s kind) 0u8) (or (== (. (. s rv) kind) 1u8) (== (. (. s rv) kind) 20u8)))
     (vec.push o
       (loan (mir.place (. (. s rv) local) (pk s) (pi s))
         (. (. s rv) flag)

@@ -135,13 +135,13 @@ impl<'a> Cx<'a> {
     fn loans_of(&self, pre: &BitSet, rv: &Rvalue, to: LocalIdx, point: Point) -> Vec<usize> {
         let mut gen = Vec::new();
         match rv {
-            Rvalue::Ref { place, .. } => {
+            Rvalue::Ref { place, .. } | Rvalue::BoxBorrow { place, .. } => {
                 if let Some(&li) = self.loan_at.get(&point) {
                     gen.push(li);
                 }
                 gen.extend(self.pairs_of(pre, place.local));
             }
-            Rvalue::Use(op) | Rvalue::Cast(op, _) => gen.extend(self.flow_operand(pre, op, to)),
+            Rvalue::Use(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => gen.extend(self.flow_operand(pre, op, to)),
             Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => {
                 for o in ops {
                     gen.extend(self.flow_operand(pre, o, to));

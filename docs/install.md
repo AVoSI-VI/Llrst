@@ -18,20 +18,23 @@ Stage 0 builds `llrs0`, `llrs0` builds `llrs1`, and `llrs1` builds `llrs2`. `llr
 Darwin. `scripts/self.ps1` is the same
 bootstrap on Windows; it sets `SOURCE_DATE_EPOCH=0` for the compare, and the link line keeps
 `/Brepro`. `--stage` stops after `self|stage2=equal`. The install
-script then installs `llrs2` as `llrc`. It copies `std/` and `examples/` to
+script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, `web/`, and `examples/` to
 `PREFIX/share/llrst/`, compiles the host runtime
-(`runtime/llr_stat.c` on Unix, `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
-and `runtime/llr_win_proc.c` on Windows), compiles every `tools/llr-*.llr`, and verifies with
+(`runtime/llr_stat.c`, `runtime/llr_now.c`, and `runtime/llr_ui_web.c` on Unix; `runtime/llr_wsa.c`, `runtime/llr_win.c`, `runtime/llr_win_sock.c`,
+`runtime/llr_win_proc.c`, `runtime/llr_now.c`, and `runtime/llr_ui_web.c` on Windows, plus the desktop UI shim for this host), compiles every `tools/llr-*.llr`, and verifies with
 `examples/hello.llr`. Output is pipe records; the last line is `done|prefix=...|tools=N`.
 The installed compiler links those prebuilt objects. It does not compile the C files when
 the object is missing or older.
 
-`fs.mtime` and `fs.size` link that object. The C uses `st_mtime` and `st_size`, so the
+`fs.mtime` and `fs.size` link `llr_stat`. `fs.now_ms` links `llr_now`. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`, and the compiler renames
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
 in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
 Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
+An Apple triple uses `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` with
+`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos --show-sdk-path`.
+An Android triple uses `$ANDROID_NDK`'s `aarch64-linux-android21-clang` with `-shared`.
 Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, `x86_64`
 without `apple`, and `aarch64` or `arm64`, including `apple-darwin`. `riscv64` and `s390x`
 stay on stage 0. `tests/run.sh` and
@@ -40,11 +43,27 @@ runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` ag
 stage 0 binary. When `LLRC` is not stage 0, `tests/run.sh` runs `tests/cross.sh` again with
 that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$LLRST_STD`,
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
-`llr_win`, `llr_win_sock`, and `llr_win_proc` from those same places, using the first of
+`llr_win`, `llr_win_sock`, `llr_win_proc`, and `llr_now` from those same places, using the first of
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
+A program that calls `llr_ui_open` also links the UI shim from that search. A program that calls `llr_web_present` also links `llr_ui_web`. The desktop shim is: `llr_ui_win`,
+`llr_ui_win_in`, and `llr_ui_win_a11y` with `user32 gdi32 imm32 shell32 ole32 oleaut32 uiautomationcore` on Windows, `llr_ui_mac`,
+`llr_ui_mac_in`, and `llr_ui_mac_a11y` with `-framework Cocoa` on Darwin, and `llr_ui_x11` and `llr_ui_x11_in`
+with `-lX11` elsewhere. Darwin compiles the `.m` files with `clang -fobjc-arc`. Linux
+compiles the X11 files and needs the `X11/Xlib.h` headers (`libx11-dev`). The compiler
+does not compile those files itself on Unix. `tests/run.sh` compiles the host UI objects
+into `runtime/` beside `llr_stat.o`. The suite does not open a window.
+
+An Android link looks for `llr_stat_android.o`, `llr_now_android.o`,
+`llr_android_main.o`, and `llr_ui_android_glue.o`, plus `llr_ui_android.o`,
+`llr_ui_android_in.o`, and `llr_ui_android_a11y.o` when the program calls `llr_ui_open`. An iOS link looks for the
+`_ios` objects, or `_ios_sim` when the triple contains `simulator`. Install compiles
+them when `ANDROID_NDK` or the Xcode iOS SDKs are present, and prints
+`skip|runtime|android=ndk-missing` or `skip|runtime|ios=sdk-missing` otherwise.
 
 `llrc` finds `std` in this order: `--std DIR`, `$LLRST_STD`, `<exe>/../std`,
-`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. The executable path comes from
+`<exe>/../../std`, `<exe>/../share/llrst/std`, `./std`. It finds `ui` in this order:
+`--ui DIR`, `$LLRST_UI`, `<exe>/../share/llrst/ui`, `<exe>/../../ui`, `./ui`. A program
+that never uses `ui` does not need that directory. The executable path comes from
 `llr_exe_path`.
 
 Windows host: `scripts/install.ps1` builds stage 0, then `scripts/self.ps1` builds the three
@@ -56,17 +75,19 @@ Windows temp directory. `llrc run` passes the argument vector through `llr_exec`
 
 ## Commands
 
-Flags may come before or after the subcommand. `version` prints `llrc|0.1.0`.
+Flags may come before or after the subcommand. `version` prints `llrc|0.4.5`.
 
 ```
-usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
-usage|llrc run FILE [--std DIR] [--deny CODE] [-- ARGS...]
-usage|llrc check FILE [--std DIR] [--deny CODE]
-usage|llrc emit-mir FILE [--std DIR] [--deny CODE]
+usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]
+usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]
+usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]
+usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc version
 ```
 
-`--emit-obj` writes the object and does not link. `--checked` traps wrapping arithmetic,
+`--emit-obj` writes the object and does not link. `--emit-dylib` links a shared library
+(`-shared`, or `/LD` on MSVC) and exports `llr_ui_boot`, `llr_ui_frame`, and `llr_ui_drop`
+instead of a process `main`. `--checked` traps wrapping arithmetic,
 out-of-range shifts, and casts that do not fit. `--deny CODE` may be repeated; each named
 warning is printed as `E` and the process exits 1. `run FILE -- ARGS` passes `ARGS` to the
 program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps every local in a stack slot

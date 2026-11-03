@@ -1,0 +1,68 @@
+(use std.math)
+(use std.math_trig)
+(use std.opt)
+(use ui.geom)
+
+(pub (struct mat (pub (a f32)) (pub (b f32)) (pub (c f32)) (pub (d f32)) (pub (e f32)) (pub (f f32))))
+
+(impl mat
+  (pub (fn id () mat (mat 1.0f32 0.0f32 0.0f32 1.0f32 0.0f32 0.0f32)))
+  (pub (fn translate ((x f32) (y f32)) mat (mat 1.0f32 0.0f32 0.0f32 1.0f32 x y)))
+  (pub (fn scale ((x f32) (y f32)) mat (mat x 0.0f32 0.0f32 y 0.0f32 0.0f32)))
+  (pub (fn rotate ((rad f32)) mat
+    (let c (math_trig.cos32 rad))
+    (let s (math_trig.sin32 rad))
+    (mat c s (neg s) c 0.0f32 0.0f32)))
+  (pub (fn apply ((self (& mat)) (p (& geom.pt))) geom.pt
+    (geom.pt (+ (+ (* (. self a) (. p x)) (* (. self c) (. p y))) (. self e))
+      (+ (+ (* (. self b) (. p x)) (* (. self d) (. p y))) (. self f)))))
+  (pub (fn mul ((self (& mat)) (o (& mat))) mat
+    (mat (+ (* (. self a) (. o a)) (* (. self c) (. o b)))
+      (+ (* (. self b) (. o a)) (* (. self d) (. o b)))
+      (+ (* (. self a) (. o c)) (* (. self c) (. o d)))
+      (+ (* (. self b) (. o c)) (* (. self d) (. o d)))
+      (+ (+ (* (. self a) (. o e)) (* (. self c) (. o f))) (. self e))
+      (+ (+ (* (. self b) (. o e)) (* (. self d) (. o f))) (. self f)))))
+  (pub (fn invert ((self (& mat))) (opt mat)
+    (let det (- (* (. self a) (. self d)) (* (. self c) (. self b))))
+    (if (< (math.abs32 det) 0.0000001f32) (ret (opt.none <mat>)))
+    (let inv (/ 1.0f32 det))
+    (opt.some (mat (* (. self d) inv)
+       (* (neg (. self b)) inv)
+       (* (neg (. self c)) inv)
+       (* (. self a) inv)
+       (* (- (* (. self c) (. self f)) (* (. self d) (. self e))) inv)
+       (* (- (* (. self b) (. self e)) (* (. self a) (. self f))) inv))))))
+
+(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
+
+(fn near ((g f32) (w f32)) bool (< (math.abs32 (- g w)) 0.001f32))
+
+(test mat_apply
+  (let m (mat.translate 2.0f32 3.0f32))
+  (let p (geom.pt 1.0f32 1.0f32))
+  (let q (mat.apply (& m) (& p)))
+  (assert_eq (milli (. q x)) 3000)
+  (assert_eq (milli (. q y)) 4000)
+  (let s (mat.scale 2.0f32 3.0f32))
+  (let t (mat.mul (& m) (& s)))
+  (let r (mat.apply (& t) (& p)))
+  (assert_eq (milli (. r x)) 4000)
+  (assert_eq (milli (. r y)) 6000)
+  (let back (mat.invert (& m)))
+  (match back
+    ((opt.some inv)
+      (do
+        (let o (mat.apply (& inv) (& q)))
+        (assert (near (. o x) 1.0f32))
+        (assert (near (. o y) 1.0f32))))
+    ((opt.none) (assert false)))
+  (let bad (mat 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32))
+  (assert (opt.is_none (& (mat.invert (& bad)))))
+  (let id (mat.id))
+  (let turned (mat.rotate 1.5707963f32))
+  (let u (geom.pt 1.0f32 0.0f32))
+  (let v (mat.apply (& turned) (& u)))
+  (assert (near (. v x) 0.0f32))
+  (assert (near (. v y) 1.0f32))
+  (drop id))

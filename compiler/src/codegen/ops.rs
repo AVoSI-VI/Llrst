@@ -169,12 +169,15 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     pub fn float_to_int(&mut self, x: Value, to: crate::ty::IntTy, dst: &Ty) -> Value {
-        let it = clif_type(dst).unwrap();
-        if to.signed() {
-            self.b.ins().fcvt_to_sint_sat(it, x)
+        // x64 cvtt only targets 32- and 64-bit integers. Narrow after that.
+        let wide = if to.bytes() >= 8 { types::I64 } else { types::I32 };
+        let full = if to.signed() {
+            self.b.ins().fcvt_to_sint_sat(wide, x)
         } else {
-            self.b.ins().fcvt_to_uint_sat(it, x)
-        }
+            self.b.ins().fcvt_to_uint_sat(wide, x)
+        };
+        let it = clif_type(dst).unwrap();
+        if it == wide { full } else { self.b.ins().ireduce(it, full) }
     }
 
 }

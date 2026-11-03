@@ -1,0 +1,20 @@
+;; Optional widget key. Both absent keys match; a present key matches only the same id.
+(pub (struct key (pub (on bool)) (pub (id u32))))
+
+(impl key
+  (pub (fn none () key (key false 0u32)))
+  (pub (fn value ((id u32)) key (key true id)))
+  (pub (fn same ((a (& key)) (b (& key))) bool
+    (if (and (not (. a on)) (not (. b on))) (ret true))
+    (and (and (. a on) (. b on)) (== (. a id) (. b id))))))
+
+(test key_same
+  (let a (key.none))
+  (let b (key.none))
+  (assert (key.same (& a) (& b)))
+  (let c (key.value 1u32))
+  (assert (not (key.same (& a) (& c))))
+  (let d (key.value 1u32))
+  (assert (key.same (& c) (& d)))
+  (let e (key.value 2u32))
+  (assert (not (key.same (& c) (& e)))))

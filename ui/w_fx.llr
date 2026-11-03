@@ -1,0 +1,34 @@
+;; Opacity, clip, and transform. They are repaint boundaries and do not change layout.
+(use ui.key)
+(use ui.widget)
+
+(fn one ((w (box (dyn widget.widget)))) (vec (box (dyn widget.widget)))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) w)
+  ks)
+
+(pub (fn opacity ((a f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d opacity) a)
+  (widget.make widget.ty_opacity (key.key.none) (one child) d false (widget.nop))))
+
+(pub (fn clip_rect ((child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d clip) true)
+  (widget.make widget.ty_clip (key.key.none) (one child) d false (widget.nop))))
+
+(pub (fn transform ((tx f32) (ty f32) (sx f32) (sy f32) (rot f32) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
+  (let mut d (widget.blank))
+  (set (. d has_xform) true)
+  (set (. d tx) tx)
+  (set (. d ty) ty)
+  (set (. d sx) sx)
+  (set (. d sy) sy)
+  (set (. d rot) rot)
+  (widget.make widget.ty_transform (key.key.none) (one child) d false (widget.nop))))
+
+(test w_fx_ty
+  (let w (opacity 0.5f32 (widget.empty)))
+  (assert_eq (widget.widget.name (& w)) "opacity")
+  (let c (clip_rect (widget.empty)))
+  (assert_eq (widget.widget.ty (& c)) widget.ty_clip))

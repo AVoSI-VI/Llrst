@@ -1,0 +1,291 @@
+;; Opens a tree, runs frames, and dumps it. The first layout happens before events.
+(use std.io)
+(use std.math)
+(use std.str)
+(use std.sys)
+(use ui.bitmap)
+(use ui.ctx)
+(use ui.gate)
+(use ui.reload)
+(use ui.element)
+(use ui.event)
+(use ui.host)
+(use ui.render)
+(use ui.render_box)
+(use ui.render_paint)
+(use ui.ptrs)
+(use ui.sched)
+(use ui.semantics)
+(use ui.state)
+(use ui.ticker)
+(use ui.widget)
+
+(pub (struct app
+  (host (box (dyn host.host)))
+  (es element.elems)
+  (rt render.rtree)
+  (g render_box.fonts)
+  (root u32)
+  (p ptrs.ptrs)
+  (vw f32)
+  (vh f32)
+  (sc f32)
+  (last i64)
+  (sem semantics.tree)))
+
+(fn read_host ((a (&mut app))) unit
+  (let sz (host.host.size (& (. a host))))
+  (let sc (host.host.scale (& (. a host))))
+  (set (. a vw) (. sz w))
+  (set (. a vh) (. sz h))
+  (set (. a sc) sc)
+  (element.set_view (&mut (. a es)) (. sz w) (. sz h) sc))
+
+(fn publish ((a (&mut app))) unit
+  (set (. a sem) (semantics.build (& (. a es)) (& (. a rt)) (. a root)))
+  (let bytes (semantics.pack (& (. a sem))))
+  (host.host.a11y (&mut (. a host)) (& bytes)))
+
+(fn layout_of ((a (&mut app))) unit
+  (match (render.visual_root (& (. a rt)))
+    ((opt.some id)
+      (drop (render_box.layout_tree (&mut (. a rt)) (&mut (. a g)) id (. a vw) (. a vh))))
+    ((opt.none) ())))
+
+(pub (fn open ((h (box (dyn host.host))) (root (box (dyn widget.widget)))) app
+  (let mut a
+    (app h
+      (element.new)
+      (render.new)
+      (render_box.fonts_new)
+      0u32
+      (ptrs.ptrs_new)
+      80.0f32
+      48.0f32
+      1.0f32
+      0
+      (semantics.empty)))
+  (read_host (&mut a))
+  (let id (element.mount (&mut (. a es)) (&mut (. a rt)) root))
+  (set (. a root) id)
+  (layout_of (&mut a))
+  (publish (&mut a))
+  a))
+
+(fn pixels ((n f32) (sc f32)) i64 (let v (as i64 (math.ceil32 (* n sc)))) (if (< v 1) 1 v))
+
+(fn elapsed ((a (&mut app))) i64
+  (let now (host.host.now_ms (& (. a host))))
+  (let mut dt (- now (. a last)))
+  (if (< dt 0) (set dt 0))
+  (set (. a last) now)
+  dt)
+
+(fn nav_depth ((es (& element.elems)) (id u32)) i64
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (if (not (and (. n has_st) (== (. n ty) widget.ty_nav))) (ret (neg 1)))
+  (state.state.route (& (. n st))))
+
+(fn sync_hist ((a (&mut app))) unit
+  (let n (vec.len (& (. (. a es) nodes))))
+  (for i 0 n
+    (let d (nav_depth (& (. a es)) (as u32 i)))
+    (if (>= d 0) (host.host.history (&mut (. a host)) d))))
+
+(pub (fn frame ((a (&mut app))) unit
+  (read_host a)
+  (let mut ev (vec.new <event.event>))
+  (host.host.poll (&mut (. a host)) (&mut ev))
+  (sched.handle (&mut (. a es)) (&mut (. a rt)) (. a root) (&mut (. a p)) (&mut (. a host)) (& (. a sem)) (& ev))
+  (if (. (. a p) quit) (host.host.quit (&mut (. a host))))
+  (if (. (. a p) paused) (ret))
+  (let dt (elapsed a))
+  (let mut live (ticker.pump_states (&mut (. a es)) (&mut (. a rt)) dt))
+  (sync_hist a)
+  (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) (. a root)))
+  (element.rebuild (&mut (. a es)) (&mut (. a rt)) (. a root) (& c))
+  (if (ticker.pump_implicit (& (. a es)) (&mut (. a rt)) (&mut (. a p)) dt) (set live true))
+  (if live (host.host.request_frame (&mut (. a host))))
+  (layout_of a)
+  (publish a)
+  (let mut bm (bitmap.bitmap.new (pixels (. a vw) (. a sc)) (pixels (. a vh) (. a sc))))
+  (match (render.visual_root (& (. a rt)))
+    ((opt.some id)
+      (render_paint.paint (& (. a rt)) (&mut (. a g)) id (&mut bm) (. a vw) (. a vh) (. a sc)))
+    ((opt.none) ()))
+  (host.host.present (&mut (. a host)) (& bm))))
+
+(fn stash ((a app)) i64
+  (let p (sys.alloc (as i64 (sizeof app))))
+  (ptr.write (as (ptr app) p) a)
+  (as i64 (as u64 p)))
+
+(fn graft_host ((dst (&mut (box (dyn host.host)))) (src (& (box (dyn host.host))))) unit
+  (let d (as (ptr u8) dst))
+  (let s (as (ptr u8) src))
+  (let vt (ptr.read (as (ptr (ptr u8)) (ptr.add s 8))))
+  (ptr.write (as (ptr (ptr u8)) (ptr.add d 8)) vt))
+
+(fn boot_new ((h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let mut a (open h root))
+  (reload.load_tree (&mut (. a es)) (. a root) (& (reload.read_state)))
+  (reload.clear_state)
+  (gate.set_app (stash a))
+  (gate.set_code 0))
+
+(fn give_up ((bits i64) (h (box (dyn host.host)))) unit
+  (let a (ptr.read (as (ptr app) (as u64 bits))))
+  (reload.write_state (& (reload.save_tree (& (. a es)) (. a root))))
+  (mem.forget a)
+  (gate.set_code 2)
+  (drop h))
+
+(fn graft_old ((bits i64) (a app) (h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let mut a a)
+  (gate.set_graft 1)
+  (gate.set_bad 0)
+  (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) (. a root)))
+  (element.update (&mut (. a es)) (&mut (. a rt)) (. a root) root (& c))
+  (gate.set_graft 0)
+  (if (== (gate.bad) 1) (do (mem.forget a) (ret (give_up bits h))))
+  (graft_host (&mut (. a host)) (& h))
+  (drop h)
+  (ptr.write (as (ptr app) (as u64 bits)) a)
+  (gate.set_app bits)
+  (gate.set_code 1))
+
+(fn boot_old ((bits i64) (h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let a (ptr.read (as (ptr app) (as u64 bits))))
+  (let marks (reload.marks (& (. a es)) (. a root)))
+  (if (reload.bad_marks (& marks))
+    (do (mem.forget a) (drop root) (give_up bits h))
+    (graft_old bits a h root)))
+
+(fn serve ((h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let prev (gate.prev))
+  (if (== prev 0) (ret (boot_new h root)))
+  (boot_old prev h root))
+
+(pub (fn graft_root ((a (&mut app)) (root (box (dyn widget.widget)))) i64
+  (gate.set_graft 1)
+  (gate.set_bad 0)
+  (let id (. a root))
+  (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) id))
+  (element.update (&mut (. a es)) (&mut (. a rt)) id root (& c))
+  (gate.set_graft 0)
+  (gate.bad)))
+
+(pub (fn root_of ((a (& app))) u32 (. a root)))
+
+(pub (fn es_mut ((a (&mut app))) (&mut element.elems) (&mut (. a es))))
+
+(pub (fn rt_mut ((a (&mut app))) (&mut render.rtree) (&mut (. a rt))))
+
+(pub (fn save_blob ((a (& app))) str (reload.save_tree (& (. a es)) (. a root))))
+
+(pub (fn load_blob ((a (&mut app)) (text (& str))) unit
+  (reload.load_tree (&mut (. a es)) (. a root) text)))
+
+(pub (fn keep_blob ((a (& app))) bool
+  (not (reload.bad_marks (& (reload.marks (& (. a es)) (. a root)))))))
+
+(pub (fn pump () unit
+  (let bits (gate.app_bits))
+  (if (== bits 0) (ret))
+  (let p (as (ptr app) (as u64 bits)))
+  (let mut a (ptr.read p))
+  (frame (&mut a))
+  (ptr.write p a)))
+
+(pub (fn release ((bits i64)) unit
+  (if (== bits 0) (ret))
+  (let p (as (ptr app) (as u64 bits)))
+  (let a (ptr.read p))
+  (drop a)
+  (sys.free (as (ptr u8) p))))
+
+(pub (fn run ((h (box (dyn host.host))) (root (box (dyn widget.widget))) (frames i64)) unit
+  (if (reload.flag "llr-hosted") (ret (serve h root)))
+  (let mut a (open h root))
+  (let once (reload.flag "dump"))
+  (let mut n frames)
+  (if (< n 1) (set n 1))
+  (while (and (> n 0) (not (. (. a p) quit)))
+    (do
+      (frame (&mut a))
+      (set n (- n 1))
+      (if once (do (io.puts (& (dump (& a)))) (ret)))))))
+
+(fn fmt_f ((x f32)) str
+  (let mut n (as i64 (* (as f64 x) 1000.0)))
+  (let mut neg false)
+  (if (< n 0) (do (set neg true) (set n (neg n))))
+  (let ip (/ n 1000))
+  (let fp (% n 1000))
+  (let mut s (str.new))
+  (if neg (str.push_byte (&mut s) 45u8))
+  (str.push (&mut s) (& (str.from_int ip)))
+  (str.push_byte (&mut s) 46u8)
+  (if (< fp 100) (str.push_byte (&mut s) 48u8))
+  (if (< fp 10) (str.push_byte (&mut s) 48u8))
+  (str.push (&mut s) (& (str.from_int fp)))
+  s)
+
+(fn add_line ((s (&mut str)) (line str)) unit
+  (if (> (str.len s) 0) (str.push_byte s 10u8))
+  (str.push s (& line)))
+
+(fn key_s ((es (& element.elems)) (id u32)) str
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (let on (. (. n k) on))
+  (let kid (. (. n k) id))
+  (if on (str.from_int (as i64 kid)) (str.from "-")))
+
+(fn dump_w ((es (& element.elems)) (id u32) (s (&mut str))) unit
+  (if (not (element.live_at es id)) (ret))
+  (let n (vec.get (& (. es nodes)) (as i64 id)))
+  (let mut line (str.from "widget|"))
+  (str.push (&mut line) (& (str.from_int (as i64 id))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (widget.widget.name (& (. n widget))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (& (key_s es id)))
+  (add_line s line)
+  (let ks (element.kids_at es id))
+  (for i 0 (vec.len (& ks)) (dump_w es (@ (vec.get (& ks) i)) s)))
+
+(fn dump_r ((rt (& render.rtree)) (id u32) (s (&mut str))) unit
+  (if (not (render.live rt id)) (ret))
+  (let n (vec.get (& (. rt nodes)) (as i64 id)))
+  (let mut line (str.from "render|"))
+  (str.push (&mut line) (& (str.from_int (as i64 id))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (& (fmt_f (. n x))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (& (fmt_f (. n y))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (& (fmt_f (. n w))))
+  (str.push_byte (&mut line) 124u8)
+  (str.push (&mut line) (& (fmt_f (. n h))))
+  (if (> (str.len (& (. (. n d) text))) 0)
+    (do (str.push_byte (&mut line) 124u8) (str.push (&mut line) (& (. (. n d) text)))))
+  (if (. (. n d) has_xform)
+    (do (str.push (&mut line) "|tx=") (str.push (&mut line) (& (fmt_f (. (. n d) tx))))))
+  (add_line s line)
+  (let ks (render.kids_of rt id))
+  (for i 0 (vec.len (& ks)) (dump_r rt (@ (vec.get (& ks) i)) s)))
+
+(pub (fn dump ((a (& app))) str
+  (let mut s (str.new))
+  (dump_w (& (. a es)) (. a root) (&mut s))
+  (match (render.visual_root (& (. a rt)))
+    ((opt.some id) (dump_r (& (. a rt)) id (&mut s)))
+    ((opt.none) ()))
+  (let mut line (str.from "focus|"))
+  (if (< (. (. a p) focus) 0)
+    (str.push (&mut line) "-")
+    (str.push (&mut line) (& (str.from_int (. (. a p) focus)))))
+  (add_line (&mut s) line)
+  (let extra (semantics.dump (& (. a sem))))
+  (if (> (str.len (& extra)) 0) (add_line (&mut s) extra))
+  s))

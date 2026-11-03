@@ -1,0 +1,22 @@
+;; Wheel, drag, then a fling step. The child y is the offset.
+(use std.io)
+(use ui.app)
+(use ui.host_null)
+(use ui.w_box)
+(use ui.w_flex)
+(use ui.w_scroll)
+(use ui.widget)
+
+(fn body () (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (vec.push (&mut ks) (w_box.sized 60.0f32 40.0f32 (widget.empty)))
+  (vec.push (&mut ks) (w_box.sized 60.0f32 40.0f32 (widget.empty)))
+  (vec.push (&mut ks) (w_box.sized 60.0f32 40.0f32 (widget.empty)))
+  (w_flex.column ks))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let n (host_null.host_null.frames (& h)))
+  (let mut a (app.open h (w_scroll.scroll (body))))
+  (let mut i 0)
+  (while (< i n) (app.frame (&mut a)) (io.puts (& (app.dump (& a)))) (set i (+ i 1))))

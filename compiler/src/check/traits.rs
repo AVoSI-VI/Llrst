@@ -76,6 +76,9 @@ impl<'a> Checker<'a> {
     pub fn finish_arg(&mut self, e: Expr, want: &Ty) -> PResult<Expr> {
         let got = self.shallow(&e.ty);
         let want_s = self.shallow(want);
+        if let Ty::BoxDyn { trait_id } = &want_s {
+            return self.pack_box(e, *trait_id, &want_s);
+        }
         if let Ty::Dyn { trait_id, mutable } = want_s.clone() {
             if let Ty::Ref { mutable: m, inner, .. } = &got {
                 if *m == mutable {
@@ -97,5 +100,29 @@ impl<'a> Checker<'a> {
         } else {
             Err(self.mismatch(e.span, want, &e.ty))
         }
+    }
+
+    /// `(& box)` is a dyn fat pointer, unless the expected type is a reference to the box.
+    pub fn box_reborrow(&mut self, place_ty: &Ty, mutable: bool, want: Option<&Ty>) -> Option<DefId> {
+        let Ty::BoxDyn { trait_id } = self.shallow(place_ty) else { return None };
+        let Some(w) = want else { return Some(trait_id) };
+        match self.shallow(w) {
+            Ty::Ref { inner, .. } if matches!(self.shallow(inner.as_ref()), Ty::BoxDyn { .. }) => None,
+            Ty::Dyn { trait_id: t, mutable: m } if m == mutable && t == trait_id => Some(trait_id),
+            _ => None,
+        }
+    }
+
+    fn pack_box(&mut self, e: Expr, trait_id: DefId, want: &Ty) -> PResult<Expr> {
+        let got = self.shallow(&e.ty);
+        if self.unify(&got, want) {
+            return Ok(e);
+        }
+        let self_ty = self.force_int(self.zonk_ty(&got));
+        if impl_of(self.prog, trait_id, &self_ty).is_none() {
+            return Err(Diag::error(e.span, "trait.missing").kv("trait", self.prog.type_name(trait_id)).kv("ty", self.show(&self_ty)));
+        }
+        let span = e.span;
+        Ok(mk(ExprKind::BoxPack { data: Box::new(e), trait_id, self_ty }, want.clone(), span))
     }
 }

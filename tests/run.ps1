@@ -39,8 +39,10 @@ function Same-Bytes($got, $want) {
     $x = [System.IO.File]::ReadAllBytes($got)
     $raw = [System.IO.File]::ReadAllBytes($want)
     $y = New-Object System.Collections.Generic.List[byte]
-    foreach ($b in $raw) {
-        if ($b -ne 13) { [void]$y.Add($b) }
+    for ($i = 0; $i -lt $raw.Length; $i++) {
+        $b = $raw[$i]
+        if ($b -eq 13 -and ($i + 1) -lt $raw.Length -and $raw[$i + 1] -eq 10) { continue }
+        [void]$y.Add($b)
     }
     if ($x.Length -ne $y.Count) { return $false }
     for ($i = 0; $i -lt $x.Length; $i++) {
@@ -115,6 +117,8 @@ if (-not $llrc -or -not (Test-Path -LiteralPath $llrc)) {
     exit 1
 }
 $env:LLRST_STD = Join-Path $root 'std'
+$env:LLRST_UI = Join-Path $root 'ui'
+$env:LLRC = $llrc   # llr-check runs this compiler
 $env:LLRST_RUNTIME = Join-Path $root 'runtime'
 foreach ($shim in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c')) {
     Compile-WinShim $shim
@@ -189,6 +193,59 @@ try {
         if ($ok) { Write-Output "ok|run/$name" }
     }
 
+    Get-ChildItem -LiteralPath (Join-Path $root 'tests\ui') -Filter '*.llr' | ForEach-Object {
+        $name = $_.BaseName
+        $want = Join-Path $_.DirectoryName "$name.out"
+        if (-not (Test-Path -LiteralPath $want)) { return }
+        $bin = Join-Path $tmp "ui_$name"
+        $cerr = Join-Path $tmp "ui_$name.cerr"
+        $args = @('build', "tests/ui/$name.llr", '--std', 'std', '--ui', 'ui', '-o', $bin)
+        $build = Invoke-Native $llrc $args $null $cerr $root
+        if ($build -ne 0) {
+            Write-Output "fail|ui/$name|compile|$(Head-Text $cerr)"
+            $script:fails++
+            return
+        }
+        $out = Join-Path $tmp "ui_$name.out"
+        $stderr = Join-Path $tmp "ui_$name.stderr"
+        $ppm = Join-Path $_.DirectoryName "$name.ppm"
+        $shot = Join-Path $tmp "ui_$name.shot"
+        $runArgs = @()
+        if (Test-Path -LiteralPath $ppm) { $runArgs = @('--shot', $shot) }
+        $ev = Join-Path $_.DirectoryName "$name.events"
+        if (Test-Path -LiteralPath $ev) { $runArgs += @('--events', $ev) }
+        $av = Join-Path $_.DirectoryName "$name.argv"
+        if (Test-Path -LiteralPath $av) {
+            foreach ($raw in (Get-Content -LiteralPath $av)) {
+                $line = $raw.Trim()
+                if ($line.Length -gt 0) { $runArgs += $line }
+            }
+        }
+        $code = Invoke-Native (Exe-Path $bin) $runArgs $out $stderr $root
+        $ok = $true
+        if (-not (Same-Bytes $out $want)) {
+            Write-Output "fail|ui/$name|want=$(Head-Text $want)|got=$(Head-Text $out)"
+            $script:fails++
+            $ok = $false
+        }
+        if ((Test-Path -LiteralPath $stderr) -and ((Get-Item -LiteralPath $stderr).Length -gt 0)) {
+            Write-Output "fail|ui/$name|stderr|got=$(Head-Text $stderr)"
+            $script:fails++
+            $ok = $false
+        }
+        if ($code -ne 0) {
+            Write-Output "fail|ui/$name|code=$code"
+            $script:fails++
+            $ok = $false
+        }
+        if ((Test-Path -LiteralPath $ppm) -and -not (Same-Bytes $shot $ppm)) {
+            Write-Output "fail|ui/$name|ppm|want=$(Head-Text $ppm)|got=$(Head-Text $shot)"
+            $script:fails++
+            $ok = $false
+        }
+        if ($ok) { Write-Output "ok|ui/$name" }
+    }
+
     $checkBin = Join-Path $tmp 'llr-check'
     $checkErr = Join-Path $tmp 'llr-check.err'
     $checkBuild = Invoke-Native $llrc @('build', (Join-Path $root 'tools\llr-check.llr'), '-o', $checkBin) $null $checkErr $root
@@ -209,16 +266,13 @@ try {
             Write-Output "fail|err/$name|want=$(Head-Text $want)|got=$(Head-Text $got)"
             $script:fails++
         }
-        $wantText = [System.IO.File]::ReadAllText($want)
-        if ($wantText -notmatch '\|(borrow|move|init)\.|name\.dup|name\.not_module|name\.not_type|flow\.brk_outside|io\.read') {
-            $lerr = Join-Path $tmp "$name.lerr"
-            Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
-            if (Same-Bytes $lerr $want) {
-                Write-Output "ok|err/$name|llr-check"
-            } else {
-                Write-Output "fail|err/$name|llr-check|want=$(Head-Text $want)|got=$(Head-Text $lerr)"
-                $script:fails++
-            }
+        $lerr = Join-Path $tmp "$name.lerr"
+        Invoke-Native (Exe-Path $checkBin) @("tests/err/$name.llr") $null $lerr $root | Out-Null
+        if (Same-Bytes $lerr $want) {
+            Write-Output "ok|err/$name|llr-check"
+        } else {
+            Write-Output "fail|err/$name|llr-check|want=$(Head-Text $want)|got=$(Head-Text $lerr)"
+            $script:fails++
         }
     }
 
@@ -277,25 +331,29 @@ try {
         if ($ok) { Write-Output "ok|warn/$name" }
     }
 
-    Get-ChildItem -LiteralPath (Join-Path $root 'std') -Filter '*.llr' | ForEach-Object {
+    foreach ($dirName in @('std', 'ui')) {
+    Get-ChildItem -LiteralPath (Join-Path $root $dirName) -Filter '*.llr' | ForEach-Object {
         $text = [System.IO.File]::ReadAllText($_.FullName)
         if ($text -notmatch '(?m)^\(test ') { return }
         $name = $_.BaseName
-        $bin = Join-Path $tmp "std_$name"
-        $err = Join-Path $tmp "std_$name.err"
-        $build = Invoke-Native $llrc @('build', $_.FullName, '--test', '-o', $bin) $null $err $root
+        $tag = if ($dirName -eq 'ui') { "ui-mod/$name" } else { "std/$name" }
+        $bin = Join-Path $tmp "${dirName}_$name"
+        $err = Join-Path $tmp "${dirName}_$name.err"
+        $buildArgs = @('build', $_.FullName, '--test', '-o', $bin)
+        if ($dirName -eq 'ui') { $buildArgs = @('build', $_.FullName, '--test', '--std', 'std', '--ui', 'ui', '-o', $bin) }
+        $build = Invoke-Native $llrc $buildArgs $null $err $root
         if ($build -ne 0) {
-            Write-Output "fail|std/$name|compile|$(Head-Text $err)"
+            Write-Output "fail|$tag|compile|$(Head-Text $err)"
             $script:fails++
             return
         }
-        $out = Join-Path $tmp "std_$name.out"
-        $stderr = Join-Path $tmp "std_$name.stderr"
+        $out = Join-Path $tmp "${dirName}_$name.out"
+        $stderr = Join-Path $tmp "${dirName}_$name.stderr"
         $code = Invoke-Native (Exe-Path $bin) @() $out $stderr $root
         if ($code -eq 0) {
-            Write-Output "ok|std/$name"
+            Write-Output "ok|$tag"
         } else {
-            $both = Join-Path $tmp "std_$name.both"
+            $both = Join-Path $tmp "${dirName}_$name.both"
             $bytes = New-Object System.Collections.Generic.List[byte]
             foreach ($p in @($out, $stderr)) {
                 if (Test-Path -LiteralPath $p) {
@@ -304,16 +362,17 @@ try {
             }
             [System.IO.File]::WriteAllBytes($both, $bytes.ToArray())
             $lines = @([System.IO.File]::ReadAllLines($both) | Where-Object { $_ -match '^(fail|F)\|' } | Select-Object -First 3)
-            Write-Output "fail|std/$name|$($lines -join ' ')"
+            Write-Output "fail|$tag|$($lines -join ' ')"
             $script:fails++
         }
     }
+    }
 
     $lineFail = $false
-    foreach ($dir in @('compiler\src', 'std', 'tools', 'docs', 'scripts', 'tests', 'self', 'runtime')) {
+    foreach ($dir in @('compiler\src', 'std', 'ui', 'web', 'tools', 'docs', 'scripts', 'tests', 'self', 'runtime')) {
         $full = Join-Path $root $dir
         if (-not (Test-Path -LiteralPath $full)) { continue }
-        Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -in '.rs', '.llr', '.md', '.sh', '.c' } | ForEach-Object {
+        Get-ChildItem -LiteralPath $full -Recurse -File | Where-Object { $_.Extension -in '.rs', '.llr', '.md', '.sh', '.c', '.m' } | ForEach-Object {
             $body = [System.IO.File]::ReadAllText($_.FullName)
             $n = ([regex]::Matches($body, "`n")).Count
             $rel = $_.FullName.Substring($root.Length).TrimStart('\').Replace('\', '/')

@@ -1,0 +1,82 @@
+;; Source files a UI program pulls in through proj.* and ui.* uses.
+(use std.fs)
+(use std.path)
+(use std.str)
+
+(pub (struct dep (pub (path str)) (pub (mtime i64))))
+
+(fn push_name ((out (&mut (vec str))) (name str)) unit
+  (for i 0 (vec.len out) (if (str.eq (vec.get out i) (& name)) (ret)))
+  (vec.push out name))
+
+(fn scan ((text (& str)) (key (& str)) (out (&mut (vec str)))) unit
+  (let mut needle (str.from "(use "))
+  (str.push (&mut needle) key)
+  (let mut from 0)
+  (while (< from (str.len text))
+    (match (str.find_from text (& needle) from)
+      ((opt.none) (ret))
+      ((opt.some at)
+        (do
+          (let mut i (+ at (str.len (& needle))))
+          (let start i)
+          (while (and (< i (str.len text)) (and (!= (str.at text i) 41u8) (!= (str.at text i) 32u8)))
+            (set i (+ i 1)))
+          (if (> i start) (push_name out (str.slice text start i)))
+          (set from (+ i 1)))))))
+
+(pub (fn mods ((text (& str)) (key (& str))) (vec str)
+  (let mut o (vec.new <str>))
+  (scan text key (&mut o))
+  o))
+
+(fn last ((name (& str))) str
+  (let mut i (- (str.len name) 1))
+  (while (>= i 0)
+    (if (== (str.at name i) 46u8) (ret (str.slice name (+ i 1) (str.len name))))
+    (set i (- i 1)))
+  (str.clone name))
+
+(fn file_of ((dir (& str)) (name (& str))) str
+  (path.join dir (& (str.cat (& (last name)) ".llr"))))
+
+(fn seen ((v (& (vec dep))) (path (& str))) bool
+  (for i 0 (vec.len v) (if (str.eq (& (. (vec.get v i) path)) path) (ret true)))
+  false)
+
+(fn add_file ((v (&mut (vec dep))) (path str) (ui (& str)) (key (& str))) unit
+  (if (seen v (& path)) (ret))
+  (match (fs.read (& path))
+    ((res.err _) ())
+    ((res.ok text)
+      (do
+        (let mt (match (fs.mtime (& path)) ((res.ok n) n) ((res.err _) 0)))
+        (vec.push v (dep (str.clone (& path)) mt))
+        (let names (mods (& text) key))
+        (let dir (if (str.eq key "ui.") (str.from ui) (path.dir (& path))))
+        (for i 0 (vec.len (& names)) (add_file v (file_of (& dir) (vec.get (& names) i)) ui key))))))
+
+(pub (fn list ((file (& str)) (ui (& str))) (vec dep)
+  (let mut v (vec.new <dep>))
+  (add_file (&mut v) (str.from file) ui "proj.")
+  (let text (match (fs.read file) ((res.ok s) s) ((res.err _) (str.new))))
+  (let names (mods (& text) "ui."))
+  (for i 0 (vec.len (& names)) (add_file (&mut v) (file_of ui (vec.get (& names) i)) ui "ui."))
+  v))
+
+(pub (fn changed ((v (& (vec dep)))) bool
+  (for i 0 (vec.len v)
+    (let d (vec.get v i))
+    (let mt (match (fs.mtime (& (. d path))) ((res.ok n) n) ((res.err _) 0)))
+    (if (!= mt (. d mtime)) (ret true)))
+  false))
+
+(test deps_mods
+  (let text (str.from "(use proj.pack)\n(use ui.host)\n(use std.io)\n(use ui.app)"))
+  (let p (mods (& text) "proj."))
+  (let u (mods (& text) "ui."))
+  (assert_eq (vec.len (& p)) 1)
+  (assert_eq (vec.get (& p) 0) "pack")
+  (assert_eq (vec.len (& u)) 2)
+  (assert_eq (vec.get (& u) 0) "host")
+  (assert_eq (& (last "ui.host")) "host"))

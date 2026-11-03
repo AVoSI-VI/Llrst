@@ -1,55 +1,49 @@
-;; llr-check FILE [--std DIR]: type and name errors, one E| line each.
-(use std.check)
-(use std.cli)
-(use std.fmt)
+;; llr-check FILE [--std DIR] [--ui DIR] [--deny CODE]: runs llrc check with the same arguments.
+(use std.fs)
 (use std.io)
 (use std.os)
+(use std.path)
 (use std.str)
+(use std.sys)
 
-(fn kv_int ((p (& str)) (n i64)) i64
-  (match (str.to_int (& (str.slice p n (str.len p)))) ((opt.some v) v) ((opt.none) 0)))
+(fn exe_name () str (if (== sys.os_id 2) (str.from "llrc.exe") (str.from "llrc")))
 
-(fn add_kv ((rest (&mut str)) (p (& str))) unit
-  (if (> (str.len rest) 0) (str.push_byte rest 124u8))
-  (str.push rest p))
+;; An explicit $LLRC is used as given. Otherwise llrc beside this executable, then llrc on PATH.
+(pub (fn candidates ((env_llrc (& str)) (self_path (& str))) (vec str)
+  (let mut v (vec.new <str>))
+  (if (> (str.len env_llrc) 0) (do (vec.push (&mut v) (str.clone env_llrc)) (ret v)))
+  (if (> (str.len self_path) 0)
+    (vec.push (&mut v) (path.join (& (path.dir self_path)) (& (exe_name)))))
+  (vec.push (&mut v) (exe_name))
+  v))
 
-(fn lift ((msg (& str))) str
-  (if (not (str.has msg "|line=")) (ret (str.clone msg)))
-  (let parts (str.split msg 124u8))
-  (let mut line 1)
-  (let mut col 1)
-  (let mut len 0)
-  (let mut rest (str.new))
-  (for i 1 (vec.len (& parts))
-    (do
-      (let p (vec.get (& parts) i))
-      (if (str.starts p "line=") (set line (kv_int p 5)))
-      (if (str.starts p "col=") (set col (kv_int p 4)))
-      (if (str.starts p "len=") (set len (kv_int p 4)))
-      (if (not (span_key p)) (add_kv (&mut rest) p))))
-  (check.span line col len (vec.get (& parts) 0) (& rest)))
+(fn pick ((cands (& (vec str)))) str
+  (for i 0 (- (vec.len cands) 1)
+    (if (fs.exists (vec.get cands i)) (ret (str.clone (vec.get cands i)))))
+  (str.clone (vec.get cands (- (vec.len cands) 1))))
 
-(fn span_key ((p (& str))) bool
-  (or (str.starts p "line=") (or (str.starts p "col=") (str.starts p "len="))))
-
-(fn led ((msg (& str))) bool
-  (and (> (str.len msg) 0) (and (>= (str.at msg 0) 48u8) (<= (str.at msg 0) 57u8))))
-
-(fn emit ((path (& str)) (msg (& str))) unit
-  (let body (lift msg))
-  (if (led (& body))
-    (io.eputs (& (fmt.pipe2 (& (str.cat (& (str.from "E|")) path)) (& body))))
-    (io.eputs (& (fmt.pipe2 "E|check|0|0|0" (& body))))))
+(fn forward () (vec str)
+  (let all (os.args))
+  (let mut v (vec.new <str>))
+  (vec.push (&mut v) (str.from "check"))
+  (for i 1 (vec.len (& all)) (vec.push (&mut v) (str.clone (vec.get (& all) i))))
+  v)
 
 (fn main () unit
-  (let mut c (cli.new "llr-check" "type and name check; borrow errors stay in llrc"))
-  (cli.pos (&mut c) "file")
-  (cli.opt (&mut c) "std" "")
-  (cli.parse (&mut c) (os.args))
-  (let path (cli.at (& c) 0))
-  (match (check.check path (cli.get (& c) "std"))
-    ((res.err ds)
-      (do
-        (for i 0 (vec.len (& ds)) (emit path (vec.get (& ds) i)))
-        (os.exit 1)))
-    ((res.ok _) ())))
+  (let env_llrc (match (os.env "LLRC") ((opt.some s) s) ((opt.none) (str.new))))
+  (let llrc (pick (& (candidates (& env_llrc) (& (os.exe_path))))))
+  (let code (os.exec (& llrc) (& (forward))))
+  (if (or (< code 0) (== code 127))
+    (do (io.eputs "E|<check>|0|0|0|check.llrc|fix=install llrc or set LLRC") (os.exit 1)))
+  (os.exit code))
+
+(test check_candidates
+  (let a (candidates "/x/llrc" "/bin/llr-check"))
+  (assert_eq (vec.len (& a)) 1)
+  (assert (str.eq (vec.get (& a) 0) "/x/llrc"))
+  (let b (candidates "" "/bin/llr-check"))
+  (assert_eq (vec.len (& b)) 2)
+  (assert (str.has (vec.get (& b) 0) "/bin/llrc"))
+  (let c (candidates "" ""))
+  (assert_eq (vec.len (& c)) 1)
+  (assert (str.starts (vec.get (& c) 0) "llrc")))

@@ -1,0 +1,33 @@
+;; Cocoa host. The shim object is chosen at link time.
+(use ui.a11y_mac)
+(use ui.bitmap)
+(use ui.event)
+(use ui.geom)
+(use ui.host)
+(use ui.host_shim)
+
+(pub (struct host_mac (s host_shim.slot)))
+
+(impl host_mac
+  (pub (fn open ((w i64) (h i64)) host_mac (host_mac (host_shim.open w h))))
+  (pub (fn drop ((self (&mut host_mac))) unit (host_shim.close (&mut (. self s))))))
+
+(impl host.host
+  host_mac
+  (fn size ((self (& host_mac))) geom.size (host_shim.size (& (. self s))))
+  (fn scale ((self (& host_mac))) f32 (host_shim.scale (& (. self s))))
+  (fn present ((self (&mut host_mac)) (bm (& bitmap.bitmap))) unit
+    (host_shim.present (& (. self s)) bm))
+  (fn poll ((self (&mut host_mac)) (out (&mut (vec event.event)))) unit
+    (host_shim.poll (& (. self s)) out))
+  (fn request_frame ((self (&mut host_mac))) unit (host_shim.request_frame (& (. self s))))
+  (fn now_ms ((self (& host_mac))) i64 (host_shim.now_ms (& (. self s))))
+  (fn set_cursor ((self (&mut host_mac)) (id i64)) unit (host_shim.set_cursor (& (. self s)) id))
+  (fn clipboard_get ((self (& host_mac))) str (host_shim.clip_get (& (. self s))))
+  (fn clipboard_set ((self (&mut host_mac)) (text (& str))) unit
+    (host_shim.clip_set (& (. self s)) text))
+  (fn text_input ((self (&mut host_mac)) (on bool) (r (& geom.rect))) unit
+    (host_shim.text_input (& (. self s)) on r))
+  (fn quit ((self (&mut host_mac))) unit (host_shim.quit (&mut (. self s))))
+  (fn history ((_s (&mut host_mac)) (_n i64)) unit ())
+  (fn a11y ((self (&mut host_mac)) (b (& (vec u8)))) unit (a11y_mac.update (& (. self s)) b)))

@@ -94,6 +94,7 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
         ExprKind::Variant { def, idx, fields } => ExprKind::Variant { def, idx, fields: fields.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()? },
         ExprKind::Try { expr, is_res } => ExprKind::Try { expr: bx(c, expr)?, is_res },
         ExprKind::DynPack { data, trait_id, self_ty } => ExprKind::DynPack { data: bx(c, data)?, trait_id, self_ty: c.zonk_ty(&self_ty) },
+        ExprKind::BoxPack { data, trait_id, self_ty } => ExprKind::BoxPack { data: bx(c, data)?, trait_id, self_ty: c.zonk_ty(&self_ty) },
         ExprKind::Closure { caps, mut inner } => {
             inner.ret = c.zonk_ty(&inner.ret);
             inner.caps = zonk_tys(c, &inner.caps, span)?;

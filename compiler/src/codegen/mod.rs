@@ -1,8 +1,10 @@
 //! Cranelift backend: module setup, symbol management, data, ABI.
+mod boxdyn;
 mod clos;
 mod drop;
 mod func;
 mod ovf;
+mod reload;
 pub mod layout;
 mod ops;
 mod term;
@@ -170,12 +172,19 @@ impl<'a> Codegen<'a> {
 
     pub fn mangle(&self, inst: &Instance) -> String {
         let path = self.prog.fn_path(inst.0).replace('.', "_");
+        // Two modules can impl the same trait for a type of the same name.
+        // The path is `trait.method_type`, so the def id keeps the symbols apart.
+        let own = if self.prog.fn_def(inst.0).owner.is_some() {
+            format!("_{}", inst.0.0)
+        } else {
+            String::new()
+        };
         if inst.1.is_empty() {
-            return format!("llr_{}", path);
+            return format!("llr_{path}{own}");
         }
         let mut h = DefaultHasher::new();
         inst.1.hash(&mut h);
-        format!("llr_{}_{:x}", path, h.finish())
+        format!("llr_{path}{own}_{:x}", h.finish())
     }
 
     /// Declares (once) and returns the FuncId for an instance, recording it for compilation.

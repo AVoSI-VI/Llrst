@@ -1,0 +1,151 @@
+(use std.math)
+(use ui.bitmap)
+(use ui.blend)
+(use ui.geom)
+(use ui.mat)
+(use ui.path)
+(use ui.raster)
+
+(fn paint ((bm (&mut bitmap.bitmap)) (x i64) (y i64) (c blend.color)) unit
+  (if (> (. c a) 0u8) (blend.over bm x y (& c))))
+
+(fn cov_at ((cov (& (vec u8))) (x i64) (y i64) (w i64)) u8 (@ (vec.get cov (+ (* y w) x))))
+
+(pub (fn solid ((bm (&mut bitmap.bitmap)) (cov (& (vec u8))) (c (& blend.color))) unit
+  (for y 0 (. bm h)
+    (for x 0 (. bm w)
+      (let k (cov_at cov x y (. bm w)))
+      (if (> k 0u8) (paint bm x y (blend.color.cover c k)))))))
+
+(fn lerp_u8 ((a u8) (b u8) (t i32)) u8
+  (let d (- (as i32 b) (as i32 a)))
+  (as u8 (+ (as i32 a) (/ (* d t) 256i32))))
+
+(fn lerp ((a (& blend.color)) (b (& blend.color)) (t i32)) blend.color
+  (blend.color (lerp_u8 (. a b) (. b b) t)
+    (lerp_u8 (. a g) (. b g) t)
+    (lerp_u8 (. a r) (. b r) t)
+    (lerp_u8 (. a a) (. b a) t)))
+
+(fn paint_lin ((bm (&mut bitmap.bitmap))
+   (x i64)
+   (y i64)
+   (k u8)
+   (p0 (& geom.pt))
+   (dx f32)
+   (dy f32)
+   (len2 f32)
+   (c0 (& blend.color))
+   (c1 (& blend.color))) unit
+  (if (<= len2 0.0f32) (ret (paint bm x y (blend.color.cover c0 k))))
+  (let px (+ (as f32 x) 0.5f32))
+  (let py (+ (as f32 y) 0.5f32))
+  (let mut t (/ (+ (* (- px (. p0 x)) dx) (* (- py (. p0 y)) dy)) len2))
+  (if (< t 0.0f32) (set t 0.0f32))
+  (if (> t 1.0f32) (set t 1.0f32))
+  (let col (lerp c0 c1 (as i32 (* (as f64 t) 256.0))))
+  (paint bm x y (blend.color.cover (& col) k)))
+
+(pub (fn linear ((bm (&mut bitmap.bitmap))
+   (cov (& (vec u8)))
+   (p0 (& geom.pt))
+   (p1 (& geom.pt))
+   (c0 (& blend.color))
+   (c1 (& blend.color))) unit
+  (let dx (- (. p1 x) (. p0 x)))
+  (let dy (- (. p1 y) (. p0 y)))
+  (let len2 (+ (* dx dx) (* dy dy)))
+  (for y 0 (. bm h)
+    (for x 0 (. bm w)
+      (let k (cov_at cov x y (. bm w)))
+      (if (> k 0u8) (paint_lin bm x y k p0 dx dy len2 c0 c1))))))
+
+(fn inside ((src (& bitmap.bitmap)) (x i64) (y i64)) bool
+  (and (>= x 0) (and (< x (. src w)) (and (>= y 0) (< y (. src h))))))
+
+(fn sample_at ((src (& bitmap.bitmap)) (x i64) (y i64)) blend.color
+  (if (not (inside src x y)) (ret (blend.color 0u8 0u8 0u8 0u8)))
+  (blend.color (bitmap.bitmap.byte src x y 0)
+    (bitmap.bitmap.byte src x y 1)
+    (bitmap.bitmap.byte src x y 2)
+    (bitmap.bitmap.byte src x y 3)))
+
+(fn sample_near ((src (& bitmap.bitmap)) (u f32) (v f32)) blend.color
+  (sample_at src (as i64 (math.floor32 u)) (as i64 (math.floor32 v))))
+
+(fn sample_bil ((src (& bitmap.bitmap)) (u f32) (v f32)) blend.color
+  (let x0 (as i64 (math.floor32 u)))
+  (let y0 (as i64 (math.floor32 v)))
+  (let fx (as i32 (* (as f64 (- u (as f32 x0))) 256.0)))
+  (let fy (as i32 (* (as f64 (- v (as f32 y0))) 256.0)))
+  (let c00 (sample_at src x0 y0))
+  (let c10 (sample_at src (+ x0 1) y0))
+  (let c01 (sample_at src x0 (+ y0 1)))
+  (let c11 (sample_at src (+ x0 1) (+ y0 1)))
+  (let top (lerp (& c00) (& c10) fx))
+  (let bot (lerp (& c01) (& c11) fx))
+  (lerp (& top) (& bot) fy))
+
+(fn paint_img ((bm (&mut bitmap.bitmap))
+   (x i64)
+   (y i64)
+   (k u8)
+   (src (& bitmap.bitmap))
+   (inv (& mat.mat))
+   (mode i64)) unit
+  (let p (geom.pt (+ (as f32 x) 0.5f32) (+ (as f32 y) 0.5f32)))
+  (let q (mat.mat.apply inv (& p)))
+  (let col (if (== mode 0) (sample_near src (. q x) (. q y)) (sample_bil src (. q x) (. q y))))
+  (paint bm x y (blend.color.cover (& col) k)))
+
+(pub (fn image ((bm (&mut bitmap.bitmap)) (cov (& (vec u8))) (src (& bitmap.bitmap)) (inv (& mat.mat)) (mode i64)) unit
+  (for y 0 (. bm h)
+    (for x 0 (. bm w)
+      (let k (cov_at cov x y (. bm w)))
+      (if (> k 0u8) (paint_img bm x y k src inv mode))))))
+
+(fn box () path.path
+  (let mut p (path.path.new))
+  (path.path.move (&mut p) (geom.pt 2.0f32 2.0f32))
+  (path.path.line (&mut p) (geom.pt 6.0f32 2.0f32))
+  (path.path.line (&mut p) (geom.pt 6.0f32 6.0f32))
+  (path.path.line (&mut p) (geom.pt 2.0f32 6.0f32))
+  (path.path.close (&mut p))
+  p)
+
+(test fill_solid
+  (let p (box))
+  (let cov (raster.coverage (& p) 8 8 0))
+  (let mut bm (bitmap.bitmap.new 8 8))
+  (let red (blend.color.rgba 255u8 0u8 0u8 255u8))
+  (solid (&mut bm) (& cov) (& red))
+  (assert_eq (bitmap.bitmap.byte (& bm) 3 3 2) 255u8)
+  (assert_eq (bitmap.bitmap.byte (& bm) 0 0 2) 0u8))
+
+(test fill_shade
+  (let p (box))
+  (let cov (raster.coverage (& p) 8 8 0))
+  (let mut bm (bitmap.bitmap.new 8 8))
+  (let c0 (blend.color 0u8 0u8 0u8 255u8))
+  (let c1 (blend.color 255u8 255u8 255u8 255u8))
+  (let a (geom.pt 2.0f32 4.0f32))
+  (let b (geom.pt 6.0f32 4.0f32))
+  (linear (&mut bm) (& cov) (& a) (& b) (& c0) (& c1))
+  (assert (> (bitmap.bitmap.byte (& bm) 3 3 0) 0u8))
+  (let mut src (bitmap.bitmap.new 2 2))
+  (bitmap.bitmap.set_byte (&mut src) 0 0 2 255u8)
+  (bitmap.bitmap.set_byte (&mut src) 0 0 3 255u8)
+  (let id (mat.mat.id))
+  (let mut ib (bitmap.bitmap.new 2 2))
+  (let mut frame (path.path.new))
+  (path.path.move (&mut frame) (geom.pt 0.0f32 0.0f32))
+  (path.path.line (&mut frame) (geom.pt 2.0f32 0.0f32))
+  (path.path.line (&mut frame) (geom.pt 2.0f32 2.0f32))
+  (path.path.line (&mut frame) (geom.pt 0.0f32 2.0f32))
+  (path.path.close (&mut frame))
+  (let full (raster.coverage (& frame) 2 2 0))
+  (image (&mut ib) (& full) (& src) (& id) 0)
+  (assert_eq (bitmap.bitmap.byte (& ib) 0 0 2) 255u8)
+  (image (&mut ib) (& full) (& src) (& id) 1)
+  (drop (lerp_u8 0u8 255u8 128i32))
+  (drop (sample_near (& src) 0.2f32 0.2f32)))

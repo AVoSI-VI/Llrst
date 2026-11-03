@@ -1,0 +1,49 @@
+;; Linear interpolation. Color bytes are the stored premultiplied channels.
+(use std.math)
+(use ui.blend)
+(use ui.geom)
+
+(fn lerp ((a f32) (b f32) (t f32)) f32 (+ a (* (- b a) t)))
+
+(pub (fn num ((a f32) (b f32) (t f32)) f32 (lerp a b t)))
+
+(fn chan ((a u8) (b u8) (t f32)) u8
+  (let v (+ (as f64 a) (* (- (as f64 b) (as f64 a)) (as f64 t))))
+  (let n (as i64 (math.round v)))
+  (let c (if (< n 0) 0 (if (> n 255) 255 n)))
+  (as u8 c))
+
+(pub (fn color ((a (& blend.color)) (b (& blend.color)) (t f32)) blend.color
+  (blend.color (chan (. a b) (. b b) t)
+    (chan (. a g) (. b g) t)
+    (chan (. a r) (. b r) t)
+    (chan (. a a) (. b a) t))))
+
+(pub (fn rect ((a (& geom.rect)) (b (& geom.rect)) (t f32)) geom.rect
+  (geom.rect (lerp (. a x) (. b x) t)
+    (lerp (. a y) (. b y) t)
+    (lerp (. a w) (. b w) t)
+    (lerp (. a h) (. b h) t))))
+
+(pub (fn size ((a (& geom.size)) (b (& geom.size)) (t f32)) geom.size
+  (geom.size (lerp (. a w) (. b w) t) (lerp (. a h) (. b h) t))))
+
+(test tween_lerp
+  (assert_eq (as i64 (num 0.0f32 10.0f32 0.5f32)) 5)
+  (assert_eq (as i64 (num 0.0f32 10.0f32 1.5f32)) 15)
+  (assert_eq (as i64 (lerp 0.0f32 10.0f32 0.5f32)) 5)
+  (let a (blend.color 0u8 0u8 0u8 255u8))
+  (let b (blend.color 0u8 0u8 255u8 255u8))
+  (let m (color (& a) (& b) 0.5f32))
+  (assert_eq (. m r) 128u8)
+  (assert_eq (. m a) 255u8)
+  (let r0 (geom.rect 0.0f32 2.0f32 4.0f32 6.0f32))
+  (let r1 (geom.rect 10.0f32 2.0f32 8.0f32 6.0f32))
+  (let rm (rect (& r0) (& r1) 0.5f32))
+  (assert_eq (as i64 (. rm x)) 5)
+  (assert_eq (as i64 (. rm w)) 6)
+  (let s0 (geom.size 0.0f32 10.0f32))
+  (let s1 (geom.size 10.0f32 20.0f32))
+  (let sm (size (& s0) (& s1) 0.5f32))
+  (assert_eq (as i64 (. sm w)) 5)
+  (assert_eq (as i64 (. sm h)) 15))
