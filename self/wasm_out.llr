@@ -77,21 +77,33 @@
   (wasm.end (&mut b))
   b)
 
+(fn export_n ((g (& wasm_mod.wm))) i64
+  (let mut n 2)
+  (if (>= (wasm_mod.find_name g "host_web_llr_frame") 0) (set n (+ n 1)))
+  (if (>= (wasm_mod.find_name g "host_web_llr_save") 0) (set n (+ n 1)))
+  (if (>= (wasm_mod.find_name g "host_web_llr_load") 0) (set n (+ n 1)))
+  (if (>= (wasm_mod.find_name g "host_web_llr_keep") 0) (set n (+ n 1)))
+  n)
+
 (fn export_sec ((g (& wasm_mod.wm)) (start i64)) (vec u8)
-  (let frame (wasm_mod.find_name g "host_web_llr_frame"))
   (let mut b (vec.new <u8>))
-  (wasm.vec_len (&mut b) (if (>= frame 0) 3 2))
+  (wasm.vec_len (&mut b) (export_n g))
   (wasm.name (&mut b) "_start")
   (wasm.byte (&mut b) 0)
   (wasm.uleb (&mut b) (wasm_mod.call_of g start))
-  (if (>= frame 0) (export_frame (&mut b) g frame))
+  (export_named (&mut b) g "host_web_llr_frame" "llr_frame")
+  (export_named (&mut b) g "host_web_llr_save" "llr_save")
+  (export_named (&mut b) g "host_web_llr_load" "llr_load")
+  (export_named (&mut b) g "host_web_llr_keep" "llr_keep")
   (wasm.name (&mut b) "memory")
   (wasm.byte (&mut b) 2)
   (wasm.uleb (&mut b) 0)
   b)
 
-(fn export_frame ((b (&mut (vec u8))) (g (& wasm_mod.wm)) (ord i64)) unit
-  (wasm.name b "llr_frame")
+(fn export_named ((b (&mut (vec u8))) (g (& wasm_mod.wm)) (part (& str)) (name (& str))) unit
+  (let ord (wasm_mod.find_name g part))
+  (if (< ord 0) (ret))
+  (wasm.name b name)
   (wasm.byte b 0)
   (wasm.uleb b (wasm_mod.call_of g ord)))
 

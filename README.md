@@ -15,7 +15,7 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | path | content |
 |------|---------|
 | `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
-| `UIFRAME.md` | plan for `llr-ui`, the UI framework |
+| `history/ui.md` | finished plan for `llr-ui`, the UI framework |
 | `DARWIN.md` | plan for the aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format, targets |

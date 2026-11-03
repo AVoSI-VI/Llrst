@@ -18,6 +18,7 @@ pub struct Options {
     pub ui_dir: Option<PathBuf>,
     pub test: bool,
     pub emit_obj: bool,
+    pub emit_dylib: bool,
     pub emit_mir: bool,
     pub check_only: bool,
     pub checked: bool,
@@ -179,7 +180,16 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         if !fd.params.is_empty() || fd.ret != Ty::Unit {
             return Err(Diag::error(prog.def(main).span, "type.mismatch").kv("want", "(fn main () unit)").kv("got", "other signature"));
         }
-        cg.func_id(&(main, Vec::new()))
+        let entry = cg.func_id(&(main, Vec::new()));
+        if opt.emit_dylib {
+            if let Some(id) = mod_item(&prog, "ui.app", "pump") {
+                cg.func_id(&(id, Vec::new()));
+            }
+            if let Some(id) = mod_item(&prog, "ui.app", "release") {
+                cg.func_id(&(id, Vec::new()));
+            }
+        }
+        entry
     };
     // Mono loop.
     loop {
@@ -207,7 +217,13 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     if diags.has_errors() {
         return Ok(());
     }
-    cg.emit_entry(entry)?;
+    if opt.emit_dylib {
+        let pump = mod_item(&prog, "ui.app", "pump").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
+        let release = mod_item(&prog, "ui.app", "release").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
+        cg.emit_boot(entry, pump, release)?;
+    } else {
+        cg.emit_entry(entry)?;
+    }
     let obj = cg.emit_object()?;
     let out = opt.output.clone().unwrap_or_else(|| opt.input.with_extension(""));
     if opt.emit_obj {
@@ -216,7 +232,11 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         return Ok(());
     }
     let out = crate::link::host_exe(&out, opt.target.as_deref());
-    crate::link::link(&obj, &out, opt.target.as_deref())
+    crate::link::link(&obj, &out, opt.target.as_deref(), opt.emit_dylib)
+}
+
+fn mod_item(prog: &Program, path: &str, name: &str) -> Option<DefId> {
+    prog.modules.iter().find(|m| m.path == path).and_then(|m| m.items.get(name).copied())
 }
 
 fn std_fn(prog: &Program, module: &str, name: &str) -> PResult<DefId> {

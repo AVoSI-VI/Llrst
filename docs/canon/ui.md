@@ -29,6 +29,10 @@ the parent state. The framework marks the element dirty after a handled `msg`.
 A later update drops the new widget's init and keeps the element state. `input`
 receives pointer, key, text, paste, submit, back, focus, and flush events through
 `state.ev` and answers in `state.out`. `route` is the navigator depth, or `-1`.
+`save` returns a `str` and `load` reads it back. `layout` is `(as i64 (sizeof Self))`.
+A state that holds a `(clos ...)` or a `(fn ...)` returns `-1` from `layout`; a reload
+then restarts and runs `save` then `load`, because those pointers would point into the
+unloaded library.
 
 ```
 (struct model (n i64))
@@ -43,7 +47,11 @@ receives pointer, key, text, paste, submit, back, focus, and flush events throug
   (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((_s (& model))) bool false)
-  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (str.from_int (. self n)))
+  (fn load ((self (&mut model)) (text (& str))) unit
+    (match (str.to_int text) ((opt.some n) (set (. self n) n)) ((opt.none) ())))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model)))))
 
 (state.stateful 100 (key.key.none) (model 0))
 ```

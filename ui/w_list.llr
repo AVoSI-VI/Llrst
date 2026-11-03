@@ -91,7 +91,10 @@
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((self (& model))) bool (scroll.live (. self vel) (. self drag)))
   (fn tick ((self (&mut model)) (dt i64) (g (& anim.goal))) bool
-    (scroll.coast (&mut (. self off)) (&mut (. self vel)) (. self drag) (. g w) (span_of self) dt)))
+    (scroll.coast (&mut (. self off)) (&mut (. self vel)) (. self drag) (. g w) (span_of self) dt))
+  (fn save ((self (& model))) str (pack (. self off) (. self vel) (. self drag)))
+  (fn load ((self (&mut model)) (text (& str))) unit (restore self text))
+  (fn layout ((_s (& model))) i64 (neg 1)))
 
 (pub (fn list ((extent f32) (count i64) (body (clos (i64) (box (dyn widget.widget))))) (box (dyn widget.widget))
   (state.stateful widget.ty_list (key.key.none) (model 0.0f32 0.0f32 false extent count body)))

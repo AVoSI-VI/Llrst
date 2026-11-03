@@ -153,6 +153,38 @@
 
 (struct model (ed edit))
 
+(fn bit ((on bool)) i64 (if on 1 0))
+
+(fn field_text ((self (& model))) str
+  (let ed (& (. self ed)))
+  (let mut s (str.from_int (. ed at)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (. ed mark))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (bit (. ed on)))))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (bit (. ed send)))))
+  (str.push_byte (&mut s) 10u8)
+  (str.push (&mut s) (& (. ed text)))
+  s)
+
+(fn field_num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn field_read ((self (&mut model)) (text (& str))) unit
+  (match (str.find_byte text 10u8)
+    ((opt.none) ())
+    ((opt.some at)
+      (do
+        (let head (str.slice text 0 at))
+        (let ps (str.split (& head) 124u8))
+        (if (< (vec.len (& ps)) 4) (ret))
+        (set (. (. self ed) at) (field_num (vec.get (& ps) 0)))
+        (set (. (. self ed) mark) (field_num (vec.get (& ps) 1)))
+        (set (. (. self ed) on) (== (field_num (vec.get (& ps) 2)) 1))
+        (set (. (. self ed) send) (== (field_num (vec.get (& ps) 3)) 1))
+        (set (. (. self ed) text) (str.slice text (+ at 1) (str.len text)))))))
+
 (impl state.state
   model
   (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
@@ -175,7 +207,10 @@
   (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((_s (& model))) bool false)
-  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (field_text self))
+  (fn load ((self (&mut model)) (text (& str))) unit (field_read self text))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (pub (fn field () (box (dyn widget.widget))
   (state.stateful widget.ty_field (key.key.none) (model (edit_new))))

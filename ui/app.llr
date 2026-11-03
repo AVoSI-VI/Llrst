@@ -1,8 +1,12 @@
 ;; Opens a tree, runs frames, and dumps it. The first layout happens before events.
+(use std.io)
 (use std.math)
 (use std.str)
+(use std.sys)
 (use ui.bitmap)
 (use ui.ctx)
+(use ui.gate)
+(use ui.reload)
 (use ui.element)
 (use ui.event)
 (use ui.host)
@@ -111,11 +115,106 @@
     ((opt.none) ()))
   (host.host.present (&mut (. a host)) (& bm))))
 
-(pub (fn run ((h (box (dyn host.host))) (root (box (dyn widget.widget))) (frames i64)) unit
+(fn stash ((a app)) i64
+  (let p (sys.alloc (as i64 (sizeof app))))
+  (ptr.write (as (ptr app) p) a)
+  (as i64 (as u64 p)))
+
+(fn graft_host ((dst (&mut (box (dyn host.host)))) (src (& (box (dyn host.host))))) unit
+  (let d (as (ptr u8) dst))
+  (let s (as (ptr u8) src))
+  (let vt (ptr.read (as (ptr (ptr u8)) (ptr.add s 8))))
+  (ptr.write (as (ptr (ptr u8)) (ptr.add d 8)) vt))
+
+(fn boot_new ((h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
   (let mut a (open h root))
+  (reload.load_tree (&mut (. a es)) (. a root) (& (reload.read_state)))
+  (reload.clear_state)
+  (gate.set_app (stash a))
+  (gate.set_code 0))
+
+(fn give_up ((bits i64) (h (box (dyn host.host)))) unit
+  (let a (ptr.read (as (ptr app) (as u64 bits))))
+  (reload.write_state (& (reload.save_tree (& (. a es)) (. a root))))
+  (mem.forget a)
+  (gate.set_code 2)
+  (drop h))
+
+(fn graft_old ((bits i64) (a app) (h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let mut a a)
+  (gate.set_graft 1)
+  (gate.set_bad 0)
+  (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) (. a root)))
+  (element.update (&mut (. a es)) (&mut (. a rt)) (. a root) root (& c))
+  (gate.set_graft 0)
+  (if (== (gate.bad) 1) (do (mem.forget a) (ret (give_up bits h))))
+  (graft_host (&mut (. a host)) (& h))
+  (drop h)
+  (ptr.write (as (ptr app) (as u64 bits)) a)
+  (gate.set_app bits)
+  (gate.set_code 1))
+
+(fn boot_old ((bits i64) (h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let a (ptr.read (as (ptr app) (as u64 bits))))
+  (let marks (reload.marks (& (. a es)) (. a root)))
+  (if (reload.bad_marks (& marks))
+    (do (mem.forget a) (drop root) (give_up bits h))
+    (graft_old bits a h root)))
+
+(fn serve ((h (box (dyn host.host))) (root (box (dyn widget.widget)))) unit
+  (let prev (gate.prev))
+  (if (== prev 0) (ret (boot_new h root)))
+  (boot_old prev h root))
+
+(pub (fn graft_root ((a (&mut app)) (root (box (dyn widget.widget)))) i64
+  (gate.set_graft 1)
+  (gate.set_bad 0)
+  (let id (. a root))
+  (let c (ctx.ctx.root (. a vw) (. a vh) (. a sc) id))
+  (element.update (&mut (. a es)) (&mut (. a rt)) id root (& c))
+  (gate.set_graft 0)
+  (gate.bad)))
+
+(pub (fn root_of ((a (& app))) u32 (. a root)))
+
+(pub (fn es_mut ((a (&mut app))) (&mut element.elems) (&mut (. a es))))
+
+(pub (fn rt_mut ((a (&mut app))) (&mut render.rtree) (&mut (. a rt))))
+
+(pub (fn save_blob ((a (& app))) str (reload.save_tree (& (. a es)) (. a root))))
+
+(pub (fn load_blob ((a (&mut app)) (text (& str))) unit
+  (reload.load_tree (&mut (. a es)) (. a root) text)))
+
+(pub (fn keep_blob ((a (& app))) bool
+  (not (reload.bad_marks (& (reload.marks (& (. a es)) (. a root)))))))
+
+(pub (fn pump () unit
+  (let bits (gate.app_bits))
+  (if (== bits 0) (ret))
+  (let p (as (ptr app) (as u64 bits)))
+  (let mut a (ptr.read p))
+  (frame (&mut a))
+  (ptr.write p a)))
+
+(pub (fn release ((bits i64)) unit
+  (if (== bits 0) (ret))
+  (let p (as (ptr app) (as u64 bits)))
+  (let a (ptr.read p))
+  (drop a)
+  (sys.free (as (ptr u8) p))))
+
+(pub (fn run ((h (box (dyn host.host))) (root (box (dyn widget.widget))) (frames i64)) unit
+  (if (reload.flag "llr-hosted") (ret (serve h root)))
+  (let mut a (open h root))
+  (let once (reload.flag "dump"))
   (let mut n frames)
   (if (< n 1) (set n 1))
-  (while (and (> n 0) (not (. (. a p) quit))) (frame (&mut a)) (set n (- n 1)))))
+  (while (and (> n 0) (not (. (. a p) quit)))
+    (do
+      (frame (&mut a))
+      (set n (- n 1))
+      (if once (do (io.puts (& (dump (& a)))) (ret)))))))
 
 (fn fmt_f ((x f32)) str
   (let mut n (as i64 (* (as f64 x) 1000.0)))

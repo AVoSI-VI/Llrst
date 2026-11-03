@@ -1,5 +1,6 @@
 ;; Counter tree and shot, before any tap.
 (use std.io)
+(use std.str)
 (use ui.anim)
 (use ui.app)
 (use ui.blend)
@@ -36,7 +37,11 @@
   (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((_s (& model))) bool false)
-  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (str.from_int (. self n)))
+  (fn load ((self (&mut model)) (text (& str))) unit
+    (match (str.to_int text) ((opt.some n) (set (. self n) n)) ((opt.none) ())))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (model 0)))
 

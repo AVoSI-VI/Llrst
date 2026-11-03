@@ -28,6 +28,8 @@ rm -rf "$share/examples" && cp -r "$root/examples" "$share/examples" || die "ins
 rm -rf "$share/web" && cp -r "$root/web" "$share/web" || die "install|copy=web"
 cc -c -fPIC "$root/runtime/llr_stat.c" -o "$share/llr_stat.o" || die "build-runtime|cc llr_stat.c"
 cc -c -fPIC "$root/runtime/llr_now.c" -o "$share/llr_now.o" || die "build-runtime|cc llr_now.c"
+cc -c -fPIC "$root/runtime/llr_reload.c" -o "$share/llr_reload.o" || die "build-runtime|cc llr_reload.c"
+cc -c -fPIC "$root/runtime/llr_dl.c" -o "$share/llr_dl.o" || die "build-runtime|cc llr_dl.c"
 cc -c -fPIC "$root/runtime/llr_ui_web.c" -o "$share/llr_ui_web.o" || die "build-runtime|cc llr_ui_web.c"
 say "ok|runtime|$share/llr_stat.o"
 os_name="$(uname -s)"

@@ -61,7 +61,10 @@
   (fn route ((& Self)) i64)
   (fn dispose ((&mut Self)) unit)
   (fn ticking ((& Self)) bool)
-  (fn tick ((&mut Self) i64 (& anim.goal)) bool)))
+  (fn tick ((&mut Self) i64 (& anim.goal)) bool)
+  (fn save ((& Self)) str)
+  (fn load ((&mut Self) (& str)) unit)
+  (fn layout ((& Self)) i64)))
 
 (pub (struct nostate))
 
@@ -74,7 +77,10 @@
   (fn route ((_s (& nostate))) i64 (neg 1))
   (fn dispose ((_s (&mut nostate))) unit ())
   (fn ticking ((_s (& nostate))) bool false)
-  (fn tick ((_s (&mut nostate)) (_d i64) (_g (& anim.goal))) bool false))
+  (fn tick ((_s (&mut nostate)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((_s (& nostate))) str (str.new))
+  (fn load ((_s (&mut nostate)) (_t (& str))) unit ())
+  (fn layout ((_s (& nostate))) i64 0))
 
 (pub (fn no_state () (box (dyn state)) (nostate)))
 

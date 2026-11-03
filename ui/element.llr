@@ -1,5 +1,6 @@
 ;; Element arena. Reconciliation keeps a child when its type id and key match.
 (use ui.ctx)
+(use ui.gate)
 (use ui.key)
 (use ui.render)
 (use ui.state)
@@ -125,6 +126,21 @@
   (drop (state.state.input (&mut neu) (& e) (&mut back)))
   (set_st es id neu))
 
+(fn vt_at ((p (ptr u8))) (ptr u8) (ptr.read (as (ptr (ptr u8)) (ptr.add p 8))))
+
+(fn copy_vt ((dst (&mut (box (dyn state.state)))) (src (& (box (dyn state.state))))) unit
+  (let d (as (ptr u8) dst))
+  (let s (as (ptr u8) src))
+  (ptr.write (as (ptr (ptr u8)) (ptr.add d 8)) (vt_at s)))
+
+(fn pull_graft ((es (&mut elems)) (id u32) (neu (box (dyn state.state)))) unit
+  (let new_l (state.state.layout (& neu)))
+  (let old_l (state.state.layout (& (. (at es id) st))))
+  (if (or (< new_l 0) (or (< old_l 0) (!= new_l old_l)))
+    (do (gate.set_bad 1) (drop neu) (ret)))
+  (copy_vt (&mut (. (at_mut es id) st)) (& neu))
+  (drop neu))
+
 (fn pull_state ((es (&mut elems)) (id u32)) unit
   (if (!= (role_at es id) widget.role_full) (ret))
   (let has (has_st_at es id))
@@ -133,10 +149,12 @@
   (match got
     ((opt.none) ())
     ((opt.some neu)
-      (do
-        (let mut o (state.out_new))
-        (flush_of es id (&mut o))
-        (if (. o handoff) (accept es id neu (& (. o text))) (drop neu))))))
+      (if (and (== (gate.graft) 1) has)
+        (pull_graft es id neu)
+        (do
+          (let mut o (state.out_new))
+          (flush_of es id (&mut o))
+          (if (. o handoff) (accept es id neu (& (. o text))) (drop neu)))))))
 
 (fn fill_at ((es (&mut elems)) (id u32) (out (&mut widget.rdesc))) unit
   (let n (at_mut es id))

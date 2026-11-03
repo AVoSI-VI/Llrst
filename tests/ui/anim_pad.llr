@@ -1,5 +1,6 @@
 ;; Padding switches after the first positive step and moves toward the new inset.
 (use std.io)
+(use std.str)
 (use ui.anim)
 (use ui.app)
 (use ui.ctx)
@@ -31,7 +32,10 @@
   (fn tick ((self (&mut phase)) (dt i64) (_g (& anim.goal))) bool
     (if (<= dt 0) (ret true))
     (set (. self on) true)
-    true))
+    true)
+  (fn save ((self (& phase))) str (str.from_int (if (. self on) 1 0)))
+  (fn load ((self (&mut phase)) (text (& str))) unit (set (. self on) (str.eq text "1")))
+  (fn layout ((_s (& phase))) i64 (as i64 (sizeof phase))))
 
 (fn root () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (phase false)))
 

@@ -210,7 +210,7 @@
   (let fs (formals p id (& args)))
   (let ret (ty.subst (& (. d ret)) (& args)))
   (let ty (sig_ty g (& ret) (& fs)))
-  (let ord (add_fn g (cg_mod.mangle (& (prog.fn_path p id)) (& args)) ty))
+  (let ord (add_fn g (cg_mod.sym_name p id (& args)) ty))
   (vec.push (&mut (. g fid)) id)
   (vec.push (&mut (. g fargs)) args)
   (vec.push (&mut (. g ford)) ord)

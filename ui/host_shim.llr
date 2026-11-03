@@ -1,5 +1,6 @@
 ;; Platform shim calls. The linked object is chosen from the target.
 (use ui.bitmap)
+(use ui.gate)
 (use ui.event)
 (use ui.geom)
 
@@ -46,6 +47,7 @@
 (impl slot (pub (fn drop ((self (&mut slot))) unit (close self))))
 
 (pub (fn open ((w i64) (h i64)) slot
+  (if (!= (gate.prev) 0) (ret (slot (ptr.null <u8>))))
   (let p (llr_ui_open w h))
   (if (ptr.eq p (ptr.null <u8>)) (panic "host.open"))
   (slot p)))

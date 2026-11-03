@@ -44,10 +44,10 @@
 (fn swatch ((_c (& ctx.ctx))) (box (dyn widget.widget)) (widget.empty))
 
 (test w_theme_dark
-  (let w (dark (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c))))
+  (let w (do (dark (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c)))))
   (assert_eq (widget.widget.name (& w)) "theme")
   (let k (widget.widget.key (& w)))
   (assert (. k on))
   (assert_eq (as i64 (. k id)) 1)
-  (let day (light (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c))))
+  (let day (do (light (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (swatch c)))))
   (assert (not (. (widget.widget.key (& day)) on))))

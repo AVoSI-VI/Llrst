@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-11-02|phases=0-13|phase 12 done
+plan|2026-11-02|phases=0-13|phase 13 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -290,15 +290,15 @@ Files: `ui/semantics.llr`, `ui/a11y_win.llr`, `ui/a11y_mac.llr`, `ui/a11y_web.ll
 3. `[x]` Windows UIA provider, macOS `NSAccessibility`, Android `AccessibilityNodeInfo` via `ANativeActivity`'s JNI, iOS `UIAccessibilityElement`; Linux AT-SPI is a later item. Each shim exposes `a11y_update(ptr len)` taking the serialised tree and raises actions as events.
 4. `[x]` Commit: `ui: semantics tree, aria mirror, platform a11y bridges`.
 
-### Phase 13: hot restart, hot reload, tool completion `[ ]`
+### Phase 13: hot restart, hot reload, tool completion `[x]`
 
 Files: `ui/app.llr`, `ui/state.llr`, `ui/reload.llr`, `tools/llr-ui.llr`, `web/llr_ui.js`, `docs/tools/llr-ui.md`, `docs/workflows/ui.md`, `HANDOFF.md`.
 
-1. `[ ]` Hot restart: `llr-ui run FILE` builds, launches, watches `FILE` and its `proj.*` and `ui.*` deps with `fs.mtime`, rebuilds, asks the running app to serialise `state` values that implement `save/load` (`ui.state` trait methods returning a `str`), relaunches, restores. Web: re-instantiate the module and restore from `sessionStorage`.
-2. `[ ]` Hot reload: desktop builds the app as a shared library (`--emit-dylib`, new in `drive.llr`; `dlopen`/`LoadLibraryW` in a small launcher) with the element and render arenas owned by the launcher; a rebuild swaps the library and re-runs `build` on every element without losing `state`. Web: swap the wasm instance, keep the arenas in a retained memory region. Document what resets (changed `state` struct layout forces a restart).
-3. `[ ]` `llr-ui dump FILE` prints the three trees of the first frame; `llr-ui shot FILE OUT.ppm [--w --h --scale --frames]`; `llr-ui run`, `serve`, `pack` from earlier phases; every record tagged, `--max` where lists appear.
-4. `[ ]` `docs/workflows/ui.md`: write a widget, test it headless, run on each target, fix a layout bug by `dump`; `HANDOFF.md` links this file and `history/` gets it when done.
-5. `[ ]` Commit: `ui: hot restart and reload, llr-ui complete`.
+1. `[x]` Hot restart: `llr-ui run FILE` builds, launches, watches `FILE` and its `proj.*` and `ui.*` deps with `fs.mtime`, rebuilds, asks the running app to serialise `state` values that implement `save/load` (`ui.state` trait methods returning a `str`), relaunches, restores. Web: re-instantiate the module and restore from `sessionStorage`.
+2. `[x]` Hot reload: desktop builds the app as a shared library (`--emit-dylib`, new in `drive.llr`; `dlopen`/`LoadLibraryW` in a small launcher) with the element and render arenas owned by the launcher; a rebuild swaps the library and re-runs `build` on every element without losing `state`. Web: swap the wasm instance, keep the arenas in a retained memory region. Document what resets (changed `state` struct layout forces a restart).
+3. `[x]` `llr-ui dump FILE` prints the three trees of the first frame; `llr-ui shot FILE OUT.ppm [--w --h --scale --frames]`; `llr-ui run`, `serve`, `pack` from earlier phases; every record tagged, `--max` where lists appear.
+4. `[x]` `docs/workflows/ui.md`: write a widget, test it headless, run on each target, fix a layout bug by `dump`; `HANDOFF.md` links this file and `history/` gets it when done.
+5. `[x]` Commit: `ui: hot restart and reload, llr-ui complete`.
 
 ## How to verify each phase
 
@@ -332,3 +332,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-11-01: Phase 10. A state registers by `ticking`. `app.frame` advances it with the host clock before rebuild, then writes implicit targets into the render desc. The null host's `--step` is the elapsed time after the first frame. `w_anim.builder` and the implicit leaves are headless goldens. The navigator's page transition stays in phase 11.
 - 2026-11-01: Phase 11. `ctx.theme` is a `ctx.palette`; `w_theme.dark` swaps it by widget key. `state.msg` returns `bool` and bubbles; `state.input` carries pointer, key, text, paste, submit, back, focus, and flush through `ui/input.llr`; `sched.handle` takes the host. `scroll` is a framework leaf laid out with an unbounded height and a clip; `list` mounts one host height of fixed rows. The `m_*` set reads the theme in `widget.view` closures; a wrapper child goes through `widget.view_kids` because a closure must not move a captured box. `navigator` slides the top page with a 200ms controller; `back` is record kind 8 and the web host mirrors depth with `pushState`. The `state` trait cannot be compiled on its own with `--test`; the widget object type is checked when a dependent module builds. Goldens: `tests/ui/m_light`, `m_dark`, `scroll`, `list`, `field`, `nav`, `todo`.
 - 2026-11-02: Phase 12. A semantics node is built from laid-out render boxes. `m_*` widgets and `semantics.wrap` fill it; `hide` replaces the subtree. Dump lines are `sem|id|role|label|x|y|w|h`. Kind 9 carries an action back to the gesture, focus, or value. Windows is a UI Automation fragment root, Cocoa and UIKit publish elements, Android installs `llr.ui.A11y` when the pack step can compile it, and the web host mirrors ARIA behind the canvas. The X11 shim keeps `a11y_update` and does not publish. AT-SPI stays later. Goldens: `tests/ui/sem` and the dumps that gained `sem|` lines.
+- 2026-11-02: Phase 13. `state.save`, `state.load`, and `state.layout` persist a tree. `--emit-dylib` builds a shared library; `llr-ui run` keeps the element and render arenas and re-runs `build` when every `layout` matches. A `-1` layout or a mismatch saves, relaunches, and loads. The web page copies the wasm heap when the heap base is unchanged and otherwise restores `sessionStorage`. `llr-ui dump` and `llr-ui shot` print the first frame. The workflow is `docs/workflows/ui.md`.

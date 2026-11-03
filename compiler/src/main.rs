@@ -21,7 +21,7 @@ use driver::Options;
 use std::path::PathBuf;
 use std::process::Command;
 
-const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
+const USAGE: &str = "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]
 usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]
 usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]
@@ -37,6 +37,7 @@ fn main() {
         ui_dir: None,
         test: false,
         emit_obj: false,
+        emit_dylib: false,
         emit_mir: false,
         check_only: false,
         checked: false,
@@ -65,6 +66,7 @@ fn main() {
             }
             "--test" => opt.test = true,
             "--emit-obj" => opt.emit_obj = true,
+            "--emit-dylib" => opt.emit_dylib = true,
             "--checked" => opt.checked = true,
             "--deny" => {
                 i += 1;

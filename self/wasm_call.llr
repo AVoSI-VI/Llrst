@@ -41,6 +41,8 @@
    (name (& str))) unit
   (let k (wasm_imp.intrinsic name))
   (if (== k 1) (ret (grow g p fx b t)))
+  (if (== k 7) (ret (const_i64 g p fx b t 0)))
+  (if (== k 8) (ret (wasm_abi.jump fx (. t bb))))
   (if (>= k 2) (ret (slot_val g p fx b t k)))
   (wasi g p fx b t (wasm_imp.index name)))
 
@@ -58,6 +60,18 @@
   (wasm_abi.put fx 172)
   (wasm_abi.set_acc fx)
   (store_acc g p fx (& (ty.int 2)) dest)
+  (wasm_abi.jump fx (. t bb)))
+
+(fn const_i64 ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (b (& mir.body))
+   (t (& mir.term))
+   (n i64)) unit
+  (let dest (hold_dest g p fx b t))
+  (wasm_abi.i64c fx n)
+  (wasm_abi.set_acc fx)
+  (store_acc g p fx (& (ty.int 3)) dest)
   (wasm_abi.jump fx (. t bb)))
 
 (fn slot_val ((g (&mut wasm_mod.wm))

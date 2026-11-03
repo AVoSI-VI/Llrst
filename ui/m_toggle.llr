@@ -1,4 +1,5 @@
 ;; Checkbox, switch, and a slider that owns a value from 0 to 100.
+(use std.str)
 (use ui.anim)
 (use ui.blend)
 (use ui.canvas)
@@ -116,7 +117,11 @@
   (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((_s (& model))) bool false)
-  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false)
+  (fn save ((self (& model))) str (str.from_int (. self v)))
+  (fn load ((self (&mut model)) (text (& str))) unit
+    (match (str.to_int text) ((opt.some n) (set (. self v) (clamp_v n))) ((opt.none) ())))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (pub (fn slider ((v i64)) (box (dyn widget.widget))
   (state.stateful widget.ty_slider (key.key.none) (model v)))

@@ -14,7 +14,7 @@
 (use proj.prog)
 
 (fn usage () unit
-  (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--checked] [--deny CODE]")
+  (io.eputs "usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]")
   (io.eputs "usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]")
   (io.eputs "usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]")
   (io.eputs "usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]")
@@ -39,6 +39,7 @@
       (str.new)
       (str.new)
       (str.new)
+      false
       false
       false
       false
@@ -69,6 +70,7 @@
   (let mut out o)
   (if (str.eq (& a) "--test") (set (. out test) true))
   (if (str.eq (& a) "--emit-obj") (set (. out emit_obj) true))
+  (if (str.eq (& a) "--emit-dylib") (set (. out emit_dylib) true))
   (if (str.eq (& a) "--checked") (set (. out checked) true))
   (if (str.eq (& a) "-o") (set (. out out) (take args i)))
   (if (str.eq (& a) "--target") (set (. out target) (take args i)))
@@ -81,10 +83,11 @@
 (fn known ((a (& str))) bool
   (or (str.eq a "--test")
     (or (str.eq a "--emit-obj")
+        (or (str.eq a "--emit-dylib")
       (or (str.eq a "--checked")
         (or (str.eq a "-o")
           (or (str.eq a "--target")
-            (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny")))))))))
+            (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny"))))))))))
 
 (fn command ((c (& str))) bool
   (or (str.eq c "build")

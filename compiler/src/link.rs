@@ -20,11 +20,11 @@ pub fn host_exe(path: &Path, target: Option<&str>) -> PathBuf {
     }
 }
 
-pub fn link(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
+pub fn link(obj: &[u8], out: &Path, target: Option<&str>, shared: bool) -> PResult<()> {
     if windows_os(target) {
-        link_windows(obj, out)
+        link_windows(obj, out, shared)
     } else {
-        link_unix(obj, out, target)
+        link_unix(obj, out, target, shared)
     }
 }
 
@@ -39,7 +39,7 @@ fn windows_os(target: Option<&str>) -> bool {
 }
 
 fn force_exe(path: &Path) -> PathBuf {
-    if path.extension().and_then(|e| e.to_str()) == Some("exe") {
+    if matches!(path.extension().and_then(|e| e.to_str()), Some("exe") | Some("dll")) {
         return path.to_path_buf();
     }
     let mut name = path.as_os_str().to_owned();
@@ -107,7 +107,12 @@ fn add_ui_unix(cmd: &mut Command, target: Option<&str>) -> PResult<()> {
     Ok(())
 }
 
-fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
+fn wants_name(obj: &[u8], name: &str) -> bool {
+    let needle = name.as_bytes();
+    obj.windows(needle.len()).any(|w| w == needle)
+}
+
+fn link_unix(obj: &[u8], out: &Path, target: Option<&str>, shared: bool) -> PResult<()> {
     let obj_path = out.with_extension("o");
     write_obj(&obj_path, obj)?;
     let mut cmd = match target {
@@ -126,10 +131,16 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
         cmd.arg(now);
     }
     if target.is_none() {
-        // Apple clang rejects `-pie` as unused; PIE is already the default.
-        #[cfg(not(target_os = "macos"))]
-        cmd.arg("-pie");
+        if shared {
+            cmd.arg("-shared");
+        } else {
+            // Apple clang rejects `-pie` as unused; PIE is already the default.
+            #[cfg(not(target_os = "macos"))]
+            cmd.arg("-pie");
+        }
         cmd.arg("-pthread");
+    } else if shared {
+        cmd.arg("-shared");
     }
     if wants_ui(obj) {
         add_ui_unix(&mut cmd, target)?;
@@ -137,10 +148,22 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>) -> PResult<()> {
     if wants_web(obj) {
         cmd.arg(find_named("llr_ui_web.o").ok_or_else(ui_missing)?);
     }
+    if wants_name(obj, "llr_reload_prev") {
+        cmd.arg(find_named("llr_reload.o").ok_or_else(|| {
+            Diag::error(Span::default(), "link.failed").kv("cmd", "cc").kv("got", "llr_reload.o missing")
+        })?);
+    }
+    if wants_name(obj, "llr_dlopen") {
+        cmd.arg(find_named("llr_dl.o").ok_or_else(|| {
+            Diag::error(Span::default(), "link.failed").kv("cmd", "cc").kv("got", "llr_dl.o missing")
+        })?);
+        #[cfg(not(target_os = "macos"))]
+        cmd.arg("-ldl");
+    }
     finish_link(&mut cmd, &obj_path)
 }
 
-fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
+fn link_windows(obj: &[u8], out: &Path, shared: bool) -> PResult<()> {
     let out = force_exe(out);
     let tool = cc_tool()?;
     let shim = ensure_shim(&tool)?;
@@ -152,6 +175,9 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
     apply_env(&mut cmd, &tool);
     if tool.msvc {
         cmd.arg("/nologo");
+        if shared {
+            cmd.arg("/LD");
+        }
         push_raw(&mut cmd, &msvc_path("/Fe:", &out));
         cmd.arg(&obj_path);
         for part in &shim {
@@ -168,7 +194,16 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
             cmd.arg("ole32.lib").arg("oleaut32.lib").arg("uiautomationcore.lib");
         }
         cmd.arg("ws2_32.lib").arg("/link").arg("/STACK:8388608");
+        if shared {
+            cmd.arg("/EXPORT:llr_ui_boot")
+                .arg("/EXPORT:llr_ui_frame")
+                .arg("/EXPORT:llr_ui_drop")
+                .arg("/EXPORT:llr_reload_app");
+        }
     } else {
+        if shared {
+            cmd.arg("-shared");
+        }
         cmd.arg(&obj_path);
         for part in &shim {
             cmd.arg(part);
@@ -290,7 +325,11 @@ fn ensure_ui(tool: &Tool) -> PResult<Vec<PathBuf>> {
 }
 
 fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
-    ensure_named(tool, &["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c", "llr_now.c"], "llr_win.c")
+    ensure_named(
+        tool,
+        &["llr_wsa.c", "llr_win.c", "llr_win_sock.c", "llr_win_proc.c", "llr_now.c", "llr_reload.c", "llr_dl.c"],
+        "llr_win.c",
+    )
 }
 
 fn ensure_named(tool: &Tool, names: &[&str], anchor: &str) -> PResult<Vec<PathBuf>> {

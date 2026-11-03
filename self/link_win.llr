@@ -3,6 +3,7 @@
 (use std.path)
 (use std.str)
 (use proj.diag)
+(use proj.link_so)
 
 (pub (fn dq ((s (& str))) str
   (let mut o (str.from "\""))
@@ -17,6 +18,7 @@
 
 (pub (fn exe_of ((out (& str))) str
   (if (str.ends out ".exe") (ret (str.clone out)))
+  (if (str.ends out ".dll") (ret (str.clone out)))
   (str.cat out ".exe")))
 
 (fn fail ((main (& str)) (cmd (& str)) (got (& str))) str
@@ -81,7 +83,9 @@
    (ui_b (& str))
    (ui_c (& str))
    (web (& str))
-   (main (& str))) str
+   (more (& str))
+   (main (& str))
+   (shared bool)) str
   (let pre (prefix))
   (if (str.eq (& pre) "missing") (ret (fail main "cl" "cl missing")))
   (let mut cmd (str.clone (& pre)))
@@ -100,6 +104,9 @@
       (if (> (str.len ui_c) 0) (push_q (&mut cmd) ui_c))
       (str.push (&mut cmd) " user32.lib gdi32.lib imm32.lib shell32.lib ole32.lib oleaut32.lib uiautomationcore.lib")))
   (if (> (str.len web) 0) (push_q (&mut cmd) web))
-  (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
+  (str.push (&mut cmd) more)
+  (str.push (&mut cmd) " ws2_32.lib")
+  (str.push (&mut cmd) (& (link_so.cl_extra shared)))
+  (str.push (&mut cmd) " /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))

@@ -1,0 +1,36 @@
+;; Slots the reload stub and the host share. Wasm treats these as zeros.
+(extern llr_reload_prev () i64)
+
+(extern llr_reload_set_app ((p i64)) unit)
+
+(extern llr_reload_app () i64)
+
+(extern llr_reload_set_code ((n i64)) unit)
+
+(extern llr_reload_code () i64)
+
+(extern llr_reload_graft () i64)
+
+(extern llr_reload_set_graft ((n i64)) unit)
+
+(extern llr_reload_bad () i64)
+
+(extern llr_reload_set_bad ((n i64)) unit)
+
+(pub (fn prev () i64 (llr_reload_prev)))
+
+(pub (fn set_app ((p i64)) unit (llr_reload_set_app p)))
+
+(pub (fn app_bits () i64 (llr_reload_app)))
+
+(pub (fn set_code ((n i64)) unit (llr_reload_set_code n)))
+
+(pub (fn code () i64 (llr_reload_code)))
+
+(pub (fn graft () i64 (llr_reload_graft)))
+
+(pub (fn set_graft ((n i64)) unit (llr_reload_set_graft n)))
+
+(pub (fn bad () i64 (llr_reload_bad)))
+
+(pub (fn set_bad ((n i64)) unit (llr_reload_set_bad n)))

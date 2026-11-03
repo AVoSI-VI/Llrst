@@ -1,0 +1,33 @@
+;; Shared-library link flags. A loaded Windows library cannot be overwritten, so each build is a new file.
+(use std.str)
+
+(pub (fn tail ((shared bool) (darwin bool)) str
+  (let mut s (str.new))
+  (if shared (str.push (&mut s) " -shared") (if (not darwin) (str.push (&mut s) " -pie")))
+  (str.push (&mut s) " -pthread")
+  s))
+
+(pub (fn cl_extra ((shared bool)) str
+  (if (not shared) (ret (str.new)))
+  (str.from " /LD /EXPORT:llr_ui_boot /EXPORT:llr_ui_frame /EXPORT:llr_ui_drop /EXPORT:llr_reload_app")))
+
+(pub (fn gnu_extra ((shared bool)) str (if shared (str.from " -shared") (str.new))))
+
+(pub (fn dl_flag ((darwin bool) (shared bool)) str
+  (if (or darwin (not shared)) (ret (str.new)))
+  (str.from " -ldl")))
+
+(test link_so_line
+  (let shared (tail true false))
+  (assert (str.has (& shared) "-shared"))
+  (assert (str.has (& shared) "-pthread"))
+  (assert (not (str.has (& shared) "-pie")))
+  (let exe (tail false false))
+  (assert (str.has (& exe) "-pie"))
+  (assert (not (str.has (& exe) "-shared")))
+  (assert (str.has (& (cl_extra true)) "/LD"))
+  (assert (str.has (& (cl_extra true)) "llr_ui_boot"))
+  (assert_eq (& (cl_extra false)) "")
+  (assert_eq (& (gnu_extra true)) " -shared")
+  (assert_eq (& (dl_flag false true)) " -ldl")
+  (assert_eq (& (dl_flag true true)) ""))

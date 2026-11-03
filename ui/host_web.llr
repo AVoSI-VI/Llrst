@@ -122,3 +122,30 @@
   (app.frame (&mut a))
   (ptr.write p a)
   (llr_web_request_frame)))
+
+(pub (fn llr_keep () i64
+  (let p (app_ptr))
+  (if (ptr.eq p (ptr.null <app.app>)) (ret 0))
+  (let a (ptr.read p))
+  (let keep (app.keep_blob (& a)))
+  (mem.forget a)
+  (if keep 1 0)))
+
+(pub (fn llr_save () i64
+  (let p (app_ptr))
+  (if (ptr.eq p (ptr.null <app.app>)) (ret 0))
+  (let a (ptr.read p))
+  (let mut s (app.save_blob (& a)))
+  (mem.forget a)
+  (str.push_byte (&mut s) 0u8)
+  (let raw (as i64 (as u64 (. s p))))
+  (mem.forget s)
+  raw))
+
+(pub (fn llr_load ((p i64) (n i64)) unit
+  (let ap (app_ptr))
+  (if (ptr.eq ap (ptr.null <app.app>)) (ret))
+  (let mut a (ptr.read ap))
+  (let text (str.from_raw (as (ptr u8) (as u64 p)) n))
+  (app.load_blob (&mut a) (& text))
+  (ptr.write ap a)))

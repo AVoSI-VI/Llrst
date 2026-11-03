@@ -39,8 +39,10 @@ function Same-Bytes($got, $want) {
     $x = [System.IO.File]::ReadAllBytes($got)
     $raw = [System.IO.File]::ReadAllBytes($want)
     $y = New-Object System.Collections.Generic.List[byte]
-    foreach ($b in $raw) {
-        if ($b -ne 13) { [void]$y.Add($b) }
+    for ($i = 0; $i -lt $raw.Length; $i++) {
+        $b = $raw[$i]
+        if ($b -eq 13 -and ($i + 1) -lt $raw.Length -and $raw[$i + 1] -eq 10) { continue }
+        [void]$y.Add($b)
     }
     if ($x.Length -ne $y.Count) { return $false }
     for ($i = 0; $i -lt $x.Length; $i++) {

@@ -25,6 +25,14 @@ cc -c -fPIC "$root/runtime/llr_now.c" -o "$root/runtime/llr_now.o" || {
   echo "fail|setup|cc=llr_now.c"
   exit 1
 }
+cc -c -fPIC "$root/runtime/llr_reload.c" -o "$root/runtime/llr_reload.o" || {
+  echo "fail|setup|cc=llr_reload.c"
+  exit 1
+}
+cc -c -fPIC "$root/runtime/llr_dl.c" -o "$root/runtime/llr_dl.o" || {
+  echo "fail|setup|cc=llr_dl.c"
+  exit 1
+}
 cc -c -fPIC "$root/runtime/llr_ui_web.c" -o "$root/runtime/llr_ui_web.o" || {
   echo "fail|setup|cc=llr_ui_web.c"
   exit 1

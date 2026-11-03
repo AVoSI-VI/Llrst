@@ -1,4 +1,5 @@
 ;; Dialog scrim and a snack bar that leaves after a short tick.
+(use std.str)
 (use ui.anim)
 (use ui.blend)
 (use ui.ctx)
@@ -55,6 +56,32 @@
 
 (struct model (text str) (left i64) (on bool))
 
+(fn snack_text ((self (& model))) str
+  (let mut s (str.from_int (. self left)))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (if (. self on) 1 0))))
+  (str.push_byte (&mut s) 10u8)
+  (str.push (&mut s) (& (. self text)))
+  s)
+
+(fn snack_head ((text (& str))) i64
+  (match (str.find_byte text 10u8)
+    ((opt.none) 0)
+    ((opt.some n) n)))
+
+(fn snack_num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn snack_read ((self (&mut model)) (text (& str))) unit
+  (let at (snack_head text))
+  (if (== at 0) (ret))
+  (let head (str.slice text 0 at))
+  (let ps (str.split (& head) 124u8))
+  (if (< (vec.len (& ps)) 2) (ret))
+  (set (. self left) (snack_num (vec.get (& ps) 0)))
+  (set (. self on) (== (snack_num (vec.get (& ps) 1)) 1))
+  (set (. self text) (str.slice text (+ at 1) (str.len text))))
+
 (impl state.state
   model
   (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
@@ -76,7 +103,10 @@
     (set (. self left) (- (. self left) dt))
     (if (> (. self left) 0) (ret true))
     (set (. self on) false)
-    true))
+    true)
+  (fn save ((self (& model))) str (snack_text self))
+  (fn load ((self (&mut model)) (text (& str))) unit (snack_read self text))
+  (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (pub (fn snack_bar ((text str)) (box (dyn widget.widget))
   (state.stateful widget.ty_snack (key.key.none) (model text 400 true)))

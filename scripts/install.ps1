@@ -56,11 +56,11 @@ Copy-Item -LiteralPath (Join-Path $root 'examples') -Destination $exDest -Recurs
 $webDest = Join-Path $share 'web'
 if (Test-Path -LiteralPath $webDest) { Remove-Item -LiteralPath $webDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'web') -Destination $webDest -Recurse
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c', 'llr_ui.h', 'llr_ui_a11y.h', 'llr_ui_win.h')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_reload.c', 'llr_dl.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c', 'llr_ui.h', 'llr_ui_a11y.h', 'llr_ui_win.h')) {
     Copy-Item -LiteralPath (Join-Path $root "runtime\$name") -Destination (Join-Path $share $name) -Force
 }
 Write-Output 'step|runtime'
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_reload.c', 'llr_dl.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c')) {
     Compile-Shim $share $name
 }
 Write-Output "ok|runtime|$share"

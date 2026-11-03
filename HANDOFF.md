@@ -3,7 +3,9 @@
 This file is the work plan for Llrst. It is written so another agent can pick it up cold.
 Read it, then `docs/canon/README.md`, then the workflow you need in `docs/workflows/`.
 Finished plans are in `history/`: [history/bootstrap.md](history/bootstrap.md) (the first
-build) and [history/self-hosting.md](history/self-hosting.md) (the `self/` compiler).
+build), [history/self-hosting.md](history/self-hosting.md) (the `self/` compiler), and
+[history/ui.md](history/ui.md) (the `llr-ui` framework). The widget workflow is
+[docs/workflows/ui.md](docs/workflows/ui.md).
 When code and this file disagree, trust the code and fix this file.
 
 Status legend used below: `[ ]` not started, `[~]` in progress, `[x]` done. Update the
@@ -90,8 +92,8 @@ flowchart LR
 | borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `static_ck.llr`, `lint.llr` | loans, holders, init, `'static`, warnings |
 | codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | every local a slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr`, `wasm.llr`, `wasm_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), Mach-O arm64, or one Wasm module (`.wasm`) for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3 on wasm. |
-| link | `link.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims. A reference to `llr_ui_open` also links the host UI shim |
-| driver | `llrs.llr`, `drive.llr`, `diag.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj`; reachable instances from `main` or `--test` |
+| link | `link.llr`, `link_so.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims. A reference to `llr_ui_open` also links the host UI shim. `--emit-dylib` passes `-shared` or `/LD` |
+| driver | `llrs.llr`, `drive.llr`, `diag.llr`, `cg_reload.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj --emit-dylib`; reachable instances from `main` or `--test` |
 
 Generics are monomorphized by re-checking the body per instantiation. Only reachable
 instances are compiled; std bodies are checked lazily.
@@ -408,3 +410,4 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-10-31: wasm32 (`UIFRAME.md` phase 6). `self/wasm_*.llr` lower MIR to one Wasm module for `wasm32-wasi` and `wasm32-unknown-unknown`; `load.llr` appends `std/sys_wasm.llr` and `sys.os_id` is 3; `std/alloc.llr` is the allocator. Stage 0 `resolve.rs` skips `sys_wasm` like the other host files so def ids stay equal. `self/mir_print.llr` prints `&mut box`, and a `(& box)` through an inferred type takes the resolved trait id. `tests/wasm.sh` fails=0 under wasmtime 50; goldens, std tests, `tests/check.sh`, and `tests/mir.sh` fails=0 with the rebuilt self compiler. `ui-mod/event` fails `type.arity` on the nested `(opt.some (event.pointer ...))` pattern in `self/` (stage 0 accepts it); that predates this phase and is fixed on 2026-11-01.
 - 2026-11-01: Two blockers. `std/gql_schema.llr` declared `pub` types `ty` and `field`, and `std/gql_parse.llr` declared `doc`, repeating `std/ast.llr` and `std/xml.llr`; stage 0's prelude map kept the last one while `self/` and `std/check.llr` kept the first, so stage 0 could not build `llr-check` or `llrs0`. They are `gtype`, `gfield`, and `gdoc`. A repeated `pub` std type name is now `name.dup|name=|module=` in all three checkers (`compiler/src/prelude.rs`, `self/collect.llr`, `std/check_load.llr`), and the first keeps the name. `self/thir_pat.llr` copied pattern children without their own children, so any variant pattern nested in another had zero sub-patterns; it borrows them now (`tests/run/match_nested`). `scripts/self.sh --stage` reaches `stage2=equal`.
 - 2026-11-01: `llr-check` is a front end over `llrc check` (`os.exec`, `os.exe_path`): `$LLRC`, then `llrc` beside the tool, then `PATH`; arguments and the exit code pass through. The second checker in `std/check*.llr` is retired, so the two can no longer disagree. `tests/run.sh` and `tests/self.sh` export `LLRC` and compare `llr-check` on every `tests/err` and `tests/warn` golden, including borrow, move, init, warnings, and `--deny`. `tests/self.sh` fails=0.
+- 2026-11-02: `llr-ui` phase 13. `state` gained `save`, `load`, and `layout`. `--emit-dylib` links a shared library whose `llr_ui_boot` keeps the element and render arenas across a reload. A `-1` layout, a changed layout, or a different tree restarts through that `save` string. The browser page does the same with `sessionStorage` when the wasm heap base moves. `llr-ui dump`, `shot`, and `run` are in `docs/tools/llr-ui.md`. The plan is `history/ui.md` and the workflow is `docs/workflows/ui.md`.

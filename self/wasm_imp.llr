@@ -82,6 +82,15 @@
   (if (str.eq name "llr_argc_slot") (ret 4))
   (if (str.eq name "llr_argv_slot") (ret 5))
   (if (str.eq name "llr_heap_slot") (ret 6))
+  (if (or (str.eq name "llr_reload_prev")
+      (or (str.eq name "llr_reload_app")
+        (or (str.eq name "llr_reload_code") (or (str.eq name "llr_reload_graft") (str.eq name "llr_reload_bad")))))
+    (ret 7))
+  (if (or (str.eq name "llr_reload_set_app")
+      (or (str.eq name "llr_reload_set_code")
+        (or (str.eq name "llr_reload_set_prev")
+          (or (str.eq name "llr_reload_set_graft") (str.eq name "llr_reload_set_bad")))))
+    (ret 8))
   0))
 
 (pub (fn slot_addr ((k i64)) i64

@@ -78,14 +78,16 @@ Windows temp directory. `llrc run` passes the argument vector through `llr_exec`
 Flags may come before or after the subcommand. `version` prints `llrc|0.1.0`.
 
 ```
-usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--checked] [--deny CODE]
+usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]
 usage|llrc run FILE [--std DIR] [--ui DIR] [--deny CODE] [-- ARGS...]
 usage|llrc check FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc emit-mir FILE [--std DIR] [--ui DIR] [--deny CODE]
 usage|llrc version
 ```
 
-`--emit-obj` writes the object and does not link. `--checked` traps wrapping arithmetic,
+`--emit-obj` writes the object and does not link. `--emit-dylib` links a shared library
+(`-shared`, or `/LD` on MSVC) and exports `llr_ui_boot`, `llr_ui_frame`, and `llr_ui_drop`
+instead of a process `main`. `--checked` traps wrapping arithmetic,
 out-of-range shifts, and casts that do not fit. `--deny CODE` may be repeated; each named
 warning is printed as `E` and the process exits 1. `run FILE -- ARGS` passes `ARGS` to the
 program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps every local in a stack slot

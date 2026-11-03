@@ -442,15 +442,95 @@
     if (document.visibilityState === "visible") pushKind(4);
   });
 
+  function readI64(mem, off) {
+    return new DataView(mem.buffer).getBigInt64(off, true);
+  }
+
+  function writeI64(mem, off, n) {
+    new DataView(mem.buffer).setBigInt64(off, n, true);
+  }
+
+  function cstr(mem, ptr) {
+    const u = new Uint8Array(mem.buffer);
+    let i = Number(ptr);
+    const start = i;
+    while (i < u.length && u[i]) i += 1;
+    return new TextDecoder().decode(u.subarray(start, i));
+  }
+
+  function bytesEq(a, b) {
+    if (!a || !b || a.byteLength !== b.byteLength) return false;
+    const x = new Uint8Array(a);
+    const y = new Uint8Array(b);
+    for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return false;
+    return true;
+  }
+
+  let wasmBin = null;
+  let heapBase = 0n;
+
+  async function startModule(bytes, swap) {
+    const oldMem = memory;
+    const oldBump = oldMem ? readI64(oldMem, 8) : 0n;
+    const keep = swap && exports && exports.llr_keep ? exports.llr_keep() : 0;
+    let saved = "";
+    if (swap && exports && exports.llr_save) {
+      const p = exports.llr_save();
+      if (p) saved = cstr(memory, p);
+      try { sessionStorage.setItem("llr-ui", saved); } catch (e) {}
+    }
+    const inst = await WebAssembly.instantiate(bytes, { llr });
+    const next = inst.instance.exports;
+    const base = readI64(next.memory, 8);
+    const reuse = swap && keep && heapBase !== 0n && base === heapBase && oldBump > heapBase;
+    if (reuse) {
+      const from = Number(heapBase);
+      const to = Number(oldBump);
+      if (next.memory.buffer.byteLength < to) {
+        const pages = Math.ceil((to - next.memory.buffer.byteLength) / 65536);
+        next.memory.grow(pages);
+      }
+      new Uint8Array(next.memory.buffer).set(new Uint8Array(oldMem.buffer.slice(from, to)), from);
+      writeI64(next.memory, 8, oldBump);
+      exports = next;
+      memory = next.memory;
+      return;
+    }
+    exports = next;
+    memory = next.memory;
+    heapBase = base;
+    exports._start();
+    const blob = saved || (function () { try { return sessionStorage.getItem("llr-ui") || ""; } catch (e) { return ""; } })();
+    if (blob && exports.llr_load) {
+      const enc = new TextEncoder().encode(blob);
+      const at = Number(readI64(memory, 8));
+      if (memory.buffer.byteLength < at + enc.length) {
+        memory.grow(Math.ceil((at + enc.length - memory.buffer.byteLength) / 65536));
+      }
+      new Uint8Array(memory.buffer).set(enc, at);
+      exports.llr_load(BigInt(at), BigInt(enc.length));
+      try { sessionStorage.removeItem("llr-ui"); } catch (e) {}
+    }
+  }
+
   async function boot() {
     const fontUrl = "ui/fonts/LiberationSans-Regular.ttf";
-    const wasm = await fetch("app.wasm").then((r) => r.arrayBuffer());
     const fontRes = await fetch(fontUrl);
     if (fontRes.ok) files.set(fontUrl, new Uint8Array(await fontRes.arrayBuffer()));
-    const inst = await WebAssembly.instantiate(wasm, { llr });
-    exports = inst.instance.exports;
-    memory = exports.memory;
-    exports._start();
+    for (;;) {
+      let bytes = null;
+      try {
+        bytes = await fetch("app.wasm", { cache: "no-store" }).then((r) => r.arrayBuffer());
+      } catch (e) {
+        bytes = null;
+      }
+      if (bytes && !bytesEq(bytes, wasmBin)) {
+        const swap = wasmBin !== null;
+        wasmBin = bytes;
+        await startModule(bytes, swap);
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
   }
 
   boot().catch((e) => console.error(e));

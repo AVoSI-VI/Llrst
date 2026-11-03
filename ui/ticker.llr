@@ -1,4 +1,5 @@
 ;; Per-frame ticks. States run before rebuild; implicit tracks write the render desc after.
+(use std.str)
 (use ui.anim)
 (use ui.blend)
 (use ui.ctx)
@@ -132,6 +133,21 @@
 
 (struct clock (n i64) (on bool))
 
+(fn clock_text ((n i64) (on bool)) str
+  (let mut s (str.from_int n))
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (if on 1 0))))
+  s)
+
+(fn clock_num ((s (& str))) i64
+  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+
+(fn clock_read ((self (&mut clock)) (text (& str))) unit
+  (let ps (str.split text 124u8))
+  (if (< (vec.len (& ps)) 2) (ret))
+  (set (. self n) (clock_num (vec.get (& ps) 0)))
+  (set (. self on) (== (clock_num (vec.get (& ps) 1)) 1)))
+
 (impl state.state
   clock
   (fn build ((_s (& clock)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
@@ -145,7 +161,10 @@
     (if (<= dt 0) (ret (. self on)))
     (set (. self n) (+ (. self n) dt))
     (if (>= (. self n) 30) (set (. self on) false))
-    true))
+    true)
+  (fn save ((self (& clock))) str (clock_text (. self n) (. self on)))
+  (fn load ((self (&mut clock)) (text (& str))) unit (clock_read self text))
+  (fn layout ((_s (& clock))) i64 (as i64 (sizeof clock))))
 
 (fn mounted () (box (dyn widget.widget)) (state.stateful 100 (key.key.none) (clock 0 true)))
 

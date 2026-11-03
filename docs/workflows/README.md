@@ -11,6 +11,7 @@ read back, and the decision it drives. Read `docs/canon/README.md` first.
 | [refactor.md](refactor.md) | rename, extract, move between modules |
 | [new-tool.md](new-tool.md) | add a tool to `tools/` and install it |
 | [std.md](std.md) | grow the standard library |
+| [ui.md](ui.md) | write a widget, test it headless, run it, fix layout from a dump |
 
 Record parsing rules shared by every workflow:
 
