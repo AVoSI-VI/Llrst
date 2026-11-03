@@ -75,7 +75,7 @@ Windows temp directory. `llrc run` passes the argument vector through `llr_exec`
 
 ## Commands
 
-Flags may come before or after the subcommand. `version` prints `llrc|0.1.0`.
+Flags may come before or after the subcommand. `version` prints `llrc|0.4.5`.
 
 ```
 usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]

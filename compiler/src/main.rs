@@ -96,7 +96,7 @@ fn main() {
     }
     match cmd.as_str() {
         "version" => {
-            println!("llrc|0.1.0");
+            println!("llrc|0.4.5");
             return;
         }
         "build" | "run" | "check" | "emit-mir" => {}

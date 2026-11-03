@@ -1,6 +1,6 @@
 # Llrst
 
-Llrst 0.1.0. A compiled, memory-safe language designed for models, not people. Files end in `.llr`.
+Llrst 0.4.5. A compiled, memory-safe language designed for models, not people. Files end in `.llr`.
 The syntax is S-expressions with three delimiters, the memory model is Rust's (ownership,
 borrows, NLL), and every diagnostic is one machine-readable line. The installed compiler
 `llrc` is stage-2 `llrs` from `self/`. Stage 0 in `compiler/` is Rust on Cranelift.
