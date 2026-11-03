@@ -165,6 +165,7 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
         }
         if !ui.is_empty() {
             cmd.arg("user32.lib").arg("gdi32.lib").arg("imm32.lib").arg("shell32.lib");
+            cmd.arg("ole32.lib").arg("oleaut32.lib").arg("uiautomationcore.lib");
         }
         cmd.arg("ws2_32.lib").arg("/link").arg("/STACK:8388608");
     } else {
@@ -180,7 +181,7 @@ fn link_windows(obj: &[u8], out: &Path) -> PResult<()> {
         }
         cmd.arg("-o").arg(&out).arg("-lws2_32");
         if !ui.is_empty() {
-            cmd.args(["-luser32", "-lgdi32", "-limm32", "-lshell32"]);
+            cmd.args(["-luser32", "-lgdi32", "-limm32", "-lshell32", "-lole32", "-loleaut32", "-luiautomationcore"]);
         }
         cmd.arg("-Wl,--stack,8388608");
     }
@@ -285,7 +286,7 @@ fn tool_ok(name: &str, msvc: bool) -> bool {
 }
 
 fn ensure_ui(tool: &Tool) -> PResult<Vec<PathBuf>> {
-    ensure_named(tool, &["llr_ui_win.c", "llr_ui_win_in.c"], "llr_ui_win.c")
+    ensure_named(tool, &["llr_ui_win.c", "llr_ui_win_in.c", "llr_ui_win_a11y.c"], "llr_ui_win.c")
 }
 
 fn ensure_shim(tool: &Tool) -> PResult<Vec<PathBuf>> {
@@ -336,7 +337,7 @@ fn compile_shim(tool: &Tool, src: &Path, obj: &Path) -> PResult<()> {
     let mut cmd = Command::new(tool.name);
     apply_env(&mut cmd, tool);
     if tool.msvc {
-        cmd.arg("/nologo").arg("/c").arg(src);
+        cmd.arg("/nologo").arg("/std:c11").arg("/c").arg(src);
         push_raw(&mut cmd, &msvc_path("/Fo", obj));
     } else {
         cmd.arg("-c").arg(src).arg("-o").arg(obj);

@@ -46,6 +46,10 @@ static void host_life(int kind) {
     llr_ui_push(queue, &qn, ev);
 }
 
+- (void)pushAction:(int32_t)action node:(int32_t)node text:(const void *)bytes len:(int)len {
+    llr_ui_action(queue, &qn, action, node, bytes, len);
+}
+
 - (void)pushBytes:(const void *)bytes len:(int)len {
     llr_ui_text(queue, &qn, bytes, len);
 }

@@ -274,3 +274,9 @@ int64_t llr_ui_now_ms(void *p) {
     }
     return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
 }
+
+void llr_ui_a11y_update(void *p, const uint8_t *bytes, int64_t n) {
+    (void)p;
+    (void)bytes;
+    (void)n;
+}

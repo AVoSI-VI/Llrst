@@ -9,6 +9,7 @@
 (use ui.input)
 (use ui.ptrs)
 (use ui.render)
+(use ui.semantics)
 
 (fn hit_of ((rt (& render.rtree)) (x f32) (y f32)) (opt u32)
   (match (render.visual_root rt) ((opt.some id) (hit.at rt id x y)) ((opt.none) (opt.none <u32>))))
@@ -44,6 +45,7 @@
    (host (&mut (box (dyn host.host))))
    (root u32)
    (p (&mut ptrs.ptrs))
+   (sem (& semantics.tree))
    (e (& event.event))) unit
   (match e
     ((event.event.pointer k x y _ dy) (input.pointer es rt host p (hit_of rt (@ x) (@ y)) (@ k) (@ x) (@ y) (@ dy)))
@@ -58,6 +60,7 @@
     ((event.event.inset l t r b)
       (do (set (. p il) (@ l)) (set (. p it) (@ t)) (set (. p ir) (@ r)) (set (. p ib) (@ b))))
     ((event.event.back) (input.back es rt host p))
+    ((event.event.action bit id text) (input.action es rt host p sem (@ bit) (@ id) text))
     ((event.event.frame) ())))
 
 (pub (fn handle ((es (&mut element.elems))
@@ -65,8 +68,9 @@
    (root u32)
    (p (&mut ptrs.ptrs))
    (host (&mut (box (dyn host.host))))
+   (sem (& semantics.tree))
    (ev (& (vec event.event)))) unit
-  (for i 0 (vec.len ev) (one es rt host root p (vec.get ev i)))
+  (for i 0 (vec.len ev) (one es rt host root p sem (vec.get ev i)))
   (input.flush es rt host p)))
 
 (test sched_life
@@ -74,10 +78,11 @@
   (let mut rt (render.new))
   (let mut p (ptrs.ptrs_new))
   (let mut host (box (dyn host.host)) (host_null.host_null.make 8 4))
+  (let sem (semantics.empty))
   (let mut ev (vec.new <event.event>))
   (vec.push (&mut ev) (event.event.life event.pause))
   (vec.push (&mut ev) (event.event.inset 1.0f32 24.0f32 0.0f32 48.0f32))
-  (handle (&mut es) (&mut rt) 0u32 (&mut p) (&mut host) (& ev))
+  (handle (&mut es) (&mut rt) 0u32 (&mut p) (&mut host) (& sem) (& ev))
   (assert (. p paused))
   (assert (not (. p quit)))
   (assert_eq (as i64 (. p il)) 1)
@@ -86,6 +91,6 @@
   (let mut ev2 (vec.new <event.event>))
   (vec.push (&mut ev2) (event.event.life event.resume))
   (vec.push (&mut ev2) (event.event.life event.destroy))
-  (handle (&mut es) (&mut rt) 0u32 (&mut p) (&mut host) (& ev2))
+  (handle (&mut es) (&mut rt) 0u32 (&mut p) (&mut host) (& sem) (& ev2))
   (assert (not (. p paused)))
   (assert (. p quit)))

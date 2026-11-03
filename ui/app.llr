@@ -11,6 +11,7 @@
 (use ui.render_paint)
 (use ui.ptrs)
 (use ui.sched)
+(use ui.semantics)
 (use ui.state)
 (use ui.ticker)
 (use ui.widget)
@@ -25,7 +26,8 @@
   (vw f32)
   (vh f32)
   (sc f32)
-  (last i64)))
+  (last i64)
+  (sem semantics.tree)))
 
 (fn read_host ((a (&mut app))) unit
   (let sz (host.host.size (& (. a host))))
@@ -34,6 +36,11 @@
   (set (. a vh) (. sz h))
   (set (. a sc) sc)
   (element.set_view (&mut (. a es)) (. sz w) (. sz h) sc))
+
+(fn publish ((a (&mut app))) unit
+  (set (. a sem) (semantics.build (& (. a es)) (& (. a rt)) (. a root)))
+  (let bytes (semantics.pack (& (. a sem))))
+  (host.host.a11y (&mut (. a host)) (& bytes)))
 
 (fn layout_of ((a (&mut app))) unit
   (match (render.visual_root (& (. a rt)))
@@ -52,11 +59,13 @@
       80.0f32
       48.0f32
       1.0f32
-      0))
+      0
+      (semantics.empty)))
   (read_host (&mut a))
   (let id (element.mount (&mut (. a es)) (&mut (. a rt)) root))
   (set (. a root) id)
   (layout_of (&mut a))
+  (publish (&mut a))
   a))
 
 (fn pixels ((n f32) (sc f32)) i64 (let v (as i64 (math.ceil32 (* n sc)))) (if (< v 1) 1 v))
@@ -83,7 +92,7 @@
   (read_host a)
   (let mut ev (vec.new <event.event>))
   (host.host.poll (&mut (. a host)) (&mut ev))
-  (sched.handle (&mut (. a es)) (&mut (. a rt)) (. a root) (&mut (. a p)) (&mut (. a host)) (& ev))
+  (sched.handle (&mut (. a es)) (&mut (. a rt)) (. a root) (&mut (. a p)) (&mut (. a host)) (& (. a sem)) (& ev))
   (if (. (. a p) quit) (host.host.quit (&mut (. a host))))
   (if (. (. a p) paused) (ret))
   (let dt (elapsed a))
@@ -94,6 +103,7 @@
   (if (ticker.pump_implicit (& (. a es)) (&mut (. a rt)) (&mut (. a p)) dt) (set live true))
   (if live (host.host.request_frame (&mut (. a host))))
   (layout_of a)
+  (publish a)
   (let mut bm (bitmap.bitmap.new (pixels (. a vw) (. a sc)) (pixels (. a vh) (. a sc))))
   (match (render.visual_root (& (. a rt)))
     ((opt.some id)
@@ -177,4 +187,6 @@
     (str.push (&mut line) "-")
     (str.push (&mut line) (& (str.from_int (. (. a p) focus)))))
   (add_line (&mut s) line)
+  (let extra (semantics.dump (& (. a sem))))
+  (if (> (str.len (& extra)) 0) (add_line (&mut s) extra))
   s))

@@ -1,0 +1,55 @@
+;; A button is one semantics node. A hiding wrap replaces it. A tap action delivers the message.
+(use std.io)
+(use ui.anim)
+(use ui.app)
+(use ui.blend)
+(use ui.ctx)
+(use ui.host_null)
+(use ui.key)
+(use ui.m_button)
+(use ui.semantics)
+(use ui.state)
+(use ui.w_flex)
+(use ui.w_text)
+(use ui.widget)
+
+(struct model (n i64))
+
+(fn view ((n i64)) (box (dyn widget.widget))
+  (let mut ks (vec.new < (box (dyn widget.widget)) >))
+  (let label (w_text.text (& (str.from_int n)) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8)))
+  (vec.push (&mut ks) label)
+  (vec.push (&mut ks) (m_button.button (str.from "Go") 1))
+  (w_flex.column ks))
+
+(impl state.state
+  model
+  (fn build ((self (& model)) (_c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (view (. self n)))
+  (fn msg ((self (&mut model)) (m i64)) bool
+    (if (== m 1) (do (set (. self n) (+ (. self n) 1)) (ret true)))
+    false)
+  (fn input ((_s (&mut model)) (_e (& state.ev)) (_o (&mut state.out))) bool false)
+  (fn route ((_s (& model))) i64 (neg 1))
+  (fn dispose ((_s (&mut model))) unit ())
+  (fn ticking ((_s (& model))) bool false)
+  (fn tick ((_s (&mut model)) (_d i64) (_g (& anim.goal))) bool false))
+
+(fn over () (box (dyn widget.widget))
+  (semantics.wrap semantics.role_button
+    (str.from "Save")
+    (str.new)
+    semantics.flag_focus
+    semantics.act_tap
+    true
+    (m_button.button (str.from "Go") 1)))
+
+(fn main () unit
+  (let h (host_null.host_null.from_args))
+  (let mut a (app.open h (state.stateful 100 (key.key.none) (model 0))))
+  (app.frame (&mut a))
+  (io.puts (& (app.dump (& a))))
+  (let h2 (host_null.host_null.make 80 48))
+  (let mut b (app.open h2 (over)))
+  (app.frame (&mut b))
+  (io.puts (& (app.dump (& b)))))

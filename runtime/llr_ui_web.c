@@ -68,3 +68,8 @@ int32_t llr_web_app(void) {
 void llr_web_history(int64_t n) {
     (void)n;
 }
+
+void llr_web_a11y(const uint8_t *bytes, int64_t n) {
+    (void)bytes;
+    (void)n;
+}

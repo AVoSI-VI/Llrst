@@ -8,7 +8,7 @@ Type ids `1` through `19` are the basic widgets. `20` is `animated_builder`, `21
 is `animated_container`, `22` is `animated_opacity`, and `23` is `animated_padding`.
 `24` through `41` are the phase 11 set: `theme scroll list scaffold app_bar button
 icon_button text_field checkbox switch slider dialog snack_bar list_tile card
-divider progress navigator`. A user stateful id starts at `100`. A closure body
+divider progress navigator`. `42` is `semantics`. A user stateful id starts at `100`. A closure body
 does not contain a `clos` form. It may call a function that creates one. A closure
 must not move a captured box out of its environment; a widget that wraps a child
 takes it through `widget.view_kids`, which passes the children as an argument.

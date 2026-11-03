@@ -9,7 +9,8 @@
   (pub (quit))
   (pub (life i64))
   (pub (inset f32 f32 f32 f32))
-  (pub (back))))
+  (pub (back))
+  (pub (action i64 i64 str))))
 
 (pub (const down i64 0))
 
@@ -49,6 +50,18 @@
 
 (pub (const rec_back i64 8))
 
+(pub (const rec_action i64 9))
+
+(pub (const act_tap i64 1))
+
+(pub (const act_focus i64 2))
+
+(pub (const act_value i64 4))
+
+(pub (const act_dismiss i64 8))
+
+(pub (const act_scroll i64 16))
+
 (pub (const pause i64 0))
 
 (pub (const resume i64 1))
@@ -80,6 +93,21 @@
   (if (str.eq s "destroy") (ret destroy))
   (neg 1))
 
+(fn act_code ((s (& str))) i64
+  (if (str.eq s "tap") (ret act_tap))
+  (if (str.eq s "focus") (ret act_focus))
+  (if (str.eq s "value") (ret act_value))
+  (if (str.eq s "dismiss") (ret act_dismiss))
+  (if (str.eq s "scroll") (ret act_scroll))
+  (neg 1))
+
+(fn act_ev ((xs (& (vec str)))) (opt event)
+  (if (< (vec.len xs) 3) (ret (opt.none <event>)))
+  (let bit (act_code (vec.get xs 1)))
+  (if (< bit 0) (ret (opt.none <event>)))
+  (let text (if (>= (vec.len xs) 4) (str.clone (vec.get xs 3)) (str.new)))
+  (opt.some (event.action bit (i_at xs 2) text)))
+
 (fn life_ev ((xs (& (vec str)))) (opt event)
   (if (< (vec.len xs) 2) (ret (opt.none <event>)))
   (let n (life_code (vec.get xs 1)))
@@ -90,6 +118,7 @@
   (if (str.eq s "frame") (ret (opt.some (event.frame))))
   (if (str.eq s "quit") (ret (opt.some (event.quit))))
   (if (str.eq s "back") (ret (opt.some (event.back))))
+  (if (str.eq s "act") (ret (act_ev xs)))
   (if (str.eq s "life") (ret (life_ev xs)))
   (if (str.eq s "inset")
     (ret (opt.some (event.inset (f_at xs 1) (f_at xs 2) (f_at xs 3) (f_at xs 4)))))
@@ -138,6 +167,11 @@
     ((opt.some (event.back)) (assert true))
     ((opt.some _) (assert false))
     ((opt.none) (assert false)))
+  (match (parse_line "act|value|3|Hi")
+    ((opt.some (event.action b id s))
+      (do (assert_eq b act_value) (assert_eq id 3) (assert (str.eq (& s) "Hi"))))
+    ((opt.some _) (assert false))
+    ((opt.none) (assert false)))
   (assert (opt.is_none (& (parse_line "nope"))))
   (assert (opt.is_none (& (parse_line "life|nope")))))
 
@@ -157,9 +191,17 @@
   (if (== k rec_life) (ret (opt.some (event.life (ri p 4)))))
   (if (== k rec_inset) (ret (opt.some (event.inset (rf p 16) (rf p 20) (rf p 24) (rf p 28)))))
   (if (== k rec_back) (ret (opt.some (event.back))))
+  (if (== k rec_action) (ret (opt.some (event.action (ri p 4) (ri p 8) (act_text p)))))
   (opt.none <event>))
 
-(fn text_len ((p (ptr u8))) i64 (let n (ri p 4)) (if (< n 0) (ret 0)) (if (> n 32) 32 n))
+(fn clip_n ((n i64)) i64 (if (< n 0) (ret 0)) (if (> n 32) 32 n))
+
+(fn text_len ((p (ptr u8))) i64 (clip_n (ri p 4)))
+
+(fn act_text ((p (ptr u8))) str
+  (let n (clip_n (ri p 12)))
+  (if (== n 0) (ret (str.new)))
+  (str.from_raw (ptr.add p 32) n))
 
 (fn text_of ((p (ptr u8))) str
   (let n (text_len p))
@@ -243,4 +285,18 @@
   (match (vec.remove (&mut ev) 0) ((event.life n) (assert_eq n destroy)) (_ (assert false)))
   (match (vec.remove (&mut ev) 0)
     ((event.inset _ t _ _) (assert_eq (as i64 t) 8))
+    (_ (assert false))))
+
+(test event_rec_action
+  (let mut b (rec_buf 1))
+  (put_i (&mut b) 0 rec_action)
+  (put_i (&mut b) 4 act_value)
+  (put_i (&mut b) 8 2)
+  (put_i (&mut b) 12 2)
+  (ptr.write (ptr.add (vec.ptr (& b)) 32) 65u8)
+  (ptr.write (ptr.add (vec.ptr (& b)) 33) 66u8)
+  (let mut ev (vec.new <event>))
+  (take_rec (vec.ptr (& b)) 1 (&mut ev))
+  (match (vec.remove (&mut ev) 0)
+    ((event.action bit id s) (do (assert_eq bit act_value) (assert_eq id 2) (assert (str.eq (& s) "AB"))))
     (_ (assert false))))

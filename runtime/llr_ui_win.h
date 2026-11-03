@@ -22,9 +22,14 @@ typedef struct llr_ui {
     uint16_t high;
     llr_ui_ev q[LLR_UI_RING];
     int qn;
+    void *acc;
+    void *acc_root;
+    void *acc_list;
 } llr_ui;
 
-void llr_ui_win_input(llr_ui *h, UINT msg, WPARAM wp, LPARAM lp);
+int llr_ui_win_input(llr_ui *h, UINT msg, WPARAM wp, LPARAM lp);
 float llr_ui_win_div(llr_ui *h);
+void llr_ui_win_a11y_free(llr_ui *h);
+LRESULT llr_ui_win_a11y_get(llr_ui *h, HWND hw, WPARAM wp, LPARAM lp);
 
 #endif

@@ -97,7 +97,7 @@ Create each path in the phase that names it. Phases 0 through 5 are in the tree.
 ## Status
 
 ```
-plan|2026-11-01|phases=0-13|phase 10 done
+plan|2026-11-02|phases=0-13|phase 12 done
 compiler|self/ emits x86-64 ELF64 and COFF, aarch64 ELF and Mach-O, and a wasm32 module
 language|`(box (dyn Trait))` owned trait object|closures: whole-binding capture, no nesting, no coercion to fn; no trait default methods
 std|math, math_trig, and alloc|no png
@@ -281,14 +281,14 @@ Sliver-free rule: a list has one fixed row extent and mounts `floor(offset / ext
 5. `[x]` `examples/todo.llr`; goldens for every widget in default and dark theme; `docs/canon/ui.md` names the one widget per task.
 6. `[x]` Commit: `ui: theme, scrolling, material-like set, navigator`.
 
-### Phase 12: accessibility `[ ]`
+### Phase 12: accessibility `[x]`
 
 Files: `ui/semantics.llr`, `ui/a11y_win.llr`, `ui/a11y_mac.llr`, `ui/a11y_web.llr`, `ui/a11y_android.llr`, `ui/a11y_ios.llr`, `runtime/llr_ui_*.c|m`, `web/llr_ui.js`, `docs/ui/a11y.md`.
 
-1. `[ ]` `semantics`: a tree built from render objects after layout: `role label value flags rect actions`; `m_*` widgets fill it; a `semantics` widget overrides; dump as `sem|id|role|label|x|y|w|h` in goldens.
-2. `[ ]` Web: `llr_ui.js` keeps a hidden DOM mirror under the canvas with ARIA roles and `tabindex`; focus and activation flow back as events.
-3. `[ ]` Windows UIA provider, macOS `NSAccessibility`, Android `AccessibilityNodeInfo` via `ANativeActivity`'s JNI, iOS `UIAccessibilityElement`; Linux AT-SPI is a later item. Each shim exposes `a11y_update(ptr len)` taking the serialised tree and raises actions as events.
-4. `[ ]` Commit: `ui: semantics tree, aria mirror, platform a11y bridges`.
+1. `[x]` `semantics`: a tree built from render objects after layout: `role label value flags rect actions`; `m_*` widgets fill it; a `semantics` widget overrides; dump as `sem|id|role|label|x|y|w|h` in goldens.
+2. `[x]` Web: `llr_ui.js` keeps a hidden DOM mirror under the canvas with ARIA roles and `tabindex`; focus and activation flow back as events.
+3. `[x]` Windows UIA provider, macOS `NSAccessibility`, Android `AccessibilityNodeInfo` via `ANativeActivity`'s JNI, iOS `UIAccessibilityElement`; Linux AT-SPI is a later item. Each shim exposes `a11y_update(ptr len)` taking the serialised tree and raises actions as events.
+4. `[x]` Commit: `ui: semantics tree, aria mirror, platform a11y bridges`.
 
 ### Phase 13: hot restart, hot reload, tool completion `[ ]`
 
@@ -331,3 +331,4 @@ scripts/check-lines.sh                                 # ui/ web/ runtime/*.m in
 - 2026-11-01: Phase 9. Android and iOS hosts use the same 64-byte record. Kind 6 is life (pause, resume, destroy) and kind 7 is an inset. Logical size is the safe content rect. `llr-ui pack` shells out to the Android SDK or `codesign`. The simulator slice is arm64. The suite stays headless.
 - 2026-11-01: Phase 10. A state registers by `ticking`. `app.frame` advances it with the host clock before rebuild, then writes implicit targets into the render desc. The null host's `--step` is the elapsed time after the first frame. `w_anim.builder` and the implicit leaves are headless goldens. The navigator's page transition stays in phase 11.
 - 2026-11-01: Phase 11. `ctx.theme` is a `ctx.palette`; `w_theme.dark` swaps it by widget key. `state.msg` returns `bool` and bubbles; `state.input` carries pointer, key, text, paste, submit, back, focus, and flush through `ui/input.llr`; `sched.handle` takes the host. `scroll` is a framework leaf laid out with an unbounded height and a clip; `list` mounts one host height of fixed rows. The `m_*` set reads the theme in `widget.view` closures; a wrapper child goes through `widget.view_kids` because a closure must not move a captured box. `navigator` slides the top page with a 200ms controller; `back` is record kind 8 and the web host mirrors depth with `pushState`. The `state` trait cannot be compiled on its own with `--test`; the widget object type is checked when a dependent module builds. Goldens: `tests/ui/m_light`, `m_dark`, `scroll`, `list`, `field`, `nav`, `todo`.
+- 2026-11-02: Phase 12. A semantics node is built from laid-out render boxes. `m_*` widgets and `semantics.wrap` fill it; `hide` replaces the subtree. Dump lines are `sem|id|role|label|x|y|w|h`. Kind 9 carries an action back to the gesture, focus, or value. Windows is a UI Automation fragment root, Cocoa and UIKit publish elements, Android installs `llr.ui.A11y` when the pack step can compile it, and the web host mirrors ARIA behind the canvas. The X11 shim keeps `a11y_update` and does not publish. AT-SPI stays later. Goldens: `tests/ui/sem` and the dumps that gained `sem|` lines.

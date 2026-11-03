@@ -3,6 +3,7 @@
 (use ui.anim)
 (use ui.blend)
 (use ui.ctx)
+(use ui.semantics)
 (use ui.event)
 (use ui.font)
 (use ui.geom)
@@ -106,7 +107,13 @@
         (set (. self at) (text.hit (& p) (& pt)))
         (if (not drag) (set (. self mark) (. self at)))))))
 
+(fn replace_all ((self (&mut edit)) (add (& str))) unit
+  (set (. self at) 0)
+  (set (. self mark) (str.len (& (. self text))))
+  (put self add))
+
 (pub (fn on_input ((self (&mut edit)) (e (& state.ev)) (o (&mut state.out))) bool
+  (if (== (. e kind) state.in_value) (do (replace_all self (& (. e text))) (ret true)))
   (if (== (. e kind) state.in_text) (do (put self (& (. e text))) (ret true)))
   (if (== (. e kind) state.in_paste) (do (put self (& (. e text))) (ret true)))
   (if (== (. e kind) state.in_key) (ret (on_key self e o)))
@@ -149,7 +156,13 @@
 (impl state.state
   model
   (fn build ((self (& model)) (c (& ctx.ctx)) (_k (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
-    (face c (& (. self ed))))
+    (semantics.wrap semantics.role_field
+      (str.new)
+      (str.clone (& (. (. self ed) text)))
+      semantics.flag_focus
+      (+ semantics.act_focus semantics.act_value)
+      true
+      (face c (& (. self ed)))))
   (fn msg ((self (&mut model)) (m i64)) bool
     (if (== m 10) (do (set (. (. self ed) send) true) (ret true)))
     false)

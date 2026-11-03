@@ -85,6 +85,12 @@ static LRESULT CALLBACK wndproc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         SetWindowPos(hw, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
     }
+    if (msg == WM_GETOBJECT) {
+        LRESULT lr = llr_ui_win_a11y_get(h, hw, wp, lp);
+        if (lr) {
+            return lr;
+        }
+    }
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         BeginPaint(hw, &ps);
@@ -153,6 +159,7 @@ static void destroy(llr_ui *h) {
         SetWindowLongPtrW(hw, GWLP_USERDATA, 0);
         DestroyWindow(hw);
     }
+    llr_ui_win_a11y_free(h);
     free(h);
 }
 

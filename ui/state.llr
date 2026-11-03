@@ -21,6 +21,8 @@
 
 (pub (const in_flush i64 8))
 
+(pub (const in_value i64 9))
+
 (pub (struct ev
   (pub (kind i64))
   (pub (code i64))
@@ -105,7 +107,8 @@
   (fn fill ((_s (&mut sfull)) (_o (&mut widget.rdesc))) unit ())
   (fn pdata ((_s (& sfull))) widget.pdata (widget.no_data))
   (fn signal ((_s (& sfull))) i64 0)
-  (fn goal ((_s (& sfull)) (_g (&mut anim.goal))) bool false))
+  (fn goal ((_s (& sfull)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((_s (& sfull))) widget.ann (widget.no_ann)))
 
 (pub (fn stateful ((ty i64) (k key.key) (s (box (dyn state)))) (box (dyn widget.widget))
   (sfull ty k (opt.some s) (no_kids))))

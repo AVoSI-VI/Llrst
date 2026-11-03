@@ -1,4 +1,5 @@
 ;; iOS host. The shim object is chosen at link time.
+(use ui.a11y_ios)
 (use ui.bitmap)
 (use ui.event)
 (use ui.geom)
@@ -28,6 +29,7 @@
   (fn text_input ((self (&mut host_ios)) (on bool) (r (& geom.rect))) unit
     (host_shim.text_input (& (. self s)) on r))
   (fn quit ((self (&mut host_ios))) unit (host_shim.quit (&mut (. self s))))
-  (fn history ((_s (&mut host_ios)) (_n i64)) unit ()))
+  (fn history ((_s (&mut host_ios)) (_n i64)) unit ())
+  (fn a11y ((self (&mut host_ios)) (b (& (vec u8)))) unit (a11y_ios.update (& (. self s)) b)))
 
 (test host_ios_kind (assert_eq host.cursor_text 1))

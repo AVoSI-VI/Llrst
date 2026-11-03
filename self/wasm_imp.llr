@@ -1,7 +1,7 @@
 ;; WASI preview1 imports, browser imports for wasm32-unknown-unknown, and compiler intrinsics.
 (use std.str)
 
-(pub (fn nimp ((wasi bool)) i64 (if wasi 11 25)))
+(pub (fn nimp ((wasi bool)) i64 (if wasi 11 26)))
 
 (pub (fn wasi ((wasi bool)) str (if wasi (str.from "wasi_snapshot_preview1") (str.from "llr"))))
 
@@ -34,7 +34,8 @@
   (if (== i 10) (ret (str.from "quit")))
   (if (== i 11) (ret (str.from "bind")))
   (if (== i 12) (ret (str.from "app")))
-  (str.from "history"))
+  (if (== i 13) (ret (str.from "history")))
+  (str.from "a11y"))
 
 (pub (fn index ((name (& str))) i64
   (let w (wasi_index name))
@@ -70,6 +71,7 @@
   (if (str.eq name "llr_web_bind") (ret 22))
   (if (str.eq name "llr_web_app") (ret 23))
   (if (str.eq name "llr_web_history") (ret 24))
+  (if (str.eq name "llr_web_a11y") (ret 25))
   (neg 1))
 
 ;; 0 none, 1 memory.grow, 2 heap base, 3 trace head, 4 argc, 5 argv, 6 heap header.
@@ -103,6 +105,7 @@
   (if (== i 0) (ret 3))
   (if (or (== i 1) (or (== i 7) (== i 8))) (ret 2))
   (if (== i 9) (ret 5))
+  (if (== i 14) (ret 2))
   (if (or (== i 5) (or (== i 6) (or (== i 11) (== i 13)))) (ret 1))
   0)
 
@@ -123,12 +126,15 @@
 
 (test wasm_imp_web
   (assert_eq (nimp true) 11)
-  (assert_eq (nimp false) 25)
+  (assert_eq (nimp false) 26)
   (assert_eq (index "fd_write") 0)
   (assert_eq (index "llr_web_present") 11)
   (assert_eq (index "llr_web_app") 23)
   (assert_eq (index "llr_web_history") 24)
+  (assert_eq (index "llr_web_a11y") 25)
   (assert_eq (& (field 24)) "history")
+  (assert_eq (& (field 25)) "a11y")
+  (assert_eq (argc 25) 2)
   (assert_eq (argc 24) 1)
   (assert_eq (arg_kind 24 0) 1)
   (assert_eq (index "present") (neg 1))

@@ -25,10 +25,10 @@ joins adjacent text records into one `text` event.
 
 | offset | field |
 |--------|--------|
-| 0 | `i32` kind: 1 pointer, 2 key, 3 text, 4 frame, 5 quit, 6 life, 7 inset |
-| 4 | `i32` a: pointer kind, key down (1 or 0), text byte count, or life (0 pause, 1 resume, 2 destroy) |
+| 0 | `i32` kind: 1 pointer, 2 key, 3 text, 4 frame, 5 quit, 6 life, 7 inset, 8 back, 9 action |
+| 4 | `i32` a: pointer kind, key down (1 or 0), text byte count, life (0 pause, 1 resume, 2 destroy), or an action bit |
 | 8 | `i32` b: key code, a Unicode scalar (tab is 9) |
-| 12 | `i32` c: modifiers, bit 0 shift, bit 1 ctrl, bit 2 alt, bit 3 meta |
+| 12 | `i32` c: modifiers, bit 0 shift, bit 1 ctrl, bit 2 alt, bit 3 meta; for kind 9, the set-value byte count |
 | 16 | `f32` x y z w, logical pixels; scroll uses z and w; inset is left, top, right, bottom |
 | 32 | 32 UTF-8 bytes |
 

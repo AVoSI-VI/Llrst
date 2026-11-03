@@ -1,7 +1,9 @@
 ;; List tile, card, divider, and a determinate progress bar.
+(use std.math)
 (use ui.blend)
 (use ui.ctx)
 (use ui.key)
+(use ui.semantics)
 (use ui.theme)
 (use ui.w_box)
 (use ui.w_flex)
@@ -21,7 +23,8 @@
   (vec.push (&mut ks) trail)
   (let row (w_flex.row ks))
   (let pad (w_box.padding (. th space) (. th space) (. th space) (. th space) row))
-  (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+  (let face (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+  (semantics.wrap semantics.role_item (str.clone title) (str.new) 0 0 false face))
 
 (fn first ((kids (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
   (let mut rest kids)
@@ -37,7 +40,8 @@
 (fn card_of ((c (& ctx.ctx)) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
   (let th (ctx.ctx.theme c))
   (let pad (w_box.padding (. th space) (. th space) (. th space) (. th space) child))
-  (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+  (let face (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
+  (semantics.wrap semantics.role_group (str.new) (str.new) 0 0 false face))
 
 (pub (fn card ((child (box (dyn widget.widget)))) (box (dyn widget.widget))
   (widget.view_kids widget.ty_card
@@ -52,7 +56,8 @@
   (set (. d min_h) 1.0f32)
   (set (. d max_h) 1.0f32)
   (set (. d min_w) 40.0f32)
-  (widget.make widget.ty_rule (key.key.none) (vec.new < (box (dyn widget.widget)) >) d false (widget.nop)))
+  (let rule (widget.make widget.ty_rule (key.key.none) (vec.new < (box (dyn widget.widget)) >) d false (widget.nop)))
+  (semantics.wrap semantics.role_sep (str.new) (str.new) 0 0 true rule))
 
 (pub (fn divider () (box (dyn widget.widget))
   (widget.view widget.ty_rule (key.key.none) (clos ((c (& ctx.ctx))) (box (dyn widget.widget)) (rule_of c))))
@@ -71,7 +76,8 @@
   (let mut ks (vec.new < (box (dyn widget.widget)) >))
   (vec.push (&mut ks) (bar (theme.ink (& (. th primary))) w))
   (vec.push (&mut ks) (bar (theme.ink (& (. th line))) (- 80.0f32 w)))
-  (w_flex.row ks))
+  (let pct (as i64 (math.round32 (* t 100.0f32))))
+  (semantics.wrap semantics.role_progress (str.new) (str.from_int pct) 0 0 true (w_flex.row ks)))
 
 (pub (fn progress ((t f32)) (box (dyn widget.widget))
   (widget.view widget.ty_progress

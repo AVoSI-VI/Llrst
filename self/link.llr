@@ -204,7 +204,7 @@
   (str.from "llr_ui_x11"))
 
 (fn ui_libs ((win bool) (dar bool)) str
-  (if win (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32")))
+  (if win (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32 -lole32 -loleaut32 -luiautomationcore")))
   (if dar (ret (str.from "-framework Cocoa")))
   (str.from "-lX11"))
 
@@ -218,8 +218,11 @@
   (let stem (ui_stem win dar))
   (let a (str.cat (& stem) ext))
   (let b (str.cat (& (str.cat (& stem) "_in")) ext))
+  (let c (str.cat (& (str.cat (& stem) "_a11y")) ext))
   (if (not (add_named cmd (& a))) (ret (str.from "llr_ui_*.o missing")))
   (if (not (add_named cmd (& b))) (ret (str.from "llr_ui_*.o missing")))
+  (if (or win dar)
+    (if (not (add_named cmd (& c))) (ret (str.from "llr_ui_*_a11y.o missing"))))
   (str.push cmd " ")
   (str.push cmd (& (ui_libs win dar)))
   (str.new))
@@ -306,12 +309,14 @@
     (do (rm (& obj)) (ret (fail main "cl" "llr_win.obj missing"))))
   (let mut ua (str.new))
   (let mut ub (str.new))
+  (let mut uc (str.new))
   (let mut web (str.new))
   (if (wants_ui bytes)
     (do
       (set ua (runtime "llr_ui_win.obj"))
       (set ub (runtime "llr_ui_win_in.obj"))
-      (if (or (== (str.len (& ua)) 0) (== (str.len (& ub)) 0))
+      (set uc (runtime "llr_ui_win_a11y.obj"))
+      (if (or (== (str.len (& ua)) 0) (or (== (str.len (& ub)) 0) (== (str.len (& uc)) 0)))
         (do (rm (& obj)) (ret (fail main "cl" "llr_ui_*.o missing"))))))
   (if (wants_web bytes)
     (do
@@ -327,6 +332,7 @@
       (& now)
       (& ua)
       (& ub)
+      (& uc)
       (& web)
       main))
   (rm (& obj))

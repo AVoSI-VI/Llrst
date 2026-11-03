@@ -98,7 +98,8 @@
     (if (== (. self ty) widget.ty_aopac) (set (. p repaint) true))
     p)
   (fn signal ((_s (& iw))) i64 0)
-  (fn goal ((self (& iw)) (out (&mut anim.goal))) bool (do (store out (& (. self g))) true)))
+  (fn goal ((self (& iw)) (out (&mut anim.goal))) bool (do (store out (& (. self g))) true))
+  (fn sem ((_s (& iw))) widget.ann (widget.no_ann)))
 
 (fn leaf ((ty i64) (g anim.goal) (child (box (dyn widget.widget)))) (box (dyn widget.widget))
   (iw ty (key.key.none) (one child) g))

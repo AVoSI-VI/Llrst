@@ -1,0 +1,10 @@
+;; Windows bridge. The shim is the UIA provider.
+(use ui.host_shim)
+(use ui.semantics)
+
+(pub (fn update ((s (& host_shim.slot)) (bytes (& (vec u8)))) unit
+  (host_shim.a11y s bytes)))
+
+(test a11y_win_bits
+  (assert_eq semantics.act_tap 1)
+  (assert_eq semantics.role_button 1))

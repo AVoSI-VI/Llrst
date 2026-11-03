@@ -1,6 +1,7 @@
 ;; Browser host. The wasm imports live in module llr. A native stub satisfies the link.
 (use std.str)
 (use std.sys)
+(use ui.a11y_web)
 (use ui.app)
 (use ui.bitmap)
 (use ui.event)
@@ -64,7 +65,8 @@
   (fn clipboard_set ((_s (&mut host_web)) (text (& str))) unit (clip_set text))
   (fn text_input ((_s (&mut host_web)) (on bool) (r (& geom.rect))) unit (text_on on r))
   (fn quit ((_s (&mut host_web))) unit (llr_web_quit))
-  (fn history ((_s (&mut host_web)) (n i64)) unit (llr_web_history n)))
+  (fn history ((_s (&mut host_web)) (n i64)) unit (llr_web_history n))
+  (fn a11y ((_s (&mut host_web)) (b (& (vec u8)))) unit (a11y_web.update b)))
 
 (fn drain ((out (&mut (vec event.event)))) unit
   (let mut b (vec.new <u8>))

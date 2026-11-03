@@ -88,6 +88,8 @@
 
 (pub (const ty_nav i64 41))
 
+(pub (const ty_sem i64 42))
+
 (pub (const role_leaf i64 0))
 
 (pub (const role_less i64 1))
@@ -202,9 +204,21 @@
   (if (== ty ty_acont) (ret "animated_container"))
   (if (== ty ty_aopac) (ret "animated_opacity"))
   (if (== ty ty_apad) (ret "animated_padding"))
+  (if (== ty ty_sem) (ret "semantics"))
   "custom"))
 
 (pub (fn nop () (clos () i64) (clos () i64 0)))
+
+(pub (struct ann
+  (pub (on bool))
+  (pub (role i64))
+  (pub (label str))
+  (pub (value str))
+  (pub (flags i64))
+  (pub (actions i64))
+  (pub (hide bool))))
+
+(pub (fn no_ann () ann (ann false 0 (str.new) (str.new) 0 0 false)))
 
 (fn blank_rest ((d (&mut rdesc))) unit
   (set (. d min_w) (neg 1.0f32))
@@ -271,7 +285,8 @@
   (fn fill ((&mut Self) (&mut rdesc)) unit)
   (fn pdata ((& Self)) pdata)
   (fn signal ((& Self)) i64)
-  (fn goal ((& Self) (&mut anim.goal)) bool)))
+  (fn goal ((& Self) (&mut anim.goal)) bool)
+  (fn sem ((& Self)) ann)))
 
 (pub (struct leaf
   (ty i64)
@@ -314,7 +329,8 @@
     (drop (mem.replace out d)))
   (fn pdata ((self (& leaf))) pdata (leaf_data self))
   (fn signal ((self (& leaf))) i64 (if (. self gesture) (call (. self tap)) 0))
-  (fn goal ((_s (& leaf)) (_g (&mut anim.goal))) bool false))
+  (fn goal ((_s (& leaf)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((_s (& leaf))) ann (no_ann)))
 
 (struct sless (ty i64) (k key.key) (bld (clos ((& ctx.ctx)) (box (dyn widget)))))
 
@@ -331,7 +347,8 @@
   (fn fill ((_s (&mut sless)) (_o (&mut rdesc))) unit ())
   (fn pdata ((_s (& sless))) pdata (no_data))
   (fn signal ((_s (& sless))) i64 0)
-  (fn goal ((_s (& sless)) (_g (&mut anim.goal))) bool false))
+  (fn goal ((_s (& sless)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((_s (& sless))) ann (no_ann)))
 
 (pub (fn empty () (box (dyn widget)) (leaf ty_empty (key.key.none) (no_kids) false (nop) (blank))))
 
@@ -365,7 +382,8 @@
   (fn fill ((_s (&mut skids)) (_o (&mut rdesc))) unit ())
   (fn pdata ((_s (& skids))) pdata (no_data))
   (fn signal ((_s (& skids))) i64 0)
-  (fn goal ((_s (& skids)) (_g (&mut anim.goal))) bool false))
+  (fn goal ((_s (& skids)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((_s (& skids))) ann (no_ann)))
 
 (pub (fn view_kids ((ty i64)
    (kids (vec (box (dyn widget))))

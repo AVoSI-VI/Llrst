@@ -28,7 +28,8 @@
   (fn fill ((_s (&mut thw)) (_o (&mut widget.rdesc))) unit ())
   (fn pdata ((_s (& thw))) widget.pdata (widget.no_data))
   (fn signal ((_s (& thw))) i64 0)
-  (fn goal ((_s (& thw)) (_g (&mut anim.goal))) bool false))
+  (fn goal ((_s (& thw)) (_g (&mut anim.goal))) bool false)
+  (fn sem ((_s (& thw))) widget.ann (widget.no_ann)))
 
 (pub (fn wrap ((th ctx.palette) (dark bool) (bld (clos ((& ctx.ctx)) (box (dyn widget.widget))))) (box (dyn widget.widget))
   (let k (if dark (key.key.value 1u32) (key.key.none)))

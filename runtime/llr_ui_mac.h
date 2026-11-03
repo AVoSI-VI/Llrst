@@ -28,6 +28,7 @@
 - (instancetype)initWithW:(int64_t)w h:(int64_t)h;
 - (void)shutdown;
 - (void)pushKind:(int32_t)kind a:(int32_t)a b:(int32_t)b c:(int32_t)c x:(float)x y:(float)y z:(float)z w:(float)wv;
+- (void)pushAction:(int32_t)action node:(int32_t)node text:(const void *)bytes len:(int)len;
 - (void)pushBytes:(const void *)bytes len:(int)len;
 - (void)pushFrame;
 - (void)noteSize;

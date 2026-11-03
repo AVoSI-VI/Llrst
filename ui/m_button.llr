@@ -1,6 +1,7 @@
 ;; Filled button and icon button. The icon is a label in the bundled font.
 (use ui.ctx)
 (use ui.key)
+(use ui.semantics)
 (use ui.theme)
 (use ui.w_box)
 (use ui.w_gesture)
@@ -13,7 +14,13 @@
   (let pad (w_box.padding gap (* gap 0.5f32) gap (* gap 0.5f32) text))
   (let box
     (w_box.container (theme.ink (& (. th primary))) 0.0f32 0.0f32 0.0f32 0.0f32 pad))
-  (w_gesture.tap msg box))
+  (semantics.wrap semantics.role_button
+    (str.clone label)
+    (str.new)
+    semantics.flag_focus
+    semantics.act_tap
+    true
+    (w_gesture.tap msg box)))
 
 (fn press ((label str) (msg i64) (ty i64) (gap f32)) (box (dyn widget.widget))
   (widget.view ty

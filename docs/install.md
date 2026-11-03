@@ -45,17 +45,17 @@ that compiler. The compiler looks for the object in `$LLRST_RUNTIME`, next to `$
 `<exe>/../share/llrst/`, `<exe>/../../runtime/`, and `./runtime/`. Windows links `llr_wsa`,
 `llr_win`, `llr_win_sock`, `llr_win_proc`, and `llr_now` from those same places, using the first of
 `clang`, `gcc`, `cc`, and `cl` whose prebuilt shim extension (`.o` or `.obj`) is present.
-A program that calls `llr_ui_open` also links the UI shim from that search. A program that calls `llr_web_present` also links `llr_ui_web`. The desktop shim is: `llr_ui_win`
-and `llr_ui_win_in` with `user32 gdi32 imm32 shell32` on Windows, `llr_ui_mac` and
-`llr_ui_mac_in` with `-framework Cocoa` on Darwin, and `llr_ui_x11` and `llr_ui_x11_in`
+A program that calls `llr_ui_open` also links the UI shim from that search. A program that calls `llr_web_present` also links `llr_ui_web`. The desktop shim is: `llr_ui_win`,
+`llr_ui_win_in`, and `llr_ui_win_a11y` with `user32 gdi32 imm32 shell32 ole32 oleaut32 uiautomationcore` on Windows, `llr_ui_mac`,
+`llr_ui_mac_in`, and `llr_ui_mac_a11y` with `-framework Cocoa` on Darwin, and `llr_ui_x11` and `llr_ui_x11_in`
 with `-lX11` elsewhere. Darwin compiles the `.m` files with `clang -fobjc-arc`. Linux
 compiles the X11 files and needs the `X11/Xlib.h` headers (`libx11-dev`). The compiler
 does not compile those files itself on Unix. `tests/run.sh` compiles the host UI objects
 into `runtime/` beside `llr_stat.o`. The suite does not open a window.
 
 An Android link looks for `llr_stat_android.o`, `llr_now_android.o`,
-`llr_android_main.o`, and `llr_ui_android_glue.o`, plus `llr_ui_android.o` and
-`llr_ui_android_in.o` when the program calls `llr_ui_open`. An iOS link looks for the
+`llr_android_main.o`, and `llr_ui_android_glue.o`, plus `llr_ui_android.o`,
+`llr_ui_android_in.o`, and `llr_ui_android_a11y.o` when the program calls `llr_ui_open`. An iOS link looks for the
 `_ios` objects, or `_ios_sim` when the triple contains `simulator`. Install compiles
 them when `ANDROID_NDK` or the Xcode iOS SDKs are present, and prints
 `skip|runtime|android=ndk-missing` or `skip|runtime|ios=sdk-missing` otherwise.

@@ -1,4 +1,5 @@
 ;; Win32 host. The shim object is chosen at link time.
+(use ui.a11y_win)
 (use ui.bitmap)
 (use ui.event)
 (use ui.geom)
@@ -28,4 +29,5 @@
   (fn text_input ((self (&mut host_win)) (on bool) (r (& geom.rect))) unit
     (host_shim.text_input (& (. self s)) on r))
   (fn quit ((self (&mut host_win))) unit (host_shim.quit (&mut (. self s))))
-  (fn history ((_s (&mut host_win)) (_n i64)) unit ()))
+  (fn history ((_s (&mut host_win)) (_n i64)) unit ())
+  (fn a11y ((self (&mut host_win)) (b (& (vec u8)))) unit (a11y_win.update (& (. self s)) b)))

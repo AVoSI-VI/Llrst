@@ -4,7 +4,9 @@
  * Key a is 1 down or 0 up, b is a Unicode scalar, c is shift|ctrl|alt|meta.
  * Text a is the byte count, and the bytes start at offset 32 (at most 32).
  * Life a is 0 pause, 1 resume, 2 destroy.
- * Inset x y z w are left, top, right, bottom logical pixels. */
+ * Inset x y z w are left, top, right, bottom logical pixels.
+ * Action a is a bit (1 tap, 2 focus, 4 set value, 8 dismiss, 16 scroll), b is the node id,
+ * and c is the set-value byte count. Those bytes start at offset 32. */
 #ifndef LLR_UI_H
 #define LLR_UI_H
 
@@ -18,7 +20,8 @@ enum {
     LLR_UI_FRAME = 4,
     LLR_UI_QUIT = 5,
     LLR_UI_LIFE = 6,
-    LLR_UI_INSET = 7
+    LLR_UI_INSET = 7,
+    LLR_UI_ACTION = 9
 };
 
 enum {
@@ -187,5 +190,6 @@ void llr_ui_set_cursor(void *p, int64_t id);
 int64_t llr_ui_clip_get(void *p, uint8_t *buf, int64_t cap);
 void llr_ui_clip_set(void *p, const uint8_t *bytes, int64_t n);
 void llr_ui_text_input(void *p, int64_t on, float x, float y, float w, float h);
+void llr_ui_a11y_update(void *p, const uint8_t *bytes, int64_t n);
 
 #endif

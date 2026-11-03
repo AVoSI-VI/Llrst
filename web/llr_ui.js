@@ -25,7 +25,14 @@
   input.style.border = "0";
   input.style.margin = "0";
   document.body.appendChild(input);
-  canvas.tabIndex = 0;
+  canvas.tabIndex = -1;
+  canvas.setAttribute("aria-hidden", "true");
+  const mirror = document.createElement("div");
+  mirror.id = "llr-a11y";
+  mirror.style.position = "absolute";
+  mirror.style.inset = "0";
+  mirror.style.pointerEvents = "none";
+  canvas.parentNode.insertBefore(mirror, canvas);
 
   function mem() { return memory.buffer; }
   function view() { return new DataView(mem()); }
@@ -306,6 +313,80 @@
     return 0;
   }
 
+  const roles = {
+    1: "button", 2: "checkbox", 3: "switch", 4: "slider", 5: "textbox", 6: "heading",
+    7: "dialog", 8: "listitem", 9: "group", 10: "separator", 11: "progressbar",
+    12: "status", 14: "img",
+  };
+
+  function ru32(b, at) { return new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(at, true); }
+  function rf32(b, at) { return new DataView(b.buffer, b.byteOffset, b.byteLength).getFloat32(at, true); }
+
+  function actEv(bit, id, text) {
+    const ev = blank();
+    setI32(ev, 0, 9);
+    setI32(ev, 4, bit);
+    setI32(ev, 8, id);
+    if (text) {
+      const enc = new TextEncoder().encode(text).slice(0, 32);
+      setI32(ev, 12, enc.length);
+      ev.set(enc, 32);
+    }
+    push(ev);
+  }
+
+  function a11y(ptr, n) {
+    mirror.replaceChildren();
+    if (!ptr || n < 4) return;
+    const b = new Uint8Array(mem(), ptr, n);
+    const count = ru32(b, 0);
+    let at = 4;
+    for (let i = 0; i < count; i += 1) {
+      if (at + 40 > b.length) return;
+      const id = ru32(b, at);
+      const role = ru32(b, at + 8);
+      const flags = ru32(b, at + 12);
+      const actions = ru32(b, at + 16);
+      const x = rf32(b, at + 20);
+      const y = rf32(b, at + 24);
+      const w = rf32(b, at + 28);
+      const h = rf32(b, at + 32);
+      const ln = ru32(b, at + 36);
+      at += 40;
+      if (at + ln + 4 > b.length) return;
+      const label = new TextDecoder().decode(b.subarray(at, at + ln));
+      at += ln;
+      const vn = ru32(b, at);
+      at += 4;
+      if (at + vn > b.length) return;
+      const value = new TextDecoder().decode(b.subarray(at, at + vn));
+      at += vn;
+      const el = document.createElement(role === 5 ? "input" : "div");
+      if (roles[role]) el.setAttribute("role", roles[role]);
+      el.style.position = "absolute";
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      el.style.width = w + "px";
+      el.style.height = h + "px";
+      el.style.pointerEvents = "none";
+      if (role === 5) {
+        el.value = value;
+        el.addEventListener("input", () => actEv(4, id, el.value));
+      } else {
+        el.textContent = label || value;
+      }
+      if (label) el.setAttribute("aria-label", label);
+      if (flags & 1) el.tabIndex = 0;
+      if (flags & 2) el.setAttribute("aria-checked", "true");
+      el.addEventListener("focus", () => actEv(2, id, ""));
+      el.addEventListener("click", () => actEv(actions & 8 ? 8 : 1, id, ""));
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") actEv(actions & 8 ? 8 : 1, id, "");
+      });
+      mirror.appendChild(el);
+    }
+  }
+
   const llr = {
     fd_write, fd_read, path_open, fd_close, clock_time_get, proc_exit,
     args_get: () => 0,
@@ -314,7 +395,7 @@
     environ_sizes_get: sizes,
     random_get,
     present, size, scale, now_ms, request_frame, poll_event, set_cursor,
-    clipboard_get, clipboard_set, text_input, quit, bind, app, history,
+    clipboard_get, clipboard_set, text_input, quit, bind, app, history, a11y,
   };
 
   canvas.addEventListener("pointerdown", (e) => {

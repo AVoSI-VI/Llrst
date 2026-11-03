@@ -29,6 +29,8 @@
 
 (pub (extern llr_ui_quit ((p (ptr u8))) unit))
 
+(pub (extern llr_ui_a11y_update ((p (ptr u8)) (bytes (ptr u8)) (n i64)) unit))
+
 (pub (struct slot (p (ptr u8))))
 
 (pub (fn close ((s (&mut slot))) unit
@@ -94,3 +96,10 @@
 (pub (fn text_input ((s (& slot)) (on bool) (r (& geom.rect))) unit
   (let flag (if on 1 0))
   (llr_ui_text_input (. s p) flag (. r x) (. r y) (. r w) (. r h))))
+
+(fn bytes_at ((b (& (vec u8)))) (ptr u8)
+  (if (== (vec.len b) 0) (ret (ptr.null <u8>)))
+  (vec.ptr b))
+
+(pub (fn a11y ((s (& slot)) (bytes (& (vec u8)))) unit
+  (llr_ui_a11y_update (. s p) (bytes_at bytes) (vec.len bytes))))

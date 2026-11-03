@@ -79,6 +79,7 @@
    (now (& str))
    (ui_a (& str))
    (ui_b (& str))
+   (ui_c (& str))
    (web (& str))
    (main (& str))) str
   (let pre (prefix))
@@ -96,7 +97,8 @@
     (do
       (push_q (&mut cmd) ui_a)
       (push_q (&mut cmd) ui_b)
-      (str.push (&mut cmd) " user32.lib gdi32.lib imm32.lib shell32.lib")))
+      (if (> (str.len ui_c) 0) (push_q (&mut cmd) ui_c))
+      (str.push (&mut cmd) " user32.lib gdi32.lib imm32.lib shell32.lib ole32.lib oleaut32.lib uiautomationcore.lib")))
   (if (> (str.len web) 0) (push_q (&mut cmd) web))
   (str.push (&mut cmd) " ws2_32.lib /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))

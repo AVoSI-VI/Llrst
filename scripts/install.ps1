@@ -17,7 +17,7 @@ function Compile-Shim($dir, $name) {
     $obj = Join-Path $dir ($name -replace '\.c$', '.obj')
     $cl = Get-Command cl -ErrorAction SilentlyContinue
     if ($cl) {
-        & cl.exe /nologo /c "/Fo$obj" $c
+        & cl.exe /nologo /std:c11 /c "/Fo$obj" $c
         if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
         return
     }
@@ -26,7 +26,7 @@ function Compile-Shim($dir, $name) {
     $inst = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
     if (-not $inst) { Die 'setup|cl=missing' }
     $bat = Join-Path $inst.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
-    cmd /c "call `"$bat`" >nul && cl /nologo /c /Fo`"$obj`" `"$c`""
+    cmd /c "call `"$bat`" >nul && cl /nologo /std:c11 /c /Fo`"$obj`" `"$c`""
     if ($LASTEXITCODE -ne 0) { Die "setup|cc=$name" }
 }
 
@@ -56,11 +56,11 @@ Copy-Item -LiteralPath (Join-Path $root 'examples') -Destination $exDest -Recurs
 $webDest = Join-Path $share 'web'
 if (Test-Path -LiteralPath $webDest) { Remove-Item -LiteralPath $webDest -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $root 'web') -Destination $webDest -Recurse
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui.h', 'llr_ui_win.h')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c', 'llr_ui.h', 'llr_ui_a11y.h', 'llr_ui_win.h')) {
     Copy-Item -LiteralPath (Join-Path $root "runtime\$name") -Destination (Join-Path $share $name) -Force
 }
 Write-Output 'step|runtime'
-foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c')) {
+foreach ($name in @('llr_wsa.c', 'llr_win.c', 'llr_win_sock.c', 'llr_win_proc.c', 'llr_now.c', 'llr_ui_web.c', 'llr_ui_win.c', 'llr_ui_win_in.c', 'llr_ui_win_a11y.c')) {
     Compile-Shim $share $name
 }
 Write-Output "ok|runtime|$share"
@@ -77,7 +77,8 @@ function Compile-Android {
         @('llr_now.c', 'llr_now_android.o'),
         @('llr_android_main.c', 'llr_android_main.o'),
         @('llr_ui_android.c', 'llr_ui_android.o'),
-        @('llr_ui_android_in.c', 'llr_ui_android_in.o')
+        @('llr_ui_android_in.c', 'llr_ui_android_in.o'),
+        @('llr_ui_android_a11y.c', 'llr_ui_android_a11y.o')
     )
     foreach ($pair in $pairs) {
         $src = Join-Path $root "runtime\$($pair[0])"
