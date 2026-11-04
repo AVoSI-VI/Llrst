@@ -339,7 +339,8 @@ Order: general-purpose parity (strings, numbers, collections, io, time) first, t
 language changes std needs, then protocols, platform, and tooling. Every new function gets a
 `(test ...)`, a `docs/std` row from `llr-doc`, and a canon line when the call shape is new. A
 new std module is one file under 500 lines; `str.llr` (257 lines) and `vec.llr` (264) are
-split at 400 if the additions take them there.
+split at 400 if the additions take them there. Phases 16 to 22 add the SQL client layer, four
+drivers, TLS, and `llr-sql`; they are not **Gaps** rows and come after Phase 11.
 
 ### Phase 8: handoff and docs hygiene (no behaviour change) `[x]`
 
@@ -436,6 +437,75 @@ Large; listed last. Each item is its own commit.
 4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
 5. `[ ]` Commit per item: `self: registers for scalar locals`, `self: debug line tables`, `self: riscv64 and x86_64 darwin`, `tools: llr-doc private, llr-bench, llr-lsp`.
 
+### Phase 16: sql common layer `[ ]`
+
+Files: new `std/sql.llr`, new `std/hmac.llr`, new `std/utf16.llr`, `std/url.llr` (Phase 11), new `docs/canon/sql.md`, `docs/canon/README.md`, `docs/std/README.md`.
+
+Depends on Phase 11 items 3 to 6 (`rand`, `bytes`, `sha256`, `b64_decode`, `url`); do those first if Phase 11 is not done. Drivers test themselves against a fake peer forked by `sys.llr_call_child`, as `net_one`, `mqtt_http`, and the `grpc` tests do, so `tests/run.sh` needs no database server.
+
+1. `[ ]` `std/sql.llr`: `(pub (enum val (null) (int i64) (float f64) (text str) (blob (vec u8)) (bool bool)))`; `(pub (struct rows (pub cols (vec str)) (pub data (vec (vec val))) (pub affected i64)))`; `(pub (trait db (fn kind ((& Self)) i64) (fn exec ((&mut Self) (& str) (& (vec val))) (res i64 str)) (fn query ((&mut Self) (& str) (& (vec val))) (res rows str)) (fn close ((&mut Self)) unit)))`. One statement per call; placeholders are `?` in user SQL; `sql.rewrite (text prefix)` turns `?` outside `'...'`, `"..."`, and `--` comments into `$n` (PG) or `@pn` (TDS). `sql.begin commit rollback ((&mut (box (dyn db))))` send `BEGIN`, `COMMIT`, `ROLLBACK` (`BEGIN TRANSACTION` when `kind` is TDS). Row access: `(sql.get (& rows) r c) (& val)`; `val.int text float is_null` return `opt`. `(struct wire (fd i64))` with `wire.send wire.recv_exact` is the one socket seam every network driver uses (Phase 21 puts TLS behind it).
+2. `[ ]` `sql.open ((url (& str))) (res (box (dyn db)) str)` by scheme: `postgres postgresql` is Phase 18, `mysql mariadb` is Phase 19, `sqlite` is Phase 17, `mssql sqlserver` is Phase 20; anything else is `sql.scheme|got=`. `url.parse` gains `user` and `pass` (percent-decoded). Default ports 5432, 3306, 1433; the database is the path without its `/`. The error vocabulary is fixed here and reused by every driver: `sql.scheme sql.connect sql.auth|method= sql.proto|got= sql.server|code=|msg= sql.lib|name= sql.type|got= sql.params|want=|got= sql.multi`.
+3. `[ ]` `std/hmac.llr`: `hmac_sha256 (key msg) str`, `pbkdf2_sha256 (pw salt iters) str`, `xor (a b) str`, with RFC 4231 and PBKDF2 vectors as tests. `std/utf16.llr`: `to_le ((& str)) str` and `from_le ((& str)) str` through `str.utf8_at` and `str.push_utf8` (`str_more.llr` is at 398 lines, so a new file).
+4. `[ ]` `docs/canon/sql.md`: open, exec, query, params, row access, transactions, close, error shape; a `docs/canon/README.md` row; `docs/std/README.md` rows; `llr-doc` regenerates `docs/std`.
+5. `[ ]` Commit: `std: sql value, rows, db trait, open by url, hmac, utf16`.
+
+### Phase 17: sqlite `[ ]`
+
+Files: new `runtime/llr_sqlite.c`, new `std/sql_lite.llr`, `self/link.llr`, `compiler/src/link.rs`, `scripts/install.sh`, `scripts/install.ps1`, `scripts/self.sh`, `tests/run.sh`, `std/sys_wasm.llr`, `docs/spec/targets.md`.
+
+1. `[ ]` `runtime/llr_sqlite.c` loads the system library through `llr_dlopen` and `llr_dlsym` at first use: `winsqlite3.dll` then `sqlite3.dll` on Windows, `libsqlite3.dylib` on Darwin, `libsqlite3.so.0` then `libsqlite3.so` elsewhere. Decision: no build-time `-lsqlite3` and no vendored amalgamation; promote this to **Decisions** when the phase lands. Scalar-only forwarders `llr_sqlite_load open close prepare step reset finalize bind_null bind_int64 bind_double bind_text bind_blob column_count column_type column_name column_int64 column_double column_text column_bytes column_blob changes errmsg`. `bind_text` and `bind_blob` use `SQLITE_TRANSIENT`.
+2. `[ ]` Link: a reference to `llr_sqlite_load` links `llr_sqlite.o` or `.obj` plus `llr_dl.o` and `link_so.dl_flag`. `link.llr` is 438 lines: first fold the three repeated `want_sym` and `add_need` blocks (`llr_reload_prev`, `llr_dlopen`) into one table-driven helper so the sqlite row is one line each in `via_gnu`, `via_cl`, and `unix_link`; `link.rs` gets the matching `wants_name` row. `install.sh`, `install.ps1`, `self.sh`, and `tests/run.sh` compile the new shim beside `llr_dl.c`.
+3. `[ ]` `std/sql_lite.llr`: `(struct lite (db (ptr u8)))`, `open (path)` (`:memory:` allowed; a missing library is `sql.lib|name=sqlite3`), `(impl sql.db lite ...)`: prepare, bind by `val` variant, step loop; `column_type` 1 2 3 4 5 are `int float text blob null`; `exec` returns `changes`; a prepare or step failure is `sql.server|code=<rc>|msg=<errmsg>`; a non-empty tail after one statement is `sql.multi`. wasm: `target.unsupported`, as every other extern.
+4. `[ ]` Tests: `:memory:` create, insert every `val` variant through params, select, `affected`, bad SQL error. `docs/spec/targets.md` lists the host sqlite library as a requirement of the `std.sql_lite` tests.
+5. `[ ]` Commit: `std: sqlite through the host library`.
+
+### Phase 18: postgresql `[ ]`
+
+Files: new `std/sql_pg.llr`, new `std/sql_pg_auth.llr`, new `std/sql_pg_row.llr`.
+
+1. `[ ]` Framing over `sql.wire`: type byte plus big-endian `i32` length (`bytes.rd_be`). Startup: protocol 196608, `user`, `database`, `client_encoding=UTF8`. Auth `R`: 0 ok; 3 cleartext answers `p`; 10 SASL `SCRAM-SHA-256` in `sql_pg_auth.llr` (client-first `n,,n=<user>,r=<nonce>`, server-first `r= s= i=`, `pbkdf2_sha256`, `ClientKey StoredKey AuthMessage ClientProof`, verify `v=`); 5 md5 and `SCRAM-SHA-256-PLUS` are `sql.auth|method=`. Then `S` and `K` until `Z`.
+2. `[ ]` Extended protocol per call: `P` (unnamed, `sql.rewrite` to `$n`, param OIDs 20 701 25 17 16, or 0 for null), `B` (text format), `D` portal, `E`, `S`; read `1 2 T D C Z`; `E` is `sql.server|code=<SQLSTATE>|msg=` after draining to `Z`. `sql_pg_row.llr` decodes text values by OID: 21 23 20 are `int`; 700 701 1700 are `float`; 16 is `bool`; 17 `\x..` is `blob`; anything else is `text`. `affected` comes from the `C` tag (`INSERT 0 n`, `UPDATE n`, `DELETE n`). `close` sends `X`.
+3. `[ ]` Tests: a `llr_call_child` fake server speaking cleartext and SCRAM (RFC 7677 vector: `user` and `pencil`, client nonce `rOprNGfwEbeRWgbNEkqO`, salt `W22ZaJ0SNY7soEsUEjb6gQ==`, 4096 iterations) and a canned `T D C Z` result; message encode goldens.
+4. `[ ]` Commit: `std: postgresql v3 with scram-sha-256`.
+
+### Phase 19: mariadb and mysql `[ ]`
+
+Files: new `std/sql_my.llr`, new `std/sql_my_pkt.llr`.
+
+1. `[ ]` `sql_my_pkt.llr`: 3-byte LE length plus sequence id; `lenenc` int and string; OK (`0x00`, affected, insert id), ERR (`0xFF`, code, `#` sqlstate, msg, reported as `sql.server|code=|msg=`), EOF; column definition (protocol 41); binary row decode (null bitmap at offset 2; LE ints of 1 2 4 8 bytes, float, double, lenenc strings; binary DATE DATETIME TIME become canonical text).
+2. `[ ]` `sql_my.llr`: Handshake v10, HandshakeResponse41 with `PROTOCOL_41 SECURE_CONNECTION PLUGIN_AUTH CONNECT_WITH_DB DEPRECATE_EOF PLUGIN_AUTH_LENENC_CLIENT_DATA`, charset 45. Auth `mysql_native_password` is `sha1(pw) xor sha1(nonce ++ sha1(sha1(pw)))`; `caching_sha2_password` fast path (`0x01 0x03`); `0x01 0x04` full auth is `sql.auth|method=caching_sha2_full` until Phase 21 sends the cleartext password over TLS; AuthSwitchRequest (`0xFE`) re-runs with the named plugin; `client_ed25519` is `sql.auth|method=`. Per call: `COM_STMT_PREPARE`, `COM_STMT_EXECUTE` (types 8 5 253 252 1 6), result set, `COM_STMT_CLOSE`; `close` sends `COM_QUIT`.
+3. `[ ]` Tests: a fake server with a fixed nonce; the native-auth scramble vector; a prepare and execute roundtrip with a canned binary row; packet goldens.
+4. `[ ]` Commit: `std: mariadb and mysql binary protocol`.
+
+### Phase 20: mssql `[ ]`
+
+Files: new `std/sql_tds.llr`, new `std/sql_tds_tok.llr`, new `std/sql_tds_ty.llr`.
+
+1. `[ ]` TDS 7.4. Header: type, status (`0x01` EOM), BE length, spid, id, window; 4096-byte packets. PRELOGIN with `ENCRYPTION=0x02` (NOT_SUP); a server answer of `0x03` (required) is `sql.tls|need=yes` until Phase 21. LOGIN7: `0x74000004`, OptionFlags2 ODBC, strings in `utf16.to_le`, password nibble-swap then xor `0xA5`. Tokens (`sql_tds_tok.llr`): LOGINACK `0xAD`, ENVCHANGE `0xE3`, INFO `0xAB`, ERROR `0xAA` reported as `sql.server|code=<number>|msg=`, COLMETADATA `0x81`, ROW `0xD1`, NBCROW `0xD2`, DONE, DONEPROC, and DONEINPROC with the row count.
+2. `[ ]` `exec` without params is a SQL batch (`0x01`) with the transaction descriptor header; anything with params is RPC (`0x03`) `sp_executesql` (proc id 10) with `@stmt`, `@params` (`@p1 bigint, @p2 nvarchar(max) ...` from the `val` variants), and typed values INTN `0x26`, FLTN `0x6D`, NVARCHAR `0xE7` (PLP above 4000 chars), BIGVARBINARY `0xA5`, BITN `0x68`, null. `sql_tds_ty.llr` decodes INT1 INT2 INT4 INT8 INTN, BIT BITN, FLT4 FLT8 FLTN, DECIMAL and NUMERIC as `float`, BIGVARCHAR BIGCHAR NVARCHAR NCHAR, BIGVARBINARY BIGBINARY, DATETIME DATETIMN DATE TIME DATETIME2 as canonical text, UNIQUEIDENTIFIER as text, and PLP chunks; anything else is `sql.type|got=`.
+3. `[ ]` Tests: a fake server answering PRELOGIN, LOGINACK plus DONE, COLMETADATA plus ROW plus DONE; the password obfuscation vector; token parse goldens.
+4. `[ ]` Commit: `std: mssql tds 7.4 without encryption`.
+
+### Phase 21: tls 1.3 client `[ ]`
+
+Files: new `std/tls.llr`, `std/tls_rec.llr`, `std/tls_hs.llr`, `std/tls_hkdf.llr`, `std/tls_x25519.llr`, `std/tls_chacha.llr`, `std/tls_aes.llr`, `std/tls_gcm.llr`, `std/tls_p256.llr`, `std/tls_rsa.llr`; then `std/sql.llr`, `std/sql_pg.llr`, `std/sql_my.llr`, `std/sql_tds.llr`, `docs/canon/sql.md`, `docs/canon/io.md`, `docs/spec/memory.md`.
+
+Large; each item is its own commit. There is no `i128`, so field arithmetic uses limbs whose products fit `u64` (X25519 and Poly1305 on 26-bit limbs, P-256 and RSA on 28-bit or 16-bit limbs).
+
+1. `[ ]` Primitives with RFC vectors as tests: X25519 (RFC 7748), ChaCha20-Poly1305 (RFC 8439), AES-128 and GCM (NIST vectors), HKDF-Extract and HKDF-Expand-Label over `hmac` (RFC 5869, RFC 8446 section 7.1).
+2. `[ ]` `tls_rec.llr` record layer (AEAD nonce is iv xor sequence, 16 KiB limit, KeyUpdate); `tls_hs.llr` ClientHello (`supported_versions` `0x0304`, `key_share` x25519, `server_name`, `signature_algorithms` `0x0804 0x0403 0x0401`, suites `TLS_AES_128_GCM_SHA256` and `TLS_CHACHA20_POLY1305_SHA256`), ServerHello, EncryptedExtensions, Certificate, CertificateVerify, Finished, client Finished, transcript hash; HelloRetryRequest is `tls.hrr`. `tls.connect (fd host) (res tls str)` with `send recv close` matching `net`. This item is `sslmode=require`: encrypted, server not authenticated; `docs/canon/sql.md` says so.
+3. `[ ]` Server authentication: `tls_p256.llr` ECDSA P-256 and `tls_rsa.llr` RSA-PSS and PKCS1 v1.5 verify of CertificateVerify against the leaf certificate's SubjectPublicKeyInfo (a minimal DER walk), plus leaf pinning `sslmode=verify-fp&sslfp=<sha256 hex of the DER>`. Decision: no CA store and no chain validation; promote to **Decisions** when the phase lands.
+4. `[ ]` Wire it in: `sql.wire` gains `(sec (opt tls.tls))`; URL `sslmode=disable|require|verify-fp`, default `require` for `postgres mysql mssql`. PG sends `SSLRequest` (80877103) and upgrades on `S`; MySQL sets `CLIENT_SSL`, sends the 32-byte SSLRequest, then upgrades, and `caching_sha2` full auth sends the cleartext password; TDS sends `ENCRYPT_ON`, carries handshake records inside PRELOGIN packets (type `0x12`) until Finished, then plain TLS records for the session. `docs/canon/io.md` gets a `tls` row.
+5. `[ ]` Commits: `std: tls primitives`, `std: tls 1.3 handshake and records`, `std: tls certificate verify and pinning`, `std: sql over tls`.
+
+### Phase 22: llr-sql tool `[ ]`
+
+Files: new `tools/llr-sql.llr`, new `docs/tools/llr-sql.md`, `docs/tools/README.md`, `docs/workflows/` (one row where tools are listed).
+
+1. `[ ]` `llr-sql URL SQL [--arg V]... [--max N]`: each `--arg` binds the next `?` (`null`, `true`, `false`, an integer, a float, else text). Output `col|name|...`, `row|v|...` (`|` and newline in a value are `\|` and `\n`; `null` is empty), `affected|n`, `more|N`. Exit 0; 2 when a query returns no rows; 1 with `E|llr-sql|0|0|0|<sql.*>|k=v` on stderr. `--help` prints `usage|...`. `scripts/install.sh` already builds every `tools/llr-*.llr`.
+2. `[ ]` `docs/tools/llr-sql.md` output grammar; a `docs/tools/README.md` row (unranked, like `llr-http`).
+3. `[ ]` Commit: `tools: llr-sql`.
+
 ## How to verify each phase
 
 ```
@@ -466,4 +536,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-03: **Gaps** and Phases 8-15 added from reading `std/`, `self/`, `ui/`, `tools/`, `compiler/src/`, `docs/`, and `tests/err` against the Rust, Go, and Python standard libraries. Each std row cites the private copies that stand in for the missing function; each language row cites the rejection site or the doc line. The **Status** block and the `std/` row (50 modules) were recounted. No code changed. The suite was not re-run.
 - 2026-11-03: Phase 8. `llr-doc` regenerated `docs/std` (`fs.now_ms`, `http_type.md`, `http_mime.md`, and drifted rows for `http.serve_wait`, `net.poll_serve_wait`, `llr_now_ms`, and `ast_expr_pub`). `http_mime.llr` stays; `http.llr` is 499 lines and Phase 9 keeps `eshort`, `hname`, and `hval` there, so the mime test does not fit under 500. `docs/spec/tokens.md` documents `0x`. Line budget recounted; rows under 400 dropped. No `.llr` change. Suite not re-run.
 - 2026-11-04: Phase 9. `str` gained the ASCII classes, and `str_more` holds the rest of the string helpers, including fixed-digit floats and UTF-8. `math` and `math_trig` share `nan`, `inf`, and `pow2`; `exp` and `ln` are public. `fmt` reads pipe records. `scan` is the cursor for the parsers. `http.eshort`, `http.hname`, and `http.hval` are the one copy. The duplicated helpers in `self/`, `ui/`, and `tools/deps.llr` call those functions. `curve.llr` still rounds thousandths. `sys_wasm.cstr_eq` still walks a pointer. `ui/font.llr` spells the `path.dir` match itself because `path` there is `ui.path`. `tests/run.ps1`: goldens, std, ui, lines, `tests/check.ps1`, `tests/mir.ps1`, and `tests/self.ps1` fails=0. `tests/cross.sh` is `fail|setup|lld=missing` on this host. `target/self/x64_ref` is not in this checkout.
+- 2026-11-04: Phases 16-22 (sql, sqlite, postgresql, mariadb, mssql, tls, llr-sql) added to the plan. No code changed. Suite not re-run.
 
