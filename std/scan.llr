@@ -1,0 +1,49 @@
+;; Cursor over a byte string. Parsers share peek, names, and hex digits.
+(pub (struct cur (pub (s (& str))) (pub (i i64))))
+
+(pub (fn peek ((c (& cur))) u8 (if (>= (. c i) (str.len (. c s))) 0u8 (str.at (. c s) (. c i)))))
+
+(pub (fn at ((c (& cur))) i64 (. c i)))
+
+(pub (fn skip_ws ((c (&mut cur))) unit (while (str.is_space (peek c)) (set (. c i) (+ (. c i) 1)))))
+
+(pub (fn is_name ((b u8)) bool (or (str.is_alnum b) (== b 95u8))))
+
+(pub (fn read_name ((c (&mut cur))) str
+  (skip_ws c)
+  (let start (. c i))
+  (let b (peek c))
+  (if (or (== b 0u8) (str.is_digit b)) (ret (str.new)))
+  (if (not (is_name b)) (ret (str.new)))
+  (while (is_name (peek c)) (set (. c i) (+ (. c i) 1)))
+  (str.slice (. c s) start (. c i))))
+
+(pub (fn hex_dig ((b u8)) (opt i64)
+  (if (str.is_digit b) (ret (opt.some (as i64 (- b 48u8)))))
+  (if (and (>= b 97u8) (<= b 102u8)) (ret (opt.some (+ 10 (as i64 (- b 97u8))))))
+  (if (and (>= b 65u8) (<= b 70u8)) (ret (opt.some (+ 10 (as i64 (- b 65u8))))))
+  (opt.none)))
+
+(pub (fn expect ((c (&mut cur)) (b u8)) bool
+  (if (!= (peek c) b) (ret false))
+  (set (. c i) (+ (. c i) 1))
+  true))
+
+(test scan_cur
+  (let mut c (cur " a1" 0))
+  (assert_eq (peek (& c)) 32u8)
+  (skip_ws (&mut c))
+  (assert_eq (at (& c)) 1)
+  (assert (is_name 97u8))
+  (assert (is_name 49u8))
+  (assert (not (is_name 32u8)))
+  (assert_eq (& (read_name (&mut c))) "a1")
+  (let mut dig (cur "1a" 0))
+  (assert_eq (str.len (& (read_name (&mut dig)))) 0)
+  (let mut h (cur "4Fa" 0))
+  (match (hex_dig (peek (& h))) ((opt.some d) (assert_eq d 4)) ((opt.none) (assert false)))
+  (match (hex_dig 70u8) ((opt.some d) (assert_eq d 15)) ((opt.none) (assert false)))
+  (match (hex_dig 103u8) ((opt.some _) (assert false)) ((opt.none) (assert true)))
+  (assert (expect (&mut h) 52u8))
+  (assert (not (expect (&mut h) 65u8)))
+  (assert_eq (peek (& (cur "" 0))) 0u8))

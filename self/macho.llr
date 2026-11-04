@@ -203,8 +203,8 @@
 
 (fn cstr_eq ((img (& str)) (at i64) (want (& str))) bool
   (let n (str.len want))
-  (for i 0 n (if (!= (str.at img (+ at i)) (str.at want i)) (ret false)))
-  (== (str.at img (+ at n)) 0u8))
+  (if (>= (+ (+ at n) 1) (str.len img)) (ret false))
+  (and (str.eq (& (str.slice img at (+ at n))) want) (== (str.at img (+ at n)) 0u8)))
 
 (fn sym_ok ((img (& str)) (i i64) (want (& str))) bool
   (cstr_eq img (+ (str_off img) (u_at img (nlist img i) 4)) want))

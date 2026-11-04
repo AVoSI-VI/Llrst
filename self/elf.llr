@@ -224,10 +224,8 @@
 
 (fn cstr_eq ((s (& str)) (at i64) (want (& str))) bool
   (let n (str.len want))
-  (if (> (+ at n) (str.len s)) (ret false))
-  (for i 0 n (if (!= (str.at s (+ at i)) (str.at want i)) (ret false)))
-  (if (>= (+ at n) (str.len s)) (ret false))
-  (== (str.at s (+ at n)) 0u8))
+  (if (>= (+ (+ at n) 1) (str.len s)) (ret false))
+  (and (str.eq (& (str.slice s at (+ at n))) want) (== (str.at s (+ at n)) 0u8)))
 
 (fn name_at ((img (& str)) (i i64)) i64
   (let shstr (sh_u64 img (u_at img 62 2) 24))

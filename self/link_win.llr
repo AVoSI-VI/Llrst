@@ -11,11 +11,6 @@
   (str.push_byte (&mut o) 34u8)
   o))
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
-
 (pub (fn exe_of ((out (& str))) str
   (if (str.ends out ".exe") (ret (str.clone out)))
   (if (str.ends out ".dll") (ret (str.clone out)))
@@ -39,7 +34,7 @@
     " -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath")
   (let got (os.capture (& cmd)))
   (if (!= (. got code) 0) (ret (str.new)))
-  (let root (slash (& (str.trim (& (. got out))))))
+  (let root (str.replace_byte (& (str.trim (& (. got out)))) 92u8 47u8))
   (if (== (str.len (& root)) 0) (ret (str.new)))
   (path.join (& root) "VC/Auxiliary/Build/vcvars64.bat"))
 
@@ -102,7 +97,8 @@
       (push_q (&mut cmd) ui_a)
       (push_q (&mut cmd) ui_b)
       (if (> (str.len ui_c) 0) (push_q (&mut cmd) ui_c))
-      (str.push (&mut cmd) " user32.lib gdi32.lib imm32.lib shell32.lib ole32.lib oleaut32.lib uiautomationcore.lib")))
+      (str.push (&mut cmd)
+        " user32.lib gdi32.lib imm32.lib shell32.lib ole32.lib oleaut32.lib uiautomationcore.lib")))
   (if (> (str.len web) 0) (push_q (&mut cmd) web))
   (str.push (&mut cmd) more)
   (str.push (&mut cmd) " ws2_32.lib")

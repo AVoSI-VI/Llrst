@@ -30,10 +30,11 @@
 (pub (fn runtime ((name (& str))) str
   (let mut c (vec.new <str>))
   (match (os.env "LLRST_RUNTIME")
-    ((opt.some d) (push_cand (&mut c) (path.join (& (slash (& d))) name)))
+    ((opt.some d) (push_cand (&mut c) (path.join (& (str.replace_byte (& d) 92u8 47u8)) name)))
     ((opt.none) ()))
   (match (os.env "LLRST_STD")
-    ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& (slash (& d))))) name)))
+    ((opt.some d)
+      (push_cand (&mut c) (path.join (& (path.dir (& (str.replace_byte (& d) 92u8 47u8)))) name)))
     ((opt.none) ()))
   (let dir (load.exe_dir))
   (if (> (str.len (& dir)) 0)
@@ -43,13 +44,8 @@
   (push_cand (&mut c) (path.join "runtime" name))
   (first (& c))))
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
-
 (pub (fn obj_path ((out (& str)) (win bool)) str
-  (let o (slash out))
+  (let o (str.replace_byte out 92u8 47u8))
   (let ext (if win ".obj" ".o"))
   (path.join (& (path.dir (& o))) (& (str.cat (& (path.stem (& o))) ext)))))
 
@@ -117,7 +113,9 @@
   (path.join (& bin) "bin/aarch64-linux-android21-clang"))
 
 (fn ndk_root () str
-  (match (os.env "ANDROID_NDK") ((opt.some d) (slash (& d))) ((opt.none) (str.new))))
+  (match (os.env "ANDROID_NDK")
+    ((opt.some d) (str.replace_byte (& d) 92u8 47u8))
+    ((opt.none) (str.new))))
 
 (fn ndk_clang () str
   (let root (ndk_root))
@@ -174,7 +172,7 @@
 (fn rm ((obj (& str))) unit (if (fs.exists obj) (let _ (fs.remove obj))))
 
 (fn fail ((main (& str)) (cmd (& str)) (got (& str))) str
-  (let mut d (diag.make true (slash main) 1 1 0 (str.from "link.failed")))
+  (let mut d (diag.make true (str.replace_byte main 92u8 47u8) 1 1 0 (str.from "link.failed")))
   (diag.add (&mut d) "cmd" (str.clone cmd))
   (diag.add (&mut d) "got" (str.clone got))
   (diag.render (& d)))
@@ -208,7 +206,8 @@
   (str.from "llr_ui_x11"))
 
 (fn ui_libs ((win bool) (dar bool)) str
-  (if win (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32 -lole32 -loleaut32 -luiautomationcore")))
+  (if win
+    (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32 -lole32 -loleaut32 -luiautomationcore")))
   (if dar (ret (str.from "-framework Cocoa")))
   (str.from "-lX11"))
 
@@ -225,8 +224,7 @@
   (let c (str.cat (& (str.cat (& stem) "_a11y")) ext))
   (if (not (add_named cmd (& a))) (ret (str.from "llr_ui_*.o missing")))
   (if (not (add_named cmd (& b))) (ret (str.from "llr_ui_*.o missing")))
-  (if (or win dar)
-    (if (not (add_named cmd (& c))) (ret (str.from "llr_ui_*_a11y.o missing"))))
+  (if (or win dar) (if (not (add_named cmd (& c))) (ret (str.from "llr_ui_*_a11y.o missing"))))
   (str.push cmd " ")
   (str.push cmd (& (ui_libs win dar)))
   (str.new))

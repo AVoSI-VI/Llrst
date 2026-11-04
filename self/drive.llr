@@ -74,15 +74,10 @@
   1)
 
 (fn at_main ((file (& str)) (code (& str)) (k (& str)) (v (& str)) (k2 (& str)) (v2 (& str))) str
-  (let mut d (diag.make true (slash file) 1 1 0 (str.from code)))
+  (let mut d (diag.make true (str.replace_byte file 92u8 47u8) 1 1 0 (str.from code)))
   (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
   (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (diag.render (& d)))
-
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
 
 (fn build ((o (& flags)) (p prog.prog)) i64
   (let mut ds (vec.new <diag.dg>))
@@ -100,9 +95,7 @@
   (pump (&mut g) (& p) (&mut ds))
   (lint.generics (& p) (&mut ds) (& (cg_mod.done_ids (& g))))
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
-  (if (. o emit_dylib)
-    (cg_reload.emit (&mut g) (& p) entry)
-    (cg_entry.emit_main (&mut g) entry))
+  (if (. o emit_dylib) (cg_reload.emit (&mut g) (& p) entry) (cg_entry.emit_main (&mut g) entry))
   (let bytes (cg_mod.finish (& g)))
   (if (. o emit_obj) (ret (write_obj o (& bytes) (&mut ds))))
   (let err (link.link (& bytes) (& (out_path o)) (& (. o target)) (& (. o file)) (. o emit_dylib)))
@@ -186,7 +179,7 @@
    (v (& str))
    (k2 (& str))
    (v2 (& str))) unit
-  (let mut d (diag.make true (slash file) line col len (str.from code)))
+  (let mut d (diag.make true (str.replace_byte file 92u8 47u8) line col len (str.from code)))
   (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
   (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (vec.push ds d))

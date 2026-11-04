@@ -1,4 +1,6 @@
 ;; GraphQL schema. type, fields, arguments, and Int, String, Boolean, or an object type.
+(use std.scan)
+
 (pub (struct arg (pub (name str)) (pub (ty str))))
 
 (pub (struct gfield (pub (name str)) (pub (ty str)) (pub (args (vec arg)))))
@@ -9,24 +11,21 @@
 
 (struct rd (src str) (i i64))
 
-(fn peek ((r (& rd))) u8
-  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+(fn peek ((r (& rd))) u8 (scan.peek (& (cur (& (. r src)) (. r i)))))
 
 (fn skip ((r (&mut rd))) unit
   (while (or (== (peek r) 32u8)
      (or (== (peek r) 10u8) (or (== (peek r) 9u8) (or (== (peek r) 13u8) (== (peek r) 44u8)))))
     (set (. r i) (+ (. r i) 1))))
 
-(fn is_name ((b u8)) bool
-  (or (and (>= b 65u8) (<= b 90u8))
-    (or (and (>= b 97u8) (<= b 122u8)) (or (== b 95u8) (and (>= b 48u8) (<= b 57u8))))))
-
 (fn read_name ((r (&mut rd))) str
   (skip r)
-  (let start (. r i))
-  (if (not (is_name (peek r))) (ret (str.new)))
-  (while (is_name (peek r)) (set (. r i) (+ (. r i) 1)))
-  (str.slice (& (. r src)) start (. r i)))
+  (let mut c (cur (& (. r src)) (. r i)))
+  (let name (scan.read_name (&mut c)))
+  (let n (. c i))
+  (drop c)
+  (set (. r i) n)
+  name)
 
 (fn ty_name ((r (&mut rd))) str
   (let name (read_name r))

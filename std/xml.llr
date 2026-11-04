@@ -1,4 +1,6 @@
 ;; One XML tree. Attributes, namespaces, comments, CDATA, and a declaration.
+(use std.scan)
+
 (struct attr (name str) (value str))
 
 (struct node (kind u8) (text str) (ns str) (lo i64) (hi i64) (alo i64) (ahi i64))
@@ -17,8 +19,7 @@
 (fn blank () doc
   (doc (vec.new <node>) (vec.new <i64>) (vec.new <attr>) -1 (str.new) (str.new) (str.new)))
 
-(fn peek ((r (& rd))) u8
-  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+(fn peek ((r (& rd))) u8 (scan.peek (& (cur (& (. r src)) (. r i)))))
 
 (fn is_space ((b u8)) bool (or (== b 32u8) (or (== b 9u8) (or (== b 10u8) (== b 13u8)))))
 
@@ -29,7 +30,12 @@
   (or (is_name_start b)
     (or (and (>= b 48u8) (<= b 57u8)) (or (== b 58u8) (or (== b 45u8) (== b 46u8))))))
 
-(fn skip ((r (&mut rd))) unit (while (is_space (peek r)) (set (. r i) (+ (. r i) 1))))
+(fn skip ((r (&mut rd))) unit
+  (let mut c (cur (& (. r src)) (. r i)))
+  (scan.skip_ws (&mut c))
+  (let n (. c i))
+  (drop c)
+  (set (. r i) n))
 
 (fn eat ((r (&mut rd)) (s (& str))) bool
   (if (str.starts (& (str.slice (& (. r src)) (. r i) (str.len (& (. r src))))) s)
@@ -47,12 +53,6 @@
   (vec.push (&mut (. d nodes)) n)
   (- (vec.len (& (. d nodes))) 1))
 
-(fn hex_dig ((b u8)) (opt i64)
-  (if (and (>= b 48u8) (<= b 57u8)) (ret (opt.some (as i64 (- b 48u8)))))
-  (if (and (>= b 97u8) (<= b 102u8)) (ret (opt.some (+ 10 (as i64 (- b 97u8))))))
-  (if (and (>= b 65u8) (<= b 70u8)) (ret (opt.some (+ 10 (as i64 (- b 65u8))))))
-  (opt.none))
-
 (fn ref_num ((r (&mut rd)) (hex bool)) (res u8 str)
   (let mut v 0)
   (let mut any false)
@@ -61,7 +61,7 @@
     (if (== b 59u8) (brk))
     (let d
       (if hex
-        (hex_dig b)
+        (scan.hex_dig b)
         (if (and (>= b 48u8) (<= b 57u8)) (opt.some (as i64 (- b 48u8))) (opt.none))))
     (if (opt.is_none (& d)) (ret (res.err (str.from "xml.parse"))))
     (set any true)
@@ -406,4 +406,4 @@
   (assert_eq (& (read_name (&mut r))) "ab")
   (match (entity (&mut r)) ((res.ok b) (assert_eq b 60u8)) ((res.err _) (assert false)))
   (drop (blank))
-  (drop (hex_dig 48u8)))
+  (drop (scan.hex_dig 48u8)))

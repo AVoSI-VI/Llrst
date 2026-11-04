@@ -83,23 +83,18 @@
 (fn known ((a (& str))) bool
   (or (str.eq a "--test")
     (or (str.eq a "--emit-obj")
-        (or (str.eq a "--emit-dylib")
-      (or (str.eq a "--checked")
-        (or (str.eq a "-o")
-          (or (str.eq a "--target")
-            (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny"))))))))))
+      (or (str.eq a "--emit-dylib")
+        (or (str.eq a "--checked")
+          (or (str.eq a "-o")
+            (or (str.eq a "--target")
+              (or (str.eq a "--std") (or (str.eq a "--ui") (str.eq a "--deny"))))))))))
 
 (fn command ((c (& str))) bool
   (or (str.eq c "build")
     (or (str.eq c "run") (or (str.eq c "check") (or (str.eq c "emit-mir") (str.eq c "version"))))))
 
 (fn env_dir ((k (& str))) str
-  (match (os.env k) ((opt.some s) (slash (& s))) ((opt.none) (str.new))))
-
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
+  (match (os.env k) ((opt.some s) (str.replace_byte (& s) 92u8 47u8)) ((opt.none) (str.new))))
 
 (fn tmp_root () str
   (let a (env_dir "TMPDIR"))

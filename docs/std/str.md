@@ -33,6 +33,10 @@ Source: `std/str.llr`. Import with `(use std.str)` for module functions; types a
 | `str.ends` | `((self (& str)) (p (& str)))` | `bool` |
 | `str.split` | `((self (& str)) (sep u8))` | `(vec str)` |
 | `str.lines` | `((self (& str)))` | `(vec str)` |
+| `str.is_space` | `((b u8))` | `bool` |
+| `str.is_digit` | `((b u8))` | `bool` |
+| `str.is_alpha` | `((b u8))` | `bool` |
+| `str.is_alnum` | `((b u8))` | `bool` |
 | `str.trim` | `((self (& str)))` | `str` |
 | `str.from_int` | `((n i64))` | `str` |
 | `str.to_int` | `((self (& str)))` | `(opt i64)` |

@@ -106,7 +106,7 @@ commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
 suite|not re-run for the 2026-11-03 gap catalogue|last recorded fails=0 under the self compiler (2026-10-31, history/phases.md)
 self|stage2=equal|scripts/self.sh --stage at 2026-11-01|darwin arm64
 wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
-lines|compiler=9979 rs|self=20131 llr|std=8372 llr (50 modules)|ui=9690 llr|tools=2099 llr|max_file=runtime/llr_ui_win_a11y.c 596|budget=500 soft, 1000 hard
+lines|compiler=9979 rs|self=20032 llr|std=8954 llr (52 modules)|ui=9622 llr|tools=2099 llr|max_file=runtime/llr_ui_win_a11y.c 596|budget=500 soft, 1000 hard
 ```
 
 ## Implementation notes (things you would otherwise rediscover)
@@ -229,39 +229,39 @@ Tools (`tools/`, `docs/tools/`)
 
 ## Line budget
 
-Raw `wc -l` on 2026-11-03. Rows are `.llr`, `.rs`, `.c`, and `.m` files under `compiler/src`, `self`, `std`, `ui`, `tools`, and `runtime` at 400 lines or above. Split before adding if a file is near 500. `scripts/check-lines.sh`
+Raw `wc -l` on 2026-11-04. Rows are `.llr`, `.rs`, `.c`, and `.m` files under `compiler/src`, `self`, `std`, `ui`, `tools`, and `runtime` at 400 lines or above. Split before adding if a file is near 500. `scripts/check-lines.sh`
 and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `tools`, `docs`, `scripts`,
 `tests`, `self`, and `runtime` for `.rs .llr .md .sh .c .m`. `.gitattributes` stores `*.c` and `*.h` as LF.
 
 | File | Lines | Note |
 | --- | --- | --- |
 | `runtime/llr_ui_win_a11y.c` | 596 | Over the 500-line soft cap |
-| `std/http.llr` | 499 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
 | `self/thir_expr.llr` | 497 | |
-| `runtime/llr_win.c` | 496 | |
 | `self/lower.llr` | 496 | |
+| `runtime/llr_win.c` | 496 | |
 | `self/thir.llr` | 492 | |
 | `compiler/src/mir/lower.rs` | 491 | |
 | `compiler/src/codegen/func.rs` | 490 | Trace push/pop lives in `codegen/trace.rs` |
 | `compiler/src/resolve.rs` | 490 | |
-| `self/collect.llr` | 489 | |
-| `ui/text.llr` | 489 | |
 | `compiler/src/check/expr.rs` | 486 | |
+| `self/collect.llr` | 485 | |
 | `runtime/llr_ui_android_in.c` | 485 | |
+| `ui/text.llr` | 475 | |
+| `std/http.llr` | 475 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
 | `compiler/src/borrow/holders.rs` | 471 | |
-| `ui/semantics.llr` | 457 | |
-| `std/re.llr` | 452 | |
-| `self/elf.llr` | 450 | |
-| `self/isa_a64.llr` | 443 | integer, branch, and memory seam; fp, frame, and overflow are split out |
-| `self/link.llr` | 440 | |
+| `self/elf.llr` | 448 | |
+| `std/re.llr` | 446 | |
 | `self/wasm_abi.llr` | 440 | |
 | `self/wasm_op.llr` | 438 | |
+| `self/link.llr` | 438 | |
+| `self/isa_a64.llr` | 436 | integer, branch, and memory seam; fp, frame, and overflow are split out |
 | `ui/element.llr` | 430 | |
-| `self/thir_call.llr` | 427 | Trait calls live in `thir_trait.llr` |
 | `ui/ttf_glyf.llr` | 427 | |
+| `ui/semantics.llr` | 427 | |
 | `std/ast.llr` | 424 | |
-| `runtime/llr_win_proc.c` | 423 | |
 | `self/holders.llr` | 423 | |
+| `runtime/llr_win_proc.c` | 423 | |
+| `self/thir_call.llr` | 422 | Trait calls live in `thir_trait.llr` |
 | `compiler/src/codegen/mod.rs` | 420 | |
 | `ui/widget.llr` | 417 | |
 | `compiler/src/link.rs` | 416 | |
@@ -351,17 +351,17 @@ Files: `HANDOFF.md`, `docs/std/README.md`, `docs/std/fs.md`, `docs/std/http_type
 4. `[x]` Recount the **Line budget** table; drop rows under 400.
 5. `[x]` Commit: `docs: std index complete, hex literals documented, line budget recounted`.
 
-### Phase 9: strings and numbers `[ ]`
+### Phase 9: strings and numbers `[x]`
 
 Files: `std/str.llr`, new `std/str_more.llr` if `str.llr` passes 400 (verify first that the resolver allows a second `(impl str ...)` in another std file; else the new functions are module functions `str_more.X`), `std/math.llr`, `std/math_trig.llr`, `std/fmt.llr`, new `std/scan.llr`, `docs/canon/strings.md`, then `self/`, `ui/`, `tools/` callers.
 
-1. `[ ]` `str`: `upper trim_start trim_end rfind rfind_byte split_str replace_byte pad_right`; `is_space is_digit is_alpha is_alnum` become `pub`; `from_bytes ((& (vec u8)))` and `to_bytes`; `utf8_at ((& str) i)` returning codepoint and length, `push_utf8 ((&mut str) cp)`, `utf8_ok`; `to_int_radix from_int_radix`; `to_f64` and `from_f64 (x digits)` (shortest-roundtrip is out of scope; fixed digits). `str.to_int` keeps its signature.
-2. `[ ]` `math`: `imin imax iclamp iabs ipow align_up approx`; export `exp ln`; add `tan asin acos log2 log10 fmod lerp clamp`, each with a `32` twin; one `nan` `inf` `pow2` definition shared by `math.llr` and `math_trig.llr`.
-3. `[ ]` `fmt`: `hex (n width)`, `float (x digits)`, `pad_right`, and `fields ((& str))` returning `(vec str)` for a pipe record, with `field_int`.
-4. `[ ]` `std/scan.llr`: a cursor over `(& str)` with `peek at skip_ws is_name read_name hex_dig expect`. `gql_parse gql_schema sexp re xml json_read` use it and drop their copies. `eshort` `hname` `hval` live once in `http.llr` and are `pub` for `http_body` and `http_ws`.
-5. `[ ]` Delete the duplicates outside std and call the new functions: `nib hex_byte hex` (7 files in `self/`), `fmt_f` and `milli` (`ui/`), `slash` (6), `last_seg` (4), `last_dot` (2), `cstr_eq` (3), `exe_dir` (`self/load.llr:29`, `ui/font.llr:48` use `os.exe_path` and `path.dir`), `ui/font.llr` `dir_of`, `self/cg_drop.llr` and `self/wasm_drop.llr` `cat`. The compiler must stay byte-equal: `tests/x64_ref.sh`, `tests/check.sh`, `tests/mir.sh`.
-6. `[ ]` Canon rows in `docs/canon/strings.md` for every new form; `docs/std` regenerated.
-7. `[ ]` Commit: `std: str, math, fmt, and scan cover the helpers self and ui had copied`.
+1. `[x]` `str`: `upper trim_start trim_end rfind rfind_byte split_str replace_byte pad_right`; `is_space is_digit is_alpha is_alnum` become `pub`; `from_bytes ((& (vec u8)))` and `to_bytes`; `utf8_at ((& str) i)` returning codepoint and length, `push_utf8 ((&mut str) cp)`, `utf8_ok`; `to_int_radix from_int_radix`; `to_f64` and `from_f64 (x digits)` (shortest-roundtrip is out of scope; fixed digits). `str.to_int` keeps its signature.
+2. `[x]` `math`: `imin imax iclamp iabs ipow align_up approx`; export `exp ln`; add `tan asin acos log2 log10 fmod lerp clamp`, each with a `32` twin; one `nan` `inf` `pow2` definition shared by `math.llr` and `math_trig.llr`.
+3. `[x]` `fmt`: `hex (n width)`, `float (x digits)`, `pad_right`, and `fields ((& str))` returning `(vec str)` for a pipe record, with `field_int`.
+4. `[x]` `std/scan.llr`: a cursor over `(& str)` with `peek at skip_ws is_name read_name hex_dig expect`. `gql_parse gql_schema sexp re xml json_read` use it and drop their copies. `eshort` `hname` `hval` live once in `http.llr` and are `pub` for `http_body` and `http_ws`.
+5. `[x]` Delete the duplicates outside std and call the new functions: `nib hex_byte hex` (7 files in `self/`), `fmt_f` and `milli` (`ui/`), `slash` (6), `last_seg` (4), `last_dot` (2), `cstr_eq` (3), `exe_dir` (`self/load.llr:29`, `ui/font.llr:48` use `os.exe_path` and `path.dir`), `ui/font.llr` `dir_of`, `self/cg_drop.llr` and `self/wasm_drop.llr` `cat`. The compiler must stay byte-equal: `tests/x64_ref.sh`, `tests/check.sh`, `tests/mir.sh`.
+6. `[x]` Canon rows in `docs/canon/strings.md` for every new form; `docs/std` regenerated.
+7. `[x]` Commit: `std: str, math, fmt, and scan cover the helpers self and ui had copied`.
 
 ### Phase 10: collections, opt, res `[ ]`
 
@@ -465,4 +465,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 
 - 2026-11-03: **Gaps** and Phases 8-15 added from reading `std/`, `self/`, `ui/`, `tools/`, `compiler/src/`, `docs/`, and `tests/err` against the Rust, Go, and Python standard libraries. Each std row cites the private copies that stand in for the missing function; each language row cites the rejection site or the doc line. The **Status** block and the `std/` row (50 modules) were recounted. No code changed. The suite was not re-run.
 - 2026-11-03: Phase 8. `llr-doc` regenerated `docs/std` (`fs.now_ms`, `http_type.md`, `http_mime.md`, and drifted rows for `http.serve_wait`, `net.poll_serve_wait`, `llr_now_ms`, and `ast_expr_pub`). `http_mime.llr` stays; `http.llr` is 499 lines and Phase 9 keeps `eshort`, `hname`, and `hval` there, so the mime test does not fit under 500. `docs/spec/tokens.md` documents `0x`. Line budget recounted; rows under 400 dropped. No `.llr` change. Suite not re-run.
+- 2026-11-04: Phase 9. `str` gained the ASCII classes, and `str_more` holds the rest of the string helpers, including fixed-digit floats and UTF-8. `math` and `math_trig` share `nan`, `inf`, and `pow2`; `exp` and `ln` are public. `fmt` reads pipe records. `scan` is the cursor for the parsers. `http.eshort`, `http.hname`, and `http.hval` are the one copy. The duplicated helpers in `self/`, `ui/`, and `tools/deps.llr` call those functions. `curve.llr` still rounds thousandths. `sys_wasm.cstr_eq` still walks a pointer. `ui/font.llr` spells the `path.dir` match itself because `path` there is `ui.path`. `tests/run.ps1`: goldens, std, ui, lines, `tests/check.ps1`, `tests/mir.ps1`, and `tests/self.ps1` fails=0. `tests/cross.sh` is `fail|setup|lld=missing` on this host. `target/self/x64_ref` is not in this checkout.
 

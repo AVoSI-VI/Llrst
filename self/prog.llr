@@ -303,18 +303,8 @@
   (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 3u8)) id (neg 1))))
 
 (pub (fn lookup_trait ((p (& prog)) (module i64) (name (& str))) i64
-  (let id
-    (if (str.has name ".")
-      (lookup_qual p module name false)
-      (lookup_item p module name)))
+  (let id (if (str.has name ".") (lookup_qual p module name false) (lookup_item p module name)))
   (if (and (>= id 0) (== (. (vec.get (& (. p defs)) id) kind) 4u8)) id (neg 1))))
-
-(fn last_seg ((s (& str))) str
-  (let mut i (- (str.len s) 1))
-  (while (>= i 0)
-    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
-    (set i (- i 1)))
-  (str.clone s))
 
 (fn dot2 ((a (& str)) (b (& str))) str
   (let mut s (str.clone a))
@@ -327,7 +317,13 @@
   (if (!= (. d kind) 2u8) (ret (str.clone (& (. d name)))))
   (if (>= (. d owner) 0)
     (ret (dot2 (& (. (vec.get (& (. p defs)) (. d owner)) name)) (& (. d name)))))
-  (dot2 (& (last_seg (& (. (vec.get (& (. p mods)) (. d module)) path)))) (& (. d name)))))
+  (dot2 (& (match (str.rfind_byte (& (. (vec.get (& (. p mods)) (. d module)) path)) 46u8)
+      ((opt.some seg)
+        (str.slice (& (. (vec.get (& (. p mods)) (. d module)) path))
+          (+ seg 1)
+          (str.len (& (. (vec.get (& (. p mods)) (. d module)) path)))))
+      ((opt.none) (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))))
+    (& (. d name)))))
 
 (pub (fn impl_of ((p (& prog)) (tr i64) (t (& ty.sty))) i64
   (for i 0 (vec.len (& (. p ims)))

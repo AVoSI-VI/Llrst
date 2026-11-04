@@ -47,6 +47,38 @@
   (str.push (&mut out) s)
   out))
 
+(pub (fn pad_right ((s (& str)) (width i64) (fill u8)) str (str.pad_right s width fill)))
+
+(pub (fn hex ((n i64) (width i64)) str
+  (let body (str.from_int_radix n 16))
+  (if (not (str.starts (& body) "-")) (ret (pad_left (& body) width 48u8)))
+  (let digits (str.slice (& body) 1 (str.len (& body))))
+  (let mut s (str.from "-"))
+  (str.push (&mut s) (& (pad_left (& digits) width 48u8)))
+  s))
+
+(pub (fn float ((x f64) (digits i64)) str (str.from_f64 x digits)))
+
+(fn unescape ((s (& str))) str
+  (let mut out (str.new))
+  (let mut i 0)
+  (let n (str.len s))
+  (while (< i n)
+    (if (and (== (str.at s i) 92u8) (< (+ i 1) n) (== (str.at s (+ i 1)) 110u8))
+      (do (str.push_byte (&mut out) 10u8) (set i (+ i 2)))
+      (if (str.starts (& (str.slice s i n)) "\\x7c")
+        (do (str.push_byte (&mut out) 124u8) (set i (+ i 4)))
+        (do (str.push_byte (&mut out) (str.at s i)) (set i (+ i 1))))))
+  out)
+
+(pub (fn fields ((s (& str))) (vec str)
+  (let parts (str.split s 124u8))
+  (let mut out (vec.new <str>))
+  (for i 0 (vec.len (& parts)) (vec.push (&mut out) (unescape (vec.get (& parts) i))))
+  out))
+
+(pub (fn field_int ((s (& str))) (opt i64) (str.to_int s)))
+
 (test fmt_pipe
   (assert_eq (& (pipe2 "a" "b")) "a|b")
   (assert_eq (& (pipe3 "a" "b" "c")) "a|b|c")
@@ -55,4 +87,14 @@
   (assert_eq (& (field "a\nb")) "a\\nb")
   (assert_eq (& (kv "k" "x|y")) "k=x\\x7cy")
   (assert_eq (& (int 3)) "3")
-  (assert_eq (& (pad_left "7" 3 48u8)) "007"))
+  (assert_eq (& (pad_left "7" 3 48u8)) "007")
+  (assert_eq (& (pad_right "7" 3 48u8)) "700")
+  (assert_eq (& (hex 10 2)) "0a")
+  (assert_eq (& (hex -1 2)) "-01")
+  (assert_eq (& (float 1.5 3)) "1.500")
+  (let fs (fields (& (field "a|b"))))
+  (assert_eq (vec.len (& fs)) 1)
+  (assert_eq (vec.get (& fs) 0) "a|b")
+  (assert_eq (vec.len (& (fields "a|b"))) 2)
+  (match (field_int "3") ((opt.some n) (assert_eq n 3)) ((opt.none) (assert false)))
+  (assert_eq (& (unescape "\\n")) "\n"))

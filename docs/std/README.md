@@ -8,6 +8,7 @@
 | [sys_wasm](sys_wasm.md) | WASI preview1 externs merged into `std.sys` when the target contains `wasm32`. |
 | [alloc](alloc.md) | Free-list `malloc`, `realloc`, and `free` over a grow hook. |
 | [str](str.md) | Owned byte string `str`. Literals are `(& str)`. |
+| [str_more](str_more.md) | More `str` methods: case, trim sides, UTF-8, radix, and fixed floats. |
 | [vec](vec.md) | Growable array `(vec T)`. |
 | [opt](opt.md) | Optional `(opt T)`: `(opt.some x)` / `(opt.none)`. |
 | [res](res.md) | Result `(res T E)`: `(res.ok x)` / `(res.err e)`. |
@@ -39,13 +40,14 @@
 | [mqtt_sess](mqtt_sess.md) | MQTT topic filters. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Keys need `Hash` and `Eq`. |
-| [math](math.md) | `f64` and `f32` abs, min, max, floor, ceil, round, sqrt. No libm. |
-| [math_trig](math_trig.md) | sin, cos, atan2, pow for `f64` and `f32`. |
-| [fmt](fmt.md) | Pipe-record formatting for model-facing output. |
+| [math](math.md) | `f64` and `f32` abs, min, max, floor, ceil, round, sqrt, integers, clamp, lerp, and fmod. No libm. |
+| [math_trig](math_trig.md) | sin, cos, tan, asin, acos, atan2, exp, ln, log2, log10, and pow. |
+| [fmt](fmt.md) | Pipe records, hex, fixed floats, and padding. |
 | [json](json.md) | Minimal JSON encoding. |
 | [json_read](json_read.md) | JSON objects, arrays, strings, ints, bools, and null. |
 | [cli](cli.md) | Argument parsing for tools. |
 | [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
+| [scan](scan.md) | Cursor over `(& str)`: peek, names, and hex digits. |
 | [ast](ast.md) | Surface grammar parsed from a sexp tree. `llrc check` is the checker; `llr-check` runs it. |
 | [ast_expr](ast_expr.md) | Expression and type forms parsed from a sexp tree. |
 | [glob](glob.md) | Glob matching and directory walking. |

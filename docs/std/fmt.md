@@ -16,6 +16,11 @@ Source: `std/fmt.llr`. Import with `(use std.fmt)` for module functions; types a
 | `fmt.kv` | `((k (& str)) (v (& str)))` | `str` |
 | `fmt.int` | `((n i64))` | `str` |
 | `fmt.pad_left` | `((s (& str)) (width i64) (fill u8))` | `str` |
+| `fmt.pad_right` | `((s (& str)) (width i64) (fill u8))` | `str` |
+| `fmt.hex` | `((n i64) (width i64))` | `str` |
+| `fmt.float` | `((x f64) (digits i64))` | `str` |
+| `fmt.fields` | `((s (& str)))` | `(vec str)` |
+| `fmt.field_int` | `((s (& str)))` | `(opt i64)` |
 
 ## Tests
 

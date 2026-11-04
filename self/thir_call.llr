@@ -173,7 +173,7 @@
    (explicit (& (vec ty.sty)))
    (won bool)
    (want (& ty.sty))) (res maybe str)
-  (let dot (last_dot name))
+  (let dot (match (str.rfind_byte name 46u8) ((opt.some seg) seg) ((opt.none) (neg 1))))
   (if (< dot 0) (ret (res.ok (none_ex c e))))
   (let path (str.slice name 0 dot))
   (let var (str.slice name (+ dot 1) (str.len name)))
@@ -184,11 +184,6 @@
   (if (> (str.len (& msg)) 0) (ret (res.err msg)))
   (let ex (try (make_variant p c e id idx explicit won want)))
   (res.ok (maybe true ex)))
-
-(pub (fn last_dot ((s (& str))) i64
-  (let mut at (neg 1))
-  (for i 0 (str.len s) (if (== (str.at s i) 46u8) (set at i)))
-  at))
 
 (fn var_i ((d (& prog.def)) (name (& str))) i64
   (for i 0 (vec.len (& (. d svars)))

@@ -11,11 +11,23 @@ Source: `std/math_trig.llr`. Import with `(use std.math_trig)` for module functi
 | `math_trig.sin` | `((x f64))` | `f64` |
 | `math_trig.cos` | `((x f64))` | `f64` |
 | `math_trig.atan2` | `((y f64) (x f64))` | `f64` |
+| `math_trig.exp` | `((x f64))` | `f64` |
+| `math_trig.ln` | `((x f64))` | `f64` |
 | `math_trig.pow` | `((x f64) (y f64))` | `f64` |
 | `math_trig.sin32` | `((x f32))` | `f32` |
 | `math_trig.cos32` | `((x f32))` | `f32` |
 | `math_trig.atan232` | `((y f32) (x f32))` | `f32` |
 | `math_trig.pow32` | `((x f32) (y f32))` | `f32` |
+| `math_trig.tan` | `((x f64))` | `f64` |
+| `math_trig.asin` | `((x f64))` | `f64` |
+| `math_trig.acos` | `((x f64))` | `f64` |
+| `math_trig.log2` | `((x f64))` | `f64` |
+| `math_trig.log10` | `((x f64))` | `f64` |
+| `math_trig.tan32` | `((x f32))` | `f32` |
+| `math_trig.asin32` | `((x f32))` | `f32` |
+| `math_trig.acos32` | `((x f32))` | `f32` |
+| `math_trig.log232` | `((x f32))` | `f32` |
+| `math_trig.log1032` | `((x f32))` | `f32` |
 
 ## Tests
 

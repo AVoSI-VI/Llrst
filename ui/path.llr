@@ -155,8 +155,6 @@
       (step self (&mut out) (&mut pen) (path.verb_at self i) tol))
     out)))
 
-(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
-
 (fn lines_only ((p (& path))) bool
   (let mut ok true)
   (for i 0 (vec.len (& (. p verb)))
@@ -171,15 +169,15 @@
   (path.line (&mut p) (geom.pt 5.0f32 6.0f32))
   (path.close (&mut p))
   (let b (path.bounds (& p)))
-  (assert_eq (milli (. b x)) 1000)
-  (assert_eq (milli (. b y)) 2000)
-  (assert_eq (milli (. b w)) 4000)
-  (assert_eq (milli (. b h)) 4000)
+  (assert_eq (math.milli (. b x)) 1000)
+  (assert_eq (math.milli (. b y)) 2000)
+  (assert_eq (math.milli (. b w)) 4000)
+  (assert_eq (math.milli (. b h)) 4000)
   (assert_eq (path.verb_at (& p) 0) 0u8)
-  (assert_eq (milli (. (path.at (& p) 0) x)) 1000)
+  (assert_eq (math.milli (. (path.at (& p) 0) x)) 1000)
   (let m (mat.mat.translate 10.0f32 0.0f32))
   (let t (path.transform (& p) (& m)))
-  (assert_eq (milli (. (path.bounds (& t)) x)) 11000)
+  (assert_eq (math.milli (. (path.bounds (& t)) x)) 11000)
   (let empty (path.new))
   (assert (geom.rect.empty (& (path.bounds (& empty))))))
 

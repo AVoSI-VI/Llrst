@@ -1,4 +1,5 @@
 ;; Paragraph layout: one font, greedy breaks at spaces, ellipsis, hit, and caret.
+(use std.fmt)
 (use std.str)
 (use ui.blend)
 (use ui.font)
@@ -309,21 +310,6 @@
     (try (place_all f (& items) (& lo) (& hi) max_w align kern keep cut (&mut cells) (&mut lines))))
   (res.ok (para cells lines y end cut))))
 
-(fn fmt_f ((x f32)) str
-  (let mut n (as i64 (* (as f64 x) 1000.0)))
-  (let mut neg false)
-  (if (< n 0) (do (set neg true) (set n (neg n))))
-  (let ip (/ n 1000))
-  (let fp (% n 1000))
-  (let mut s (str.new))
-  (if neg (str.push_byte (&mut s) 45u8))
-  (str.push (&mut s) (& (str.from_int ip)))
-  (str.push_byte (&mut s) 46u8)
-  (if (< fp 100) (str.push_byte (&mut s) 48u8))
-  (if (< fp 10) (str.push_byte (&mut s) 48u8))
-  (str.push (&mut s) (& (str.from_int fp)))
-  s)
-
 (fn cat ((s str) (part (& str))) str
   (let mut o s)
   (str.push_byte (&mut o) 124u8)
@@ -425,19 +411,19 @@
 
 (fn line_rec ((i i64) (ln (& line))) str
   (let a (cat (str.from "line") (& (str.from_int i))))
-  (let b (cat a (& (fmt_f (. ln x)))))
-  (let c (cat b (& (fmt_f (. ln y)))))
-  (let d (cat c (& (fmt_f (. ln w)))))
-  (cat d (& (fmt_f (. ln h)))))
+  (let b (cat a (& (fmt.float (as f64 (. ln x)) 3))))
+  (let c (cat b (& (fmt.float (as f64 (. ln y)) 3))))
+  (let d (cat c (& (fmt.float (as f64 (. ln w)) 3))))
+  (cat d (& (fmt.float (as f64 (. ln h)) 3))))
 
 (fn cell_rec ((c (& cell))) str
   (let a (cat (str.from "cell") (& (str.from_int (. c off)))))
   (let b (cat a (& (str.from_int (. c cp)))))
-  (let d (cat b (& (fmt_f (. c x)))))
-  (cat d (& (fmt_f (. c adv)))))
+  (let d (cat b (& (fmt.float (as f64 (. c x)) 3))))
+  (cat d (& (fmt.float (as f64 (. c adv)) 3))))
 
 (pub (fn dump ((self (& para))) str
-  (let mut s (cat (str.from "height") (& (fmt_f (. self height)))))
+  (let mut s (cat (str.from "height") (& (fmt.float (as f64 (. self height)) 3))))
   (push_nl (&mut s) (cat (str.from "cut") (& (str.from_int (. self cut)))))
   (for i 0 (vec.len (& (. self lines)))
     (push_nl (&mut s) (line_rec i (vec.get (& (. self lines)) i))))
@@ -484,6 +470,6 @@
   (let ss (res.unwrap (stamps (& on) (&mut f))))
   (assert (> (vec.len (& ss)) 0))
   (assert (str.starts (& (dump (& on))) "height|"))
-  (drop (fmt_f 1.5f32))
+  (drop (fmt.float (as f64 1.5f32) 3))
   (drop (shift_of 1 10.0f32 4.0f32))
   (drop (ch_at "A" 0)))

@@ -1,27 +1,12 @@
 ;; HTTP/1.1 bodies. Content-Length, or chunked transfer with trailers.
-(fn eshort ((want i64) (got i64)) str
-  (let mut m (str.from "http.short|want="))
-  (str.push (&mut m) (& (str.from_int want)))
-  (str.push (&mut m) "|got=")
-  (str.push (&mut m) (& (str.from_int got)))
-  m)
-
-(fn hname ((line (& str))) str
-  (match (str.find line ":")
-    ((opt.some i) (str.lower (& (str.trim (& (str.slice line 0 i))))))
-    ((opt.none) (str.new))))
-
-(fn hval ((line (& str))) str
-  (match (str.find line ":")
-    ((opt.some i) (str.trim (& (str.slice line (+ i 1) (str.len line)))))
-    ((opt.none) (str.new))))
+(use std.http)
 
 (fn header ((hs (& (vec str))) (name (& str))) (opt str)
   (let want (str.lower name))
   (let mut found (opt.none))
   (for i 0 (vec.len hs)
     (let line (vec.get hs i))
-    (if (str.eq (& (hname line)) (& want)) (set found (opt.some (hval line)))))
+    (if (str.eq (& (http.hname line)) (& want)) (set found (opt.some (http.hval line)))))
   found)
 
 (fn hex_val ((b u8)) (opt i64)
@@ -48,7 +33,7 @@
 
 (fn one_chunk ((text (& str)) (i (&mut i64)) (out (&mut str))) (res i64 str)
   (let nl (str.find_from text "\r\n" (@ i)))
-  (if (opt.is_none (& nl)) (ret (res.err (eshort (+ (str.len text) 2) (str.len text)))))
+  (if (opt.is_none (& nl)) (ret (res.err (http.eshort (+ (str.len text) 2) (str.len text)))))
   (let n (opt.unwrap nl))
   (let sz (size_of (& (str.slice text (@ i) n))))
   (if (opt.is_none (& sz)) (ret (res.err (str.from "http.chunk"))))
@@ -57,7 +42,7 @@
   (if (> (+ (str.len out) size) 1048576) (ret (res.err (str.from "http.chunk"))))
   (if (== size 0) (ret (res.ok 0)))
   (if (> (+ (+ (@ i) size) 2) (str.len text))
-    (ret (res.err (eshort (+ (+ (@ i) size) 2) (str.len text)))))
+    (ret (res.err (http.eshort (+ (+ (@ i) size) 2) (str.len text)))))
   (str.push out (& (str.slice text (@ i) (+ (@ i) size))))
   (set (@ i) (+ (@ i) size))
   (if (not (crlf text (@ i))) (ret (res.err (str.from "http.chunk"))))
@@ -67,7 +52,7 @@
 (fn trailers ((text (& str)) (i (&mut i64)) (hs (&mut (vec str)))) (res unit str)
   (loop
     (let nl (str.find_from text "\r\n" (@ i)))
-    (if (opt.is_none (& nl)) (ret (res.err (eshort (+ (str.len text) 2) (str.len text)))))
+    (if (opt.is_none (& nl)) (ret (res.err (http.eshort (+ (str.len text) 2) (str.len text)))))
     (let n (opt.unwrap nl))
     (if (== n (@ i)) (do (set (@ i) (+ n 2)) (ret (res.ok ()))))
     (let line (str.trim (& (str.slice text (@ i) n))))
@@ -78,7 +63,7 @@
 (fn drop_name ((hs (&mut (vec str))) (name (& str))) unit
   (let mut i 0)
   (while (< i (vec.len hs))
-    (if (str.eq (& (hname (vec.get hs i))) name) (drop (vec.remove hs i)) (set i (+ i 1)))))
+    (if (str.eq (& (http.hname (vec.get hs i))) name) (drop (vec.remove hs i)) (set i (+ i 1)))))
 
 (fn rewrite ((hs (&mut (vec str))) (n i64)) unit
   (drop_name hs "transfer-encoding")
@@ -104,7 +89,7 @@
         ((opt.some n)
           (do
             (let got (- (str.len text) at))
-            (if (< got n) (ret (res.err (eshort n got))))
+            (if (< got n) (ret (res.err (http.eshort n got))))
             (res.ok (str.slice text at (+ at n)))))))))
 
 (fn is_chunked ((hs (& (vec str)))) bool

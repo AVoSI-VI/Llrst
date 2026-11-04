@@ -4,7 +4,9 @@
 
 (struct sc (v f64) (e i64))
 
-(fn nan () f64 (/ 0.0 0.0))
+(pub (fn nan () f64 (/ 0.0 0.0)))
+
+(pub (fn inf () f64 (/ 1.0 0.0)))
 
 (pub (fn abs ((x f64)) f64 (if (< x 0.0) (neg x) x)))
 
@@ -36,11 +38,11 @@
   (for i 0 8 (set g (/ (+ g (/ s g)) 2.0)))
   g)
 
-(fn pow2 ((e i64)) f64
+(pub (fn pow2 ((e i64)) f64
   (let mut r 1.0)
   (let n (if (< e 0) (neg e) e))
   (for i 0 n (set r (* r 2.0)))
-  (if (< e 0) (/ 1.0 r) r))
+  (if (< e 0) (/ 1.0 r) r)))
 
 (pub (fn sqrt ((x f64)) f64
   (if (!= x x) (ret x))
@@ -64,7 +66,46 @@
 
 (pub (fn sqrt32 ((x f32)) f32 (as f32 (sqrt (as f64 x)))))
 
-(fn near ((g f64) (w f64)) bool (< (abs (- g w)) 0.000001))
+(pub (fn approx ((g f64) (w f64)) bool (< (abs (- g w)) 0.000001)))
+
+(pub (fn imin ((a i64) (b i64)) i64 (if (< a b) a b)))
+
+(pub (fn imax ((a i64) (b i64)) i64 (if (> a b) a b)))
+
+(pub (fn iclamp ((x i64) (lo i64) (hi i64)) i64 (imin (imax x lo) hi)))
+
+(pub (fn iabs ((n i64)) i64 (if (< n 0) (neg n) n)))
+
+(pub (fn ipow ((x i64) (n i64)) i64
+  (if (< n 0) (ret 0))
+  (if (== n 0) (ret 1))
+  (let mut b x)
+  (let mut e n)
+  (let mut r 1)
+  (while (> e 0) (if (!= (% e 2) 0) (set r (* r b))) (set b (* b b)) (set e (/ e 2)))
+  r))
+
+(pub (fn align_up ((x i64) (a i64)) i64 (if (<= a 1) (ret x)) (* (/ (+ x (- a 1)) a) a)))
+
+(pub (fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0))))
+
+(fn trunc_to_zero ((x f64)) f64 (if (< x 0.0) (neg (floor (neg x))) (floor x)))
+
+(pub (fn clamp ((x f64) (lo f64) (hi f64)) f64 (min (max x lo) hi)))
+
+(pub (fn clamp32 ((x f32) (lo f32) (hi f32)) f32 (as f32 (clamp (as f64 x) (as f64 lo) (as f64 hi)))))
+
+(pub (fn lerp ((a f64) (b f64) (t f64)) f64 (+ a (* (- b a) t))))
+
+(pub (fn lerp32 ((a f32) (b f32) (t f32)) f32 (as f32 (lerp (as f64 a) (as f64 b) (as f64 t)))))
+
+(pub (fn fmod ((x f64) (y f64)) f64
+  (if (or (!= x x) (!= y y)) (ret (nan)))
+  (if (== y 0.0) (ret (nan)))
+  (if (and (!= y 0.0) (== (* y 2.0) y)) (ret x))
+  (- x (* y (trunc_to_zero (/ x y))))))
+
+(pub (fn fmod32 ((x f32) (y f32)) f32 (as f32 (fmod (as f64 x) (as f64 y)))))
 
 (test math_floor
   (assert_eq (as i64 (floor 1.9)) 1)
@@ -81,9 +122,9 @@
   (assert_eq (as i64 (max 1.0 2.0)) 2))
 
 (test math_sqrt
-  (assert (near (sqrt 4.0) 2.0))
-  (assert (near (sqrt 2.0) 1.414213562))
-  (assert (near (sqrt 0.25) 0.5))
+  (assert (approx (sqrt 4.0) 2.0))
+  (assert (approx (sqrt 2.0) 1.414213562))
+  (assert (approx (sqrt 0.25) 0.5))
   (let s (scale_in 8.0))
   (drop (newton (. s v)))
   (drop (pow2 (. s e)))
@@ -97,4 +138,29 @@
   (assert_eq (as i64 (as f64 (abs32 -3.5f32))) 3)
   (assert_eq (as i64 (as f64 (min32 1.0f32 2.0f32))) 1)
   (assert_eq (as i64 (as f64 (max32 1.0f32 2.0f32))) 2)
-  (assert (near (as f64 (sqrt32 4.0f32)) 2.0)))
+  (assert (approx (as f64 (sqrt32 4.0f32)) 2.0)))
+
+(test math_int
+  (assert_eq (imin 2 1) 1)
+  (assert_eq (imax 2 1) 2)
+  (assert_eq (iclamp 5 0 3) 3)
+  (assert_eq (iabs (neg 4)) 4)
+  (assert_eq (iabs (shl 1 63)) (shl 1 63))
+  (assert_eq (ipow 2 10) 1024)
+  (assert_eq (ipow 2 (neg 1)) 0)
+  (assert_eq (ipow 0 0) 1)
+  (assert_eq (align_up 10 8) 16)
+  (assert_eq (align_up 5 1) 5)
+  (assert_eq (milli 1.5f32) 1500))
+
+(test math_float_more
+  (assert_eq (as i64 (clamp 3.0 0.0 2.0)) 2)
+  (assert_eq (as i64 (lerp 0.0 10.0 0.5)) 5)
+  (assert (== (fmod 5.5 2.0) 1.5))
+  (assert (== (fmod -5.5 2.0) -1.5))
+  (assert (!= (fmod 1.0 0.0) (fmod 1.0 0.0)))
+  (assert_eq (as i64 (as f64 (clamp32 3.0f32 0.0f32 2.0f32))) 2)
+  (assert_eq (as i64 (as f64 (lerp32 0.0f32 10.0f32 0.5f32))) 5)
+  (assert (== (as f64 (fmod32 5.5f32 2.0f32)) 1.5))
+  (drop (trunc_to_zero -1.5))
+  (drop (inf)))

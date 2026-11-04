@@ -132,11 +132,11 @@
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
   (if (== (. t kind) 15u8) (ret (str.from "drop.box")))
-  (if (!= (. t kind) 8u8) (ret (cat "drop." (& (ty.show t)))))
+  (if (!= (. t kind) 8u8) (ret (str.cat "drop." (& (ty.show t)))))
   (framed p (& (prog.type_name p (. t id))) (& (. t args))))
 
 (fn framed ((p (& prog.prog)) (name (& str)) (args (& (vec ty.sty)))) str
-  (if (== (vec.len args) 0) (ret (cat "drop." name)))
+  (if (== (vec.len args) 0) (ret (str.cat "drop." name)))
   (let mut s (str.from "drop.("))
   (str.push (&mut s) name)
   (for i 0 (vec.len args)
@@ -156,8 +156,6 @@
     (str.push (&mut s) (& (shown p (vec.get (& (. t args)) i)))))
   (str.push_byte (&mut s) 41u8)
   s)
-
-(fn cat ((a (& str)) (b (& str))) str (let mut s (str.from a)) (str.push (&mut s) b) s)
 
 (fn glue_clos ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (arg i64)) unit
   (cg_frame.bload b s 8 cg_isa.dst arg 8)

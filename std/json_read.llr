@@ -1,24 +1,22 @@
 ;; JSON reader for objects, arrays, strings, ints, bools, and null.
+(use std.scan)
+
 (pub (struct jval (pub (kind u8)) (pub (text str)) (pub (items (vec jval)))))
 
 (fn err () str (str.from "json.parse"))
 
 (fn skip ((s (& str)) (i (&mut i64))) unit
-  (while (< (@ i) (str.len s))
-    (let b (str.at s (@ i)))
-    (if (or (== b 32u8) (or (== b 9u8) (or (== b 10u8) (== b 13u8)))) (set (@ i) (+ (@ i) 1)) (ret))))
-
-(fn hex ((b u8)) (opt i64)
-  (if (and (>= b 48u8) (<= b 57u8)) (ret (opt.some (as i64 (- b 48u8)))))
-  (if (and (>= b 97u8) (<= b 102u8)) (ret (opt.some (+ 10 (as i64 (- b 97u8))))))
-  (if (and (>= b 65u8) (<= b 70u8)) (ret (opt.some (+ 10 (as i64 (- b 65u8))))))
-  (opt.none))
+  (let mut c (cur s (@ i)))
+  (scan.skip_ws (&mut c))
+  (let n (. c i))
+  (drop c)
+  (set (@ i) n))
 
 (fn u4 ((s (& str)) (i (&mut i64))) (res i64 str)
   (let mut v 0)
   (for k 0 4
     (if (>= (@ i) (str.len s)) (ret (res.err (err))))
-    (let d (hex (str.at s (@ i))))
+    (let d (scan.hex_dig (str.at s (@ i))))
     (if (opt.is_none (& d)) (ret (res.err (err))))
     (set v (+ (* v 16) (opt.unwrap d)))
     (set (@ i) (+ (@ i) 1)))
@@ -127,5 +125,5 @@
   (let n (opt.unwrap (get (& v) "n")))
   (assert_eq (& (. (vec.get (& (. v items)) n) text)) "2")
   (assert (res.is_err (& (read "{"))))
-  (drop (hex 48u8))
+  (drop (scan.hex_dig 48u8))
   (drop (err)))

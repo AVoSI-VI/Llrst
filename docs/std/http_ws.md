@@ -19,4 +19,4 @@ Source: `std/http_ws.llr`. Import with `(use std.http_ws)` for module functions;
 
 ## Tests
 
-`http_ws_frame`, `http_ws_feed`
+`http_ws_frame`, `http_ws_feed`, `http_ws_serve`

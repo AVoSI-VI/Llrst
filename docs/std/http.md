@@ -14,6 +14,9 @@ Source: `std/http.llr`. Import with `(use std.http)` for module functions; types
 
 | name | params | returns |
 |------|--------|---------|
+| `http.eshort` | `((want i64) (got i64))` | `str` |
+| `http.hname` | `((line (& str)))` | `str` |
+| `http.hval` | `((line (& str)))` | `str` |
 | `http.header` | `((hs (& (vec str))) (name (& str)))` | `(opt str)` |
 | `http.param` | `((hs (& (vec str))) (name (& str)))` | `(opt str)` |
 | `http.parse_req` | `((text (& str)))` | `(res req str)` |
@@ -26,4 +29,4 @@ Source: `std/http.llr`. Import with `(use std.http)` for module functions; types
 
 ## Tests
 
-`http_req`, `http_resp`, `http_file`, `http_many`, `http_ws`, `http_bits`
+`http_req`, `http_resp`, `http_file`, `http_many`, `http_bits`

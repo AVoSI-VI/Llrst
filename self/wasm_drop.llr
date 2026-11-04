@@ -201,10 +201,8 @@
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
   (if (== (. t kind) 15u8) (ret (str.from "drop.box")))
-  (if (!= (. t kind) 8u8) (ret (cat "drop." (& (ty.show t)))))
-  (cat "drop." (& (prog.type_name p (. t id)))))
-
-(fn cat ((a (& str)) (b (& str))) str (let mut s (str.from a)) (str.push (&mut s) b) s)
+  (if (!= (. t kind) 8u8) (ret (str.cat "drop." (& (ty.show t)))))
+  (str.cat "drop." (& (prog.type_name p (. t id)))))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
   (let mut o (vec.new <ty.sty>))

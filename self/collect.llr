@@ -11,13 +11,6 @@
   (for i 0 (vec.len srcs) (if (str.eq (& (. (vec.get srcs i) path)) path) (ret i)))
   (neg 1))
 
-(fn last_seg ((s (& str))) str
-  (let mut i (- (str.len s) 1))
-  (while (>= i 0)
-    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
-    (set i (- i 1)))
-  (str.clone s))
-
 (fn rec ((file (& str)) (line i64) (col i64) (len i64) (code (& str)) (k (& str)) (v str)) str
   (let mut d (diag.make true (str.clone file) line col len (str.from code)))
   (if (> (str.len k) 0) (diag.add (&mut d) k v))
@@ -33,7 +26,10 @@
         "name.not_module"
         "name"
         (str.clone (& (. it name)))))))
-  (vec.push (&mut (. m uals)) (last_seg (& (. it name))))
+  (vec.push (&mut (. m uals))
+    (match (str.rfind_byte (& (. it name)) 46u8)
+      ((opt.some seg) (str.slice (& (. it name)) (+ seg 1) (str.len (& (. it name)))))
+      ((opt.none) (str.clone (& (. it name))))))
   (vec.push (&mut (. m umod)) mi)
   (vec.push (&mut (. m uline)) (. it line))
   (vec.push (&mut (. m ucol)) (. it col))

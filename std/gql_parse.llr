@@ -1,4 +1,6 @@
 ;; GraphQL document. One operation, nested selections, aliases, fragments, and variables.
+(use std.scan)
+
 (struct node (kind u8) (text str) (alt str) (lo i64) (hi i64))
 
 (pub (struct gdoc
@@ -10,8 +12,7 @@
 
 (struct rd (src str) (i i64))
 
-(fn peek ((r (& rd))) u8
-  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+(fn peek ((r (& rd))) u8 (scan.peek (& (cur (& (. r src)) (. r i)))))
 
 (fn bump ((r (&mut rd))) unit (set (. r i) (+ (. r i) 1)))
 
@@ -22,18 +23,14 @@
       (bump r)
       (if (== b 35u8) (do (while (and (!= (peek r) 0u8) (!= (peek r) 10u8)) (bump r))) (ret)))))
 
-(fn is_name ((b u8)) bool
-  (or (and (>= b 65u8) (<= b 90u8))
-    (or (and (>= b 97u8) (<= b 122u8)) (or (== b 95u8) (and (>= b 48u8) (<= b 57u8))))))
-
 (fn read_name ((r (&mut rd))) str
   (skip r)
-  (let start (. r i))
-  (let b (peek r))
-  (if (or (== b 0u8) (and (>= b 48u8) (<= b 57u8))) (ret (str.new)))
-  (if (not (is_name b)) (ret (str.new)))
-  (while (is_name (peek r)) (bump r))
-  (str.slice (& (. r src)) start (. r i)))
+  (let mut c (cur (& (. r src)) (. r i)))
+  (let name (scan.read_name (&mut c)))
+  (let n (. c i))
+  (drop c)
+  (set (. r i) n)
+  name)
 
 (fn push ((d (&mut gdoc)) (n node)) i64
   (vec.push (&mut (. d nodes)) n)
@@ -196,7 +193,7 @@
     (ret (res.err (str.from "gql.parse"))))
   (if (not (str.eq (& kw) "query")) (ret (res.err (str.from "gql.parse"))))
   (skip r)
-  (if (is_name (peek r)) (drop (read_name r)))
+  (if (scan.is_name (peek r)) (drop (read_name r)))
   (skip r)
   (if (== (peek r) 40u8) (try (parse_vars r d)))
   (skip r)
@@ -269,4 +266,4 @@
   (let bad (read "{ hello { a } @skip }"))
   (assert (res.is_err (& bad)))
   (assert (res.is_err (& (read "subscription { hello }"))))
-  (drop (is_name 97u8)))
+  (drop (scan.is_name 97u8)))

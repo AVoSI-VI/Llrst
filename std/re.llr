@@ -1,4 +1,6 @@
 ;; Small backtracking regex: literals . ^ $ * + ? {n,m} [..] [^..] \d \w \s \b ( ) |
+(use std.scan)
+
 ;; Leftmost match, longest end among alternatives. ASCII only.
 ;; kind: 0 chr, 1 any, 2 cls, 3 grp, 4 bol, 5 eol, 6 boundary, 7 backref
 (struct atom (kind u8) (c u8) (set str) (neg bool) (grp i64) (min i64) (max i64))
@@ -26,8 +28,7 @@
   (str.push (&mut m) what)
   m)
 
-(fn peek ((ps (& parser))) u8
-  (if (>= (. ps i) (str.len (& (. ps p)))) 0u8 (str.at (& (. ps p)) (. ps i))))
+(fn peek ((ps (& parser))) u8 (scan.peek (& (cur (& (. ps p)) (. ps i)))))
 
 (fn class_escape ((c u8) (set (&mut str))) bool
   (if (or (== c 100u8) (== c 68u8)) (do (str.push set "0123456789") (ret (== c 68u8))))
@@ -105,9 +106,7 @@
       (ret (atom 7u8 0u8 (str.new) false g 1 1))))
   (let mut set (str.new))
   (let neg (class_escape e (&mut set)))
-  (if (== (str.len (& set)) 1)
-    (atom 0u8 e (str.new) false 0 1 1)
-    (atom 2u8 0u8 set neg 0 1 1)))
+  (if (== (str.len (& set)) 1) (atom 0u8 e (str.new) false 0 1 1) (atom 2u8 0u8 set neg 0 1 1)))
 
 (fn parse_seq ((ps (&mut parser))) (res seq str)
   (let mut atoms (vec.new <atom>))
@@ -204,10 +203,7 @@
   (if (== k 5u8) (do (if (== i (str.len s)) (push_hit out i slots)) (ret)))
   (if (== k 6u8) (do (if (boundary s i) (push_hit out i slots)) (ret)))
   (if (== k 7u8)
-    (do
-      (let e (back_end s slots (. a grp) i))
-      (if (>= e 0) (push_hit out e slots))
-      (ret)))
+    (do (let e (back_end s slots (. a grp) i)) (if (>= e 0) (push_hit out e slots)) (ret)))
   (if (== k 3u8)
     (do
       (let saved (clone_slots slots))
@@ -446,7 +442,5 @@
     ((opt.none) (assert false)))
   (assert (not (is_match (& r) "ab")))
   (let r2 (res.unwrap (compile "(a*)\\1")))
-  (match (find (& r2) "aa")
-    ((opt.some m) (assert_eq (. m hi) 2))
-    ((opt.none) (assert false)))
+  (match (find (& r2) "aa") ((opt.some m) (assert_eq (. m hi) 2)) ((opt.none) (assert false)))
   (assert (is_match (& r2) "")))

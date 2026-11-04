@@ -30,15 +30,12 @@
   (scan text key (&mut o))
   o))
 
-(fn last ((name (& str))) str
-  (let mut i (- (str.len name) 1))
-  (while (>= i 0)
-    (if (== (str.at name i) 46u8) (ret (str.slice name (+ i 1) (str.len name))))
-    (set i (- i 1)))
-  (str.clone name))
-
 (fn file_of ((dir (& str)) (name (& str))) str
-  (path.join dir (& (str.cat (& (last name)) ".llr"))))
+  (path.join dir
+    (& (str.cat (& (match (str.rfind_byte name 46u8)
+         ((opt.some seg) (str.slice name (+ seg 1) (str.len name)))
+         ((opt.none) (str.clone name))))
+       ".llr"))))
 
 (fn seen ((v (& (vec dep))) (path (& str))) bool
   (for i 0 (vec.len v) (if (str.eq (& (. (vec.get v i) path)) path) (ret true)))
@@ -79,4 +76,7 @@
   (assert_eq (vec.get (& p) 0) "pack")
   (assert_eq (vec.len (& u)) 2)
   (assert_eq (vec.get (& u) 0) "host")
-  (assert_eq (& (last "ui.host")) "host"))
+  (assert_eq (& (match (str.rfind_byte "ui.host" 46u8)
+      ((opt.some seg) (str.slice "ui.host" (+ seg 1) (str.len "ui.host")))
+      ((opt.none) (str.clone "ui.host"))))
+    "host"))
