@@ -78,7 +78,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | --- | --- | --- | --- | --- | --- |
 | baseline (OPT) | `7077aa6` | 244.4 | 344.4 | 355.4 | 5.96 |
 | 0 | (this commit) | 290.2 | 388.5 | 351.3 | 5.32 |
-| 1 | | | | | |
+| 1 | (this commit) | 105.1 | 226.0 | 230.5 | 4.24 |
 | 2 | | | | | |
 | 3 | | | | | |
 | 4 | | | | | |
@@ -182,7 +182,7 @@ Files: `self/drive.llr`, `self/llrs.llr`, new `tests/x64_ref.ps1`, this file.
    the script is known to work).
 6. `[x]` Commit: `self: LLRST_TIME phase timers, x64_ref.ps1 snapshot compare`.
 
-### Phase 1: single-pass `lint.items` (OPT 2) `[ ]`
+### Phase 1: single-pass `lint.items` (OPT 2) `[x]`
 
 Expected: the largest single cut to `check`. `fn_item` calls `called` for every private
 user fn (~1,600 in `self/`), and `called` walks every def body in the program (all 3,600
@@ -234,11 +234,11 @@ Traps:
 
 Steps:
 
-1. `[ ]` Implement `marks`, the walk, and the two reads; delete the replaced fns.
-2. `[ ]` `tests\check.ps1 target\self\llrs0.exe` (the `tests/warn` goldens are the
+1. `[x]` Implement `marks`, the walk, and the two reads; delete the replaced fns.
+2. `[x]` `tests\check.ps1 target\self\llrs0.exe` (the `tests/warn` goldens are the
    direct test: `fn.unused`, `use.unused` with and without `--test`).
-3. `[ ]` Full **Verification**; measure; fill the row.
-4. `[ ]` Commit: `self: lint.items marks references in one pass`.
+3. `[x]` Full **Verification**; measure; fill the row.
+4. `[x]` Commit: `self: lint.items marks references in one pass`.
 
 ### Phase 2: reuse `check.run`'s bodies in codegen (OPT 1) `[ ]`
 
@@ -665,3 +665,21 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   deque/opt compile errors show up. The rest are ui `link.failed`, a few float asserts,
   and `fail|setup|lld=missing` from cross. Run, err, panic, and warn goldens passed, and
   the nested `check.ps1`, `mir.ps1`, and `self.ps1` printed `done|fails=0`.
+- 2026-11-05: Phase 1. `lint.items` walks every def body once (and test bodies when
+  `--test` is set), marks referenced def ids and `alias.` prefixes, then `fn_item` and
+  `mod_items` read those marks. Second-run `llrs0` walls: check 105.13 s (first 106.11),
+  emit-obj 225.96 s (first 230.37), build 230.48 s (first 229.83), hello build 4.24 s
+  (first 4.28). Second-run `time|` splits, in seconds: check load 0.67 / check 104.38;
+  emit-obj load 0.67 / check 103.49 / codegen 120.92 / object 0.81; build load 0.66 /
+  check 105.27 / codegen 119.34 / object 0.84 / link 3.88; hello load 0.22 / check 0.05 /
+  codegen 0.00 / object 0.00 / link 3.48. `scripts/self.ps1 --stage` printed
+  `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on `llrs0` were
+  `done|fails=0`. `tests/x64_ref.ps1` was `done|fails=6`: the same four pre-existing
+  `std/deque.llr` and `std/opt.llr` `--test` failures, plus `self/llrs` ELF `first=41`
+  and COFF `first=9`. Those two are the changed `self/lint.llr` image. The Phase 0
+  baseline `llrs0` emits the same COFF for the current `self/llrs.llr` (5,962,803 bytes,
+  equal). Unchanged inputs had no `first=` mismatch. `tests/run.ps1` under `llrs2`
+  exited 1, `done|fails=39`, the same pre-existing set (ui `link.failed`, float asserts,
+  deque/opt compile errors, `std/fmt` `fmt_pipe` `want=1.500|got=1.000`,
+  `fail|setup|lld=missing`). Nested `check.ps1`, `mir.ps1`, and `self.ps1` printed
+  `done|fails=0`.
