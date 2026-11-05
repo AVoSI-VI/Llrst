@@ -6,7 +6,7 @@
 (use std.io)
 (use std.os)
 
-(fn llrc () str (match (os.env "LLRC") ((opt.some p) p) ((opt.none) (str.from "llrc"))))
+(fn llrc () str (opt.or (os.env "LLRC") (str.from "llrc")))
 
 (fn has_tests ((path (& str))) bool
   (match (fs.read path) ((res.ok s) (str.has (& s) "\n(test ")) ((res.err _) false)))

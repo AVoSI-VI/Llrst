@@ -164,10 +164,9 @@
   (let right (and (< i (str.len s)) (is_word (str.at s i))))
   (not (== left right))))
 
-(fn clone_slots ((s (& (vec grp)))) (vec grp)
-  (let mut o (vec.new <grp>))
-  (for i 0 (vec.len s) (let g (vec.get s i)) (vec.push (&mut o) (grp (. g lo) (. g hi))))
-  o)
+(impl Clone grp (fn clone ((g (& grp))) grp (grp (. g lo) (. g hi))))
+
+(fn clone_slots ((s (& (vec grp)))) (vec grp) (vec.clone s))
 
 (fn install ((dst (&mut (vec grp))) (src (& (vec grp)))) unit
   (for i 0 (vec.len src) (let g (vec.get src i)) (vec.set dst i (grp (. g lo) (. g hi)))))

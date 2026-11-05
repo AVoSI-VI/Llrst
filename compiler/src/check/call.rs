@@ -10,6 +10,14 @@ fn mk(kind: ExprKind, ty: Ty, span: Span) -> Expr {
     Expr { kind, ty, span }
 }
 
+fn variant_of(prog: &crate::resolve::Program, module: u32, callee: &str) -> Option<(crate::ty::DefId, u32)> {
+    let (tpath, variant) = callee.rsplit_once('.')?;
+    let t = prog.lookup_type(module, tpath)?;
+    let ed = prog.enum_def(t)?;
+    let idx = ed.variants.iter().position(|v| v.0 == variant)?;
+    Some((t, idx as u32))
+}
+
 impl<'a> Checker<'a> {
     pub fn check_call(&mut self, callee: &str, targs: &[TyExpr], args: &[ast::Expr], want: Option<&Ty>, sp: Span) -> PResult<Expr> {
         let targs = targs.iter().map(|t| self.resolve_ty(t)).collect::<PResult<Vec<_>>>()?;
@@ -25,10 +33,25 @@ impl<'a> Checker<'a> {
             let callee = if matches!(self.shallow(&ty), Ty::Clos(..)) { Callee::Clos(Box::new(c)) } else { Callee::Ptr(Box::new(c)) };
             return Ok(mk(ExprKind::Call { callee, args }, r, sp));
         }
-        // 2. function or method
+        // 2. function or method. A variant of the same name stays the constructor
+        // when the method's argument types do not match.
         if let Some(f) = self.prog.lookup_fn(self.module, callee) {
             self.require_visible(f, sp)?;
-            return self.check_fn_call(f, &targs, args, want, sp);
+            if variant_of(self.prog, self.module, callee).is_some() {
+                let infer = self.infer.clone();
+                let infer_int = self.infer_int.clone();
+                let locals = self.locals.clone();
+                let scopes = self.scopes.clone();
+                if let Ok(e) = self.check_fn_call(f, &targs, args, want, sp) {
+                    return Ok(e);
+                }
+                self.infer = infer;
+                self.infer_int = infer_int;
+                self.locals = locals;
+                self.scopes = scopes;
+            } else {
+                return self.check_fn_call(f, &targs, args, want, sp);
+            }
         }
         // 3. struct constructor / enum variant
         if let Some(t) = self.prog.lookup_type(self.module, callee) {

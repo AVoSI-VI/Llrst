@@ -10,6 +10,7 @@
 | [str](str.md) | Owned byte string `str`. Literals are `(& str)`. |
 | [str_more](str_more.md) | More `str` methods: case, trim sides, UTF-8, radix, and fixed floats. |
 | [vec](vec.md) | Growable array `(vec T)`. |
+| [vec_more](vec_more.md) | More `vec` methods: clone, sort_by, retain, each, map, and filter. |
 | [opt](opt.md) | Optional `(opt T)`: `(opt.some x)` / `(opt.none)`. |
 | [res](res.md) | Result `(res T E)`: `(res.ok x)` / `(res.err e)`. |
 | [io](io.md) | Standard streams. |
@@ -40,6 +41,8 @@
 | [mqtt_sess](mqtt_sess.md) | MQTT topic filters. |
 | [path](path.md) | Path string helpers; `/` only. |
 | [map](map.md) | Hash map `(map K V)`. Keys need `Hash` and `Eq`. |
+| [set](set.md) | Set `(set K)` over `(map K unit)`. |
+| [deque](deque.md) | Ring buffer `(deque T)`. |
 | [math](math.md) | `f64` and `f32` abs, min, max, floor, ceil, round, sqrt, integers, clamp, lerp, and fmod. No libm. |
 | [math_trig](math_trig.md) | sin, cos, tan, asin, acos, atan2, exp, ln, log2, log10, and pow. |
 | [fmt](fmt.md) | Pipe records, hex, fixed floats, and padding. |

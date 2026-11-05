@@ -60,9 +60,8 @@
 (fn drain ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
-      (let args
-        (match (vec.pop (&mut (. g pargs))) ((opt.some v) v) ((opt.none) (vec.new <ty.sty>))))
-      (let id (match (vec.pop (&mut (. g pend))) ((opt.some v) v) ((opt.none) 0)))
+      (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
+      (let id (opt.or (vec.pop (&mut (. g pend))) 0))
       (if (not (wasm_mod.is_done g id (& args))) (inst g p ds id args)))))
 
 (fn inst ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (id i64) (args (vec ty.sty))) unit
@@ -85,7 +84,7 @@
 (fn drain_drop ((g (&mut wasm_mod.wm)) (p (& prog.prog))) unit
   (while (> (vec.len (& (. g dpend))) 0)
     (do
-      (let i (match (vec.pop (&mut (. g dpend))) ((opt.some v) v) ((opt.none) 0)))
+      (let i (opt.or (vec.pop (&mut (. g dpend))) 0))
       (if (wasm_mod.drop_pending g i)
         (do
           (let ty (dty_at g i))
@@ -371,7 +370,4 @@
   (wasm_abi.call_ix fx 5)
   (wasm_abi.trap fx))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))

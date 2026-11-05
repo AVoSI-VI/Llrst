@@ -297,6 +297,7 @@
   (try (parse_exprs t ids at (&mut (. e kids))))
   (res.ok e))
 
+;; One argument is the set struct. Two arguments are assignment.
 (fn parse_list ((t (& tree)) (n i64) (ids (& (vec i64)))) (res expr str)
   (if (!= (sexp.kind t (@ (vec.get ids 0))) 0u8)
     (ret (res.err (bad_head t n (& (sexp.flat t (@ (vec.get ids 0))))))))
@@ -304,7 +305,10 @@
   (let line (sexp.line t n))
   (let col (sexp.col t n))
   (if (str.eq h "let") (ret (parse_let t ids line col)))
-  (if (str.eq h "set") (ret (parse_two t ids 3u8 (str.new) line col)))
+  (if (str.eq h "set")
+    (if (== (vec.len ids) 2)
+      (ret (parse_call t ids line col))
+      (ret (parse_two t ids 3u8 (str.new) line col))))
   (if (str.eq h "do") (ret (parse_do t ids 4u8 line col)))
   (if (str.eq h "if") (ret (parse_if t ids line col)))
   (if (str.eq h "while") (ret (parse_while t ids line col)))
@@ -377,7 +381,9 @@
 (test ast_expr_pub
   (let t (res.unwrap (sexp.read "(i64)")))
   (let n (@ (vec.get (& (. t top)) 0)))
-  (match (parse_ty (& t) n) ((res.ok ty) (assert_eq (& (. ty text)) "i64")) ((res.err _) (assert false)))
+  (match (parse_ty (& t) n)
+    ((res.ok ty) (assert_eq (& (. ty text)) "i64"))
+    ((res.err _) (assert false)))
   (let u (res.unwrap (sexp.read "(+ 1 2)")))
   (let top (@ (vec.get (& (. u top)) 0)))
   (let e (res.unwrap (parse_expr (& u) top)))

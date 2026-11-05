@@ -211,7 +211,7 @@
   (while (> (vec.len scope) keep) (warn_pop out path scope)))
 
 (fn warn_pop ((out (&mut (vec diag.dg))) (path (& str)) (scope (&mut (vec bind)))) unit
-  (let b (match (vec.pop scope) ((opt.some v) v) ((opt.none) (bind (str.new) 0 0 0 false))))
+  (let b (opt.or (vec.pop scope) (bind (str.new) 0 0 0 false)))
   (if (and (not (. b used)) (not (str.starts (& (. b name)) "_")))
     (push_w out path (. b line) (. b col) (. b len) "name.unused" "name" (str.clone (& (. b name))))))
 

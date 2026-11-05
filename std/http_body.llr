@@ -25,7 +25,7 @@
   (opt.some v))
 
 (fn size_of ((line (& str))) (opt i64)
-  (let cut (match (str.find line ";") ((opt.some i) i) ((opt.none) (str.len line))))
+  (let cut (opt.or (str.find line ";") (str.len line)))
   (hex_int (& (str.trim (& (str.slice line 0 cut))))))
 
 (fn crlf ((text (& str)) (i i64)) bool

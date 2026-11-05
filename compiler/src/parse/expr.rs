@@ -150,6 +150,10 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
                 ExprKind::Let { name: name.to_string(), mutable, ty, init: Some(bx(parse_expr(init)?)) }
             }
         }
+        "set" if n == 1 => {
+            let (targs, at) = parse_targs(items, 1)?;
+            ExprKind::Call { callee: head.to_string(), targs, args: parse_body(&items[at..])? }
+        }
         "set" => {
             let (p, v) = two(items, sp, "set")?;
             ExprKind::Set { place: p, value: v }

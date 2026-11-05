@@ -77,10 +77,19 @@
     (. x col)
     (. x len)))
 
-(fn clone_kids ((v (& (vec expr)))) (vec expr)
-  (let mut o (vec.new <expr>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (kid_owned (vec.get v i))))
-  o)
+(impl Clone expr (fn clone ((x (& expr))) expr (kid_owned x)))
+
+(impl Clone
+  ty
+  (fn clone ((t (& ty))) ty
+    (ty (. t kind)
+      (str.clone (& (. t text)))
+      (vec.clone (& (. t args)))
+      (. t line)
+      (. t col)
+      (. t len))))
+
+(fn clone_kids ((v (& (vec expr)))) (vec expr) (vec.clone v))
 
 (fn kid_owned ((x (& expr))) expr
   (expr (. x kind)
@@ -92,18 +101,7 @@
     (. x col)
     (. x len)))
 
-(fn clone_tys ((v (& (vec ty)))) (vec ty)
-  (let mut o (vec.new <ty>))
-  (for i 0 (vec.len v)
-    (let t (vec.get v i))
-    (vec.push (&mut o)
-      (ty (. t kind)
-        (str.clone (& (. t text)))
-        (clone_tys (& (. t args)))
-        (. t line)
-        (. t col)
-        (. t len))))
-  o)
+(fn clone_tys ((v (& (vec ty)))) (vec ty) (vec.clone v))
 
 (fn atom_ty ((name (& str))) bool
   (if (>= (ty.int_id name) 0) (ret true))

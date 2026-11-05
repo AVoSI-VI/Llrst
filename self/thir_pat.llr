@@ -115,7 +115,7 @@
 (fn pat_var ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (ty_ (& ty.sty)) (by i64) (subs (& (vec expr)))) (res thir.pat str)
   (if (not (and (== (. ty_ kind) 8u8) (== (. (vec.get (& (. p defs)) (. ty_ id)) kind) 1u8)))
     (ret (res.err (str.from "match.not_enum"))))
-  (let dot (match (str.rfind_byte (& (. e text)) 46u8) ((opt.some seg) seg) ((opt.none) (neg 1))))
+  (let dot (opt.or (str.rfind_byte (& (. e text)) 46u8) (neg 1)))
   (if (< dot 0) (ret (res.err (str.from "type.no_variant"))))
   (let path (str.slice (& (. e text)) 0 dot))
   (let var (str.slice (& (. e text)) (+ dot 1) (str.len (& (. e text)))))

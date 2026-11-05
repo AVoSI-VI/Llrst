@@ -20,7 +20,12 @@ Source: `std/map.llr`. Import with `(use std.map)` for module functions; types a
 | `map.put <K:Hash:Eq>` | `((self (&mut (map K V))) (k K) (v V))` | `unit` |
 | `map.del <K:Hash:Eq>` | `((self (&mut (map K V))) (k (& K)))` | `bool` |
 | `map.keys <K:Clone:Ord>` | `((self (& (map K V))))` | `(vec K)` |
+| `map.values` | `((self (& (map K V))))` | `(vec (& V))` |
+| `map.each` | `((self (& (map K V))) (f (clos ((& K) (& V)) unit)))` | `unit` |
+| `map.take` | `((self (&mut (map K V))))` | `(map K V)` |
+| `map.clear` | `((self (&mut (map K V))))` | `unit` |
+| `map.get_or_insert <K:Hash:Eq>` | `((self (&mut (map K V))) (k K) (make (clos () V)))` | `(&mut V)` |
 
 ## Tests
 
-`map_slots`, `map_basic`, `map_int`, `map_compact`, `map_shrink`
+`map_slots`, `map_basic`, `map_int`, `map_compact`, `map_shrink`, `map_values`, `map_each`, `map_edit`

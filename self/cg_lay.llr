@@ -143,14 +143,11 @@
   (for i 0 (vec.len (& (. v tys))) (vec.push (&mut o) (ty.subst (vec.get (& (. v tys)) i) args)))
   o)
 
-(fn clone_offs ((v (& (vec i64)))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_offs ((v (& (vec i64)))) (vec i64) (vec.clone v))
 
 (fn clone_vars ((v (& (vec (vec i64))))) (vec (vec i64))
   (let mut o (vec.new < (vec i64) >))
-  (for i 0 (vec.len v) (vec.push (&mut o) (clone_offs (vec.get v i))))
+  (for i 0 (vec.len v) (vec.push (&mut o) (vec.clone (vec.get v i))))
   o)
 
 (fn clone_lay ((l (& lay))) lay

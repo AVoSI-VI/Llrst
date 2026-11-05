@@ -204,7 +204,4 @@
   (if (!= (. t kind) 8u8) (ret (str.cat "drop." (& (ty.show t)))))
   (str.cat "drop." (& (prog.type_name p (. t id)))))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))

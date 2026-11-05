@@ -13,10 +13,7 @@
 
 (pub (fn bools ((n i64)) (vec bool) (let mut v (vec.new <bool>)) (for i 0 n (vec.push (&mut v) false)) v))
 
-(pub (fn clone_b ((v (& (vec bool)))) (vec bool)
-  (let mut o (vec.new <bool>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o))
+(pub (fn clone_b ((v (& (vec bool)))) (vec bool) (vec.clone v)))
 
 (pub (fn bit ((v (& (vec bool))) (i i64)) bool
   (if (or (< i 0) (>= i (vec.len v))) (ret false))

@@ -33,7 +33,7 @@
 (fn part_at ((s (& str)) (i i64)) i64
   (let ps (str.split s 124u8))
   (if (>= i (vec.len (& ps))) (ret 0))
-  (match (str.to_int (vec.get (& ps) i)) ((opt.some n) n) ((opt.none) 0)))
+  (opt.or (str.to_int (vec.get (& ps) i)) 0))
 
 (fn scroll_text ((off f32) (vel f32) (drag bool)) str
   (let mut s (str.from "S|"))

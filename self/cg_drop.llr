@@ -173,10 +173,7 @@
   (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
   (cg_isa.call_sym b (& (. g isa)) sym))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (fn glue_struct ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (t (& ty.sty)) (d (& prog.def))) unit
   (let l (cg_lay.of (&mut (. g lays)) p t))

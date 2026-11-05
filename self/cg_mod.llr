@@ -168,10 +168,7 @@
     (clone_tys (vec.get (& (. g fargs)) (- (vec.len (& (. g fargs))) 1))))
   sym))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (pub (fn extern_sym ((g (&mut cg)) (p (& prog.prog)) (id i64)) i64
   (for i 0 (vec.len (& (. g eid)))

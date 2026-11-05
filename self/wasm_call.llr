@@ -127,12 +127,7 @@
   (wasm_abi.get_acc fx)
   (if (== k 0) (wasm_abi.put fx 167)))
 
-(fn after_imp ((g (&mut wasm_mod.wm))
-   (p (& prog.prog))
-   (fx (&mut wasm_abi.fx))
-   (ix i64)
-   (dest i64)
-   (bb i64)) unit
+(fn after_imp ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (ix i64) (dest i64) (bb i64)) unit
   (let k (wasm_imp.ret_kind ix))
   (if (== k 2) (ret (wasm_abi.trap fx)))
   (if (== k 4) (ret (wasm_abi.jump fx bb)))
@@ -143,22 +138,14 @@
   (store_acc g p fx (& (ty.int 2)) dest)
   (wasm_abi.jump fx bb))
 
-(fn ret_i64 ((g (&mut wasm_mod.wm))
-   (p (& prog.prog))
-   (fx (&mut wasm_abi.fx))
-   (dest i64)
-   (bb i64)) unit
+(fn ret_i64 ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (dest i64) (bb i64)) unit
   (wasm_abi.set_acc fx)
   (store_acc g p fx (& (ty.int 3)) dest)
   (wasm_abi.jump fx bb))
 
 (fn f32_ty () ty.sty (ty.mk 1u8 0 false (str.new) (vec.new <ty.sty>)))
 
-(fn ret_f32 ((g (&mut wasm_mod.wm))
-   (p (& prog.prog))
-   (fx (&mut wasm_abi.fx))
-   (dest i64)
-   (bb i64)) unit
+(fn ret_f32 ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (dest i64) (bb i64)) unit
   (wasm_abi.put fx 187)
   (wasm_abi.set_fp0 fx)
   (let slot (wasm_abi.scratch fx 8))
@@ -350,7 +337,4 @@
     (vec.push (&mut o) (ty.subst (& (. (vec.get (& (. d spars)) i) ty)) args)))
   o)
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))

@@ -78,7 +78,7 @@
 
 (fn i_at ((xs (& (vec str))) (i i64)) i64
   (if (>= i (vec.len xs)) (ret 0))
-  (match (str.to_int (vec.get xs i)) ((opt.some n) n) ((opt.none) 0)))
+  (opt.or (str.to_int (vec.get xs i)) 0))
 
 (fn ptr_ev ((xs (& (vec str))) (kind i64)) event
   (event.pointer kind (f_at xs 1) (f_at xs 2) (f_at xs 3) (f_at xs 4)))
@@ -298,5 +298,6 @@
   (let mut ev (vec.new <event>))
   (take_rec (vec.ptr (& b)) 1 (&mut ev))
   (match (vec.remove (&mut ev) 0)
-    ((event.action bit id s) (do (assert_eq bit act_value) (assert_eq id 2) (assert (str.eq (& s) "AB"))))
+    ((event.action bit id s)
+      (do (assert_eq bit act_value) (assert_eq id 2) (assert (str.eq (& s) "AB"))))
     (_ (assert false))))

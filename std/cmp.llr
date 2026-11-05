@@ -36,6 +36,60 @@
 
 (impl Clone str (fn clone ((a (& str))) str (str.clone a)))
 
+(impl Eq u8 (fn eq ((a (& u8)) (b (& u8))) bool (== (@ a) (@ b))))
+
+(impl Ord u8 (fn cmp ((a (& u8)) (b (& u8))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash u8 (fn hash ((k (& u8))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Clone u8 (fn clone ((a (& u8))) u8 (@ a)))
+
+(impl Eq i32 (fn eq ((a (& i32)) (b (& i32))) bool (== (@ a) (@ b))))
+
+(impl Ord
+  i32
+  (fn cmp ((a (& i32)) (b (& i32))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash i32 (fn hash ((k (& i32))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Clone i32 (fn clone ((a (& i32))) i32 (@ a)))
+
+(impl Eq u32 (fn eq ((a (& u32)) (b (& u32))) bool (== (@ a) (@ b))))
+
+(impl Ord
+  u32
+  (fn cmp ((a (& u32)) (b (& u32))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash u32 (fn hash ((k (& u32))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Clone u32 (fn clone ((a (& u32))) u32 (@ a)))
+
+(impl Eq u64 (fn eq ((a (& u64)) (b (& u64))) bool (== (@ a) (@ b))))
+
+(impl Ord
+  u64
+  (fn cmp ((a (& u64)) (b (& u64))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash u64 (fn hash ((k (& u64))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Clone u64 (fn clone ((a (& u64))) u64 (@ a)))
+
+(impl Eq bool (fn eq ((a (& bool)) (b (& bool))) bool (== (@ a) (@ b))))
+
+(impl Ord bool (fn cmp ((a (& bool)) (b (& bool))) i64 (if (== (@ a) (@ b)) 0 (if (@ a) 1 -1))))
+
+(impl Hash bool (fn hash ((k (& bool))) i64 (let n (if (@ k) 1 0)) (Hash.hash (& n))))
+
+(impl Clone bool (fn clone ((a (& bool))) bool (@ a)))
+
+(impl Eq f64 (fn eq ((a (& f64)) (b (& f64))) bool (== (@ a) (@ b))))
+
+(impl Clone f64 (fn clone ((a (& f64))) f64 (@ a)))
+
+(impl Eq f32 (fn eq ((a (& f32)) (b (& f32))) bool (== (@ a) (@ b))))
+
+(impl Clone f32 (fn clone ((a (& f32))) f32 (@ a)))
+
 (test cmp_traits
   (let a 1)
   (let b 2)
@@ -48,3 +102,45 @@
   (assert (< (Ord.cmp "a" "b") 0))
   (assert (!= (Hash.hash "ab") 0))
   (assert_eq (& (Clone.clone "ab")) "ab"))
+
+(test cmp_ints
+  (let u 7u8)
+  (let i 7)
+  (assert (Eq.eq (& u) (& u)))
+  (assert_eq (Hash.hash (& u)) (Hash.hash (& i)))
+  (assert_eq (Clone.clone (& u)) 7u8)
+  (let n (neg 1i32))
+  (let p 2i32)
+  (assert (< (Ord.cmp (& n) (& p)) 0))
+  (let c (Clone.clone (& n)))
+  (assert (Eq.eq (& c) (& n)))
+  (let lo 1u32)
+  (let hi 2u32)
+  (assert (< (Ord.cmp (& lo) (& hi)) 0))
+  (let one 1u64)
+  (let big (as u64 -1))
+  (assert (< (Ord.cmp (& one) (& big)) 0))
+  (let f false)
+  (let t true)
+  (assert (< (Ord.cmp (& f) (& t)) 0))
+  (assert (not (Eq.eq (& f) (& t))))
+  (assert (Eq.eq (& (Clone.clone (& t))) (& t)))
+  (assert (!= (Hash.hash (& f)) (Hash.hash (& t)))))
+
+(test cmp_floats
+  (let x 1.5)
+  (let y 2.5)
+  (assert (Eq.eq (& x) (& x)))
+  (assert (not (Eq.eq (& x) (& y))))
+  (let c (Clone.clone (& x)))
+  (assert (== c x))
+  (let nan (/ 0.0 0.0))
+  (assert (not (Eq.eq (& nan) (& nan))))
+  (let z 1.5f32)
+  (let w 2.5f32)
+  (assert (Eq.eq (& z) (& z)))
+  (assert (not (Eq.eq (& z) (& w))))
+  (let d (Clone.clone (& z)))
+  (assert (== d z))
+  (let n32 (/ 0.0f32 0.0f32))
+  (assert (not (Eq.eq (& n32) (& n32)))))

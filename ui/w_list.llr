@@ -33,7 +33,7 @@
 (fn part ((s (& str)) (i i64)) i64
   (let ps (str.split s 124u8))
   (if (>= i (vec.len (& ps))) (ret 0))
-  (match (str.to_int (vec.get (& ps) i)) ((opt.some n) n) ((opt.none) 0)))
+  (opt.or (str.to_int (vec.get (& ps) i)) 0))
 
 (fn restore ((self (&mut model)) (text (& str))) unit
   (if (not (str.starts text "L|")) (ret))

@@ -1,0 +1,26 @@
+;; (set K) is a (map K unit). items comes back sorted.
+(pub (struct set <K> (m (map K unit))))
+
+(impl set <K>
+  (pub (fn new () (set K) (set (map.new <K unit>))))
+  (pub (fn len ((self (& (set K)))) i64 (map.len (& (. self m)))))
+  (pub (fn add <K:Hash:Eq> ((self (&mut (set K))) (k K)) unit (map.put (&mut (. self m)) k ())))
+  (pub (fn has <K:Hash:Eq> ((self (& (set K))) (k (& K))) bool (map.has (& (. self m)) k)))
+  (pub (fn del <K:Hash:Eq> ((self (&mut (set K))) (k (& K))) bool (map.del (&mut (. self m)) k)))
+  (pub (fn items <K:Clone:Ord> ((self (& (set K)))) (vec K) (map.keys (& (. self m))))))
+
+(test set_basic
+  (let mut s (set.new <str>))
+  (set.add (&mut s) (str.from "b"))
+  (set.add (&mut s) (str.from "a"))
+  (set.add (&mut s) (str.from "b"))
+  (assert_eq (set.len (& s)) 2)
+  (assert (set.has (& s) "a"))
+  (assert (not (set.has (& s) "z")))
+  (assert (set.del (&mut s) "b"))
+  (assert (not (set.del (&mut s) "b")))
+  (set.add (&mut s) (str.from "c"))
+  (let ks (set.items (& s)))
+  (assert_eq (vec.len (& ks)) 2)
+  (assert_eq (vec.get (& ks) 0) "a")
+  (assert_eq (vec.get (& ks) 1) "c"))

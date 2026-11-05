@@ -22,4 +22,4 @@ Source: `std/cmp.llr`. Traits are prelude. Import with `(use std.cmp)` is not re
 
 ## Tests
 
-`cmp_traits`
+`cmp_traits`, `cmp_ints`, `cmp_floats`

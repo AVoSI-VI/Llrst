@@ -38,7 +38,8 @@
 (fn assign ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (s (& mir.st))) unit
   (if (== (. (. s rv) kind) 7u8) (ret (store_rec g p fx b s false)))
   (if (== (. (. s rv) kind) 8u8) (ret (store_rec g p fx b s true)))
-  (if (== (. (. s rv) kind) 19u8) (ret (do (cg_box.pack g p fx (& (. b locs)) (& (. s rv)) s) (wrote fx s))))
+  (if (== (. (. s rv) kind) 19u8)
+    (ret (do (cg_box.pack g p fx (& (. b locs)) (& (. s rv)) s) (wrote fx s))))
   (if (== (. (. s rv) kind) 20u8) (ret (do (cg_box.borrow g p fx (& (. b locs)) s) (wrote fx s))))
   (if (== (. (. s rv) kind) 18u8)
     (ret (do
@@ -293,10 +294,7 @@
     (vec.push (&mut formals) (ty.clone (vec.get (& (. sig params)) i))))
   (marshal g p fx b t (& ret) (& formals) (neg 1) fp data true))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (fn marshal ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -381,12 +379,6 @@
       (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp fp)
       (cg_isa.call_r (&mut (. fx buf)) (& (. fx isa)) cg_isa.acc))))
 
-(fn clone_u8 ((v (& (vec u8)))) (vec u8)
-  (let mut o (vec.new <u8>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_u8 ((v (& (vec u8)))) (vec u8) (vec.clone v))
 
-(fn clone_i64 ((v (& (vec i64)))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_i64 ((v (& (vec i64)))) (vec i64) (vec.clone v))

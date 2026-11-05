@@ -47,13 +47,15 @@
 
 (pub (fn self_ty () sty (mk 12u8 0 false (str.new) (vec.new <sty>))))
 
-(pub (fn clone_tys ((v (& (vec sty)))) (vec sty)
-  (let mut o (vec.new <sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (clone (vec.get v i))))
-  o))
+(pub (fn clone_tys ((v (& (vec sty)))) (vec sty) (vec.clone v)))
 
 (pub (fn clone ((t (& sty))) sty
   (mk (. t kind) (. t id) (. t flag) (str.clone (& (. t text))) (clone_tys (& (. t args))))))
+
+(impl Clone
+  sty
+  (fn clone ((a (& sty))) sty
+    (mk (. a kind) (. a id) (. a flag) (str.clone (& (. a text))) (clone_tys (& (. a args))))))
 
 (fn eq_tys ((a (& (vec sty))) (b (& (vec sty)))) bool
   (if (!= (vec.len a) (vec.len b)) (ret false))

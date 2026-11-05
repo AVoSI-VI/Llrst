@@ -1,6 +1,7 @@
 ;; Source files a UI program pulls in through proj.* and ui.* uses.
 (use std.fs)
 (use std.path)
+(use std.set)
 (use std.str)
 
 (pub (struct dep (pub (path str)) (pub (mtime i64))))
@@ -37,28 +38,28 @@
          ((opt.none) (str.clone name))))
        ".llr"))))
 
-(fn seen ((v (& (vec dep))) (path (& str))) bool
-  (for i 0 (vec.len v) (if (str.eq (& (. (vec.get v i) path)) path) (ret true)))
-  false)
-
-(fn add_file ((v (&mut (vec dep))) (path str) (ui (& str)) (key (& str))) unit
-  (if (seen v (& path)) (ret))
+(fn add_file ((v (&mut (vec dep))) (seen (&mut (set str))) (path str) (ui (& str)) (key (& str))) unit
+  (if (set.has seen (& path)) (ret))
   (match (fs.read (& path))
     ((res.err _) ())
     ((res.ok text)
       (do
         (let mt (match (fs.mtime (& path)) ((res.ok n) n) ((res.err _) 0)))
+        (set.add seen (str.clone (& path)))
         (vec.push v (dep (str.clone (& path)) mt))
         (let names (mods (& text) key))
         (let dir (if (str.eq key "ui.") (str.from ui) (path.dir (& path))))
-        (for i 0 (vec.len (& names)) (add_file v (file_of (& dir) (vec.get (& names) i)) ui key))))))
+        (for i 0 (vec.len (& names))
+          (add_file v seen (file_of (& dir) (vec.get (& names) i)) ui key))))))
 
 (pub (fn list ((file (& str)) (ui (& str))) (vec dep)
   (let mut v (vec.new <dep>))
-  (add_file (&mut v) (str.from file) ui "proj.")
+  (let mut seen (set.new <str>))
+  (add_file (&mut v) (&mut seen) (str.from file) ui "proj.")
   (let text (match (fs.read file) ((res.ok s) s) ((res.err _) (str.new))))
   (let names (mods (& text) "ui."))
-  (for i 0 (vec.len (& names)) (add_file (&mut v) (file_of ui (vec.get (& names) i)) ui "ui."))
+  (for i 0 (vec.len (& names))
+    (add_file (&mut v) (&mut seen) (file_of ui (vec.get (& names) i)) ui "ui."))
   v))
 
 (pub (fn changed ((v (& (vec dep)))) bool

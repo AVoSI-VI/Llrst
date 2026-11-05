@@ -1,7 +1,7 @@
 ;; Growable array. Elements are owned; get returns references.
 (use std.sys)
 
-(pub (struct vec <T> (p (ptr T)) (len i64) (cap i64)))
+(pub (struct vec <T> (pub (p (ptr T))) (pub (len i64)) (pub (cap i64))))
 
 (impl vec <T>
   (pub (fn new () (vec T) (vec (ptr.null <T>) 0 0)))
@@ -164,10 +164,7 @@
     (let y (. b k))
     (if (< x y) -1 (if (> x y) 1 0))))
 
-(pub (fn clone_str ((v (& (vec str)))) (vec str)
-  (let mut out (vec.new <str>))
-  (for i 0 (vec.len v) (vec.push (&mut out) (str.clone (vec.get v i))))
-  out))
+(pub (fn clone_str ((v (& (vec str)))) (vec str) (vec.clone v)))
 
 (test vec_push_get
   (let mut v (vec.new <i64>))

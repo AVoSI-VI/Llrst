@@ -223,9 +223,8 @@
 (fn drain ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
-      (let args
-        (match (vec.pop (&mut (. g pargs))) ((opt.some v) v) ((opt.none) (vec.new <ty.sty>))))
-      (let id (match (vec.pop (&mut (. g pend))) ((opt.some v) v) ((opt.none) 0)))
+      (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
+      (let id (opt.or (vec.pop (&mut (. g pend))) 0))
       (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args)))))
 
 (fn inst ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (id i64) (args (vec ty.sty))) unit
@@ -241,17 +240,14 @@
         (let sym (cg_mod.func_sym g p id (clone_tys (& args))))
         (cg_term.compile g p (& b) sym true)))))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (fn sym_at ((g (& cg_mod.cg)) (i i64)) i64 (@ (vec.get (& (. g dsym)) i)))
 
 (fn drain_drop ((g (&mut cg_mod.cg)) (p (& prog.prog))) unit
   (while (> (vec.len (& (. g dpend))) 0)
     (do
-      (let i (match (vec.pop (&mut (. g dpend))) ((opt.some v) v) ((opt.none) 0)))
+      (let i (opt.or (vec.pop (&mut (. g dpend))) 0))
       (if (cg_mod.drop_pending g i)
         (do
           (let ty (ty.clone (vec.get (& (. g dty)) i)))

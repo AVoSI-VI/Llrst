@@ -20,7 +20,10 @@
   (let local (thir.lookup c name))
   (if (>= local 0) (ret (call_local p c e local)))
   (let f (prog.lookup_fn p (. c module) name))
-  (if (>= f 0) (ret (call_fn p c e f (& args) won want)))
+  (if (>= f 0)
+    (match (try (method_first p c e f (& args) won want))
+      ((opt.some x) (ret (res.ok x)))
+      ((opt.none) ())))
   (let st (prog.lookup_type p (. c module) name))
   (if (and (>= st 0) (== (. (vec.get (& (. p defs)) st) kind) 0u8))
     (ret (call_struct p c e st (& args) won want)))
@@ -58,6 +61,61 @@
   (vec.push (&mut (. x kids)) loc)
   (append_ex (&mut (. x kids)) args)
   (res.ok x))
+
+(fn variant_named ((p (& prog.prog)) (c (& thir.ck)) (name (& str))) bool
+  (match (str.rfind_byte name 46u8)
+    ((opt.none) false)
+    ((opt.some i)
+      (do
+        (let id (prog.lookup_type p (. c module) (& (str.slice name 0 i))))
+        (if (or (< id 0) (!= (. (vec.get (& (. p defs)) id) kind) 1u8))
+          false
+          (>= (var_i (vec.get (& (. p defs)) id) (& (str.slice name (+ i 1) (str.len name)))) 0))))))
+
+(struct snap
+  (locals (vec thir.loc))
+  (sn (vec str))
+  (si (vec i64))
+  (marks (vec i64))
+  (infer (vec ty.sty))
+  (iset (vec bool))
+  (iint (vec bool))
+  (dlen i64))
+
+(fn take_snap ((c (& thir.ck))) snap
+  (snap (vec.clone (& (. c locals)))
+    (vec.clone (& (. c sn)))
+    (vec.clone (& (. c si)))
+    (vec.clone (& (. c marks)))
+    (vec.clone (& (. c infer)))
+    (vec.clone (& (. c iset)))
+    (vec.clone (& (. c iint)))
+    (vec.len (& (. c diags)))))
+
+(fn put_snap ((c (&mut thir.ck)) (s (& snap))) unit
+  (set (. c locals) (vec.clone (& (. s locals))))
+  (set (. c sn) (vec.clone (& (. s sn))))
+  (set (. c si) (vec.clone (& (. s si))))
+  (set (. c marks) (vec.clone (& (. s marks))))
+  (set (. c infer) (vec.clone (& (. s infer))))
+  (set (. c iset) (vec.clone (& (. s iset))))
+  (set (. c iint) (vec.clone (& (. s iint))))
+  (while (> (vec.len (& (. c diags))) (. s dlen)) (drop (opt.unwrap (vec.pop (&mut (. c diags)))))))
+
+;; Method result when it typechecks. none means a same-named variant should be tried.
+(fn method_first ((p (& prog.prog))
+   (c (&mut thir.ck))
+   (e (& expr))
+   (f i64)
+   (explicit (& (vec ty.sty)))
+   (won bool)
+   (want (& ty.sty))) (res (opt thir.ex) str)
+  (if (not (variant_named p c (& (. e text))))
+    (ret (res.ok (opt.some (try (call_fn p c e f explicit won want))))))
+  (let s (take_snap c))
+  (match (call_fn p c e f explicit won want)
+    ((res.ok x) (res.ok (opt.some x)))
+    ((res.err _) (do (put_snap c (& s)) (res.ok (opt.none))))))
 
 (fn call_fn ((p (& prog.prog))
    (c (&mut thir.ck))
@@ -173,7 +231,7 @@
    (explicit (& (vec ty.sty)))
    (won bool)
    (want (& ty.sty))) (res maybe str)
-  (let dot (match (str.rfind_byte name 46u8) ((opt.some seg) seg) ((opt.none) (neg 1))))
+  (let dot (opt.or (str.rfind_byte name 46u8) (neg 1)))
   (if (< dot 0) (ret (res.ok (none_ex c e))))
   (let path (str.slice name 0 dot))
   (let var (str.slice name (+ dot 1) (str.len name)))

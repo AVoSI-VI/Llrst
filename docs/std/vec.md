@@ -6,7 +6,7 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 
 ## Types
 
-- `(struct vec <T> (p (ptr T)) (len i64) (cap i64))`
+- `(struct vec <T> (pub (p (ptr T))) (pub (len i64)) (pub (cap i64)))`
 
 ## Functions
 

@@ -121,10 +121,9 @@
 
 (struct floc (local i64) (field i64) (loans (vec i64)))
 
-(fn clone_flds ((v (& (vec floc)))) (vec floc)
-  (let mut o (vec.new <floc>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (clone_floc (vec.get v i))))
-  o)
+(impl Clone floc (fn clone ((e (& floc))) floc (clone_floc e)))
+
+(fn clone_flds ((v (& (vec floc)))) (vec floc) (vec.clone v))
 
 (fn clone_floc ((e (& floc))) floc (floc (. e local) (. e field) (clone_is (& (. e loans)))))
 
@@ -265,10 +264,7 @@
   (for j 0 (vec.len ls) (if (== (@ (vec.get ls j)) li) (ret true)))
   false)
 
-(fn clone_is ((v (& (vec i64)))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_is ((v (& (vec i64)))) (vec i64) (vec.clone v))
 
 (fn loans_of ((b (& mir.body))
    (ls (& (vec loans.loan)))

@@ -150,10 +150,7 @@
     (if (== (. r sec) sec) (emit_rel (&mut out) r map)))
   out)
 
-(fn clone_bytes ((src (& (vec u8)))) (vec u8)
-  (let mut d (vec.new <u8>))
-  (for i 0 (vec.len src) (vec.push (&mut d) (@ (vec.get src i))))
-  d)
+(fn clone_bytes ((src (& (vec u8)))) (vec u8) (vec.clone src))
 
 (pub (fn bytes ((o (& obj))) str
   (let mut ord (vec.new <i64>))

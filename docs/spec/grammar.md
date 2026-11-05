@@ -69,6 +69,7 @@ EXPR :=
   (let mut NAME EXPR) | (let mut NAME TYPE EXPR)
   (let mut NAME TYPE)                        ; no initializer; a use before assignment is init.uninit
   (set PLACE EXPR)                           ; assignment
+  (set EXPR)                                 ; struct constructor; set is also a type
   (do EXPR...)                               ; sequence, value of last
   (if EXPR EXPR) | (if EXPR EXPR EXPR)       ; else branch optional (unit)
   (while EXPR BODY...)
