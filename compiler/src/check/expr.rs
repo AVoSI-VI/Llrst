@@ -223,7 +223,9 @@ impl<'a> Checker<'a> {
                 let not = mk(ExprKind::Not(Box::new(c)), Ty::Bool, sp);
                 mk(ExprKind::If { cond: Box::new(not), then: Box::new(call), els: None }, Ty::Unit, sp)
             }
-            A::AssertEq(l, r) => self.check_assert_eq(l, r, sp)?,
+            A::AssertEq(l, r) => self.check_assert_eq(l, r, sp, false)?,
+            A::AssertNe(l, r) => self.check_assert_eq(l, r, sp, true)?,
+            A::AssertNear(g, w, eps) => self.check_assert_near(g, w, eps, sp)?,
             A::Sizeof(t) => {
                 let t = self.resolve_ty(t)?;
                 mk(ExprKind::Call { callee: Callee::Sizeof(t), args: Vec::new() }, Ty::Int(IntTy::U64), sp)
@@ -441,20 +443,20 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_assert_eq(&mut self, l: &ast::Expr, r: &ast::Expr, sp: Span) -> PResult<Expr> {
+    fn check_assert_eq(&mut self, l: &ast::Expr, r: &ast::Expr, sp: Span, ne: bool) -> PResult<Expr> {
         let l = self.check_expr(l, None)?;
         let r = self.check_expr(r, Some(&l.ty.clone()))?;
         self.expect(&r, &l.ty.clone())?;
         let t = self.shallow(&l.ty);
         let (name, conv): (&str, Option<Ty>) = match &t {
-            Ty::Ref { inner, .. } if self.zonk_ty(inner) == self.str_ty() => ("eq_str", None),
-            Ty::Bool => ("eq_bool", None),
-            Ty::Int(IntTy::I64) => ("eq_int", None),
+            Ty::Ref { inner, .. } if self.zonk_ty(inner) == self.str_ty() => (if ne { "ne_str" } else { "eq_str" }, None),
+            Ty::Bool if !ne => ("eq_bool", None),
+            Ty::Int(IntTy::I64) => (if ne { "ne_int" } else { "eq_int" }, None),
             Ty::Infer(_, true) => {
                 self.unify(&t, &Ty::Int(IntTy::I64));
-                ("eq_int", None)
+                (if ne { "ne_int" } else { "eq_int" }, None)
             }
-            Ty::Int(_) => ("eq_int", Some(Ty::Int(IntTy::I64))),
+            Ty::Int(_) => (if ne { "ne_int" } else { "eq_int" }, Some(Ty::Int(IntTy::I64))),
             _ => return Err(Diag::error(sp, "type.assert_eq").kv("got", self.show(&t))),
         };
         let f = self.std_fn("test", name).ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", format!("test.{}", name)))?;
@@ -464,6 +466,26 @@ impl<'a> Checker<'a> {
         };
         let loc = self.loc_lit(sp);
         Ok(mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, cast(l), cast(r)] }, Ty::Unit, sp))
+    }
+
+    fn check_assert_near(&mut self, g: &ast::Expr, w: &ast::Expr, eps: &ast::Expr, sp: Span) -> PResult<Expr> {
+        let g = self.check_expr(g, None)?;
+        let t = self.shallow(&g.ty);
+        let conv = match &t {
+            Ty::F64 => false,
+            Ty::F32 => true,
+            _ => return Err(Diag::error(sp, "type.assert_eq").kv("got", self.show(&t))),
+        };
+        let w = self.check_expr(w, Some(&g.ty))?;
+        self.expect(&w, &g.ty)?;
+        let eps = self.check_expr(eps, Some(&Ty::F64))?;
+        self.expect(&eps, &Ty::F64)?;
+        let f = self.std_fn("test", "eq_f64").ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", "test.eq_f64"))?;
+        let cast = |e: Expr| {
+            if conv { mk(ExprKind::Cast(Box::new(e)), Ty::F64, sp) } else { e }
+        };
+        let loc = self.loc_lit(sp);
+        Ok(mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, cast(g), cast(w), eps] }, Ty::Unit, sp))
     }
 }
 

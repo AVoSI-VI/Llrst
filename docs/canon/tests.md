@@ -11,7 +11,8 @@
 `test` forms live at the end of the file they test. `llr-test FILE_OR_DIR` compiles each
 file with `--test`, which makes `main` a runner over all `test` forms.
 
-Asserts: `(assert cond)`, `(assert_eq a b)` for `(& str)`, `i64`, `bool`, `u8`.
+Asserts: `(assert cond)`, `(assert_eq a b)` for `(& str)`, `i64`, `bool`, `u8`,
+`(assert_ne a b)` for `(& str)` and integers, `(assert_near got want eps)` for `f64` and `f32`.
 Failure prints `F|FILE|LINE|COL|assert|want=..|got=..` and the test is marked failed.
 
 ## Golden tests (compiler and tools)

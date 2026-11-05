@@ -1,4 +1,5 @@
 ;; Minimal JSON encoding for tools that offer --json output.
+(use std.json_read)
 (pub (fn quote ((s (& str))) str
   (let mut out (str.from "\""))
   (for i 0 (str.len s)
@@ -36,6 +37,54 @@
   (str.push_byte (&mut out) 93u8)
   out))
 
+(fn gap ((out (&mut str)) (indent i64) (depth i64)) unit
+  (if (< indent 0) (ret))
+  (str.push_byte out 10u8)
+  (for i 0 (* indent depth) (str.push_byte out 32u8)))
+
+(fn show_arr ((out (&mut str)) (v (& jval)) (indent i64) (depth i64)) unit
+  (str.push_byte out 91u8)
+  (let n (vec.len (& (. v items))))
+  (for i 0 n
+    (if (> i 0) (str.push_byte out 44u8))
+    (gap out indent (+ depth 1))
+    (show_one out (vec.get (& (. v items)) i) indent (+ depth 1)))
+  (if (> n 0) (gap out indent depth))
+  (str.push_byte out 93u8))
+
+(fn show_obj ((out (&mut str)) (v (& jval)) (indent i64) (depth i64)) unit
+  (str.push_byte out 123u8)
+  (let n (vec.len (& (. v items))))
+  (let mut i 0)
+  (while (< (+ i 1) n)
+    (if (> i 0) (str.push_byte out 44u8))
+    (gap out indent (+ depth 1))
+    (let q (quote (& (. (vec.get (& (. v items)) i) text))))
+    (str.push out (& q))
+    (str.push_byte out 58u8)
+    (if (>= indent 0) (str.push_byte out 32u8))
+    (show_one out (vec.get (& (. v items)) (+ i 1)) indent (+ depth 1))
+    (set i (+ i 2)))
+  (if (> n 0) (gap out indent depth))
+  (str.push_byte out 125u8))
+
+(fn show_one ((out (&mut str)) (v (& jval)) (indent i64) (depth i64)) unit
+  (if (== (. v kind) 0u8) (ret (str.push out "null")))
+  (if (or (== (. v kind) 1u8) (== (. v kind) 2u8)) (ret (str.push out (& (. v text)))))
+  (if (== (. v kind) 3u8)
+    (do (let q (quote (& (. v text)))) (ret (str.push out (& q)))))
+  (if (== (. v kind) 4u8) (ret (show_arr out v indent depth)))
+  (show_obj out v indent depth))
+
+(fn render ((v (& jval)) (indent i64)) str
+  (let mut out (str.new))
+  (show_one (&mut out) v indent 0)
+  out)
+
+(pub (fn show ((v (& jval))) str (render v (neg 1))))
+
+(pub (fn pretty ((v (& jval)) (indent i64)) str (render v indent)))
+
 (test json_quote
   (assert_eq (& (quote "a\"b\n")) "\"a\\\"b\\n\"")
   (let mut ks (vec.new <str>))
@@ -44,3 +93,10 @@
   (vec.push (&mut vs) (str.from "1"))
   (assert_eq (& (obj (& ks) (& vs))) "{\"n\":1}")
   (assert_eq (& (arr (& vs))) "[1]"))
+
+(test json_show
+  (let v (res.unwrap (json_read.read "{\"n\":1.5,\"ok\":true,\"z\":null,\"a\":[\"x\"]}")))
+  (assert_eq (& (show (& v))) "{\"n\":1.5,\"ok\":true,\"z\":null,\"a\":[\"x\"]}")
+  (let p (pretty (& v) 2))
+  (assert (str.has (& p) "\n"))
+  (assert (str.has (& p) "\"n\": 1.5")))

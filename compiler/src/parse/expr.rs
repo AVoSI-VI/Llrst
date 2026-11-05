@@ -26,7 +26,7 @@ fn is_type_name(head: &str) -> bool {
         && !matches!(
             head,
             "let" | "set" | "do" | "if" | "while" | "loop" | "for" | "brk" | "cont" | "ret" | "match" | "as" | "and"
-                | "or" | "not" | "neg" | "wneg" | "try" | "panic" | "assert" | "assert_eq" | "drop" | "sizeof" | "call"
+                | "or" | "not" | "neg" | "wneg" | "try" | "panic" | "assert" | "assert_eq" | "assert_ne" | "assert_near" | "drop" | "sizeof" | "call"
         )
 }
 
@@ -242,6 +242,16 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
         "assert_eq" => {
             let (l, r) = two(items, sp, "assert_eq")?;
             ExprKind::AssertEq(l, r)
+        }
+        "assert_ne" => {
+            let (l, r) = two(items, sp, "assert_ne")?;
+            ExprKind::AssertNe(l, r)
+        }
+        "assert_near" => {
+            if items.len() != 4 {
+                return Err(arity(sp, "assert_near", "3", items.len() - 1));
+            }
+            ExprKind::AssertNear(bx(parse_expr(&items[1])?), bx(parse_expr(&items[2])?), bx(parse_expr(&items[3])?))
         }
         "drop" => ExprKind::Drop(one(items, sp, "drop")?),
         "sizeof" => {

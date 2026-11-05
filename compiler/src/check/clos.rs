@@ -135,9 +135,14 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
         }
         A::Ref { place, .. } | A::Deref(place) | A::Not(place) | A::Neg(place) | A::WNeg(place) | A::Field { base: place, .. } | A::Cast { expr: place, .. }
         | A::Try(place) | A::Panic(place) | A::Assert(place) | A::Drop(place) => walk(ck, bound, place, out, seen),
-        A::Bin { l, r, .. } | A::And(l, r) | A::Or(l, r) | A::AssertEq(l, r) => {
+        A::Bin { l, r, .. } | A::And(l, r) | A::Or(l, r) | A::AssertEq(l, r) | A::AssertNe(l, r) => {
             walk(ck, bound, l, out, seen);
             walk(ck, bound, r, out, seen);
+        }
+        A::AssertNear(g, w, eps) => {
+            walk(ck, bound, g, out, seen);
+            walk(ck, bound, w, out, seen);
+            walk(ck, bound, eps, out, seen);
         }
         A::CallPtr { callee, args } => {
             walk(ck, bound, callee, out, seen);

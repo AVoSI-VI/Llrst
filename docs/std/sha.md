@@ -9,8 +9,9 @@ Source: `std/sha.llr`. Import with `(use std.sha)` for module functions; types a
 | name | params | returns |
 |------|--------|---------|
 | `sha.sha1` | `((msg (& str)))` | `str` |
+| `sha.b64_decode` | `((msg (& str)))` | `(opt str)` |
 | `sha.b64` | `((msg (& str)))` | `str` |
 
 ## Tests
 
-`sha_empty`, `sha_accept`, `sha_parts`
+`sha_empty`, `sha_accept`, `sha_b64`, `sha_parts`

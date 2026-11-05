@@ -1,6 +1,7 @@
 /* Host stat(2), dirent, and (on Apple) libc calls whose numbers differ from Linux.
  * Field offsets come from the platform headers. */
 #include <dirent.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -102,17 +103,11 @@ int32_t llr_spawn_self(const char *arg) {
     return -1;
 }
 
-/* argv is file plus NUL-separated args of length n. Exit code, 128+signal, or -1. */
-int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+static char **build_argv(const char *file, const char *args, uint64_t n) {
     int extra = 0;
     uint64_t i;
     int k;
     char **argv;
-    pid_t pid;
-    int status;
-    if (file == 0) {
-        return -1;
-    }
     if (args != 0 && n > 0) {
         extra = 1;
         for (i = 0; i + 1 < n; i++) {
@@ -123,7 +118,7 @@ int32_t llr_exec(const char *file, const char *args, uint64_t n) {
     }
     argv = (char **)calloc((size_t)extra + 2, sizeof(char *));
     if (argv == 0) {
-        return -1;
+        return 0;
     }
     argv[0] = (char *)file;
     k = 1;
@@ -138,6 +133,35 @@ int32_t llr_exec(const char *file, const char *args, uint64_t n) {
         }
     }
     argv[k] = 0;
+    return argv;
+}
+
+static int32_t wait_code(pid_t pid) {
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        return -1;
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
+    return -1;
+}
+
+/* argv is file plus NUL-separated args of length n. Exit code, 128+signal, or -1. */
+int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+    char **argv;
+    pid_t pid;
+    int32_t code;
+    if (file == 0) {
+        return -1;
+    }
+    argv = build_argv(file, args, n);
+    if (argv == 0) {
+        return -1;
+    }
     pid = fork();
     if (pid < 0) {
         free(argv);
@@ -147,19 +171,150 @@ int32_t llr_exec(const char *file, const char *args, uint64_t n) {
         execvp(file, argv);
         _exit(127);
     }
-    status = 0;
-    if (waitpid(pid, &status, 0) < 0) {
+    code = wait_code(pid);
+    free(argv);
+    return code;
+}
+
+static int write_all(int fd, const char *buf, uint64_t n) {
+    uint64_t off = 0;
+    if (buf == 0 || n == 0) {
+        return 0;
+    }
+    while (off < n) {
+        ssize_t k = write(fd, buf + off, (size_t)(n - off));
+        if (k < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        off += (uint64_t)k;
+    }
+    return 0;
+}
+
+static int slurp(int fd, uint8_t **out, uint64_t *n) {
+    uint64_t cap = 64;
+    uint64_t len = 0;
+    uint8_t *buf = (uint8_t *)malloc(64);
+    if (buf == 0) {
+        return -1;
+    }
+    for (;;) {
+        ssize_t k;
+        if (len == cap) {
+            uint8_t *neu = (uint8_t *)realloc(buf, (size_t)(cap * 2));
+            if (neu == 0) {
+                free(buf);
+                return -1;
+            }
+            buf = neu;
+            cap *= 2;
+        }
+        k = read(fd, buf + len, (size_t)(cap - len));
+        if (k < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            free(buf);
+            return -1;
+        }
+        if (k == 0) {
+            break;
+        }
+        len += (uint64_t)k;
+    }
+    *out = buf;
+    *n = len;
+    return 0;
+}
+
+static void close_fd(int fd) {
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
+/* Same argv as llr_exec. Writes stdin, captures stdout and stderr. */
+int32_t llr_run(const char *file, const char *args, uint64_t n, const char *in, uint64_t in_n,
+    uint8_t **out, uint64_t *out_n, uint8_t **err, uint64_t *err_n) {
+    char **argv;
+    int in_p[2];
+    int out_p[2];
+    int err_p[2];
+    pid_t pid;
+    int32_t code;
+    in_p[0] = in_p[1] = out_p[0] = out_p[1] = err_p[0] = err_p[1] = -1;
+    if (out != 0) {
+        *out = 0;
+    }
+    if (out_n != 0) {
+        *out_n = 0;
+    }
+    if (err != 0) {
+        *err = 0;
+    }
+    if (err_n != 0) {
+        *err_n = 0;
+    }
+    if (file == 0 || out == 0 || out_n == 0 || err == 0 || err_n == 0) {
+        return -1;
+    }
+    argv = build_argv(file, args, n);
+    if (argv == 0) {
+        return -1;
+    }
+    if (pipe(in_p) != 0 || pipe(out_p) != 0 || pipe(err_p) != 0) {
+        close_fd(in_p[0]);
+        close_fd(in_p[1]);
+        close_fd(out_p[0]);
+        close_fd(out_p[1]);
+        close_fd(err_p[0]);
+        close_fd(err_p[1]);
         free(argv);
         return -1;
     }
+    pid = fork();
+    if (pid < 0) {
+        close_fd(in_p[0]);
+        close_fd(in_p[1]);
+        close_fd(out_p[0]);
+        close_fd(out_p[1]);
+        close_fd(err_p[0]);
+        close_fd(err_p[1]);
+        free(argv);
+        return -1;
+    }
+    if (pid == 0) {
+        dup2(in_p[0], 0);
+        dup2(out_p[1], 1);
+        dup2(err_p[1], 2);
+        close_fd(in_p[0]);
+        close_fd(in_p[1]);
+        close_fd(out_p[0]);
+        close_fd(out_p[1]);
+        close_fd(err_p[0]);
+        close_fd(err_p[1]);
+        execvp(file, argv);
+        _exit(127);
+    }
     free(argv);
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
+    close_fd(in_p[0]);
+    close_fd(out_p[1]);
+    close_fd(err_p[1]);
+    write_all(in_p[1], in, in_n);
+    close_fd(in_p[1]);
+    if (slurp(out_p[0], out, out_n) != 0 || slurp(err_p[0], err, err_n) != 0) {
+        close_fd(out_p[0]);
+        close_fd(err_p[0]);
+        wait_code(pid);
+        return -1;
     }
-    if (WIFSIGNALED(status)) {
-        return 128 + WTERMSIG(status);
-    }
-    return -1;
+    close_fd(out_p[0]);
+    close_fd(err_p[0]);
+    code = wait_code(pid);
+    return code;
 }
 
 void llr_panic_frames(void) {

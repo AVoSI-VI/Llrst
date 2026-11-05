@@ -26,7 +26,7 @@ script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, `web/`, and `ex
 The installed compiler links those prebuilt objects. It does not compile the C files when
 the object is missing or older.
 
-`fs.mtime` and `fs.size` link `llr_stat`. `fs.now_ms` links `llr_now`. The C uses `st_mtime` and `st_size`, so the
+`fs.mtime` and `fs.size` link `llr_stat`. `time.now_ms` and `fs.now_ms` link `llr_now`. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`, and the compiler renames
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions

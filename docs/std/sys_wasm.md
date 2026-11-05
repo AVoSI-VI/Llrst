@@ -77,3 +77,11 @@ Source: `std/sys_wasm.llr`. Import with `(use std.sys_wasm)` for module function
 | `sys_wasm.llr_spawn_self` | `((arg (ptr u8)))` | `i32` |
 | `sys_wasm.llr_exec` | `((file (ptr u8)) (args (ptr u8)) (n u64))` | `i32` |
 | `sys_wasm.llr_exe_path` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_wasm.llr_mono_ms` | `()` | `i64` |
+| `sys_wasm.llr_sleep_ms` | `((ms i64))` | `unit` |
+| `sys_wasm.llr_entropy` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_wasm.llr_set_env` | `((name (ptr u8)) (value (ptr u8)))` | `i32` |
+| `sys_wasm.llr_pid` | `()` | `i64` |
+| `sys_wasm.llr_io_get` | `()` | `(ptr u8)` |
+| `sys_wasm.llr_io_set` | `((p (ptr u8)))` | `unit` |
+| `sys_wasm.llr_run` | `((file (ptr u8)) (args (ptr u8)) (n u64) (in (ptr u8)) (in_n u64) (out (ptr u8)) (out_n (ptr u64)) (err (ptr u8)) (err_n (ptr u64)))` | `i32` |

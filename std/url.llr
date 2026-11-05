@@ -1,0 +1,97 @@
+;; Percent-encoding (RFC 3986 unreserved set) and a small URL split.
+(use std.scan)
+
+(pub (struct url
+  (pub (scheme str))
+  (pub (host str))
+  (pub (port i64))
+  (pub (path str))
+  (pub (query str))))
+
+(fn plain ((b u8)) bool
+  (or (str.is_alnum b) (or (== b 45u8) (or (== b 46u8) (or (== b 95u8) (== b 126u8))))))
+
+(fn hex ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 55u8 n)))
+
+(pub (fn encode ((s (& str))) str
+  (let mut out (str.new))
+  (for i 0 (str.len s)
+    (let b (str.at s i))
+    (if (plain b)
+      (str.push_byte (&mut out) b)
+      (do
+        (str.push_byte (&mut out) 37u8)
+        (str.push_byte (&mut out) (hex (shr b 4u8)))
+        (str.push_byte (&mut out) (hex (band b 15u8))))))
+  out))
+
+(fn pct ((s (& str)) (i i64)) (opt u8)
+  (if (> (+ i 2) (- (str.len s) 1)) (ret (opt.none)))
+  (let h (match (scan.hex_dig (str.at s (+ i 1))) ((opt.some d) d) ((opt.none) (ret (opt.none)))))
+  (let l (match (scan.hex_dig (str.at s (+ i 2))) ((opt.some d) d) ((opt.none) (ret (opt.none)))))
+  (opt.some (as u8 (+ (* h 16) l))))
+
+(pub (fn decode ((s (& str))) (opt str)
+  (let mut out (str.new))
+  (let mut i 0)
+  (while (< i (str.len s))
+    (if (== (str.at s i) 37u8)
+      (match (pct s i)
+        ((opt.none) (ret (opt.none)))
+        ((opt.some b) (do (str.push_byte (&mut out) b) (set i (+ i 3)))))
+      (do (str.push_byte (&mut out) (str.at s i)) (set i (+ i 1)))))
+  (if (not (str.utf8_ok (& out))) (ret (opt.none)))
+  (opt.some out)))
+
+(fn cut ((s (& str)) (b u8)) i64
+  (match (str.find_byte s b) ((opt.some i) i) ((opt.none) (str.len s))))
+
+(fn host_port ((s (& str))) url
+  (let colon (cut s 58u8))
+  (let mut host (str.slice s 0 colon))
+  (let mut port 0)
+  (if (< colon (str.len s))
+    (do
+      (match (str.to_int (& (str.slice s (+ colon 1) (str.len s))))
+        ((opt.some n) (set port n))
+        ((opt.none) ()))
+      (set host (str.slice s 0 colon))))
+  (url (str.new) host port (str.new) (str.new)))
+
+(pub (fn parse ((s (& str))) (opt url)
+  (match (str.find s "://")
+    ((opt.none) (opt.none))
+    ((opt.some i)
+      (do
+        (let scheme (str.slice s 0 i))
+        (let rest (str.slice s (+ i 3) (str.len s)))
+        (let slash (cut (& rest) 47u8))
+        (let qmark (cut (& rest) 63u8))
+        (let host_end (if (< slash qmark) slash qmark))
+        (let mut u (host_port (& (str.slice (& rest) 0 host_end))))
+        (set (. u scheme) scheme)
+        (if (< slash (str.len (& rest)))
+          (set (. u path) (str.slice (& rest) slash (if (< qmark (str.len (& rest))) qmark (str.len (& rest))))))
+        (if (< qmark (str.len (& rest))) (set (. u query) (str.slice (& rest) (+ qmark 1) (str.len (& rest)))))
+        (opt.some u))))))
+
+(test url_parts
+  (assert_eq (& (encode "a b")) "a%20b")
+  (assert_eq (& (encode "a-._~")) "a-._~")
+  (match (decode "a%20b") ((opt.some s) (assert_eq (& s) "a b")) ((opt.none) (assert false)))
+  (match (decode "%ff") ((opt.some _) (assert false)) ((opt.none) (assert true)))
+  (match (parse "http://h:80/a?b=1")
+    ((opt.some u)
+      (do
+        (assert_eq (& (. u scheme)) "http")
+        (assert_eq (& (. u host)) "h")
+        (assert_eq (. u port) 80)
+        (assert_eq (& (. u path)) "/a")
+        (assert_eq (& (. u query)) "b=1")))
+    ((opt.none) (assert false)))
+  (match (parse "http://h")
+    ((opt.some u) (assert_eq (. u port) 0))
+    ((opt.none) (assert false)))
+  (match (parse "nope") ((opt.some _) (assert false)) ((opt.none) (assert true)))
+  (if false (drop (plain 65u8)))
+  (if false (drop (hex 10u8))))

@@ -1,15 +1,27 @@
-;; Path strings. Separator is / only.
+;; Path strings. clean and join emit /. Windows also accepts \.
+(use std.sys)
+
+(pub (fn sep () str (if (== sys.os_id 2) (str.from "\\") (str.from "/"))))
+
+(fn is_sep ((b u8)) bool (or (== b 47u8) (and (== sys.os_id 2) (== b 92u8))))
+
+(fn drive ((p (& str))) bool
+  (and (== sys.os_id 2)
+    (and (>= (str.len p) 2) (and (str.is_alpha (str.at p 0)) (== (str.at p 1) 58u8)))))
+
+(fn ends_sep ((p (& str))) bool (and (> (str.len p) 0) (is_sep (str.at p (- (str.len p) 1)))))
+
 (pub (fn join ((a (& str)) (b (& str))) str
   (if (== (str.len a) 0) (ret (str.from b)))
-  (if (str.starts b "/") (ret (str.from b)))
+  (if (or (== (str.len b) 0) (is_sep (str.at b 0)) (drive b)) (ret (str.from b)))
   (let mut out (str.from a))
-  (if (not (str.ends a "/")) (str.push_byte (&mut out) 47u8))
+  (if (not (ends_sep a)) (str.push_byte (&mut out) 47u8))
   (str.push (&mut out) b)
   out))
 
 (fn last_slash ((p (& str))) (opt i64)
   (let mut i (- (str.len p) 1))
-  (while (>= i 0) (if (== (str.at p i) 47u8) (ret (opt.some i))) (set i (- i 1)))
+  (while (>= i 0) (if (is_sep (str.at p i)) (ret (opt.some i))) (set i (- i 1)))
   (opt.none))
 
 (pub (fn base ((p (& str))) str
@@ -35,16 +47,25 @@
   (while (> i 0) (if (== (str.at (& b) i) 46u8) (ret (str.slice (& b) 0 i))) (set i (- i 1)))
   b))
 
-(pub (fn is_abs ((p (& str))) bool (str.starts p "/")))
+(pub (fn is_abs ((p (& str))) bool
+  (if (== (str.len p) 0) (ret false))
+  (or (is_sep (str.at p 0)) (drive p))))
+
+(fn slashy ((p (& str))) str
+  (if (== sys.os_id 2) (str.replace_byte p 92u8 47u8) (str.from p)))
 
 ;; Removes "./" prefixes and duplicate slashes; keeps "..".
 (pub (fn clean ((p (& str))) str
-  (let parts (str.split p 47u8))
+  (let flat (slashy p))
+  (let parts (str.split (& flat) 47u8))
   (let mut out (vec.new <str>))
-  (for i 0 (vec.len (& parts))
+  (let start (if (drive (& flat)) 1 0))
+  (for i start (vec.len (& parts))
     (let s (vec.get (& parts) i))
     (if (not (or (str.eq s "") (str.eq s "."))) (vec.push (&mut out) (str.clone s))))
-  (let mut r (if (is_abs p) (str.from "/") (str.new)))
+  (let mut r (if (drive (& flat)) (str.slice (& flat) 0 2) (if (is_abs (& flat)) (str.from "/") (str.new))))
+  (if (and (> (str.len (& r)) 0) (> (vec.len (& out)) 0) (not (str.ends (& r) "/")))
+    (str.push_byte (&mut r) 47u8))
   (str.push (&mut r) (& (str.join (& out) "/")))
   (if (== (str.len (& r)) 0) (ret (str.from ".")))
   r))
@@ -61,4 +82,16 @@
   (assert_eq (& (clean "./a//b/./c")) "a/b/c")
   (match (last_slash "a/b") ((opt.some i) (assert_eq i 1)) ((opt.none) (assert false)))
   (assert (is_abs "/a"))
-  (assert (not (is_abs "a"))))
+  (assert (not (is_abs "a")))
+  (assert_eq (& (sep)) (if (== sys.os_id 2) "\\" "/"))
+  (if (== sys.os_id 2)
+    (do
+      (assert_eq (& (base "a\\b\\c.txt")) "c.txt")
+      (assert_eq (& (dir "a\\b\\c.txt")) "a\\b")
+      (assert_eq (& (join "a" "\\b")) "\\b")
+      (assert_eq (& (clean "C:\\a\\.\\b")) "C:/a/b")
+      (assert (is_abs "C:\\a"))
+      (assert (is_abs "\\a")))
+    ())
+  (if false (drop (slashy "a")))
+  (if false (drop (ends_sep "a/"))))

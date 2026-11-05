@@ -1,4 +1,5 @@
 ;; WebSocket frames. Lengths of 7, 16, and 64 bits. Messages may span continuations.
+(use std.bytes)
 (use std.http)
 (use std.net)
 (use std.sys)
@@ -8,9 +9,9 @@
   (res.ok ()))
 
 (fn be ((buf (& str)) (i i64) (n i64)) i64
-  (let mut v 0)
-  (for k 0 n (set v (+ (* v 256) (as i64 (str.at buf (+ i k))))))
-  v)
+  (let mut v (vec.new <u8>))
+  (for k 0 n (vec.push (&mut v) (str.at buf (+ i k))))
+  (bytes.rd_be (& v) 0 n))
 
 (fn head_len ((len7 i64) (mask bool)) i64
   (let ext (if (== len7 126) 2 (if (== len7 127) 8 0)))
@@ -81,9 +82,10 @@
   (if (== op 0u8) (ret (follow acc op0 fin payload)))
   (start acc op0 fin op payload)))
 
-(fn push_be ((out (&mut str)) (n i64) (bytes i64)) unit
-  (let mut shift (* (- bytes 1) 8))
-  (while (>= shift 0) (str.push_byte out (as u8 (band (shr n shift) 255))) (set shift (- shift 8))))
+(fn push_be ((out (&mut str)) (n i64) (width i64)) unit
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) n width)
+  (for i 0 width (str.push_byte out (@ (vec.get (& v) i)))))
 
 (pub (fn encode ((op u8) (payload (& str))) str
   (let n (str.len payload))

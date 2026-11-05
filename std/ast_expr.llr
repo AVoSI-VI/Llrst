@@ -175,6 +175,22 @@
   (try (kid t ids 2 (&mut (. e kids))))
   (res.ok e))
 
+(fn assert_head ((h (& str))) bool
+  (or (str.eq h "assert_eq") (or (str.eq h "assert_ne") (str.eq h "assert_near"))))
+
+(fn parse_assert ((t (& tree)) (ids (& (vec i64))) (h (& str)) (line i64) (col i64)) (res expr str)
+  (if (str.eq h "assert_near") (ret (parse_near t ids line col)))
+  (parse_two t ids (if (str.eq h "assert_ne") 32u8 28u8) (str.new) line col))
+
+(fn parse_near ((t (& tree)) (ids (& (vec i64))) (line i64) (col i64)) (res expr str)
+  (if (!= (vec.len ids) 4)
+    (ret (res.err (arity_at t (@ (vec.get ids 0)) "3" "3" (- (vec.len ids) 1)))))
+  (let mut e (expr_new 33u8 (str.new) line col))
+  (try (kid t ids 1 (&mut (. e kids))))
+  (try (kid t ids 2 (&mut (. e kids))))
+  (try (kid t ids 3 (&mut (. e kids))))
+  (res.ok e))
+
 (fn parse_one ((t (& tree)) (ids (& (vec i64))) (k u8) (line i64) (col i64)) (res expr str)
   (if (!= (vec.len ids) 2)
     (ret (res.err (arity_at t (@ (vec.get ids 0)) "1" "1" (- (vec.len ids) 1)))))
@@ -331,7 +347,7 @@
   (if (str.eq h "try") (ret (parse_one t ids 25u8 line col)))
   (if (str.eq h "panic") (ret (parse_one t ids 26u8 line col)))
   (if (str.eq h "assert") (ret (parse_one t ids 27u8 line col)))
-  (if (str.eq h "assert_eq") (ret (parse_two t ids 28u8 (str.new) line col)))
+  (if (assert_head h) (ret (parse_assert t ids h line col)))
   (if (str.eq h "sizeof") (ret (parse_sizeof t ids line col)))
   (if (str.eq h "drop") (ret (parse_one t ids 30u8 line col)))
   (if (str.eq h "clos") (ret (parse_clos t ids line col)))

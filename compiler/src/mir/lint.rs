@@ -139,9 +139,14 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
         }
         Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => walk_expr(diags, place, scope),
-        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => {
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             walk_expr(diags, l, scope);
             walk_expr(diags, r, scope);
+        }
+        AssertNear(g, w, eps) => {
+            walk_expr(diags, g, scope);
+            walk_expr(diags, w, scope);
+            walk_expr(diags, eps, scope);
         }
         Call { args, .. } => args.iter().for_each(|x| walk_expr(diags, x, scope)),
         CallPtr { callee, args } => {
@@ -304,9 +309,14 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
         }
         Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => Some(one(place)),
-        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => {
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             one(l);
             Some(one(r))
+        }
+        AssertNear(g, w, eps) => {
+            one(g);
+            one(w);
+            Some(one(eps))
         }
         Call { args, .. } => {
             many(args);

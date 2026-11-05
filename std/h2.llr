@@ -1,27 +1,23 @@
 ;; HTTP/2 frames. Preface, settings, ping, window update, headers, data, reset, and goaway.
-(fn push24 ((out (&mut str)) (n i64)) unit
-  (let u (as u32 n))
-  (str.push_byte out (as u8 (shr u 16u32)))
-  (str.push_byte out (as u8 (shr u 8u32)))
-  (str.push_byte out (as u8 u)))
+(use std.bytes)
 
-(fn push32 ((out (&mut str)) (n i64)) unit
-  (let u (as u32 n))
-  (str.push_byte out (as u8 (shr u 24u32)))
-  (str.push_byte out (as u8 (shr u 16u32)))
-  (str.push_byte out (as u8 (shr u 8u32)))
-  (str.push_byte out (as u8 u)))
+(fn push_n ((out (&mut str)) (n i64) (w i64)) unit
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) n w)
+  (for i 0 w (str.push_byte out (@ (vec.get (& v) i)))))
 
-(fn be24 ((s (& str)) (i i64)) i64
-  (as i64
-    (bor (shl (as u32 (str.at s i)) 16u32)
-      (bor (shl (as u32 (str.at s (+ i 1))) 8u32) (as u32 (str.at s (+ i 2)))))))
+(fn be_n ((s (& str)) (i i64) (n i64)) i64
+  (let mut v (vec.new <u8>))
+  (for k 0 n (vec.push (&mut v) (str.at s (+ i k))))
+  (bytes.rd_be (& v) 0 n))
 
-(fn be32 ((s (& str)) (i i64)) i64
-  (as i64
-    (bor (shl (as u32 (str.at s i)) 24u32)
-      (bor (shl (as u32 (str.at s (+ i 1))) 16u32)
-        (bor (shl (as u32 (str.at s (+ i 2))) 8u32) (as u32 (str.at s (+ i 3))))))))
+(fn push24 ((out (&mut str)) (n i64)) unit (push_n out n 3))
+
+(fn push32 ((out (&mut str)) (n i64)) unit (push_n out n 4))
+
+(fn be24 ((s (& str)) (i i64)) i64 (be_n s i 3))
+
+(fn be32 ((s (& str)) (i i64)) i64 (be_n s i 4))
 
 (pub (fn frame ((ty u8) (flags u8) (stream i64) (payload (& str))) str
   (let mut out (str.new))

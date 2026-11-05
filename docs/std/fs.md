@@ -2,7 +2,7 @@
 
 Files and directories. Errors are `res.err` strings like `io.read|path=x`.
 `fs.mtime` and `fs.size` call `runtime/llr_stat.c`, which reads `st_mtime` and `st_size`
-through the host C compiler. `fs.now_ms` calls `runtime/llr_now.c`. `fs.list` takes each name from `llr_readdir_name`.
+through the host C compiler. `fs.now_ms` forwards to `time.now_ms` for one release. `fs.list` takes each name from `llr_readdir_name`.
 
 Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and methods need no import.
 
@@ -13,6 +13,10 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 | `fs.read` | `((path (& str)))` | `(res str str)` |
 | `fs.write` | `((path (& str)) (data (& str)))` | `(res unit str)` |
 | `fs.append` | `((path (& str)) (data (& str)))` | `(res unit str)` |
+| `fs.copy` | `((from (& str)) (to (& str)))` | `(res unit str)` |
+| `fs.is_file` | `((path (& str)))` | `bool` |
+| `fs.temp_dir` | `()` | `str` |
+| `fs.abs` | `((path (& str)))` | `(res str str)` |
 | `fs.exists` | `((path (& str)))` | `bool` |
 | `fs.is_dir` | `((path (& str)))` | `bool` |
 | `fs.remove` | `((path (& str)))` | `(res unit str)` |
@@ -28,4 +32,4 @@ Source: `std/fs.llr`. Import with `(use std.fs)` for module functions; types and
 
 ## Tests
 
-`fs_edit`, `fs_roundtrip`, `fs_list`, `fs_tree`, `fs_now`, `fs_read_grow`
+`fs_edit`, `fs_roundtrip`, `fs_list`, `fs_tree`, `fs_now`, `fs_copy`, `fs_read_grow`

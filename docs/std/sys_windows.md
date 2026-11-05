@@ -74,3 +74,11 @@ Source: `std/sys_windows.llr`. Import with `(use std.sys_windows)` for module fu
 | `sys_windows.llr_spawn_self` | `((arg (ptr u8)))` | `i32` |
 | `sys_windows.llr_exec` | `((file (ptr u8)) (args (ptr u8)) (n u64))` | `i32` |
 | `sys_windows.llr_exe_path` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_windows.llr_mono_ms` | `()` | `i64` |
+| `sys_windows.llr_sleep_ms` | `((ms i64))` | `unit` |
+| `sys_windows.llr_entropy` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_windows.llr_set_env` | `((name (ptr u8)) (value (ptr u8)))` | `i32` |
+| `sys_windows.llr_pid` | `()` | `i64` |
+| `sys_windows.llr_io_get` | `()` | `(ptr u8)` |
+| `sys_windows.llr_io_set` | `((p (ptr u8)))` | `unit` |
+| `sys_windows.llr_run` | `((file (ptr u8)) (args (ptr u8)) (n u64) (in (ptr u8)) (in_n u64) (out (ptr u8)) (out_n (ptr u64)) (err (ptr u8)) (err_n (ptr u64)))` | `i32` |

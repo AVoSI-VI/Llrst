@@ -23,7 +23,8 @@ fn expr_clos(e: &ast::Expr) -> bool {
     match &e.kind {
         ExprKind::Clos { .. } => true,
         ExprKind::Let { init, .. } => init.as_deref().map(expr_clos).unwrap_or(false),
-        ExprKind::Set { place, value } | ExprKind::Bin { l: place, r: value, .. } | ExprKind::And(place, value) | ExprKind::Or(place, value) | ExprKind::AssertEq(place, value) => expr_clos(place) || expr_clos(value),
+        ExprKind::Set { place, value } | ExprKind::Bin { l: place, r: value, .. } | ExprKind::And(place, value) | ExprKind::Or(place, value) | ExprKind::AssertEq(place, value) | ExprKind::AssertNe(place, value) => expr_clos(place) || expr_clos(value),
+        ExprKind::AssertNear(a, b, c) => expr_clos(a) || expr_clos(b) || expr_clos(c),
         ExprKind::Do(xs) | ExprKind::Loop(xs) => has_clos(xs),
         ExprKind::While { cond, body } => expr_clos(cond) || has_clos(body),
         ExprKind::For { lo, hi, body, .. } => expr_clos(lo) || expr_clos(hi) || has_clos(body),

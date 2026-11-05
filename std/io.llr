@@ -23,10 +23,124 @@
 
 (pub (fn stdin () str (read_fd 0)))
 
+(struct hold (fd i32) (rest str))
+
+(struct tab (rows (vec hold)))
+
+(fn slot () (ptr u8)
+  (let p (sys.llr_io_get))
+  (if (not (ptr.eq p (ptr.null <u8>))) (ret p))
+  (let raw (sys.malloc (sizeof tab)))
+  (let mut t (tab (vec.new <hold>)))
+  (ptr.write (as (ptr tab) raw) t)
+  (sys.llr_io_set raw)
+  raw)
+
+(fn load () tab (ptr.read (as (ptr tab) (slot))))
+
+(fn store ((t tab)) unit (ptr.write (as (ptr tab) (sys.llr_io_get)) t))
+
+(fn index_of ((t (& tab)) (fd i32)) (opt i64)
+  (let mut i 0)
+  (while (< i (vec.len (& (. t rows))))
+    (if (== (. (vec.get (& (. t rows)) i) fd) fd) (ret (opt.some i)))
+    (set i (+ i 1)))
+  (opt.none))
+
+(fn ensure ((t (&mut tab)) (fd i32)) i64
+  (match (index_of t fd)
+    ((opt.some i) i)
+    ((opt.none)
+      (do (vec.push (&mut (. t rows)) (hold fd (str.new))) (- (vec.len (& (. t rows))) 1)))))
+
+(fn fill ((fd i32) (rest (&mut str))) bool
+  (str.reserve rest 256)
+  (let n (sys.read fd (ptr.add (. rest p) (. rest len)) 256u64))
+  (if (<= n 0) (ret false))
+  (set (. rest len) (+ (. rest len) n))
+  true)
+
+(fn pull ((fd i32) (rest (&mut str))) (opt str)
+  (loop
+    (match (str.find_byte rest 10u8)
+      ((opt.some i)
+        (do
+          (let line (str.slice rest 0 i))
+          (let tail (str.slice rest (+ i 1) (str.len rest)))
+          (set (@ rest) tail)
+          (ret (opt.some line))))
+      ((opt.none) ()))
+    (if (not (fill fd rest))
+      (do
+        (if (== (str.len rest) 0) (ret (opt.none)))
+        (let line (str.from rest))
+        (set (@ rest) (str.new))
+        (ret (opt.some line))))))
+
+(fn read_byte ((fd i32)) (opt str)
+  (let mut s (str.new))
+  (loop
+    (let mut b 0u8)
+    (let n (sys.read fd (as (ptr u8) (&mut b)) 1u64))
+    (if (<= n 0) (do (if (== (str.len (& s)) 0) (ret (opt.none))) (ret (opt.some s))))
+    (if (== b 10u8) (ret (opt.some s)))
+    (str.push_byte (&mut s) b)))
+
+(fn take_rest ((t (&mut tab)) (i i64)) str
+  (mem.replace (&mut (. (vec.get_mut (&mut (. t rows)) i) rest)) (str.new)))
+
+(fn save_rest ((t (&mut tab)) (i i64) (rest str)) unit
+  (set (. (vec.get_mut (&mut (. t rows)) i) rest) rest))
+
+;; One line without the newline. none is end of file. The remainder stays with this fd.
+(pub (fn read_line ((fd i32)) (opt str)
+  (if (== sys.os_id 3) (ret (read_byte fd)))
+  (let mut t (load))
+  (let i (ensure (&mut t) fd))
+  (let mut rest (take_rest (&mut t) i))
+  (let line (pull fd (&mut rest)))
+  (save_rest (&mut t) i rest)
+  (store t)
+  line))
+
+;; Lines until end of file. A final newline does not add an empty line.
+(pub (fn lines ((fd i32)) (vec str)
+  (let mut out (vec.new <str>))
+  (loop (match (read_line fd) ((opt.none) (brk)) ((opt.some s) (vec.push (&mut out) s))))
+  out))
+
 (test io_streams
   (put "x")
   (puts "y")
   (eput "z")
   (eputs "w")
   (if false (drop (read_fd 0)))
-  (if false (drop (stdin))))
+  (if false (drop (stdin)))
+  (if false (drop (read_byte 0)))
+  (if false (drop (read_line 0)))
+  (if false (drop (lines 0))))
+
+(test io_lines
+  (if (== sys.os_id 3) (ret))
+  (let path (str.cstr "/tmp/llr_io_line.txt"))
+  (let wr (sys.open (. path p) 577i32 420i32))
+  (sys.write_str wr "a\nb\n")
+  (sys.close wr)
+  (let rd (sys.open (. path p) 0i32 0i32))
+  (match (read_line rd) ((opt.some s) (assert_eq (& s) "a")) ((opt.none) (assert false)))
+  (match (read_line rd) ((opt.some s) (assert_eq (& s) "b")) ((opt.none) (assert false)))
+  (match (read_line rd) ((opt.some _) (assert false)) ((opt.none) (assert true)))
+  (sys.close rd)
+  (let rd2 (sys.open (. path p) 0i32 0i32))
+  (let ls (lines rd2))
+  (assert_eq (vec.len (& ls)) 2)
+  (assert_eq (vec.get (& ls) 0) "a")
+  (assert_eq (vec.get (& ls) 1) "b")
+  (sys.close rd2)
+  (let wr2 (sys.open (. path p) 577i32 420i32))
+  (sys.write_str wr2 "xyz")
+  (sys.close wr2)
+  (let rd3 (sys.open (. path p) 0i32 0i32))
+  (match (read_line rd3) ((opt.some s) (assert_eq (& s) "xyz")) ((opt.none) (assert false)))
+  (sys.close rd3)
+  (let _ (sys.unlink (. path p))))

@@ -25,6 +25,7 @@
 | [http_type](http_type.md) | Content-Type from a file suffix. Unknown suffixes stay text/plain. |
 | [http_ws](http_ws.md) | WebSocket frames and continuation messages. |
 | [sha](sha.md) | SHA-1 digest and base64, used by the WebSocket handshake. |
+| [sha256](sha256.md) | SHA-256 digest, 32 raw bytes. |
 | [gql](gql.md) | GraphQL execution against a schema. |
 | [gql_parse](gql_parse.md) | GraphQL document parser. |
 | [gql_schema](gql_schema.md) | GraphQL schema parser and the builtin schema. |
@@ -39,15 +40,15 @@
 | [mqtt](mqtt.md) | MQTT 3.1.1 broker. QoS 0-2, wildcards, and auth. |
 | [mqtt_pkt](mqtt_pkt.md) | MQTT remaining length and strings. |
 | [mqtt_sess](mqtt_sess.md) | MQTT topic filters. |
-| [path](path.md) | Path string helpers; `/` only. |
+| [path](path.md) | Path strings. `clean` and `join` emit `/`. Windows also accepts `\`. |
 | [map](map.md) | Hash map `(map K V)`. Keys need `Hash` and `Eq`. |
 | [set](set.md) | Set `(set K)` over `(map K unit)`. |
 | [deque](deque.md) | Ring buffer `(deque T)`. |
 | [math](math.md) | `f64` and `f32` abs, min, max, floor, ceil, round, sqrt, integers, clamp, lerp, and fmod. No libm. |
 | [math_trig](math_trig.md) | sin, cos, tan, asin, acos, atan2, exp, ln, log2, log10, and pow. |
 | [fmt](fmt.md) | Pipe records, hex, fixed floats, and padding. |
-| [json](json.md) | Minimal JSON encoding. |
-| [json_read](json_read.md) | JSON objects, arrays, strings, ints, bools, and null. |
+| [json](json.md) | Minimal JSON encoding, `show`, and `pretty`. |
+| [json_read](json_read.md) | JSON objects, arrays, strings, numbers, bools, and null. |
 | [cli](cli.md) | Argument parsing for tools. |
 | [sexp](sexp.md) | S-expression reader used by `llr-fmt` and `llr-doc`. |
 | [scan](scan.md) | Cursor over `(& str)`: peek, names, and hex digits. |
@@ -56,6 +57,10 @@
 | [glob](glob.md) | Glob matching and directory walking. |
 | [re](re.md) | Backtracking regex: `. ^ $ * + ? {n,m} [..] [^..] \d \w \s \b \N ( ) |`. |
 | [diff](diff.md) | Line diff. Shared ends are exact. The middle is a minimal LCS. |
+| [time](time.md) | Wall clock, monotonic clock, sleep, and UTC dates. |
+| [rand](rand.md) | xorshift64* `(rng)` and `entropy`. |
+| [bytes](bytes.md) | Little-endian and big-endian integers, LEB128, and CRC-32. |
+| [url](url.md) | Percent-encoding and a small URL split. |
 | [test](test.md) | Test harness used by `llrc build --test` and `llr-test`. |
 
 Rules: one module per file, every function has a test form in its file, `llr-doc` regenerates the signature tables (see docs/workflows/std.md).

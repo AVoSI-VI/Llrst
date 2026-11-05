@@ -87,7 +87,7 @@ EXPR :=
   (CALLEE <TYPE...> EXPR...)                 ; call with explicit type args
   (try EXPR)                                 ; unwrap res/opt or return the err/none from the fn
   (panic EXPR)                               ; print P|... and exit 101
-  (assert EXPR) | (assert_eq EXPR EXPR)      ; test asserts
+  (assert EXPR) | (assert_eq EXPR EXPR) | (assert_ne EXPR EXPR) | (assert_near EXPR EXPR EXPR)
   (sizeof TYPE)                              ; u64, std internals only
   (call EXPR EXPR...)                        ; call a (fn ...) or a (clos ...)
   (clos ((NAME TYPE)*) TYPE BODY...)         ; closure; captures whole bindings; body cannot contain a closure

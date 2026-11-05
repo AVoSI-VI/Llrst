@@ -230,6 +230,8 @@ pub enum ExprKind {
     Panic(Box<Expr>),
     Assert(Box<Expr>),
     AssertEq(Box<Expr>, Box<Expr>),
+    AssertNe(Box<Expr>, Box<Expr>),
+    AssertNear(Box<Expr>, Box<Expr>, Box<Expr>),
     Sizeof(TyExpr),
     Drop(Box<Expr>),
     Clos { params: Vec<Param>, ret: TyExpr, body: Vec<Expr> },
