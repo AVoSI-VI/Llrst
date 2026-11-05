@@ -5,6 +5,7 @@
 (use std.path)
 (use std.str)
 (use std.sys)
+(use std.time)
 (use proj.check)
 (use proj.diag)
 (use proj.drive)
@@ -147,7 +148,9 @@
 (fn emit_ok ((o (& drive.flags)) (p prog.prog)) unit
   (let mut ds (vec.new <diag.dg>))
   (let mut s (str.new))
+  (let t (time.mono_ms))
   (check.run (& p) "" (&mut ds) (&mut s) true (. o test))
+  (drive.phase "check" t)
   (if (not (diag.any_err (& (. p notes)) "")) (lint.generics (& p) (&mut ds) (& (vec.new <i64>))))
   (sys.write_str 1 (& s))
   (os.exit (drive.finish o (&mut ds))))

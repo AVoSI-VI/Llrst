@@ -51,19 +51,19 @@ commit per phase, suite green at the end of every phase).
 
 ## Baseline
 
-From OPT **Measurements** (commit `7077aa6`, Windows 11, 8 logical CPUs, MSVC `cl`,
-`SOURCE_DATE_EPOCH=0`, one run each). Re-measure in Phase 0 and replace this table.
+Re-measured 2026-11-05 on this machine (Windows 11, MSVC `cl`,
+`SOURCE_DATE_EPOCH=0`). `llrs0` below is built by stage 0 from this phase. Each command
+was run twice; the table is the second run. Phase columns are the `time|` lines from
+that run, in seconds. They do not sum to the wall time: `drive.run`'s load is outside
+`build`, and isa setup plus `emit_main` sit between the named phases. Stage 0 and
+`llrs1` were not re-measured; the OPT figures were 0.69 s, 6.66 s, and 390.12 s.
 
-| compiler | command | input | wall time |
-| --- | --- | --- | --- |
-| stage 0 | `check` | `self/llrs.llr` | 0.69 s |
-| stage 0 | `build` | `self/llrs.llr` | 6.66 s |
-| `llrs0` | `check` | `self/llrs.llr` | 244.38 s |
-| `llrs0` | `build --emit-obj` | `self/llrs.llr` | 344.42 s |
-| `llrs0` | `build` | `self/llrs.llr` | 355.36 s |
-| `llrs1` | `build` | `self/llrs.llr` | 390.12 s |
-| `llrs0` | `check` | `examples/hello.llr` | 1.62 s |
-| `llrs0` | `build` | `examples/hello.llr` | 5.96 s |
+| compiler | command | input | wall | load | check | codegen | object | link |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `llrs0` | `check` | `self/llrs.llr` | 290.16 s | 0.70 s | 288.20 s | | | |
+| `llrs0` | `build --emit-obj` | `self/llrs.llr` | 388.46 s | 0.66 s | 270.42 s | 115.56 s | 0.78 s | |
+| `llrs0` | `build` | `self/llrs.llr` | 351.32 s | 1.89 s | 246.33 s | 97.34 s | 0.69 s | 3.58 s |
+| `llrs0` | `build` | `examples/hello.llr` | 5.32 s | 0.22 s | 0.05 s | 0.00 s | 0.00 s | 3.64 s |
 
 Target at the end of Phase 7: `llrs0 build self/llrs.llr` under 60 s, `check` under
 20 s, `hello` build under 2.5 s. These are goals, not promises; the phase tables say
@@ -77,7 +77,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | phase | commit | check | build --emit-obj | build | hello build |
 | --- | --- | --- | --- | --- | --- |
 | baseline (OPT) | `7077aa6` | 244.4 | 344.4 | 355.4 | 5.96 |
-| 0 | | | | | |
+| 0 | (this commit) | 290.2 | 388.5 | 351.3 | 5.32 |
 | 1 | | | | | |
 | 2 | | | | | |
 | 3 | | | | | |
@@ -151,16 +151,16 @@ deciding whether the next one is still worth doing. Each phase is one commit and
 the OPT items it covers, the files it touches, the design, the equivalence argument (why
 the output cannot change), the steps, and the commit message.
 
-### Phase 0: harness (no output change) `[ ]`
+### Phase 0: harness (no output change) `[x]`
 
 Covers: nothing in OPT; makes the rest measurable and checkable on Windows.
 
 Files: `self/drive.llr`, `self/llrs.llr`, new `tests/x64_ref.ps1`, this file.
 
-1. `[ ]` `cargo build --release`, then `scripts\self.ps1 --stage`. Copy
+1. `[x]` `cargo build --release`, then `scripts\self.ps1 --stage`. Copy
    `target\self\llrs0.exe` to `target\self\base\llrs0.exe`. This is the baseline
    compiler for the snapshot and for re-measuring; `target/` is gitignored.
-2. `[ ]` `tests/x64_ref.ps1`, a twin of `tests/x64_ref.sh`: `[--save DIR]`; compiler from
+2. `[x]` `tests/x64_ref.ps1`, a twin of `tests/x64_ref.sh`: `[--save DIR]`; compiler from
    `$env:LLRC` else `target\self\llrs0.exe` (no rebuild logic; the `.sh` calls
    `self.sh --llrs0`, which `self.ps1` does not have, and adding that is not needed).
    Same inputs as the `.sh`: `tests/run/*.llr` containing `^(fn main`, `std/*.llr`
@@ -169,18 +169,18 @@ Files: `self/drive.llr`, `self/llrs.llr`, new `tests/x64_ref.ps1`, this file.
    `SOURCE_DATE_EPOCH=0`. Compare with `[System.IO.File]::ReadAllBytes`; print
    `ok|x64/<kind>/<name>` or `fail|x64/<kind>/<name>|first=<offset>` and `done|fails=N`.
    Then `$env:LLRC = target\self\base\llrs0.exe; tests\x64_ref.ps1 --save target\self\x64_ref`.
-3. `[ ]` `LLRST_TIME`: in `drive.build`, when `(os.env "LLRST_TIME")` is `opt.some`,
+3. `[x]` `LLRST_TIME`: in `drive.build`, when `(os.env "LLRST_TIME")` is `opt.some`,
    print `time|check|<ms>`, `time|codegen|<ms>` (the `pump` plus `lint.generics`),
    `time|object|<ms>` (`cg_mod.finish` and `write_obj`), `time|link|<ms>` on stderr
    with `time.mono_ms` (`std/time.llr`). `drive.run` adds `time|load|<ms>` around
    `load.load_at`. `llrs.emit_ok` adds `time|check|<ms>`. Nothing is printed when the
    variable is unset, so no golden changes; `tests/*.ps1` never set it. Keep the timer
    helper to one fn so `build` stays under 40 lines.
-4. `[ ]` Measure per **Measuring**; replace the **Baseline** table with the new numbers
+4. `[x]` Measure per **Measuring**; replace the **Baseline** table with the new numbers
    including the `time|` split, and fill the Phase 0 row of **Results**.
-5. `[ ]` **Verification** (the snapshot compare is trivially equal here; run it once so
+5. `[x]` **Verification** (the snapshot compare is trivially equal here; run it once so
    the script is known to work).
-6. `[ ]` Commit: `self: LLRST_TIME phase timers, x64_ref.ps1 snapshot compare`.
+6. `[x]` Commit: `self: LLRST_TIME phase timers, x64_ref.ps1 snapshot compare`.
 
 ### Phase 1: single-pass `lint.items` (OPT 2) `[ ]`
 
@@ -650,3 +650,18 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   AST x `lookup_fn`); `std/map.llr` is the hash map and `self/` does not use it yet;
   `lower.llr` (496), `thir.llr` (492), `thir_call.llr` (499), `thir_expr.llr` (495), and
   `collect.llr` (485) are at the 500-line cap and must be split before growing.
+- 2026-11-05: Phase 0. `LLRST_TIME` prints `time|load`, `time|check`, `time|codegen`,
+  `time|object`, and `time|link` on stderr when the variable is set. Second-run `llrs0`
+  walls: check 290.16 s (first 287.46), emit-obj 388.46 s (first 366.04), build 351.32 s
+  (first 360.54), hello build 5.32 s (first 5.80). `scripts/self.ps1 --stage` printed
+  `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on `llrs0` were
+  `done|fails=0`. `tests/x64_ref.ps1` against the baseline snapshot was byte-equal on
+  every object both compilers emitted. It exits 1 with the same four pre-existing
+  `llrs0` failures on save and compare: `std/deque.llr` and `std/opt.llr` `--test`, ELF
+  and COFF (`match.not_enum` at deque.llr:52, `borrow.escape` at opt.llr:12). Stage 0
+  accepts both files. No `first=` mismatch. `tests/run.ps1` under `llrs2` exited 1,
+  `done|fails=39`. Those failures are already present on the baseline compiler: `std/fmt`
+  `fmt_pipe` is `want=1.500|got=1.000` under `target/self/base/llrs0.exe`, and the same
+  deque/opt compile errors show up. The rest are ui `link.failed`, a few float asserts,
+  and `fail|setup|lld=missing` from cross. Run, err, panic, and warn goldens passed, and
+  the nested `check.ps1`, `mir.ps1`, and `self.ps1` printed `done|fails=0`.
