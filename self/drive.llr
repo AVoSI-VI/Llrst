@@ -16,6 +16,7 @@
 (use proj.cg_term)
 (use proj.check)
 (use proj.diag)
+(use proj.inline)
 (use proj.link)
 (use proj.lint)
 (use proj.load)
@@ -105,11 +106,13 @@
   (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds) (&mut kept))))
   (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target)))))
   (let mut g (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
-  (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
+  (let mut ic (inline.empty))
+  (let entry
+    (if (. o test) (tests (&mut g) (& p) (&mut ds) (&mut ic)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (. o emit_dylib) (cg_reload.queue (&mut g) (& p)))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (set t (time.mono_ms))
-  (pump (&mut g) (& p) (&mut ds) (&mut kept))
+  (pump (&mut g) (& p) (&mut ds) (&mut kept) (&mut ic))
   (lint.generics (& p) (&mut ds) (& (cg_mod.done_ids (& g))))
   (phase "codegen" t)
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
@@ -207,12 +210,12 @@
   (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (vec.push ds d))
 
-(fn tests ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) i64
+(fn tests ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (ic (&mut inline.icache))) i64
   (let mut names (vec.new <str>))
   (let mut syms (vec.new <i64>))
   (for i 0 (vec.len (& (. p tests)))
     (if (== (. (vec.get (& (. p tests)) i) mod) (. p main))
-      (add_test g p ds i (&mut names) (&mut syms))))
+      (add_test g p ds i (&mut names) (&mut syms) ic)))
   (let run (cg_mod.func_sym g p (prog.std_fn p "test" "run") (vec.new <ty.sty>)))
   (let done (cg_mod.func_sym g p (prog.std_fn p "test" "done") (vec.new <ty.sty>)))
   (cg_entry.emit_tests g (& names) (& syms) run done))
@@ -222,7 +225,8 @@
    (ds (&mut (vec diag.dg)))
    (i i64)
    (names (&mut (vec str)))
-   (syms (&mut (vec i64)))) unit
+   (syms (&mut (vec i64)))
+   (ic (&mut inline.icache))) unit
   (let t (vec.get (& (. p tests)) i))
   (match (thir.check_test p (. t mod) (& (. t body)) (. t line) (. t col) (. t len) ds)
     ((res.err _) ())
@@ -230,7 +234,7 @@
       (do
         (let mut name (str.from "test."))
         (str.push (&mut name) (& (. t name)))
-        (let b (lower.lower_fn p e name ds))
+        (let b (lower.lower_fn p e name ds ic))
         (borrow.run p ds (& b))
         (lint.body ds (& b))
         (if (diag.any_err ds "") (ret))
@@ -239,16 +243,24 @@
         (vec.push names (str.clone (& (. t name))))
         (vec.push syms sym)))))
 
-(fn pump ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
+(fn pump ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
   (while (or (> (vec.len (& (. g pend))) 0) (> (vec.len (& (. g dpend))) 0))
-    (do (drain g p ds kept) (drain_drop g p))))
+    (do (drain g p ds kept ic) (drain_drop g p))))
 
-(fn drain ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
+(fn drain ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
       (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
       (let id (opt.or (vec.pop (&mut (. g pend))) 0))
-      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args kept)))))
+      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args kept ic)))))
 
 (fn from_kept ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -267,7 +279,8 @@
    (ds (&mut (vec diag.dg)))
    (id i64)
    (args (vec ty.sty))
-   (kept (&mut check.kept))) unit
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
   (cg_mod.mark_done g id (& args))
   (let ix (check.kept_ix p id (& args) kept))
   (if (>= ix 0) (ret (from_kept g p ds id ix (& args) kept)))
@@ -275,7 +288,7 @@
     ((res.err _) ())
     ((res.ok e)
       (do
-        (let b (lower.lower_fn p e (prog.fn_path p id) ds))
+        (let b (lower.lower_fn p e (prog.fn_path p id) ds ic))
         (borrow.run p ds (& b))
         (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))

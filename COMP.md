@@ -80,7 +80,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 0 | (this commit) | 290.2 | 388.5 | 351.3 | 5.32 |
 | 1 | (this commit) | 105.1 | 226.0 | 230.5 | 4.24 |
 | 2 | (this commit) | 89.9 | 102.9 | 108.1 | 5.26 |
-| 3 | | | | | |
+| 3 | (this commit) | 86.1 | 99.9 | 103.5 | 5.90 |
 | 4 | | | | | |
 | 5 | | | | | |
 | 6 | | | | | |
@@ -298,7 +298,7 @@ Steps:
    the row.
 3. `[x]` Commit: `self: codegen reuses the MIR check.run already built`.
 
-### Phase 3: inline callee memo, trace slot counter, late arg clone (OPT 3) `[ ]`
+### Phase 3: inline callee memo, trace slot counter, late arg clone (OPT 3) `[x]`
 
 Expected: the four `inline` fns (`str.at`, `vec.check`, `vec.get`, `vec.get_mut`) have
 ~1,800 textual uses in `self/`+`std/`, and `vec.get` inlines `vec.check`, so lowering
@@ -313,10 +313,10 @@ Files: `self/inline.llr` (129 lines), `self/lower.llr` (496 lines: **split first
 Design.
 
 - Memo. A cache struct in `inline.llr`:
-  `(pub (struct icache (keys (vec str)) (vals (vec thir.ex))))` keyed by
+  `(pub (struct icache (tab (map str thir.ex))))` keyed by
   `fn_path ++ "|" ++ ty.show` of each targ (there are four inline defs and at most a few
   hundred distinct instantiations, so a `(map str i64)` or a linear `str.eq` scan over
-  `keys` both work; use the map). `try_inline` looks up, and on a hit **clones** the
+  keys both work; use the map). `try_inline` looks up, and on a hit **clones** the
   `thir.ex` out of the cache and calls `subst` by value as today (the bodies are a few
   nodes; cloning is cheap and avoids borrowing from `w` while mutating `w`). On a miss it
   runs `check_fn`; on `res.ok` it inserts a clone and proceeds; on `res.err` it does what
@@ -325,7 +325,10 @@ Design.
   second copy.
 - Where the cache lives. `low` gets a field `(ic inline.icache)`. `lower.lower_fn` gains
   a parameter `(ic (&mut inline.icache))`, moves it into `w.ic` at entry with
-  `mem.replace` and moves it back at exit. `lower_clos.llr:19` passes `(&mut (. w ic))`
+  `mem.replace` and moves it back at exit. A direct swap in `lower_fn` is
+  `borrow.mut_mut`: the value taken from the parameter is still treated as borrowing
+  that place, so `inline.take` and `inline.put` do the `mem.replace` and the loan ends
+  at that call. `lower_clos.llr` passes `(&mut (. w ic))`
   into the nested `lower_fn`. Every top-level caller owns one `icache` for the whole run:
   `check.run` (one for the loop, returned or threaded alongside `kept`), `drive.build`
   (one for `pump` and `tests`), `wasm_fn.build`. `inline.llr` already `use`s
@@ -350,12 +353,12 @@ printed by `emit-mir`).
 
 Steps:
 
-1. `[ ]` Split `lower.llr` (496) before touching it: e.g. `remap_locals`, `has_i`,
+1. `[x]` Split `lower.llr` (496) before touching it: e.g. `remap_locals`, `has_i`,
    `drop_params`, and the scope helpers into `self/lower_scope.llr`, or whatever cut
    keeps both files under 450. Byte-equal, separate step within the phase.
-2. `[ ]` `icache`, thread the parameter, `tslot`, late clone.
-3. `[ ]` Full **Verification**; measure; fill the row.
-4. `[ ]` Commit: `self: inline callees are checked once per instantiation`.
+2. `[x]` `icache`, thread the parameter, `tslot`, late clone.
+3. `[x]` Full **Verification**; measure; fill the row.
+4. `[x]` Commit: `self: inline callees are checked once per instantiation`.
 
 ### Phase 4: indexed `prog` (OPT 5, OPT 6) `[ ]`
 
@@ -703,3 +706,30 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   asserts, deque/opt compile errors, `std/fmt` `fmt_pipe` `want=1.500|got=1.000`,
   `fail|setup|lld=missing`). Nested `check.ps1`, `mir.ps1`, and `self.ps1`
   printed `done|fails=0`.
+- 2026-11-05: Phase 3. Inline callees are checked once per instantiation
+  (`fn_path|ty.show` of each type argument) and cloned out of the cache on a hit.
+  `open_trace` uses a running slot instead of scanning emitted statements. Call
+  arguments are cloned only when `inline.wants` is true. `remap_locals` and the
+  scope helpers moved to `self/lower_scope.llr` (`lower.llr` is 438 lines).
+  A direct `mem.replace` of the cache back into `lower_fn`'s parameter is
+  `borrow.mut_mut`, so `inline.take` and `inline.put` perform that swap.
+  Nothing rewrites `strace` statements while a body is lowering (`strip` removes
+  drops only after `lower_fn` returns), so the slot counter matches `next_slot`.
+  A throwaway counter, not in this commit, saw 2239 hits and 126 misses while
+  checking `self/llrs.llr`. Second-run `llrs0` walls: check 86.12 s (first 85.08),
+  emit-obj 99.94 s (first 99.71), build 103.45 s (first 103.90), hello build
+  5.90 s (first 5.82). Second-run `time|` splits, in seconds: check load 0.64 /
+  check 83.11; emit-obj load 0.66 / check 84.13 / codegen 13.33 / object 0.69;
+  build load 0.66 / check 83.75 / codegen 13.52 / object 0.64 / link 3.58;
+  hello load 0.22 / check 0.05 / codegen 0.00 / object 0.00 / link 3.44.
+  `scripts/self.ps1 --stage` printed `self|stage2=equal`. `tests/check.ps1` and
+  `tests/mir.ps1` on `llrs0` were `done|fails=0`. `tests/x64_ref.ps1` was
+  `done|fails=6`: the same four pre-existing `std/deque.llr` and `std/opt.llr`
+  `--test` failures, plus `self/llrs` ELF `first=41` and COFF `first=9`. Those
+  two are the changed `self/` image. The Phase 0 baseline `llrs0` emits the same
+  ELF (6,634,472 bytes) and the same COFF (6,037,014 bytes) for the current
+  `self/llrs.llr`. Unchanged inputs had no `first=` mismatch. `tests/run.ps1`
+  under `llrs2` exited 1, `done|fails=39`, the same pre-existing set (ui
+  `link.failed`, float asserts, deque/opt compile errors, `std/fmt` and
+  `std/str_more` `want=1.500|got=1.000`, `fail|setup|lld=missing`). Nested
+  `check.ps1`, `mir.ps1`, and the self err/warn pass printed `done|fails=0`.

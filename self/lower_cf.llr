@@ -1,15 +1,12 @@
 ;; Control flow: if, loops, short-circuit logic, and return.
 (use proj.lower)
+(use proj.lower_scope)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
 
-(fn tgo ((b i64)) mir.term
-  (let mut t (mir.tnone))
-  (set (. t kind) 0u8)
-  (set (. t bb) b)
-  t)
+(fn tgo ((b i64)) mir.term (let mut t (mir.tnone)) (set (. t kind) 0u8) (set (. t bb) b) t)
 
 (fn tif ((o mir.op) (a i64) (b i64)) mir.term
   (let mut t (mir.tnone))
@@ -26,7 +23,9 @@
   (let join (lower.new_block w))
   (lower.terminate w (tif c tb eb))
   (set (. w cur) tb)
-  (if (. e flag) (lower.expr_into p w (vec.get (& (. e kids)) 1) (mir.pclone (& dest))) (then_stmt p w e))
+  (if (. e flag)
+    (lower.expr_into p w (vec.get (& (. e kids)) 1) (mir.pclone (& dest)))
+    (then_stmt p w e))
   (lower.terminate w (tgo join))
   (set (. w cur) eb)
   (if (. e flag) (lower.expr_into p w (vec.get (& (. e kids)) 2) (mir.pclone (& dest))))
@@ -34,9 +33,9 @@
   (set (. w cur) join)))
 
 (fn then_stmt ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
-  (lower.push_scope w)
+  (lower_scope.push_scope w)
   (lower.expr_stmt p w (vec.get (& (. e kids)) 1))
-  (lower.pop_scope p w))
+  (lower_scope.pop_scope p w))
 
 (pub (fn into_while ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
   (let head (lower.goto_new w))
@@ -115,25 +114,25 @@
 
 (pub (fn into_jump ((w (&mut lower.low)) (e (& thir.ex))) unit
   (let n (- (vec.len (& (. w lbrk))) 1))
-  (let target (+ (if (== (. e kind) 10u8) (@ (vec.get (& (. w lbrk)) n)) (@ (vec.get (& (. w lcont)) n))) 0))
+  (let target
+    (+ (if (== (. e kind) 10u8) (@ (vec.get (& (. w lbrk)) n)) (@ (vec.get (& (. w lcont)) n))) 0))
   (let depth (+ (@ (vec.get (& (. w ldepth)) n)) 0))
-  (lower.drops_to w depth)
+  (lower_scope.drops_to w depth)
   (lower.terminate w (tgo target))
   (set (. w cur) (lower.new_block w))))
 
 (pub (fn into_ret ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
   (if (. w ihave) (ret (ret_inline p w e)))
   (if (. e flag) (ret (ret_val p w e)))
-  (lower.drops_to w 0)
+  (lower_scope.drops_to w 0)
   (lower.terminate w (tret))
   (set (. w cur) (lower.new_block w))))
 
 (fn ret_val ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
   (let v (vec.get (& (. e kids)) 0))
   (let o (lower.as_operand p w v))
-  (if (not (ty.is_unit (& (. v ty))))
-    (lower.push w (mir.sassign (mir.ploc 0) (mir.ruse o))))
-  (lower.drops_to w 0)
+  (if (not (ty.is_unit (& (. v ty)))) (lower.push w (mir.sassign (mir.ploc 0) (mir.ruse o))))
+  (lower_scope.drops_to w 0)
   (lower.terminate w (tret))
   (set (. w cur) (lower.new_block w)))
 
@@ -143,17 +142,12 @@
       (let v (vec.get (& (. e kids)) 0))
       (let o (lower.as_operand p w v))
       (if (not (ty.is_unit (& (. v ty))))
-        (do
-          (let d (mir.pclone (& (. w idest))))
-          (lower.push w (mir.sassign d (mir.ruse o)))))))
-  (lower.drops_to w (. w idepth))
+        (do (let d (mir.pclone (& (. w idest)))) (lower.push w (mir.sassign d (mir.ruse o)))))))
+  (lower_scope.drops_to w (. w idepth))
   (lower.terminate w (tgo (. w iexit)))
   (set (. w cur) (lower.new_block w)))
 
-(fn tret () mir.term
-  (let mut t (mir.tnone))
-  (set (. t kind) 4u8)
-  t)
+(fn tret () mir.term (let mut t (mir.tnone)) (set (. t kind) 4u8) t)
 
 (pub (fn into_logic ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let a (lower.as_operand p w (vec.get (& (. e kids)) 0)))

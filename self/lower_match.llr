@@ -1,5 +1,6 @@
 ;; Match lowering: a chain of tests, then bindings, then the arm body.
 (use proj.lower)
+(use proj.lower_scope)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
@@ -15,10 +16,10 @@
     (let mut bpl (vec.new <mir.place>))
     (let mut drops (vec.new <mir.place>))
     (test_pat p w pat (mir.pclone (& base)) fail (&mut binds) (&mut bpl) (&mut drops))
-    (lower.push_scope w)
+    (lower_scope.push_scope w)
     (bind_all p w e (& binds) (& bpl) (&mut drops))
     (lower.expr_into p w (vec.get (& (. e kids)) (+ i 1)) (mir.pclone (& dest)))
-    (lower.pop_scope p w)
+    (lower_scope.pop_scope p w)
     (let mut g (mir.tnone))
     (set (. g kind) 0u8)
     (set (. g bb) join)
@@ -36,13 +37,20 @@
   (lower.push w (mir.sassign (mir.ploc t) (mir.ruse o)))
   (mir.ppush (mir.ploc t) 1u8 0))
 
-(fn bind_all ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (ls (& (vec i64))) (ps (& (vec mir.place))) (drops (&mut (vec mir.place)))) unit
+(fn bind_all ((p (& prog.prog))
+   (w (&mut lower.low))
+   (e (& thir.ex))
+   (ls (& (vec i64)))
+   (ps (& (vec mir.place)))
+   (drops (&mut (vec mir.place)))) unit
   (let mut moved false)
   (for i 0 (vec.len ls)
     (let l (@ (vec.get ls i)))
     (let pl (mir.pclone (vec.get ps i)))
     (vec.push (&mut (. w all)) l)
-    (if (< (. e id) 0) (if (bind_val p w l pl) (set moved true)) (bind_ref w e l (mir.pclone (vec.get ps i)))))
+    (if (< (. e id) 0)
+      (if (bind_val p w l pl) (set moved true))
+      (bind_ref w e l (mir.pclone (vec.get ps i)))))
   (if (and (< (. e id) 0) moved) (drop_rest w drops)))
 
 (fn bind_val ((p (& prog.prog)) (w (&mut lower.low)) (l i64) (pl mir.place)) bool
@@ -63,9 +71,7 @@
   (lower.push w (mir.sassign (mir.ploc l) r)))
 
 (fn drop_rest ((w (&mut lower.low)) (drops (& (vec mir.place)))) unit
-  (for i 0 (vec.len drops)
-    (let pl (mir.pclone (vec.get drops i)))
-    (lower.push w (st_drop pl))))
+  (for i 0 (vec.len drops) (let pl (mir.pclone (vec.get drops i))) (lower.push w (st_drop pl))))
 
 (fn st_drop ((pl mir.place)) mir.st
   (mir.st 1u8 (. pl local) (pk (mir.pclone (& pl))) (pi_of (& pl)) (mir.rvoid) 0 0 0))
@@ -102,7 +108,11 @@
   (for i 0 (vec.len (& (. pl pk))) (if (== (@ (vec.get (& (. pl pk)) i)) 2u8) (ret true)))
   false)
 
-(fn bind_push ((w (&mut lower.low)) (pat (& thir.pat)) (place mir.place) (ls (&mut (vec i64))) (ps (&mut (vec mir.place)))) unit
+(fn bind_push ((w (&mut lower.low))
+   (pat (& thir.pat))
+   (place mir.place)
+   (ls (&mut (vec i64)))
+   (ps (&mut (vec mir.place)))) unit
   (vec.push ls (lower.map_l w (. pat id)))
   (vec.push ps place))
 
@@ -161,4 +171,3 @@
   (let mut o (vec.new <u8>))
   (for i 0 (vec.len (& (. pl pk))) (vec.push (&mut o) (@ (vec.get (& (. pl pk)) i))))
   o)
-

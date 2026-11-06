@@ -2,6 +2,7 @@
 (use std.str)
 (use proj.borrow)
 (use proj.diag)
+(use proj.inline)
 (use proj.lint)
 (use proj.lower)
 (use proj.mir)
@@ -28,7 +29,9 @@
   (diag.append out (& (. p notes)))
   (let mut k (blank (vec.len (& (. p defs)))))
   (if (diag.any_err out deny) (ret k))
-  (for i 0 (vec.len (& (. p defs))) (if (user_fn p i) (one p out i dump want_mir keep (&mut k))))
+  (let mut ic (inline.empty))
+  (for i 0 (vec.len (& (. p defs)))
+    (if (user_fn p i) (one p out i dump want_mir keep (&mut k) (&mut ic))))
   (lint.items p out test)
   k))
 
@@ -51,11 +54,12 @@
    (dump (&mut str))
    (want_mir bool)
    (keep bool)
-   (k (&mut kept))) unit
+   (k (&mut kept))
+   (ic (&mut inline.icache))) unit
   (let empty (vec.new <ty.sty>))
   (match (thir.check_fn p id empty out)
     ((res.err _) ())
-    ((res.ok e) (lower_one p out id e dump want_mir keep k))))
+    ((res.ok e) (lower_one p out id e dump want_mir keep k ic))))
 
 (fn lower_one ((p (& prog.prog))
    (out (&mut (vec diag.dg)))
@@ -64,8 +68,9 @@
    (dump (&mut str))
    (want_mir bool)
    (keep bool)
-   (k (&mut kept))) unit
-  (let b (lower.lower_fn p e (prog.fn_path p id) out))
+   (k (&mut kept))
+   (ic (&mut inline.icache))) unit
+  (let b (lower.lower_fn p e (prog.fn_path p id) out ic))
   (borrow.run p out (& b))
   (lint.body out (& b))
   (if want_mir (str.push dump (& (mir_print.print_body (& b)))))
