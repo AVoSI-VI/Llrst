@@ -79,7 +79,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | baseline (OPT) | `7077aa6` | 244.4 | 344.4 | 355.4 | 5.96 |
 | 0 | (this commit) | 290.2 | 388.5 | 351.3 | 5.32 |
 | 1 | (this commit) | 105.1 | 226.0 | 230.5 | 4.24 |
-| 2 | | | | | |
+| 2 | (this commit) | 89.9 | 102.9 | 108.1 | 5.26 |
 | 3 | | | | | |
 | 4 | | | | | |
 | 5 | | | | | |
@@ -240,7 +240,7 @@ Steps:
 3. `[x]` Full **Verification**; measure; fill the row.
 4. `[x]` Commit: `self: lint.items marks references in one pass`.
 
-### Phase 2: reuse `check.run`'s bodies in codegen (OPT 1) `[ ]`
+### Phase 2: reuse `check.run`'s bodies in codegen (OPT 1) `[x]`
 
 Expected: removes the second typecheck, lower, and borrowck of every non-generic user fn
 in `build` (~2,500 fns in `self/`). Bounded above by the 100 s difference between
@@ -292,11 +292,11 @@ Traps:
 
 Steps:
 
-1. `[ ]` `mir.empty_body`, `check.kept`, `check.run keep`, thread into `drive` and
+1. `[x]` `mir.empty_body`, `check.kept`, `check.run keep`, thread into `drive` and
    `wasm_fn`.
-2. `[ ]` `tests\x64_ref.ps1` (objects equal), then full **Verification**; measure; fill
+2. `[x]` `tests\x64_ref.ps1` (objects equal), then full **Verification**; measure; fill
    the row.
-3. `[ ]` Commit: `self: codegen reuses the MIR check.run already built`.
+3. `[x]` Commit: `self: codegen reuses the MIR check.run already built`.
 
 ### Phase 3: inline callee memo, trace slot counter, late arg clone (OPT 3) `[ ]`
 
@@ -683,3 +683,23 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   deque/opt compile errors, `std/fmt` `fmt_pipe` `want=1.500|got=1.000`,
   `fail|setup|lld=missing`). Nested `check.ps1`, `mir.ps1`, and `self.ps1` printed
   `done|fails=0`.
+- 2026-11-05: Phase 2. `check.run` takes `keep` and returns the MIR for every
+  non-generic user fn. `drive.build` and `wasm_fn.build` compile those bodies
+  instead of checking and lowering them again. `emit-mir` passes `keep` false.
+  Second-run `llrs0` walls: check 89.94 s (first 92.54), emit-obj 102.90 s
+  (first 103.48), build 108.07 s (first 108.97), hello build 5.26 s (first 5.51).
+  Second-run `time|` splits, in seconds: check load 0.67 / check 87.06; emit-obj
+  load 0.66 / check 86.45 / codegen 13.44 / object 0.75; build load 0.66 /
+  check 86.11 / codegen 13.47 / object 0.67 / link 4.59; hello load 0.22 /
+  check 0.06 / codegen 0.00 / object 0.00 / link 3.77. `scripts/self.ps1 --stage`
+  printed `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on `llrs0`
+  were `done|fails=0`. `tests/x64_ref.ps1` was `done|fails=6`: the same four
+  pre-existing `std/deque.llr` and `std/opt.llr` `--test` failures, plus
+  `self/llrs` ELF `first=41` and COFF `first=9`. Those two are the changed
+  `self/` image. The Phase 0 baseline `llrs0` emits the same ELF (6,576,248
+  bytes) and the same COFF (5,982,308 bytes) for the current `self/llrs.llr`.
+  Unchanged inputs had no `first=` mismatch. `tests/run.ps1` under `llrs2`
+  exited 1, `done|fails=39`, the same pre-existing set (ui `link.failed`, float
+  asserts, deque/opt compile errors, `std/fmt` `fmt_pipe` `want=1.500|got=1.000`,
+  `fail|setup|lld=missing`). Nested `check.ps1`, `mir.ps1`, and `self.ps1`
+  printed `done|fails=0`.

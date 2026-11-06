@@ -22,15 +22,20 @@
 (use proj.wasm_rec)
 (use std.str)
 
-(pub (fn build ((p (& prog.prog)) (checked bool) (wasi bool) (test bool) (ds (&mut (vec diag.dg)))) str
+(pub (fn build ((p (& prog.prog))
+   (checked bool)
+   (wasi bool)
+   (test bool)
+   (ds (&mut (vec diag.dg)))
+   (kept (&mut check.kept))) str
   (let mut g (wasm_mod.new checked wasi))
   (let entry (if test (prep_tests (&mut g) p ds) (prep_main (&mut g) p ds)))
   (if (diag.any_err ds "") (ret (str.new)))
-  (pump (&mut g) p ds)
+  (pump (&mut g) p ds kept)
   (lint.generics p ds (& (wasm_mod.done_ids (& g))))
   (if (diag.any_err ds "") (ret (str.new)))
   (let boot (wasm_mod.func_sym (&mut g) p (prog.std_fn p "sys" "llr_boot") (vec.new <ty.sty>)))
-  (pump (&mut g) p ds)
+  (pump (&mut g) p ds kept)
   (if (diag.any_err ds "") (ret (str.new)))
   (let start (emit_start (&mut g) boot entry))
   (wasm_out.bytes (&mut g) start)))
@@ -53,19 +58,38 @@
 (fn err ((ds (&mut (vec diag.dg))) (file (& str)) (code (& str))) unit
   (vec.push ds (diag.make true (str.clone file) 1 1 0 (str.from code))))
 
-(fn pump ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn pump ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
   (while (or (> (vec.len (& (. g pend))) 0) (> (vec.len (& (. g dpend))) 0))
-    (do (drain g p ds) (drain_drop g p))))
+    (do (drain g p ds kept) (drain_drop g p))))
 
-(fn drain ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn drain ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
       (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
       (let id (opt.or (vec.pop (&mut (. g pend))) 0))
-      (if (not (wasm_mod.is_done g id (& args))) (inst g p ds id args)))))
+      (if (not (wasm_mod.is_done g id (& args))) (inst g p ds id args kept)))))
 
-(fn inst ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (id i64) (args (vec ty.sty))) unit
+(fn from_kept ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (id i64)
+   (ix i64)
+   (args (& (vec ty.sty)))
+   (kept (&mut check.kept))) unit
+  (if (diag.any_err ds "") (ret))
+  (let b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
+  (let ord (wasm_mod.func_sym g p id (clone_tys args)))
+  (compile_body g p (& b) ord true))
+
+(fn inst ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (id i64)
+   (args (vec ty.sty))
+   (kept (&mut check.kept))) unit
   (wasm_mod.mark_done g id (& args))
+  (let ix (check.kept_ix p id (& args) kept))
+  (if (>= ix 0) (ret (from_kept g p ds id ix (& args) kept)))
   (match (thir.check_fn p id (clone_tys (& args)) ds)
     ((res.err _) ())
     ((res.ok e)

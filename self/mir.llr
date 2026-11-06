@@ -76,6 +76,9 @@
   (pub (path str))
   (pub (clos (vec clbody)))))
 
+(pub (fn empty_body () body
+  (body (str.new) 0 (vec.new <thir.loc>) (vec.new <blk>) (str.new) (vec.new <clbody>))))
+
 (pub (fn ploc ((l i64)) place (place l (vec.new <u8>) (vec.new <i64>))))
 
 (pub (fn pclone ((p (& place))) place

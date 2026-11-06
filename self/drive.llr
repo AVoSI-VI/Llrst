@@ -97,19 +97,19 @@
   (let mut ds (vec.new <diag.dg>))
   (let mut dump (str.new))
   (let mut t (time.mono_ms))
-  (check.run (& p) "" (&mut ds) (&mut dump) false (. o test))
+  (let mut kept (check.run (& p) "" (&mut ds) (&mut dump) false (. o test) true))
   (phase "check" t)
   (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
-  (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds))))
+  (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds) (&mut kept))))
   (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target)))))
   (let mut g (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
   (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (. o emit_dylib) (cg_reload.queue (&mut g) (& p)))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
   (set t (time.mono_ms))
-  (pump (&mut g) (& p) (&mut ds))
+  (pump (&mut g) (& p) (&mut ds) (&mut kept))
   (lint.generics (& p) (&mut ds) (& (cg_mod.done_ids (& g))))
   (phase "codegen" t)
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
@@ -145,9 +145,9 @@
   (if (. d err) (ret))
   (for i 0 (vec.len deny) (if (str.eq (& (. d code)) (vec.get deny i)) (set (. d err) true))))
 
-(fn wasm_out ((o (& flags)) (p prog.prog) (ds (&mut (vec diag.dg)))) i64
+(fn wasm_out ((o (& flags)) (p prog.prog) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) i64
   (let wasi (str.has (& (. o target)) "wasi"))
-  (let bytes (wasm_fn.build (& p) (. o checked) wasi (. o test) ds))
+  (let bytes (wasm_fn.build (& p) (. o checked) wasi (. o test) ds kept))
   (if (diag.any_err ds "") (ret (finish o ds)))
   (let path (wasm_path o))
   (match (fs.write (& path) (& bytes))
@@ -239,19 +239,38 @@
         (vec.push names (str.clone (& (. t name))))
         (vec.push syms sym)))))
 
-(fn pump ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn pump ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
   (while (or (> (vec.len (& (. g pend))) 0) (> (vec.len (& (. g dpend))) 0))
-    (do (drain g p ds) (drain_drop g p))))
+    (do (drain g p ds kept) (drain_drop g p))))
 
-(fn drain ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn drain ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
       (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
       (let id (opt.or (vec.pop (&mut (. g pend))) 0))
-      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args)))))
+      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args kept)))))
 
-(fn inst ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (id i64) (args (vec ty.sty))) unit
+(fn from_kept ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (id i64)
+   (ix i64)
+   (args (& (vec ty.sty)))
+   (kept (&mut check.kept))) unit
+  (if (diag.any_err ds "") (ret))
+  (let b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
+  (let sym (cg_mod.func_sym g p id (clone_tys args)))
+  (cg_term.compile g p (& b) sym true))
+
+(fn inst ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (id i64)
+   (args (vec ty.sty))
+   (kept (&mut check.kept))) unit
   (cg_mod.mark_done g id (& args))
+  (let ix (check.kept_ix p id (& args) kept))
+  (if (>= ix 0) (ret (from_kept g p ds id ix (& args) kept)))
   (match (thir.check_fn p id (clone_tys (& args)) ds)
     ((res.err _) ())
     ((res.ok e)

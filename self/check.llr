@@ -4,21 +4,38 @@
 (use proj.diag)
 (use proj.lint)
 (use proj.lower)
+(use proj.mir)
 (use proj.mir_print)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
+
+;; at[def id] is an index into bodies, or -1 when that fn was not kept.
+(pub (struct kept (pub (at (vec i64))) (pub (bodies (vec mir.body)))))
+
+(fn blank ((n i64)) kept
+  (let mut at (vec.new <i64>))
+  (for i 0 n (vec.push (&mut at) (neg 1)))
+  (kept at (vec.new <mir.body>)))
 
 (pub (fn run ((p (& prog.prog))
    (deny (& str))
    (out (&mut (vec diag.dg)))
    (dump (&mut str))
    (want_mir bool)
-   (test bool)) unit
+   (test bool)
+   (keep bool)) kept
   (diag.append out (& (. p notes)))
-  (if (diag.any_err out deny) (ret))
-  (for i 0 (vec.len (& (. p defs))) (if (user_fn p i) (one p out i dump want_mir)))
-  (lint.items p out test)))
+  (let mut k (blank (vec.len (& (. p defs)))))
+  (if (diag.any_err out deny) (ret k))
+  (for i 0 (vec.len (& (. p defs))) (if (user_fn p i) (one p out i dump want_mir keep (&mut k))))
+  (lint.items p out test)
+  k))
+
+;; Index of a kept body for this instantiation, or -1. Same predicate as the check loop.
+(pub (fn kept_ix ((p (& prog.prog)) (id i64) (args (& (vec ty.sty))) (k (& kept))) i64
+  (if (or (not (user_fn p id)) (!= (vec.len args) 0)) (ret (neg 1)))
+  (@ (vec.get (& (. k at)) id))))
 
 (pub (fn user_fn ((p (& prog.prog)) (id i64)) bool
   (let d (vec.get (& (. p defs)) id))
@@ -28,19 +45,32 @@
   (if (> (vec.len (& (. d gens))) 0) (ret false))
   true))
 
-(fn one ((p (& prog.prog)) (out (&mut (vec diag.dg))) (id i64) (dump (&mut str)) (want_mir bool)) unit
+(fn one ((p (& prog.prog))
+   (out (&mut (vec diag.dg)))
+   (id i64)
+   (dump (&mut str))
+   (want_mir bool)
+   (keep bool)
+   (k (&mut kept))) unit
   (let empty (vec.new <ty.sty>))
   (match (thir.check_fn p id empty out)
     ((res.err _) ())
-    ((res.ok e) (lower_one p out id e dump want_mir))))
+    ((res.ok e) (lower_one p out id e dump want_mir keep k))))
 
 (fn lower_one ((p (& prog.prog))
    (out (&mut (vec diag.dg)))
    (id i64)
    (e thir.ex)
    (dump (&mut str))
-   (want_mir bool)) unit
+   (want_mir bool)
+   (keep bool)
+   (k (&mut kept))) unit
   (let b (lower.lower_fn p e (prog.fn_path p id) out))
   (borrow.run p out (& b))
   (lint.body out (& b))
-  (if want_mir (str.push dump (& (mir_print.print_body (& b))))))
+  (if want_mir (str.push dump (& (mir_print.print_body (& b)))))
+  (if keep (save k id b) (drop b)))
+
+(fn save ((k (&mut kept)) (id i64) (b mir.body)) unit
+  (vec.set (&mut (. k at)) id (vec.len (& (. k bodies))))
+  (vec.push (&mut (. k bodies)) b))

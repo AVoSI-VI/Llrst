@@ -149,7 +149,7 @@
   (let mut ds (vec.new <diag.dg>))
   (let mut s (str.new))
   (let t (time.mono_ms))
-  (check.run (& p) "" (&mut ds) (&mut s) true (. o test))
+  (drop (check.run (& p) "" (&mut ds) (&mut s) true (. o test) false))
   (drive.phase "check" t)
   (if (not (diag.any_err (& (. p notes)) "")) (lint.generics (& p) (&mut ds) (& (vec.new <i64>))))
   (sys.write_str 1 (& s))
