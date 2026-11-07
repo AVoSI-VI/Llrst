@@ -11,19 +11,53 @@
 
 (pub (struct acc (pub (pl mir.place)) (pub (kind u8)) (pub (line i64)) (pub (col i64)) (pub (len i64))))
 
-(pub (fn bools ((n i64)) (vec bool) (let mut v (vec.new <bool>)) (for i 0 n (vec.push (&mut v) false)) v))
+(fn words ((n i64)) i64 (if (<= n 0) 0 (+ (/ (- n 1) 64) 1)))
 
-(pub (fn clone_b ((v (& (vec bool)))) (vec bool) (vec.clone v)))
+(fn mask ((i i64)) u64 (shl 1u64 (as u64 (% i 64))))
 
-(pub (fn bit ((v (& (vec bool))) (i i64)) bool
-  (if (or (< i 0) (>= i (vec.len v))) (ret false))
-  (@ (vec.get v i))))
+(fn ones () u64 (let hi (shl 1u64 63)) (bor hi (- hi 1u64)))
 
-(pub (fn setb ((v (&mut (vec bool))) (i i64) (on bool)) bool
-  (if (or (< i 0) (>= i (vec.len v))) (ret false))
-  (let was (bit v i))
-  (vec.set v i on)
+(fn word ((v (& (vec u64))) (w i64)) u64 (@ (vec.get v w)))
+
+(pub (fn bools ((n i64)) (vec u64)
+  (let mut v (vec.new <u64>))
+  (for i 0 (words n) (vec.push (&mut v) 0u64))
+  v))
+
+(pub (fn clone_b ((v (& (vec u64)))) (vec u64) (vec.clone v)))
+
+(pub (fn bit ((v (& (vec u64))) (i i64)) bool
+  (if (< i 0) (ret false))
+  (let w (/ i 64))
+  (if (>= w (vec.len v)) (ret false))
+  (!= (band (word v w) (mask i)) 0u64)))
+
+(pub (fn setb ((v (&mut (vec u64))) (i i64) (on bool)) bool
+  (if (< i 0) (ret false))
+  (let w (/ i 64))
+  (if (>= w (vec.len v)) (ret false))
+  (let m (mask i))
+  (let cur (word v w))
+  (let was (!= (band cur m) 0u64))
+  (vec.set v w (if on (bor cur m) (band cur (bxor m (ones)))))
   (and on (not was))))
+
+(pub (fn or_words ((a (&mut (vec u64))) (b (& (vec u64)))) bool
+  (let mut ch false)
+  (for i 0 (vec.len a)
+    (let x (word a i))
+    (let y (bor x (word b i)))
+    (if (!= x y) (do (vec.set a i y) (set ch true))))
+  ch))
+
+(pub (fn diff_words ((a (& (vec u64))) (b (& (vec u64)))) bool
+  (for i 0 (vec.len a) (if (!= (word a i) (word b i)) (ret true)))
+  false))
+
+(fn pack ((v (& (vec bool)))) (vec u64)
+  (let mut o (bools (vec.len v)))
+  (for i 0 (vec.len v) (if (@ (vec.get v i)) (let _ (setb (&mut o) i true))))
+  o)
 
 (fn mk_acc ((pl mir.place) (k u8) (line i64) (col i64) (len i64)) acc (acc pl k line col len))
 
@@ -136,46 +170,71 @@
     (do (if (not (proj_eq a b i j)) (ret false)) (set i (+ i 1)) (set j (+ j 1))))
   true))
 
+(fn body_acc ((b (& mir.body))) (vec (vec (vec acc)))
+  (let mut o (vec.new < (vec (vec acc)) >))
+  (for i 0 (vec.len (& (. b blocks))) (vec.push (&mut o) (blk_acc (vec.get (& (. b blocks)) i))))
+  o)
+
+(fn blk_acc ((blk (& mir.blk))) (vec (vec acc))
+  (let mut o (vec.new < (vec acc) >))
+  (for i 0 (vec.len (& (. blk stmts))) (vec.push (&mut o) (stmt_acc (vec.get (& (. blk stmts)) i))))
+  (vec.push (&mut o) (term_acc (& (. blk term))))
+  o)
+
 (pub (fn run ((p (& prog.prog)) (out (&mut (vec diag.dg))) (b (& mir.body))) unit
-  (let live (liveness.compute p b))
-  (moves.run out b)
+  (let accs (body_acc b))
+  (let live (liveness.compute p b (& accs)))
+  (moves.run out b (& accs))
   (let ls (loans.collect b))
   (let hs (holders.compute p b (& ls)))
-  (conflicts p out b (& ls) (& hs) (& live))))
+  (let fr (holders.live_sets (& hs) (& live)))
+  (conflicts p out b (& ls) (& hs) (& fr) (& accs))))
 
 (fn conflicts ((p (& prog.prog))
    (out (&mut (vec diag.dg)))
    (b (& mir.body))
    (ls (& (vec loans.loan)))
    (hs (& holders.hold))
-   (live (& liveness.live))) unit
-  (let stat (holders.statics out b))
-  (for bi 0 (vec.len (& (. b blocks))) (conf_blk p out b ls hs live (& stat) bi)))
+   (fr (& holders.liveh))
+   (accs (& (vec (vec (vec acc)))))) unit
+  (let raw (holders.statics out b))
+  (let stat (pack (& raw)))
+  (for bi 0 (vec.len (& (. b blocks))) (conf_blk p out b ls hs fr (& stat) accs bi)))
 
 (fn conf_blk ((p (& prog.prog))
    (out (&mut (vec diag.dg)))
    (b (& mir.body))
    (ls (& (vec loans.loan)))
    (hs (& holders.hold))
-   (live (& liveness.live))
-   (stat (& (vec bool)))
+   (fr (& holders.liveh))
+   (stat (& (vec u64)))
+   (accs (& (vec (vec (vec acc)))))
    (bi i64)) unit
   (let blk (vec.get (& (. b blocks)) bi))
-  (for si 0 (vec.len (& (. blk stmts)))
-    (conf_at p out b ls hs live stat bi si (stmt_acc (vec.get (& (. blk stmts)) si))))
-  (conf_at p out b ls hs live stat bi (vec.len (& (. blk stmts))) (term_acc (& (. blk term)))))
+  (let row (vec.get accs bi))
+  (for si 0 (vec.len (& (. blk stmts))) (conf_at p out b ls hs fr stat bi si (vec.get row si)))
+  (conf_at p
+    out
+    b
+    ls
+    hs
+    fr
+    stat
+    bi
+    (vec.len (& (. blk stmts)))
+    (vec.get row (vec.len (& (. blk stmts))))))
 
 (fn conf_at ((p (& prog.prog))
    (out (&mut (vec diag.dg)))
    (b (& mir.body))
    (ls (& (vec loans.loan)))
    (hs (& holders.hold))
-   (live (& liveness.live))
-   (stat (& (vec bool)))
+   (fr (& holders.liveh))
+   (stat (& (vec u64)))
    (bb i64)
    (idx i64)
-   (accs (vec acc))) unit
-  (for li 0 (vec.len ls) (conf_loan p out b ls hs live stat bb idx li (& accs))))
+   (accs (& (vec acc)))) unit
+  (for li 0 (vec.len ls) (conf_loan p out b ls hs fr stat bb idx li accs)))
 
 (fn same_pt ((l (& loans.loan)) (bb i64) (idx i64)) bool (and (== (. l bb) bb) (== (. l idx) idx)))
 
@@ -187,8 +246,8 @@
    (b (& mir.body))
    (ls (& (vec loans.loan)))
    (hs (& holders.hold))
-   (live (& liveness.live))
-   (stat (& (vec bool)))
+   (fr (& holders.liveh))
+   (stat (& (vec u64)))
    (bb i64)
    (idx i64)
    (li i64)
@@ -196,8 +255,9 @@
   (let l (vec.get ls li))
   (if (same_pt l bb idx) (ret))
   (if (bit stat (. (. l pl) local)) (ret))
-  (let force (or (holders.in_force hs bb idx li live) (holders.after hs l li bb idx live accs)))
-  (if (not force) (ret))
+  (let live (holders.in_force (vec.get (vec.get (& (. fr at)) bb) idx) li))
+  (let aft (holders.after (vec.get (vec.get (& (. fr aft)) bb) idx) l li accs))
+  (if (not (or live aft)) (ret))
   (for i 0 (vec.len accs) (conf_one out b l hs bb idx li (vec.get accs i))))
 
 (fn conf_one ((out (&mut (vec diag.dg)))

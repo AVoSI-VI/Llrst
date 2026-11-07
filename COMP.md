@@ -82,7 +82,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 2 | (this commit) | 89.9 | 102.9 | 108.1 | 5.26 |
 | 3 | (this commit) | 86.1 | 99.9 | 103.5 | 5.90 |
 | 4 | (this commit) | 79.4 | 90.0 | 88.6 | 1.38 |
-| 5 | | | | | |
+| 5 | (this commit) | 14.6 | 19.8 | 21.0 | 1.37 |
 | 6 | | | | | |
 | 7 | | | | | |
 
@@ -434,7 +434,7 @@ Steps:
 3. `[x]` Full **Verification**; measure; fill the row.
 4. `[x]` Commit: `self: prog name, method, and drop tables are indexed`.
 
-### Phase 5: borrow checker dataflow (OPT 4) `[ ]`
+### Phase 5: borrow checker dataflow (OPT 4) `[x]`
 
 Expected: liveness is a backward problem iterated in forward block order, so a
 straight-line chain of `nb` blocks (one per call) takes about `nb` passes, each pass
@@ -452,11 +452,14 @@ Design, in order of payoff:
    `(vec (vec (vec borrow.acc)))` (block, point) and pass `(& ...)` to `liveness.transfer`,
    `liveness.points`, `conf_blk`, and `holders`/`moves` where they recompute them.
    `acc` owns two small vectors per place; today each is rebuilt per pass.
-2. **Liveness order and scratch.** `solve` visits blocks in reverse post-order (compute
-   once from `mir.succs`) with a worklist seeded with all blocks; a block is re-queued
-   when its `inn` changes, for each predecessor (build `preds` once). `apply` stops
-   allocating `uses`/`defs`: first clear every def access's local in `live`, then set
-   every use access's local; same result as `(live - defs) | uses`.
+2. **Liveness order and scratch.** `solve` visits blocks in post-order (each block
+   after its successors; computed once from `mir.succs`) with a worklist seeded with
+   all blocks; a block is re-queued when its `inn` changes, for each predecessor
+   (build `preds` once). Reverse post-order of the forward CFG visits the entry
+   first and still takes about `nb` passes on a straight-line chain, so the order
+   is post-order. `apply` stops allocating `uses`/`defs`: first clear every def
+   access's local in `live`, then set every use access's local; same result as
+   `(live - defs) | uses`.
 3. **Per-local `needs_drop` once.** `gen_one` kind 5 calls `prog.needs_drop` per drop
    access per pass; precompute `(vec bool)` over `b.locs` once per body and index it.
    Same for any `needs_drop` inside `holders`/`moves` per pass.
@@ -491,11 +494,11 @@ Traps:
 
 Steps:
 
-1. `[ ]` Items 1 to 3; verify; measure `time|check`.
-2. `[ ]` Item 4 if borrowck is still visible; verify; measure.
-3. `[ ]` Items 5 and 6 only on evidence.
-4. `[ ]` Full **Verification**; fill the row.
-5. `[ ]` Commit: `self: liveness worklist, hoisted accesses, per-point loan sets`.
+1. `[x]` Items 1 to 3; verify; measure `time|check`.
+2. `[x]` Item 4 if borrowck is still visible; verify; measure.
+3. `[x]` Items 5 and 6 only on evidence.
+4. `[x]` Full **Verification**; fill the row.
+5. `[x]` Commit: `self: liveness worklist, hoisted accesses, per-point loan sets`.
 
 ### Phase 6: checker and codegen tables (OPT 7, 8, 9, 10) `[ ]`
 
@@ -763,3 +766,29 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   `fail|setup|stage0=not found` because `cargo build` wrote `llrc` outside
   `target/release`; `check.ps1` and `mir.ps1` were run against that binary
   directly.
+- 2026-11-06: Phase 5. Access lists are built once per body and shared by liveness,
+  moves, and conflict checking. Liveness walks blocks in post-order (successors
+  before the block) on a worklist and requeues a predecessor when that block's
+  in-set changes. Reverse post-order of the forward CFG still takes about one
+  pass per block on a straight-line chain, so the plan text now says post-order.
+  `apply` clears defs and then sets uses in the live set. `needs_drop` is
+  computed once per local. After items 1 to 4 a timer that is not in this
+  commit saw borrow checking at 44.41 s of a 45.38 s `time|check`, so the
+  dataflow bitsets are `u64` words and each body builds its successor lists
+  once. Loan bits are stored local-major, and each point keeps one bit per
+  loan for "some holder is live" and the same for live-after. `holder_name`
+  still walks locals from index 0. Second-run `llrs0` walls: check 14.64 s
+  (first 14.53), emit-obj 19.83 s (first 19.11), build 21.00 s (first 21.61),
+  hello build 1.37 s (first 1.37). Second-run `time|` splits, in seconds:
+  check load 0.61 / check 13.86; emit-obj load 0.59 / check 14.06 / codegen
+  4.45 / object 0.64; build load 0.59 / check 14.00 / codegen 4.52 / object
+  0.64 / link 1.17; hello load 0.19 / check 0.03 / codegen 0.00 / object 0.00
+  / link 1.13. Codegen fell with check because generic and std bodies are
+  still borrow-checked while they are compiled. `scripts/self.ps1 --stage`
+  printed `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on
+  `llrs0` were `done|fails=0`. `target/self/x64_ref` is not on this machine,
+  so `x64_ref.ps1` could not compare objects. `tests/run.ps1` under `llrs2`
+  exited 1, `done|fails=39`, the same pre-existing set (ui `link.failed`,
+  float asserts, deque/opt compile errors, `std/fmt` and `std/str_more`
+  `want=1.500|got=1.000`, five cross targets with an empty `got`). Nested
+  `check.ps1`, `mir.ps1`, and the self pass printed `done|fails=0`.

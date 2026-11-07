@@ -1,9 +1,10 @@
-;; Backward liveness of locals.
+;; Backward liveness of locals. Blocks are solved in post-order: a straight-line
+;; chain propagates in one pass, and a changed in-set requeues predecessors.
 (use proj.borrow)
 (use proj.mir)
 (use proj.prog)
 
-(pub (struct live (at (vec (vec (vec bool)))) (out (vec (vec bool)))))
+(pub (struct live (at (vec (vec (vec u64)))) (out (vec (vec u64)))))
 
 (pub (fn live_at ((v (& live)) (bb i64) (idx i64) (l i64)) bool
   (borrow.bit (vec.get (vec.get (& (. v at)) bb) idx) l)))
@@ -14,105 +15,206 @@
     (borrow.bit (vec.get row (+ idx 1)) l)
     (borrow.bit (vec.get (& (. v out)) bb) l))))
 
-(pub (fn compute ((p (& prog.prog)) (b (& mir.body))) live
+(pub (fn compute ((p (& prog.prog)) (b (& mir.body)) (accs (& (vec (vec (vec borrow.acc)))))) live
   (let n (vec.len (& (. b locs))))
   (let nb (vec.len (& (. b blocks))))
-  (let mut inn (vec.new < (vec bool) >))
-  (let mut outv (vec.new < (vec bool) >))
+  (let drops (drop_locs p b))
+  (let mut inn (vec.new < (vec u64) >))
+  (let mut outv (vec.new < (vec u64) >))
   (for i 0 nb (do (vec.push (&mut inn) (borrow.bools n)) (vec.push (&mut outv) (borrow.bools n))))
-  (solve p b n nb (&mut inn) (&mut outv))
-  (let mut at (vec.new < (vec (vec bool)) >))
-  (for bb 0 nb (vec.push (&mut at) (points p b n bb (vec.get (& outv) bb))))
+  (solve (& drops) b n nb accs (&mut inn) (&mut outv))
+  (let mut at (vec.new < (vec (vec u64)) >))
+  (for bb 0 nb (vec.push (&mut at) (points (& drops) bb (vec.get (& outv) bb) accs)))
   (live at outv)))
 
-(fn solve ((p (& prog.prog))
-   (b (& mir.body))
-   (n i64)
-   (nb i64)
-   (inn (&mut (vec (vec bool))))
-   (outv (&mut (vec (vec bool))))) unit
-  (let mut changed true)
-  (while changed
-    (do (set changed false) (for bb 0 nb (if (solve_bb p b n nb inn outv bb) (set changed true))))))
+(fn drop_locs ((p (& prog.prog)) (b (& mir.body))) (vec bool)
+  (let mut v (vec.new <bool>))
+  (for i 0 (vec.len (& (. b locs)))
+    (vec.push (&mut v) (prog.needs_drop p (& (. (vec.get (& (. b locs)) i) ty)))))
+  v)
 
-(fn solve_bb ((p (& prog.prog))
+(fn solve ((drops (& (vec bool)))
    (b (& mir.body))
    (n i64)
    (nb i64)
-   (inn (&mut (vec (vec bool))))
-   (outv (&mut (vec (vec bool))))
+   (accs (& (vec (vec (vec borrow.acc)))))
+   (inn (&mut (vec (vec u64))))
+   (outv (&mut (vec (vec u64))))) unit
+  (let ss (mir.block_succs b))
+  (let ps (cfg_preds (& ss)))
+  (let ord (postorder (& ss)))
+  (let mut q (vec.new <i64>))
+  (let mut h 0)
+  (let mut on (flags nb))
+  (seed (&mut q) (&mut on) (& ord))
+  (while (< h (vec.len (& q)))
+    (solve_one drops n accs (& ss) (& ps) inn outv (&mut q) (&mut h) (&mut on))))
+
+(fn solve_one ((drops (& (vec bool)))
+   (n i64)
+   (accs (& (vec (vec (vec borrow.acc)))))
+   (ss (& (vec (vec i64))))
+   (ps (& (vec (vec i64))))
+   (inn (&mut (vec (vec u64))))
+   (outv (&mut (vec (vec u64))))
+   (q (&mut (vec i64)))
+   (h (&mut i64))
+   (on (&mut (vec bool)))) unit
+  (let bb (at_i q (@ h)))
+  (set (@ h) (+ (@ h) 1))
+  (vec.set on bb false)
+  (if (solve_bb drops n accs ss inn outv bb) (wake q on (vec.get ps bb))))
+
+(fn at_i ((v (& (vec i64))) (i i64)) i64 (@ (vec.get v i)))
+
+(fn flags ((n i64)) (vec bool) (let mut v (vec.new <bool>)) (for i 0 n (vec.push (&mut v) false)) v)
+
+(fn seed ((q (&mut (vec i64))) (on (&mut (vec bool))) (ord (& (vec i64)))) unit
+  (for i 0 (vec.len ord) (seed_one q on (at_i ord i))))
+
+(fn seed_one ((q (&mut (vec i64))) (on (&mut (vec bool))) (bb i64)) unit
+  (vec.push q bb)
+  (vec.set on bb true))
+
+(fn wake ((q (&mut (vec i64))) (on (&mut (vec bool))) (ps (& (vec i64)))) unit
+  (for i 0 (vec.len ps) (wake_one q on (at_i ps i))))
+
+(fn wake_one ((q (&mut (vec i64))) (on (&mut (vec bool))) (bb i64)) unit
+  (if (@ (vec.get on bb)) (ret))
+  (vec.set on bb true)
+  (vec.push q bb))
+
+(fn cfg_preds ((ss (& (vec (vec i64))))) (vec (vec i64))
+  (let mut p (vec.new < (vec i64) >))
+  (for i 0 (vec.len ss) (vec.push (&mut p) (vec.new <i64>)))
+  (for bb 0 (vec.len ss) (add_preds (&mut p) (vec.get ss bb) bb))
+  p)
+
+(fn add_preds ((p (&mut (vec (vec i64)))) (row (& (vec i64))) (bb i64)) unit
+  (for i 0 (vec.len row) (vec.push (vec.get_mut p (at_i row i)) bb)))
+
+(fn postorder ((ss (& (vec (vec i64))))) (vec i64)
+  (let n (vec.len ss))
+  (let mut seen (flags n))
+  (let mut ord (vec.new <i64>))
+  (if (> n 0) (post_from ss (&mut seen) (&mut ord) 0))
+  (for i 0 n (if (not (@ (vec.get (& seen) i))) (post_from ss (&mut seen) (&mut ord) i)))
+  ord)
+
+(fn post_from ((ss (& (vec (vec i64)))) (seen (&mut (vec bool))) (ord (&mut (vec i64))) (start i64)) unit
+  (if (@ (vec.get seen start)) (ret))
+  (vec.set seen start true)
+  (let mut st (vec.new <i64>))
+  (let mut ci (vec.new <i64>))
+  (vec.push (&mut st) start)
+  (vec.push (&mut ci) 0)
+  (while (> (vec.len (& st)) 0) (post_step ss seen ord (&mut st) (&mut ci))))
+
+(fn post_step ((ss (& (vec (vec i64))))
+   (seen (&mut (vec bool)))
+   (ord (&mut (vec i64)))
+   (st (&mut (vec i64)))
+   (ci (&mut (vec i64)))) unit
+  (let i (- (vec.len st) 1))
+  (let bb (at_i st i))
+  (let k (at_i ci i))
+  (let n (succ_len ss bb))
+  (if (< k n) (post_edge ss seen st ci bb i k) (post_emit ord st ci i)))
+
+(fn succ_len ((ss (& (vec (vec i64)))) (bb i64)) i64 (vec.len (vec.get ss bb)))
+
+(fn post_edge ((ss (& (vec (vec i64))))
+   (seen (&mut (vec bool)))
+   (st (&mut (vec i64)))
+   (ci (&mut (vec i64)))
+   (bb i64)
+   (i i64)
+   (k i64)) unit
+  (let s (at_i (vec.get ss bb) k))
+  (vec.set ci i (+ k 1))
+  (if (@ (vec.get seen s)) (ret))
+  (vec.set seen s true)
+  (vec.push st s)
+  (vec.push ci 0))
+
+(fn post_emit ((ord (&mut (vec i64))) (st (&mut (vec i64))) (ci (&mut (vec i64))) (i i64)) unit
+  (vec.push ord (at_i st i))
+  (drop (vec.pop st))
+  (drop (vec.pop ci)))
+
+(fn solve_bb ((drops (& (vec bool)))
+   (n i64)
+   (accs (& (vec (vec (vec borrow.acc)))))
+   (ss (& (vec (vec i64))))
+   (inn (&mut (vec (vec u64))))
+   (outv (&mut (vec (vec u64))))
    (bb i64)) bool
   (let mut outb (borrow.bools n))
-  (let blk (vec.get (& (. b blocks)) bb))
-  (let ss (mir.succs (& (. blk term))))
-  (for i 0 (vec.len (& ss)) (union_b (&mut outb) (vec.get inn (@ (vec.get (& ss) i)))))
-  (let cur (transfer p b n bb (& outb)))
-  (let ch (or (diff (& outb) (vec.get outv bb)) (diff (& cur) (vec.get inn bb))))
+  (join_out (&mut outb) inn (vec.get ss bb))
+  (let cur (transfer drops bb (& outb) accs))
+  (let ch (diff (& cur) (vec.get inn bb)))
   (vec.set outv bb outb)
   (vec.set inn bb cur)
   ch)
 
-(fn union_b ((a (&mut (vec bool))) (b (& (vec bool)))) unit
-  (for i 0 (vec.len a) (if (@ (vec.get b i)) (vec.set a i true))))
+(fn join_out ((outb (&mut (vec u64))) (inn (& (vec (vec u64)))) (ss (& (vec i64)))) unit
+  (for i 0 (vec.len ss) (union_b outb (vec.get inn (at_i ss i)))))
 
-(fn diff ((a (& (vec bool))) (b (& (vec bool)))) bool
-  (for i 0 (vec.len a) (if (!= (@ (vec.get a i)) (@ (vec.get b i))) (ret true)))
-  false)
+(fn union_b ((a (&mut (vec u64))) (b (& (vec u64)))) unit (let _ (borrow.or_words a b)))
 
-(fn transfer ((p (& prog.prog)) (b (& mir.body)) (n i64) (bb i64) (outb (& (vec bool)))) (vec bool)
+(fn diff ((a (& (vec u64))) (b (& (vec u64)))) bool (borrow.diff_words a b))
+
+(fn transfer ((drops (& (vec bool))) (bb i64) (outb (& (vec u64))) (accs (& (vec (vec (vec borrow.acc)))))) (vec u64)
   (let mut live (borrow.clone_b outb))
-  (let blk (vec.get (& (. b blocks)) bb))
-  (apply p b n (&mut live) (borrow.term_acc (& (. blk term))))
-  (let mut i (- (vec.len (& (. blk stmts))) 1))
-  (while (>= i 0)
-    (do (apply p b n (&mut live) (borrow.stmt_acc (vec.get (& (. blk stmts)) i))) (set i (- i 1))))
+  (walk drops (&mut live) (vec.get accs bb))
   live)
 
-(fn points ((p (& prog.prog)) (b (& mir.body)) (n i64) (bb i64) (outb (& (vec bool)))) (vec (vec bool))
-  (let mut pts (vec.new < (vec bool) >))
+(fn walk ((drops (& (vec bool))) (live (&mut (vec u64))) (row (& (vec (vec borrow.acc))))) unit
+  (let term (- (vec.len row) 1))
+  (apply drops live (vec.get row term))
+  (let mut i (- term 1))
+  (while (>= i 0) (do (apply drops live (vec.get row i)) (set i (- i 1)))))
+
+(fn points ((drops (& (vec bool))) (bb i64) (outb (& (vec u64))) (accs (& (vec (vec (vec borrow.acc)))))) (vec (vec u64))
+  (let row (vec.get accs bb))
+  (let n (vec.len row))
+  (let mut pts (vec.new < (vec u64) >))
+  (for i 0 n (vec.push (&mut pts) (vec.new <u64>)))
   (let mut live (borrow.clone_b outb))
-  (let blk (vec.get (& (. b blocks)) bb))
-  (apply p b n (&mut live) (borrow.term_acc (& (. blk term))))
-  (vec.push (&mut pts) (borrow.clone_b (& live)))
-  (let mut i (- (vec.len (& (. blk stmts))) 1))
+  (fill_pts drops (&mut pts) (&mut live) row (- n 1))
+  pts)
+
+(fn fill_pts ((drops (& (vec bool)))
+   (pts (&mut (vec (vec u64))))
+   (live (&mut (vec u64)))
+   (row (& (vec (vec borrow.acc))))
+   (term i64)) unit
+  (apply drops live (vec.get row term))
+  (vec.set pts term (borrow.clone_b live))
+  (let mut i (- term 1))
   (while (>= i 0)
-    (do
-      (apply p b n (&mut live) (borrow.stmt_acc (vec.get (& (. blk stmts)) i)))
-      (vec.push (&mut pts) (borrow.clone_b (& live)))
-      (set i (- i 1))))
-  (rev pts))
+    (do (apply drops live (vec.get row i)) (vec.set pts i (borrow.clone_b live)) (set i (- i 1)))))
 
-(fn rev ((v (vec (vec bool)))) (vec (vec bool))
-  (let mut o (vec.new < (vec bool) >))
-  (let mut i (- (vec.len (& v)) 1))
-  (while (>= i 0) (do (vec.push (&mut o) (borrow.clone_b (vec.get (& v) i))) (set i (- i 1))))
-  o)
+(fn apply ((drops (& (vec bool))) (live (&mut (vec u64))) (accs (& (vec borrow.acc)))) unit
+  (for i 0 (vec.len accs) (kill_acc live (vec.get accs i)))
+  (for i 0 (vec.len accs) (use_acc drops live (vec.get accs i))))
 
-(fn apply ((p (& prog.prog)) (b (& mir.body)) (n i64) (live (&mut (vec bool))) (accs (vec borrow.acc))) unit
-  (let mut uses (borrow.bools n))
-  (let mut defs (borrow.bools n))
-  (gen p b (& accs) (&mut uses) (&mut defs))
-  (for i 0 n (if (@ (vec.get (& defs) i)) (vec.set live i false)))
-  (union_b live (& uses)))
+(fn kill_acc ((live (&mut (vec u64))) (a (& borrow.acc))) unit
+  (if (is_def a) (let _ (borrow.setb live (. (. a pl) local) false))))
 
-(fn gen ((p (& prog.prog))
-   (b (& mir.body))
-   (accs (& (vec borrow.acc)))
-   (uses (&mut (vec bool)))
-   (defs (&mut (vec bool)))) unit
-  (for i 0 (vec.len accs) (gen_one p b (vec.get accs i) uses defs)))
-
-(fn gen_one ((p (& prog.prog))
-   (b (& mir.body))
-   (a (& borrow.acc))
-   (uses (&mut (vec bool)))
-   (defs (&mut (vec bool)))) unit
-  (let l (. (. a pl) local))
+(fn is_def ((a (& borrow.acc))) bool
   (let k (. a kind))
-  (if (or (== k 0u8) (or (== k 2u8) (or (== k 3u8) (== k 4u8)))) (vec.set uses l true))
-  (if (== k 1u8) (if (mir.is_local (& (. a pl))) (vec.set defs l true) (vec.set uses l true)))
-  (if (== k 5u8)
-    (if (mir.is_local (& (. a pl)))
-      (if (prog.needs_drop p (& (. (vec.get (& (. b locs)) l) ty))) (vec.set uses l true))
-      (vec.set uses l true)))
-  (if (== k 6u8) (vec.set defs l true)))
+  (or (and (== k 1u8) (mir.is_local (& (. a pl)))) (== k 6u8)))
+
+(fn use_acc ((drops (& (vec bool))) (live (&mut (vec u64))) (a (& borrow.acc))) unit
+  (if (is_use drops a) (let _ (borrow.setb live (. (. a pl) local) true))))
+
+(fn is_use ((drops (& (vec bool))) (a (& borrow.acc))) bool
+  (let k (. a kind))
+  (if (or (== k 0u8) (or (== k 2u8) (or (== k 3u8) (== k 4u8)))) (ret true))
+  (if (== k 1u8) (ret (not (mir.is_local (& (. a pl))))))
+  (if (== k 5u8) (ret (drop_use drops a)))
+  false)
+
+(fn drop_use ((drops (& (vec bool))) (a (& borrow.acc))) bool
+  (if (mir.is_local (& (. a pl))) (@ (vec.get drops (. (. a pl) local))) true))

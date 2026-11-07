@@ -5,8 +5,8 @@
 (use proj.mir)
 
 (struct mv
-  (whole (vec bool))
-  (uninit (vec bool))
+  (whole (vec u64))
+  (uninit (vec u64))
   (fl (vec i64))
   (ff (vec i64))
   (fsl (vec i64))
@@ -80,17 +80,10 @@
   (vec.push fsl (@ (vec.get (& (. m fsl)) i)))
   (vec.push fsc (@ (vec.get (& (. m fsc)) i))))
 
-(fn or_bit ((a (&mut (vec bool))) (b (& (vec bool))) (i i64)) bool
-  (if (and (@ (vec.get b i)) (not (@ (vec.get a i)))) (do (vec.set a i true) (ret true)))
-  false)
-
 (fn union_bits ((a (&mut mv)) (b (& mv))) bool
-  (let mut ch false)
-  (for i 0 (vec.len (& (. a whole)))
-    (do
-      (if (or_bit (&mut (. a whole)) (& (. b whole)) i) (set ch true))
-      (if (or_bit (&mut (. a uninit)) (& (. b uninit)) i) (set ch true))))
-  ch)
+  (let c1 (borrow.or_words (&mut (. a whole)) (& (. b whole))))
+  (let c2 (borrow.or_words (&mut (. a uninit)) (& (. b uninit))))
+  (or c1 c2))
 
 (fn union_fields ((a (&mut mv)) (b (& mv))) bool
   (let mut ch false)
@@ -120,39 +113,41 @@
   (copy_spans a b)
   (or b1 b2))
 
-(pub (fn run ((out (&mut (vec diag.dg))) (b (& mir.body))) unit
+(pub (fn run ((out (&mut (vec diag.dg))) (b (& mir.body)) (accs (& (vec (vec (vec borrow.acc)))))) unit
   (let n (vec.len (& (. b locs))))
   (let nb (vec.len (& (. b blocks))))
   (if (== nb 0) (ret))
   (let mut inn (vec.new <mv>))
   (for i 0 nb (vec.push (&mut inn) (mv_new n)))
   (let z (vec.get_mut (&mut inn) 0))
-  (for i (+ (. b args) 1) n (vec.set (&mut (. z uninit)) i true))
-  (flow (&mut inn) b n nb)
-  (report out b (& inn) n nb)))
+  (for i (+ (. b args) 1) n (let _ (borrow.setb (&mut (. z uninit)) i true)))
+  (flow (&mut inn) b n nb accs)
+  (report out b (& inn) n nb accs)))
 
-(fn flow ((inn (&mut (vec mv))) (b (& mir.body)) (n i64) (nb i64)) unit
+(fn flow ((inn (&mut (vec mv))) (b (& mir.body)) (n i64) (nb i64) (accs (& (vec (vec (vec borrow.acc)))))) unit
+  (let ss (mir.block_succs b))
   (let mut changed true)
-  (while changed (do (set changed false) (for bb 0 nb (if (step inn b n bb) (set changed true))))))
+  (while changed
+    (do (set changed false) (for bb 0 nb (if (step inn n bb accs (& ss)) (set changed true))))))
 
-(fn step ((inn (&mut (vec mv))) (b (& mir.body)) (n i64) (bb i64)) bool
+(fn step ((inn (&mut (vec mv)))
+   (n i64)
+   (bb i64)
+   (accs (& (vec (vec (vec borrow.acc)))))
+   (ss (& (vec (vec i64))))) bool
   (let mut st (mv_clone (vec.get inn bb) n))
-  (xfer b bb (&mut st))
+  (xfer bb (&mut st) accs)
   (let mut ch false)
-  (let blk (vec.get (& (. b blocks)) bb))
-  (let ss (mir.succs (& (. blk term))))
-  (for i 0 (vec.len (& ss))
-    (if (union_mv (vec.get_mut inn (@ (vec.get (& ss) i))) (& st)) (set ch true)))
+  (let row (vec.get ss bb))
+  (for i 0 (vec.len row) (if (union_mv (vec.get_mut inn (@ (vec.get row i))) (& st)) (set ch true)))
   ch)
 
-(fn xfer ((b (& mir.body)) (bb i64) (st (&mut mv))) unit
-  (let blk (vec.get (& (. b blocks)) bb))
-  (for si 0 (vec.len (& (. blk stmts)))
-    (xfer_acc st (borrow.stmt_acc (vec.get (& (. blk stmts)) si))))
-  (xfer_acc st (borrow.term_acc (& (. blk term)))))
+(fn xfer ((bb i64) (st (&mut mv)) (accs (& (vec (vec (vec borrow.acc)))))) unit
+  (let row (vec.get accs bb))
+  (for si 0 (vec.len row) (xfer_acc st (vec.get row si))))
 
-(fn xfer_acc ((st (&mut mv)) (accs (vec borrow.acc))) unit
-  (for i 0 (vec.len (& accs)) (note_kill st (vec.get (& accs) i))))
+(fn xfer_acc ((st (&mut mv)) (accs (& (vec borrow.acc)))) unit
+  (for i 0 (vec.len accs) (note_kill st (vec.get accs i))))
 
 (fn uses ((k u8)) bool (or (== k 0u8) (or (== k 2u8) (or (== k 3u8) (== k 4u8)))))
 
@@ -176,19 +171,26 @@
       (borrow.setb (&mut (. st uninit)) l false)
       (drop_local st l))))
 
-(fn report ((out (&mut (vec diag.dg))) (b (& mir.body)) (inn (& (vec mv))) (n i64) (nb i64)) unit
-  (for bb 0 nb (report_bb out b (mv_clone (vec.get inn bb) n) bb)))
+(fn report ((out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (inn (& (vec mv)))
+   (n i64)
+   (nb i64)
+   (accs (& (vec (vec (vec borrow.acc)))))) unit
+  (for bb 0 nb (report_bb out b (mv_clone (vec.get inn bb) n) bb accs)))
 
-(fn report_bb ((out (&mut (vec diag.dg))) (b (& mir.body)) (st mv) (bb i64)) unit
+(fn report_bb ((out (&mut (vec diag.dg)))
+   (b (& mir.body))
+   (st mv)
+   (bb i64)
+   (accs (& (vec (vec (vec borrow.acc)))))) unit
   (let mut st st)
-  (let blk (vec.get (& (. b blocks)) bb))
-  (for si 0 (vec.len (& (. blk stmts)))
-    (report_acc out b (&mut st) (borrow.stmt_acc (vec.get (& (. blk stmts)) si))))
-  (report_acc out b (&mut st) (borrow.term_acc (& (. blk term)))))
+  (let row (vec.get accs bb))
+  (for si 0 (vec.len row) (report_acc out b (&mut st) (vec.get row si))))
 
-(fn report_acc ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (&mut mv)) (accs (vec borrow.acc))) unit
-  (for i 0 (vec.len (& accs)) (emit_use out b st (vec.get (& accs) i)))
-  (for i 0 (vec.len (& accs)) (note_kill st (vec.get (& accs) i))))
+(fn report_acc ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (&mut mv)) (accs (& (vec borrow.acc)))) unit
+  (for i 0 (vec.len accs) (emit_use out b st (vec.get accs i)))
+  (for i 0 (vec.len accs) (note_kill st (vec.get accs i))))
 
 (fn emit_use ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc))) unit
   (let l (. (. a pl) local))

@@ -222,6 +222,12 @@
   (if (== (. t kind) 3u8) (vec.push (&mut o) (. t bb)))
   o))
 
+(pub (fn block_succs ((b (& body))) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 (vec.len (& (. b blocks)))
+    (vec.push (&mut o) (succs (& (. (vec.get (& (. b blocks)) i) term)))))
+  o))
+
 (pub (fn can_move_field ((p (& prog.prog)) (locs (& (vec thir.loc))) (pl (& place))) bool
   (if (< (lone_field pl) 0) (ret false))
   (let t (& (. (vec.get locs (. pl local)) ty)))

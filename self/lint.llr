@@ -12,18 +12,18 @@
   (let mut seen (vec.new <bool>))
   (for i 0 n (vec.push (&mut seen) false))
   (vec.set (&mut seen) 0 true)
-  (reach b (&mut seen) 0)
+  (let ss (mir.block_succs b))
+  (reach (& ss) (&mut seen) 0)
   (for i 0 n (if (not (@ (vec.get (& seen) i))) (warn_blk out b i))))
 
-(fn reach ((b (& mir.body)) (seen (&mut (vec bool))) (bb i64)) unit
-  (let blk (vec.get (& (. b blocks)) bb))
-  (let ss (mir.succs (& (. blk term))))
-  (for i 0 (vec.len (& ss)) (step b seen (@ (vec.get (& ss) i)))))
+(fn reach ((ss (& (vec (vec i64)))) (seen (&mut (vec bool))) (bb i64)) unit
+  (let row (vec.get ss bb))
+  (for i 0 (vec.len row) (step ss seen (@ (vec.get row i)))))
 
-(fn step ((b (& mir.body)) (seen (&mut (vec bool))) (s i64)) unit
+(fn step ((ss (& (vec (vec i64)))) (seen (&mut (vec bool))) (s i64)) unit
   (if (@ (vec.get seen s)) (ret))
   (vec.set seen s true)
-  (reach b seen s))
+  (reach ss seen s))
 
 (fn warn_blk ((out (&mut (vec diag.dg))) (b (& mir.body)) (i i64)) unit
   (let blk (vec.get (& (. b blocks)) i))

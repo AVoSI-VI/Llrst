@@ -1,0 +1,73 @@
+;; Field loans that survive a partial assignment.
+(pub (struct floc (local i64) (field i64) (loans (vec i64))))
+
+(impl Clone floc (fn clone ((e (& floc))) floc (clone_floc e)))
+
+(fn clone_floc ((e (& floc))) floc (floc (. e local) (. e field) (clone_is (& (. e loans)))))
+
+(fn clone_is ((v (& (vec i64)))) (vec i64) (vec.clone v))
+
+(pub (fn clone_flds ((v (& (vec floc)))) (vec floc) (vec.clone v)))
+
+(pub (fn union_flds ((a (&mut (vec floc))) (b (& (vec floc)))) bool
+  (let mut ch false)
+  (for i 0 (vec.len b) (if (merge_note a (vec.get b i)) (set ch true)))
+  ch))
+
+(fn merge_note ((a (&mut (vec floc))) (e (& floc))) bool
+  (if (== (vec.len (& (. e loans))) 0) (ret false))
+  (let i (find_note a (. e local) (. e field)))
+  (if (< i 0) (do (vec.push a (clone_floc e)) (ret true)))
+  (let n (vec.len (& (. (vec.get a i) loans))))
+  (add_missing a i (& (. e loans)))
+  (> (vec.len (& (. (vec.get a i) loans))) n))
+
+(pub (fn take_field ((flds (&mut (vec floc))) (local i64) (field i64)) (vec i64)
+  (let mut i 0)
+  (while (< i (vec.len flds))
+    (let hit (is_field flds i local field))
+    (if hit (ret (note_loans (vec.remove flds i))) (set i (+ i 1))))
+  (vec.new <i64>)))
+
+(fn note_loans ((e floc)) (vec i64) (clone_is (& (. e loans))))
+
+(pub (fn note_field ((flds (&mut (vec floc))) (local i64) (field i64) (loans (& (vec i64)))) unit
+  (if (== (vec.len loans) 0) (ret))
+  (let i (find_note flds local field))
+  (if (< i 0) (vec.push flds (floc local field (clone_is loans))) (add_missing flds i loans))))
+
+(fn add_missing ((flds (&mut (vec floc))) (i i64) (loans (& (vec i64)))) unit
+  (for j 0 (vec.len loans)
+    (let li (@ (vec.get loans j)))
+    (let have (loan_in flds i li))
+    (if (not have) (push_loan flds i li))))
+
+(fn push_loan ((flds (&mut (vec floc))) (i i64) (li i64)) unit
+  (let e (vec.get_mut flds i))
+  (vec.push (&mut (. e loans)) li))
+
+(pub (fn clear_notes ((flds (&mut (vec floc))) (local i64)) unit
+  (let mut i 0)
+  (while (< i (vec.len flds))
+    (let hit (is_local_note flds i local))
+    (if hit (let _ (vec.remove flds i)) (set i (+ i 1))))))
+
+(fn find_note ((flds (& (vec floc))) (local i64) (field i64)) i64
+  (for i 0 (vec.len flds) (if (is_field flds i local field) (ret i)))
+  (neg 1))
+
+(pub (fn still ((flds (& (vec floc))) (local i64) (li i64)) bool
+  (for i 0 (vec.len flds) (if (and (is_local_note flds i local) (loan_in flds i li)) (ret true)))
+  false))
+
+(fn is_field ((flds (& (vec floc))) (i i64) (local i64) (field i64)) bool
+  (let e (vec.get flds i))
+  (and (== (. e local) local) (== (. e field) field)))
+
+(fn is_local_note ((flds (& (vec floc))) (i i64) (local i64)) bool
+  (== (. (vec.get flds i) local) local))
+
+(fn loan_in ((flds (& (vec floc))) (i i64) (li i64)) bool
+  (let ls (& (. (vec.get flds i) loans)))
+  (for j 0 (vec.len ls) (if (== (@ (vec.get ls j)) li) (ret true)))
+  false)
