@@ -3,6 +3,7 @@
 (use proj.diag)
 (use std.str)
 (use proj.prog)
+(use proj.prog_idx)
 (use proj.src)
 (use proj.resolve)
 (use proj.ty)
@@ -79,6 +80,7 @@
   (try (fill_traits (&mut p) (& ss)))
   (try (fill_impls (&mut p) (&mut ss)))
   (try (fill_rest (&mut p) (&mut ss)))
+  (prog_idx.build (&mut p))
   (res.ok p)))
 
 (fn open_mods ((p (&mut prog.prog)) (srcs (& (vec src.loaded)))) (res unit str)

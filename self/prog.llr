@@ -1,5 +1,6 @@
 ;; Resolved program. Def kind: 0 struct, 1 enum, 2 fn, 3 const, 4 trait.
 (use std.ast)
+(use std.map)
 (use std.str)
 (use proj.diag)
 (use proj.ty)
@@ -46,7 +47,9 @@
   (pub (umod (vec i64)))
   (pub (uline (vec i64)))
   (pub (ucol (vec i64)))
-  (pub (ulen (vec i64)))))
+  (pub (ulen (vec i64)))
+  (pub (imap (map str i64)))
+  (pub (umap (map str i64)))))
 
 (pub (struct impr (pub (tr i64)) (pub (ty ty.sty)) (pub (ids (vec i64)))))
 
@@ -71,7 +74,12 @@
   (pub (arch str))
   (pub (notes (vec diag.dg)))
   (pub (used (vec i64)))
-  (pub (tests (vec tdecl)))))
+  (pub (tests (vec tdecl)))
+  (pub (pmap (map str i64)))
+  (pub (mmap (vec (map str i64))))
+  (pub (modmap (map str i64)))
+  (pub (hasdrop (vec bool)))
+  (pub (dropk (vec i8)))))
 
 (pub (fn blank_def ((name str) (module i64) (kind u8)) def
   (def name
@@ -105,7 +113,9 @@
     (vec.new <i64>)
     (vec.new <i64>)
     (vec.new <i64>)
-    (vec.new <i64>))))
+    (vec.new <i64>)
+    (map.new <str i64>)
+    (map.new <str i64>))))
 
 (pub (fn blank_prog () prog
   (prog (vec.new <def>)
@@ -120,7 +130,12 @@
     (str.from "x86_64")
     (vec.new <diag.dg>)
     (vec.new <i64>)
-    (vec.new <tdecl>))))
+    (vec.new <tdecl>)
+    (map.new <str i64>)
+    (vec.new < (map str i64) >)
+    (map.new <str i64>)
+    (vec.new <bool>)
+    (vec.new <i8>))))
 
 (pub (fn def_at ((p (& prog)) (id i64)) def
   (let d (vec.get (& (. p defs)) id))
@@ -200,11 +215,25 @@
   (for i 0 (vec.len names) (if (str.eq (vec.get names i) name) (ret (@ (vec.get ids i)))))
   (neg 1))
 
-(pub (fn item_id ((m (& modu)) (name (& str))) i64 (find_name (& (. m names)) (& (. m ids)) name)))
+(fn map_id ((tab (& (map str i64))) (name (& str))) i64
+  (match (map.get tab name) ((opt.some v) (@ v)) ((opt.none) (neg 1))))
 
-(pub (fn use_mod ((m (& modu)) (alias (& str))) i64 (find_name (& (. m uals)) (& (. m umod)) alias)))
+;; An empty table beside a non-empty vector has not been built yet.
+(fn indexed ((n i64) (rows i64)) bool (or (> n 0) (== rows 0)))
 
-(pub (fn pre_id ((p (& prog)) (name (& str))) i64 (find_name (& (. p pn)) (& (. p pi)) name)))
+(pub (fn item_id ((m (& modu)) (name (& str))) i64
+  (if (indexed (map.len (& (. m imap))) (vec.len (& (. m names))))
+    (ret (map_id (& (. m imap)) name)))
+  (find_name (& (. m names)) (& (. m ids)) name)))
+
+(pub (fn use_mod ((m (& modu)) (alias (& str))) i64
+  (if (indexed (map.len (& (. m umap))) (vec.len (& (. m uals))))
+    (ret (map_id (& (. m umap)) alias)))
+  (find_name (& (. m uals)) (& (. m umod)) alias)))
+
+(pub (fn pre_id ((p (& prog)) (name (& str))) i64
+  (if (indexed (map.len (& (. p pmap))) (vec.len (& (. p pn)))) (ret (map_id (& (. p pmap)) name)))
+  (find_name (& (. p pn)) (& (. p pi)) name)))
 
 (pub (fn is_type ((p (& prog)) (id i64)) bool
   (let k (. (vec.get (& (. p defs)) id) kind))
@@ -242,6 +271,8 @@
 (fn str_dot ((s (& str))) i64 (for i 0 (str.len s) (if (== (str.at s i) 46u8) (ret i))) (neg 1))
 
 (pub (fn meth_id ((p (& prog)) (owner i64) (name (& str))) i64
+  (if (and (>= owner 0) (< owner (vec.len (& (. p mmap)))))
+    (ret (map_id (vec.get (& (. p mmap)) owner) name)))
   (for i 0 (vec.len (& (. p mo)))
     (if (and (== (@ (vec.get (& (. p mo)) i)) owner) (str.eq (vec.get (& (. p mn)) i) name))
       (ret (@ (vec.get (& (. p mi)) i)))))
@@ -338,9 +369,13 @@
   (vec.push (&mut (. p pn)) name)
   (vec.push (&mut (. p pi)) id)))
 
+(fn std_at ((p (& prog)) (path (& str)) (name (& str))) i64
+  (match (map.get (& (. p modmap)) path) ((opt.some v) (mod_fn p (@ v) name)) ((opt.none) (neg 1))))
+
 (pub (fn std_fn ((p (& prog)) (module (& str)) (name (& str))) i64
   (let mut path (str.from "std."))
   (str.push (&mut path) module)
+  (if (indexed (map.len (& (. p modmap))) (vec.len (& (. p mods)))) (ret (std_at p (& path) name)))
   (for i 0 (vec.len (& (. p mods)))
     (let m (vec.get (& (. p mods)) i))
     (if (str.eq (& (. m path)) (& path)) (ret (mod_fn p i name))))
@@ -360,10 +395,21 @@
         (if (needs_drop p (& ft)) (ret true)))))
   false)
 
+(pub (fn has_drop ((p (& prog)) (id i64)) bool
+  (if (and (>= id 0) (< id (vec.len (& (. p hasdrop))))) (ret (@ (vec.get (& (. p hasdrop)) id))))
+  (>= (meth_id p id "drop") 0)))
+
+(fn drop_known ((p (& prog)) (id i64)) i8
+  (if (or (< id 0) (>= id (vec.len (& (. p dropk))))) (ret 2i8))
+  (@ (vec.get (& (. p dropk)) id)))
+
 (pub (fn needs_drop ((p (& prog)) (t (& ty.sty))) bool
   (if (or (== (. t kind) 10u8) (== (. t kind) 15u8)) (ret true))
   (if (!= (. t kind) 8u8) (ret false))
-  (if (>= (meth_id p (. t id) "drop") 0) (ret true))
+  (if (has_drop p (. t id)) (ret true))
+  (let k (drop_known p (. t id)))
+  (if (== k 0i8) (ret false))
+  (if (== k 1i8) (ret true))
   (field_drop p t)))
 
 (pub (fn nparams ((p (& prog)) (id i64)) i64 (vec.len (& (. (vec.get (& (. p defs)) id) spars)))))

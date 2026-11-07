@@ -81,7 +81,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 1 | (this commit) | 105.1 | 226.0 | 230.5 | 4.24 |
 | 2 | (this commit) | 89.9 | 102.9 | 108.1 | 5.26 |
 | 3 | (this commit) | 86.1 | 99.9 | 103.5 | 5.90 |
-| 4 | | | | | |
+| 4 | (this commit) | 79.4 | 90.0 | 88.6 | 1.38 |
 | 5 | | | | | |
 | 6 | | | | | |
 | 7 | | | | | |
@@ -360,7 +360,7 @@ Steps:
 3. `[x]` Full **Verification**; measure; fill the row.
 4. `[x]` Commit: `self: inline callees are checked once per instantiation`.
 
-### Phase 4: indexed `prog` (OPT 5, OPT 6) `[ ]`
+### Phase 4: indexed `prog` (OPT 5, OPT 6) `[x]`
 
 Expected: `prog.meth_id` scans every method in every `impl` (M compares) for every
 `needs_drop` of a struct, and `needs_drop` is called per temporary, per `let`, per `set`,
@@ -421,13 +421,18 @@ Traps:
 - `thir_call.check_call` tries `thir.lookup` -> `lookup_fn` -> `lookup_type` ->
   `builtin_id` -> `call_trait` in sequence (OPT 6). Do not reorder; the maps make each
   step cheap.
+- `collect` calls `item_id`, `pre_id`, and `lookup_type` while it is still pushing
+  names, so those lookups keep the linear scan until `prog_idx.build` fills the map.
+  An empty map beside a non-empty vector means "not built"; after the build the map
+  is authoritative, including a miss. `meth_id` scans only when `mmap` does not cover
+  that owner. `needs_drop` uses `field_drop` when `dropk` is missing or `-1`.
 
 Steps:
 
-1. `[ ]` `prog_idx.build`, the fields, the constructors, the map-backed lookups.
-2. `[ ]` `needs_drop` via `hasdrop`/`dropk`; `mir.can_move_field` via `hasdrop`.
-3. `[ ]` Full **Verification**; measure; fill the row.
-4. `[ ]` Commit: `self: prog name, method, and drop tables are indexed`.
+1. `[x]` `prog_idx.build`, the fields, the constructors, the map-backed lookups.
+2. `[x]` `needs_drop` via `hasdrop`/`dropk`; `mir.can_move_field` via `hasdrop`.
+3. `[x]` Full **Verification**; measure; fill the row.
+4. `[x]` Commit: `self: prog name, method, and drop tables are indexed`.
 
 ### Phase 5: borrow checker dataflow (OPT 4) `[ ]`
 
@@ -733,3 +738,28 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   `link.failed`, float asserts, deque/opt compile errors, `std/fmt` and
   `std/str_more` `want=1.500|got=1.000`, `fail|setup|lld=missing`). Nested
   `check.ps1`, `mir.ps1`, and the self err/warn pass printed `done|fails=0`.
+- 2026-11-06: Phase 4. `prog_idx.build` fills module item and alias maps, the prelude
+  map, per-owner method maps, a module-path map, `hasdrop`, and `dropk` once
+  `collect` finishes. Lookups use those maps. `collect` still calls `item_id`,
+  `pre_id`, and `lookup_type` while it is pushing names, so an empty map beside a
+  non-empty vector keeps the old linear scan; after the build the map is
+  authoritative. `needs_drop` returns from `hasdrop` or from `dropk` when the
+  answer is 0 or 1, and uses `field_drop` when `dropk` is `-1`. A field type that
+  is a parameter, or an adt whose arguments contain one, makes that def `-1`.
+  `mir.can_move_field` reads `hasdrop`. Second-run `llrs0` walls: check 79.40 s
+  (first 75.13), emit-obj 89.97 s (first 88.66), build 88.62 s (first 100.47),
+  hello build 1.38 s (first 1.47). Second-run `time|` splits, in seconds: check
+  load 0.61 / check 78.63; emit-obj load 0.59 / check 76.64 / codegen 12.03 /
+  object 0.63; build load 0.61 / check 74.20 / codegen 11.95 / object 0.59 /
+  link 1.17; hello load 0.19 / check 0.03 / codegen 0.00 / object 0.00 /
+  link 1.14. Link is lower than phase 3 because the toolchain was already warm;
+  phase 4 does not change linking. `scripts/self.ps1 --stage` printed
+  `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on `llrs0` were
+  `done|fails=0`. `target/self/x64_ref` is not on this machine, so `x64_ref.ps1`
+  could not compare objects. `tests/run.ps1` under `llrs2` exited 1,
+  `done|fails=39`, the same pre-existing set (ui `link.failed`, float asserts,
+  deque/opt compile errors, `std/fmt` and `std/str_more`
+  `want=1.500|got=1.000`). The suite's nested stage-0 step printed
+  `fail|setup|stage0=not found` because `cargo build` wrote `llrc` outside
+  `target/release`; `check.ps1` and `mir.ps1` were run against that binary
+  directly.

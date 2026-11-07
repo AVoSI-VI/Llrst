@@ -1,0 +1,156 @@
+;; Name, method, and drop tables. First inserted name wins, matching the scans.
+(use proj.prog)
+(use proj.ty)
+(use std.map)
+(use std.str)
+
+(pub (fn build ((p (&mut prog.prog))) unit
+  (index_mods p)
+  (index_pre p)
+  (index_meth p)
+  (index_paths p)
+  (index_has p)
+  (index_dropk p)))
+
+(fn put_new ((tab (&mut (map str i64))) (k str) (v i64)) unit
+  (let hit (map.has tab (& k)))
+  (if (not hit) (map.put tab k v)))
+
+(fn index_mods ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p mods))))
+  (for i 0 n (index_mod (vec.get_mut (&mut (. p mods)) i))))
+
+(fn index_mod ((m (&mut prog.modu))) unit (index_names m) (index_uses m))
+
+(fn index_names ((m (&mut prog.modu))) unit
+  (let n (vec.len (& (. m names))))
+  (for i 0 n (index_name m i)))
+
+(fn index_name ((m (&mut prog.modu)) (i i64)) unit
+  (let k (str.clone (vec.get (& (. m names)) i)))
+  (let id (@ (vec.get (& (. m ids)) i)))
+  (put_new (&mut (. m imap)) k id))
+
+(fn index_uses ((m (&mut prog.modu))) unit
+  (let n (vec.len (& (. m uals))))
+  (for i 0 n (index_use m i)))
+
+(fn index_use ((m (&mut prog.modu)) (i i64)) unit
+  (let k (str.clone (vec.get (& (. m uals)) i)))
+  (let id (@ (vec.get (& (. m umod)) i)))
+  (put_new (&mut (. m umap)) k id))
+
+(fn index_pre ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p pn))))
+  (for i 0 n (index_pre_at p i)))
+
+(fn index_pre_at ((p (&mut prog.prog)) (i i64)) unit
+  (let k (str.clone (vec.get (& (. p pn)) i)))
+  (let id (@ (vec.get (& (. p pi)) i)))
+  (put_new (&mut (. p pmap)) k id))
+
+(fn index_paths ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p mods))))
+  (for i 0 n (index_path p i)))
+
+(fn index_path ((p (&mut prog.prog)) (i i64)) unit
+  (let k (str.clone (& (. (vec.get (& (. p mods)) i) path))))
+  (put_new (&mut (. p modmap)) k i))
+
+(fn index_meth ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p defs))))
+  (for i 0 n (vec.push (&mut (. p mmap)) (map.new <str i64>)))
+  (let m (vec.len (& (. p mo))))
+  (for i 0 m (index_meth_at p i)))
+
+(fn index_meth_at ((p (&mut prog.prog)) (i i64)) unit
+  (let owner (@ (vec.get (& (. p mo)) i)))
+  (if (or (< owner 0) (>= owner (vec.len (& (. p mmap))))) (ret))
+  (let k (str.clone (vec.get (& (. p mn)) i)))
+  (let id (@ (vec.get (& (. p mi)) i)))
+  (put_new (vec.get_mut (&mut (. p mmap)) owner) k id))
+
+(fn index_has ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p defs))))
+  (for i 0 n (push_has p i)))
+
+(fn push_has ((p (&mut prog.prog)) (i i64)) unit
+  (let hit (>= (prog.meth_id p i "drop") 0))
+  (vec.push (&mut (. p hasdrop)) hit))
+
+(fn index_dropk ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p defs))))
+  (let mut memo (vec.new <i8>))
+  (let mut vis (vec.new <bool>))
+  (for i 0 n (do (vec.push (&mut memo) 2i8) (vec.push (&mut vis) false)))
+  (for i 0 n (push_drop p i (&mut vis) (&mut memo))))
+
+(fn push_drop ((p (&mut prog.prog)) (i i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) unit
+  (let c (class_def p i vis memo))
+  (vec.push (&mut (. p dropk)) c))
+
+(fn store ((memo (&mut (vec i8))) (id i64) (c i8)) i8 (vec.set memo id c) c)
+
+(fn class_def ((p (& prog.prog)) (id i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let known (@ (vec.get memo id)))
+  (if (!= known 2i8) (ret known))
+  (if (@ (vec.get vis id)) (ret (neg 1i8)))
+  (let k (. (vec.get (& (. p defs)) id) kind))
+  (if (or (== k 0u8) (== k 1u8)) (ret (class_adt p id k vis memo)))
+  (store memo id 0i8))
+
+(fn class_adt ((p (& prog.prog)) (id i64) (k u8) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (if (prog.has_drop p id) (ret (store memo id 1i8)))
+  (vec.set vis id true)
+  (let c (if (== k 0u8) (walk_fields p id vis memo) (walk_vars p id vis memo)))
+  (vec.set vis id false)
+  (store memo id c))
+
+(fn walk_fields ((p (& prog.prog)) (id i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let n (vec.len (& (. (vec.get (& (. p defs)) id) sfields))))
+  (let mut dep false)
+  (for i 0 n
+    (let c (field_class p id i vis memo))
+    (if (== c 1i8) (ret 1i8))
+    (if (== c (neg 1i8)) (set dep true)))
+  (if dep (neg 1i8) 0i8))
+
+(fn field_class ((p (& prog.prog)) (id i64) (i i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let t (ty.clone (& (. (vec.get (& (. (vec.get (& (. p defs)) id) sfields)) i) ty))))
+  (class_ty p (& t) vis memo))
+
+(fn walk_vars ((p (& prog.prog)) (id i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let n (vec.len (& (. (vec.get (& (. p defs)) id) svars))))
+  (let mut dep false)
+  (for i 0 n
+    (let c (var_class p id i vis memo))
+    (if (== c 1i8) (ret 1i8))
+    (if (== c (neg 1i8)) (set dep true)))
+  (if dep (neg 1i8) 0i8))
+
+(fn var_class ((p (& prog.prog)) (id i64) (i i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let n (vec.len (& (. (vec.get (& (. (vec.get (& (. p defs)) id) svars)) i) tys))))
+  (let mut dep false)
+  (for j 0 n
+    (let c (var_ty p id i j vis memo))
+    (if (== c 1i8) (ret 1i8))
+    (if (== c (neg 1i8)) (set dep true)))
+  (if dep (neg 1i8) 0i8))
+
+(fn var_ty ((p (& prog.prog)) (id i64) (i i64) (j i64) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (let t (ty.clone (vec.get (& (. (vec.get (& (. (vec.get (& (. p defs)) id) svars)) i) tys)) j)))
+  (class_ty p (& t) vis memo))
+
+(fn class_ty ((p (& prog.prog)) (t (& ty.sty)) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
+  (if (or (== (. t kind) 10u8) (== (. t kind) 15u8)) (ret 1i8))
+  (if (== (. t kind) 13u8) (ret (neg 1i8)))
+  (if (!= (. t kind) 8u8) (ret 0i8))
+  (if (prog.has_drop p (. t id)) (ret 1i8))
+  (if (ty_param t) (ret (neg 1i8)))
+  (class_def p (. t id) vis memo))
+
+(fn ty_param ((t (& ty.sty))) bool
+  (for i 0 (vec.len (& (. t args))) (if (arg_param (vec.get (& (. t args)) i)) (ret true)))
+  false)
+
+(fn arg_param ((t (& ty.sty))) bool (if (== (. t kind) 13u8) (ret true)) (ty_param t))

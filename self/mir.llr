@@ -226,5 +226,5 @@
   (if (< (lone_field pl) 0) (ret false))
   (let t (& (. (vec.get locs (. pl local)) ty)))
   (if (!= (. t kind) 8u8) (ret false))
-  (if (>= (prog.meth_id p (. t id) "drop") 0) (ret false))
+  (if (prog.has_drop p (. t id)) (ret false))
   (== (. (vec.get (& (. p defs)) (. t id)) kind) 0u8)))
