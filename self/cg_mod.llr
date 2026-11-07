@@ -45,7 +45,8 @@
   (pub (pend (vec i64)))
   (pub (dpend (vec i64)))
   (pub (tpush i64))
-  (pub (tpop i64))))
+  (pub (tpop i64))
+  (pub (cseen (vec str)))))
 
 (fn push_zeros ((v (&mut (vec u8))) (n i64)) unit (for i 0 n (vec.push v 0u8)))
 
@@ -91,7 +92,8 @@
     (vec.new <i64>)
     (vec.new <i64>)
     (neg 1)
-    (neg 1)))
+    (neg 1)
+    (vec.new <str>)))
 
 (pub (fn new ((checked bool) (s cg_isa.isa) (darwin bool) (be bool)) cg
   (let a64 (. s a64))
@@ -134,6 +136,23 @@
     (str.push_byte (&mut s) (str.at digits d))
     (set i (- i 1)))
   s)
+
+(fn saw ((g (& cg)) (s (& str))) bool
+  (let mut i 0)
+  (while (< i (vec.len (& (. g cseen))))
+    (if (str.eq (vec.get (& (. g cseen)) i) s) (ret true))
+    (set i (+ i 1)))
+  false)
+
+(pub (fn uniq ((g (&mut cg)) (base (& str))) str
+  (if (not (saw g base)) (do (vec.push (&mut (. g cseen)) (str.clone base)) (ret (str.clone base))))
+  (let mut n 2)
+  (loop
+    (let mut s (str.clone base))
+    (str.push_byte (&mut s) 95u8)
+    (str.push (&mut s) (& (str.from_int n)))
+    (if (not (saw g (& s))) (do (vec.push (&mut (. g cseen)) (str.clone (& s))) (ret s)))
+    (set n (+ n 1)))))
 
 (pub (fn mangle ((path (& str)) (args (& (vec ty.sty)))) str
   (let mut s (str.from "llr_"))

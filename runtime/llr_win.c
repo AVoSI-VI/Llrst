@@ -35,40 +35,26 @@ int *__errno_location(void) {
 }
 
 void map_wsa(void) {
+    static const int map[][2] = {
+        {10004, 4},   {10013, 13},  {10022, 22},  {10035, 11},  {10036, 115},
+        {10037, 114}, {10039, 89},  {10040, 90},  {10043, 93},  {10044, 94},
+        {10045, 95},  {10046, 96},  {10047, 97},  {10048, 98},  {10049, 99},
+        {10051, 101}, {10053, 32},  {10054, 104}, {10055, 105}, {10056, 106},
+        {10057, 107}, {10060, 110}, {10061, 111}, {10065, 113}, {11001, 2},
+    };
     int err = llr_wsa_last_error();
-    if (err == 10035) {
-        set_errno(11);
-    } else if (err == 10004) {
-        set_errno(4);
-    } else if (err == 10013) {
-        set_errno(13);
-    } else if (err == 10053) {
-        set_errno(32);
-    } else if (err == 10048) {
-        set_errno(98);
-    } else if (err == 10051) {
-        set_errno(101);
-    } else if (err == 10054) {
-        set_errno(104);
-    } else if (err == 10056) {
-        set_errno(106);
-    } else if (err == 10057) {
-        set_errno(107);
-    } else if (err == 10060) {
-        set_errno(110);
-    } else if (err == 10061) {
-        set_errno(111);
-    } else if (err == 10065) {
-        set_errno(113);
-    } else if (err == 10037) {
-        set_errno(114);
-    } else if (err == 10036) {
-        set_errno(115);
-    } else if (err > 0 && err < 256) {
-        set_errno(err);
-    } else {
-        set_errno(5);
+    int i;
+    for (i = 0; i < (int)(sizeof map / sizeof map[0]); i++) {
+        if (map[i][0] == err) {
+            set_errno(map[i][1]);
+            return;
+        }
     }
+    if (err > 0 && err < 256) {
+        set_errno(err);
+        return;
+    }
+    set_errno(5);
 }
 
 static int map_path(const char *in, char *out, size_t cap) {

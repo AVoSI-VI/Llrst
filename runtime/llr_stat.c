@@ -410,7 +410,7 @@ int llr_fcntl(int fd, int cmd, int arg) {
 
 /* Linux sockaddr_in starts with a 16-bit family. Darwin starts with sin_len. */
 static int call_addr(int fd, const void *addr, uint32_t len, int (*call)(int, const struct sockaddr *, socklen_t)) {
-    unsigned char buf[16];
+    unsigned char buf[28];
     const unsigned char *s = addr;
     if (s != 0 && len == 16 && s[0] == 2 && s[1] == 0) {
         memset(buf, 0, 16);
@@ -418,6 +418,12 @@ static int call_addr(int fd, const void *addr, uint32_t len, int (*call)(int, co
         buf[1] = 2;
         memcpy(buf + 2, s + 2, 14);
         return call(fd, (const struct sockaddr *)buf, len);
+    }
+    if (s != 0 && len == 28 && s[0] == 10 && s[1] == 0) {
+        memcpy(buf, s, 28);
+        buf[0] = 28;
+        buf[1] = 30; /* AF_INET6 */
+        return call(fd, (const struct sockaddr *)buf, 28);
     }
     return call(fd, addr, (socklen_t)len);
 }
@@ -431,8 +437,12 @@ int llr_connect(int fd, const void *addr, uint32_t len) {
 }
 
 int llr_socket(int domain, int ty, int proto) {
-    int fd = socket(domain, ty, proto);
+    int fd;
     int one = 1;
+    if (domain == 10) {
+        domain = 30; /* AF_INET6 */
+    }
+    fd = socket(domain, ty, proto);
     if (fd < 0) {
         return fd;
     }
@@ -457,3 +467,5 @@ int *__errno_location(void) {
     return &cached;
 }
 #endif
+
+#include "llr_net.c"

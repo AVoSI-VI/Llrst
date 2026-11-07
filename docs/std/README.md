@@ -16,8 +16,10 @@
 | [io](io.md) | Standard streams. |
 | [os](os.md) | Process environment. |
 | [fs](fs.md) | Files and directories. Errors are `res.err` strings like `io.read|path=x`. |
-| [net](net.md) | IPv4. `connect` takes a dotted quad. `poll_serve` grows with the clients. |
-| [thread](thread.md) | A pthread pool that grows. A job is a closure. |
+| [net](net.md) | TCP and UDP. `connect` takes a name or an IP literal. |
+| [net_dns](net_dns.md) | DNS lookup and Linux sockaddr literals used by `net`. |
+| [thread](thread.md) | A pthread pool, plus `spawn` and `join`. |
+| [sync](sync.md) | `mutex` and `chan`. Sending moves the value. No `Send` trait. |
 | [http](http.md) | HTTP/1.1, chunked bodies, route templates, and WebSocket messages. |
 | [http_body](http_body.md) | Chunked bodies and `Content-Length`. |
 | [http_mime](http_mime.md) | Test only. No public functions. |

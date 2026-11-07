@@ -1,0 +1,167 @@
+;; DNS names and IP literals. `fill` writes a Linux sockaddr of 16 or 28 bytes.
+(use std.scan)
+(use std.sys)
+
+(fn zero ((p (ptr u8)) (n i64)) unit (for i 0 n (ptr.write (ptr.add p i) 0u8)))
+
+(fn put_port ((p (ptr u8)) (port i64) (fam i64)) unit
+  (ptr.write (as (ptr i16) p) (as i16 fam))
+  (ptr.write (ptr.add p 2) (as u8 (shr (band port 65535) 8)))
+  (ptr.write (ptr.add p 3) (as u8 (band port 255))))
+
+(fn put_group ((dst (ptr u8)) (i i64) (v i64)) unit
+  (let o (* i 2))
+  (ptr.write (ptr.add dst o) (as u8 (shr (band v 65535) 8)))
+  (ptr.write (ptr.add dst (+ o 1)) (as u8 (band v 255))))
+
+(fn group_at ((g (& (vec i64))) (gap i64) (zeros i64) (o i64)) i64
+  (if (< o gap) (ret (@ (vec.get g o))))
+  (if (< o (+ gap zeros)) (ret 0))
+  (@ (vec.get g (- o zeros))))
+
+(fn write_v6 ((dst (ptr u8)) (g (& (vec i64))) (gap i64)) bool
+  (let n (vec.len g))
+  (if (< gap 0)
+    (do (if (!= n 8) (ret false)) (for i 0 8 (put_group dst i (@ (vec.get g i)))) (ret true)))
+  (if (> n 7) (ret false))
+  (let zeros (- 8 n))
+  (for o 0 8 (put_group dst o (group_at g gap zeros o)))
+  true)
+
+(fn read_group ((host (& str)) (i (&mut i64))) (opt i64)
+  (let n (str.len host))
+  (if (or (>= (@ i) n) (== (str.at host (@ i)) 58u8)) (ret (opt.none)))
+  (let mut v 0)
+  (let mut k 0)
+  (while (and (< (@ i) n) (!= (str.at host (@ i)) 58u8))
+    (let d (scan.hex_dig (str.at host (@ i))))
+    (if (or (opt.is_none (& d)) (== k 4)) (ret (opt.none)))
+    (set v (+ (* v 16) (opt.unwrap d)))
+    (set k (+ k 1))
+    (set (@ i) (+ (@ i) 1)))
+  (if (== k 0) (ret (opt.none)))
+  (opt.some v))
+
+(fn parse_v6 ((host (& str)) (dst (ptr u8))) bool
+  (let n (str.len host))
+  (if (or (== n 0) (not (str.has host ":"))) (ret false))
+  (let mut g (vec.new <i64>))
+  (let mut gap (neg 1))
+  (let mut i 0)
+  (if (== (str.at host 0) 58u8)
+    (do (if (or (< n 2) (!= (str.at host 1) 58u8)) (ret false)) (set gap 0) (set i 2)))
+  (while (< i n)
+    (let part (read_group host (&mut i)))
+    (if (opt.is_none (& part)) (ret false))
+    (vec.push (&mut g) (opt.unwrap part))
+    (if (== i n) (ret (write_v6 dst (& g) gap)))
+    (set i (+ i 1))
+    (if (== i n) (ret false))
+    (if (== (str.at host i) 58u8)
+      (do (if (>= gap 0) (ret false)) (set gap (vec.len (& g))) (set i (+ i 1)))))
+  (write_v6 dst (& g) gap))
+
+(fn octet ((s (& str))) (opt i64)
+  (if (== (str.len s) 0) (ret (opt.none)))
+  (let n (str.to_int s))
+  (if (opt.is_none (& n)) (ret (opt.none)))
+  (let v (opt.unwrap n))
+  (if (or (< v 0) (> v 255)) (ret (opt.none)))
+  (opt.some v))
+
+(fn fill_v4 ((host (& str)) (p (ptr u8))) bool
+  (let parts (str.split host 46u8))
+  (if (!= (vec.len (& parts)) 4) (ret false))
+  (for i 0 4
+    (let o (octet (vec.get (& parts) i)))
+    (if (opt.is_none (& o)) (ret false))
+    (ptr.write (ptr.add p (+ 4 i)) (as u8 (opt.unwrap o))))
+  true)
+
+(pub (fn fill ((host (& str)) (port i64) (p (ptr u8))) i64
+  (if (str.has host ":")
+    (do
+      (zero p 28)
+      (if (not (parse_v6 host (ptr.add p 8))) (ret (neg 1)))
+      (put_port p port 10)
+      (ret 28)))
+  (zero p 16)
+  (if (not (fill_v4 host p)) (ret (neg 1)))
+  (put_port p port 2)
+  16))
+
+(fn err ((host (& str))) str (let mut m (str.from "io.resolve|host=")) (str.push (&mut m) host) m)
+
+(fn take_ips ((buf (ptr u8)) (n i64)) (vec str)
+  (let mut out (vec.new <str>))
+  (let mut off 0)
+  (let mut i 0)
+  (while (< i n)
+    (let p (ptr.add buf off))
+    (let k (as i64 (sys.strlen p)))
+    (vec.push (&mut out) (str.from_cstr p))
+    (set off (+ off (+ k 1)))
+    (set i (+ i 1)))
+  out)
+
+(pub (fn resolve ((host (& str))) (res (vec str) str)
+  (let cs (str.cstr host))
+  (let buf (sys.alloc 2048))
+  (let mut n 0)
+  (let rc (sys.llr_resolve (. cs p) buf 2048u64 (as (ptr i64) (&mut n))))
+  (drop cs)
+  (if (< rc 0i32) (do (sys.free buf) (ret (res.err (err host)))))
+  (let out (take_ips buf n))
+  (sys.free buf)
+  (res.ok out)))
+
+(fn fill_first ((list (vec str)) (port i64) (p (ptr u8))) i64
+  (if (== (vec.len (& list)) 0) (ret (neg 1)))
+  (fill (vec.get (& list) 0) port p))
+
+(pub (fn prep ((host (& str)) (port i64) (p (ptr u8))) i64
+  (let n (fill host port p))
+  (if (>= n 0) (ret n))
+  (match (resolve host) ((res.err _) (neg 1)) ((res.ok list) (fill_first list port p)))))
+
+(fn has_local ((ips (& (vec str)))) bool
+  (let mut i 0)
+  (while (< i (vec.len ips))
+    (let s (vec.get ips i))
+    (if (or (str.eq s "127.0.0.1") (str.eq s "::1")) (ret true))
+    (set i (+ i 1)))
+  false)
+
+(test net_dns_lit
+  (let p (sys.alloc 28))
+  (assert_eq (fill "127.0.0.1" 80 p) 16)
+  (assert_eq (as i64 (ptr.read (ptr.add p 4))) 127)
+  (assert_eq (as i64 (ptr.read (ptr.add p 7))) 1)
+  (assert_eq (fill "::1" 443 p) 28)
+  (assert_eq (as i64 (ptr.read (as (ptr i16) p))) 10)
+  (assert_eq (as i64 (ptr.read (ptr.add p 23))) 1)
+  (assert_eq (fill "::" 1 p) 28)
+  (assert_eq (as i64 (ptr.read (ptr.add p 23))) 0)
+  (assert_eq (fill "2001:db8::1" 1 p) 28)
+  (assert_eq (as i64 (ptr.read (ptr.add p 8))) 32)
+  (assert_eq (as i64 (ptr.read (ptr.add p 23))) 1)
+  (assert_eq (fill "1:2:3:4:5:6:7:8" 9 p) 28)
+  (assert_eq (fill "1::" 1 p) 28)
+  (assert_eq (as i64 (ptr.read (ptr.add p 8))) 0)
+  (assert_eq (as i64 (ptr.read (ptr.add p 9))) 1)
+  (assert_eq (fill "1::2::3" 1 p) (neg 1))
+  (assert_eq (fill "gg::1" 1 p) (neg 1))
+  (assert_eq (fill "10.0.0" 1 p) (neg 1))
+  (assert_eq (fill ":1" 1 p) (neg 1))
+  (assert_eq (prep "127.0.0.1" 80 p) 16)
+  (sys.free p)
+  (drop (octet "1")))
+
+(test net_dns_resolve
+  (let ips (res.unwrap (resolve "localhost")))
+  (assert (has_local (& ips)))
+  (let one (res.unwrap (resolve "127.0.0.1")))
+  (assert_eq (& (@ (vec.get (& one) 0))) "127.0.0.1")
+  (let bad (resolve "nope.invalid"))
+  (assert (res.is_err (& bad)))
+  (assert_eq (& (res.unwrap_err bad)) "io.resolve|host=nope.invalid"))

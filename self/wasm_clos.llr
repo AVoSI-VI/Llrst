@@ -10,6 +10,23 @@
 (use proj.wasm_op)
 (use std.str)
 
+(fn taken ((g (& wasm_mod.wm)) (s (& str))) bool
+  (let mut i 0)
+  (while (< i (vec.len (& (. g names))))
+    (if (str.eq (vec.get (& (. g names)) i) s) (ret true))
+    (set i (+ i 1)))
+  false)
+
+(fn uniq ((g (& wasm_mod.wm)) (base (& str))) str
+  (if (not (taken g base)) (ret (str.clone base)))
+  (let mut n 2)
+  (loop
+    (let mut s (str.clone base))
+    (str.push_byte (&mut s) 95u8)
+    (str.push (&mut s) (& (str.from_int n)))
+    (if (not (taken g (& s))) (ret s))
+    (set n (+ n 1))))
+
 (pub (fn prepare ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (& mir.body))) unit
   (for i 0 (vec.len (& (. b clos))) (one g p fx b i))))
 
@@ -27,7 +44,7 @@
     (if (not (ty.is_unit (& (. (vec.get (& (. b locs)) i) ty))))
       (vec.push (&mut args) (ty.clone (& (. (vec.get (& (. b locs)) i) ty))))))
   (let ty (wasm_mod.sig_ty g (& ret) (& args)))
-  (wasm_mod.add_fn g (str.clone (& (. b name))) ty))
+  (wasm_mod.add_fn g (uniq g (& (. b name))) ty))
 
 (fn tramp ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (c (& mir.clbody)) (inner i64)) i64
   (let sret (cg_lay.is_agg (& (. c ret))))
@@ -43,6 +60,7 @@
   (let ty (wasm_mod.intern g (& ps) (& rs)))
   (let mut name (str.clone (& (. (. c body) name))))
   (str.push (&mut name) "_tramp")
+  (set name (uniq g (& name)))
   (let ord (wasm_mod.add_fn g name ty))
   (let mut fx (wasm_abi.fresh (str.from "tramp") n))
   (emit_tramp g p (&mut fx) c inner sret)
@@ -102,6 +120,7 @@
   (let ty (wasm_mod.intern g (& ps) (& rs)))
   (let mut name (str.clone (& (. (. c body) name))))
   (str.push (&mut name) "_envdrop")
+  (set name (uniq g (& name)))
   (let ord (wasm_mod.add_fn g name ty))
   (let mut fx (wasm_abi.fresh (str.from "envdrop") 1))
   (set (. fx frame) 64)

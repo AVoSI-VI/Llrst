@@ -85,3 +85,7 @@ Source: `std/sys_wasm.llr`. Import with `(use std.sys_wasm)` for module function
 | `sys_wasm.llr_io_get` | `()` | `(ptr u8)` |
 | `sys_wasm.llr_io_set` | `((p (ptr u8)))` | `unit` |
 | `sys_wasm.llr_run` | `((file (ptr u8)) (args (ptr u8)) (n u64) (in (ptr u8)) (in_n u64) (out (ptr u8)) (out_n (ptr u64)) (err (ptr u8)) (err_n (ptr u64)))` | `i32` |
+| `sys_wasm.llr_sendto` | `((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (len u32))` | `i64` |
+| `sys_wasm.llr_recvfrom` | `((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (alen (ptr u32)))` | `i64` |
+| `sys_wasm.llr_set_timeout` | `((fd i32) (ms i64))` | `i32` |
+| `sys_wasm.llr_resolve` | `((host (ptr u8)) (buf (ptr u8)) (cap u64) (out_n (ptr i64)))` | `i32` |

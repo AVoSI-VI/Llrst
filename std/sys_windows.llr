@@ -148,3 +148,11 @@
     (err (ptr u8))
     (err_n (ptr u64)))
   i32))
+
+(pub (extern llr_sendto ((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (len u32)) i64))
+
+(pub (extern llr_recvfrom ((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (alen (ptr u32))) i64))
+
+(pub (extern llr_set_timeout ((fd i32) (ms i64)) i32))
+
+(pub (extern llr_resolve ((host (ptr u8)) (buf (ptr u8)) (cap u64) (out_n (ptr i64))) i32))

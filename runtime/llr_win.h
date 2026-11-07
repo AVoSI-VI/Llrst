@@ -63,6 +63,10 @@ int llr_wsa_recv(uint64_t sock, void *buf, int n, int flags);
 int llr_wsa_poll(void *fds, uint32_t n, int timeout);
 short llr_wsa_to_events(short events);
 short llr_wsa_from_events(short events);
+int llr_wsa_sendto(uint64_t sock, const void *buf, int n, const void *addr, int len);
+int llr_wsa_recvfrom(uint64_t sock, void *buf, int n, void *addr, int *len);
+int llr_wsa_setsockopt(uint64_t sock, int level, int opt, const void *val, int len);
+int llr_wsa_resolve(const char *host, char *buf, uint64_t cap, int64_t *out_n);
 
 typedef struct slot {
     int kind;

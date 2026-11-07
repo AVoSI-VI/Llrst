@@ -21,26 +21,40 @@ fn sys_fn(prog: &Program, name: &str) -> DefId {
         .unwrap_or_else(|| panic!("std.sys {name}"))
 }
 
+fn fresh_sym(cg: &mut Codegen, base: &str) -> String {
+    if cg.clos_syms.insert(base.to_string()) {
+        return base.to_string();
+    }
+    let mut n = 2u32;
+    loop {
+        let name = format!("{base}_{n}");
+        if cg.clos_syms.insert(name.clone()) {
+            return name;
+        }
+        n += 1;
+    }
+}
+
 pub fn prepare(cg: &mut Codegen, body: &Body) -> PResult<()> {
     for c in &body.closures {
         let params: Vec<Ty> = (1..=c.body.arg_count).map(|i| c.body.locals[i].ty.clone()).collect();
         let ret = c.body.locals[0].ty.clone();
         let sig = cg.signature(&params, &ret);
-        let name = format!("llr_{}", c.body.name.replace('.', "_"));
+        let name = fresh_sym(cg, &format!("llr_{}", c.body.name.replace('.', "_")));
         let id = cg.module.declare_function(&name, Linkage::Local, &sig).unwrap();
         super::func::compile(cg, &c.body, id)?;
-        let tramp = emit_tramp(cg, c, id)?;
-        let drop = emit_env_drop(cg, c)?;
+        let tramp = emit_tramp(cg, c, id, &name)?;
+        let drop = emit_env_drop(cg, c, &name)?;
         cg.clos_ids.insert(c.body.name.clone(), (tramp, drop));
     }
     Ok(())
 }
 
-fn emit_tramp(cg: &mut Codegen, c: &ClosInst, inner: FuncId) -> PResult<FuncId> {
+fn emit_tramp(cg: &mut Codegen, c: &ClosInst, inner: FuncId, base: &str) -> PResult<FuncId> {
     let mut formals = vec![env_ty()];
     formals.extend(c.user.iter().cloned());
     let sig = cg.signature(&formals, &c.ret);
-    let name = format!("llr_{}_tramp", c.body.name.replace('.', "_"));
+    let name = format!("{base}_tramp");
     let id = cg.module.declare_function(&name, Linkage::Local, &sig).unwrap();
     let (_, _, offs) = cg.layouts.seq(&c.caps, 0);
     let mut ctx = cg.module.make_context();
@@ -84,10 +98,10 @@ fn emit_tramp(cg: &mut Codegen, c: &ClosInst, inner: FuncId) -> PResult<FuncId> 
     Ok(id)
 }
 
-fn emit_env_drop(cg: &mut Codegen, c: &ClosInst) -> PResult<FuncId> {
+fn emit_env_drop(cg: &mut Codegen, c: &ClosInst, base: &str) -> PResult<FuncId> {
     let mut sig = Signature::new(cg.call_conv);
     sig.params.push(AbiParam::new(cg.ptr_ty));
-    let name = format!("llr_{}_envdrop", c.body.name.replace('.', "_"));
+    let name = format!("{base}_envdrop");
     let id = cg.module.declare_function(&name, Linkage::Local, &sig).unwrap();
     let (_, _, offs) = cg.layouts.seq(&c.caps, 0);
     let free = cg.func_id(&(sys_fn(cg.prog, "free"), Vec::new()));

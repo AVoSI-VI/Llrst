@@ -1,4 +1,4 @@
-;; A pthread pool that grows. A job is a closure and can capture a binding.
+;; A pthread pool that grows, plus one closure started with spawn and join.
 (use std.sys)
 
 (struct job (work (clos () unit)))
@@ -39,7 +39,7 @@
   (let inn (as (ptr shared) arg))
   (loop (let t (pop_job inn)) (if (== (. t go) 0) (ret (ptr.null <u8>))) (call (. t work))))
 
-(fn spawn ((inn (ptr shared)) (i i64)) bool
+(fn launch ((inn (ptr shared)) (i i64)) bool
   (let tp (ptr.add (as (ptr u64) (. (@ inn) threads)) i))
   (== (sys.pthread_create (as (ptr u8) tp) (ptr.null <u8>) worker (as (ptr u8) inn)) 0i32))
 
@@ -57,7 +57,7 @@
   (set (. (@ inn) threads) mem)
   (set (. (@ inn) n) (+ n 1))
   (unlock inn)
-  (if (not (spawn inn n)) (do (lock inn) (set (. (@ inn) n) n) (unlock inn))))
+  (if (not (launch inn n)) (do (lock inn) (set (. (@ inn) n) n) (unlock inn))))
 
 (fn stop_inner ((inn (ptr shared))) unit
   (if (== (. (@ inn) joined) 1) (ret))
@@ -95,7 +95,7 @@
   (ptr.write inn (shared 0 0 n lock cv threads (vec.new <job>)))
   (let mut i 0)
   (while (< i n)
-    (if (not (spawn inn i))
+    (if (not (launch inn i))
       (do (set (. (@ inn) n) i) (stop_inner inn) (free_inner inn) (ret (res.err (err n)))))
     (set i (+ i 1)))
   (res.ok (pool inn))))
@@ -127,6 +127,59 @@
     (stop_inner inn)
     (free_inner inn)
     (set (. self inner) (ptr.null <shared>))))
+
+(struct pack (work (clos () unit)))
+
+;; The worker closure captures only pointers. Dropping a captured closure twice corrupts the heap.
+(fn run <T> ((out (ptr T)) (slot (ptr u8))) unit
+  (let w (ptr.read (as (ptr (clos () T)) slot)))
+  (ptr.write out (call w)))
+
+(fn spawn_entry ((arg (ptr u8))) (ptr u8)
+  (let p (as (ptr pack) arg))
+  (let box (ptr.read p))
+  (call (. box work))
+  (drop box)
+  (ptr.null <u8>))
+
+(pub (struct handle <T> (id u64) (out (ptr T)) (pack (ptr u8)) (slot (ptr u8)) (done i64)))
+
+(fn release <T> ((h (&mut (handle T)))) T
+  (sys.pthread_join (. h id) (ptr.null <u8>))
+  (set (. h done) 1)
+  (let v (ptr.read (. h out)))
+  (sys.free (as (ptr u8) (. h out)))
+  (sys.free (. h slot))
+  (sys.free (. h pack))
+  (set (. h out) (ptr.null <T>))
+  (set (. h pack) (ptr.null <u8>))
+  (set (. h slot) (ptr.null <u8>))
+  v)
+
+(pub (fn spawn <T> ((work (clos () T))) (handle T)
+  (let out (as (ptr T) (sys.alloc (as i64 (sizeof T)))))
+  (let slot (sys.alloc (as i64 (sizeof (clos () T)))))
+  (ptr.write (as (ptr (clos () T)) slot) work)
+  (let pk (as (ptr pack) (sys.alloc (as i64 (sizeof pack)))))
+  (ptr.write pk (pack (clos () unit (run out slot))))
+  (let mut id 0u64)
+  (let rc (sys.pthread_create (as (ptr u8) (&mut id)) (ptr.null <u8>) spawn_entry (as (ptr u8) pk)))
+  (if (!= rc 0i32)
+    (do
+      (let junk (ptr.read pk))
+      (drop junk)
+      (let gone (ptr.read (as (ptr (clos () T)) slot)))
+      (drop gone)
+      (sys.free slot)
+      (sys.free (as (ptr u8) pk))
+      (sys.free (as (ptr u8) out))
+      (panic "thread.spawn")))
+  (handle id out (as (ptr u8) pk) slot 0)))
+
+(pub (fn join <T> ((h (handle T))) T (let mut h h) (release (&mut h))))
+
+(impl handle <T>
+  (fn drop ((self (&mut (handle T)))) unit (if (!= (. self done) 0) (ret)) (drop (release self))))
 
 (fn add1 ((p (ptr i64))) unit (ptr.write p (+ (ptr.read p) 1)))
 
@@ -165,9 +218,27 @@
   (if false (unlock (ptr.null <shared>)))
   (if false (drop (pop_job (ptr.null <shared>))))
   (if false (drop (worker (ptr.null <u8>))))
-  (if false (spawn (ptr.null <shared>) 0))
+  (if false (launch (ptr.null <shared>) 0))
   (if false (stop_inner (ptr.null <shared>)))
   (if false (free_inner (ptr.null <shared>)))
   (if false (grow (ptr.null <shared>)))
   (if false (copy_ids (ptr.null <u8>) (ptr.null <u8>) 0))
-  (if false (drop (pool (ptr.null <shared>)))))
+  (if false (drop (pool (ptr.null <shared>))))
+  (if false (drop (spawn_entry (ptr.null <u8>)))))
+
+(test thread_spawn
+  (let mut h (do (spawn (clos () i64 41))))
+  (assert_eq (join h) 41)
+  (let mut n 3)
+  (let p (as (ptr i64) (&mut n)))
+  (let mut h2 (do (spawn (clos () i64 (ptr.read p)))))
+  (assert_eq (join h2) 3)
+  (let mut h3 (do (spawn (clos () str (str.from "hi")))))
+  (assert_eq (& (join h3)) "hi"))
+
+(test thread_drop
+  (let mut flag 0)
+  (let fp (as (ptr i64) (&mut flag)))
+  (let mut h (do (spawn (clos () i64 (ptr.write fp 4) 4))))
+  (drop h)
+  (assert_eq (ptr.read fp) 4))

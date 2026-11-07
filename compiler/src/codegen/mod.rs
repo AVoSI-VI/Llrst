@@ -21,7 +21,7 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use layout::Layouts;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -39,6 +39,8 @@ pub struct Codegen<'a> {
     pub pending_drops: Vec<Ty>,
     /// `{body.name}` of a closure -> (trampoline, env drop).
     pub clos_ids: HashMap<String, (FuncId, FuncId)>,
+    /// Closure symbols already declared. A second instance of a generic keeps a suffix.
+    pub clos_syms: HashSet<String>,
     pub vtables: HashMap<(DefId, Ty), DataId>,
     pub argc: DataId,
     pub argv: DataId,
@@ -129,6 +131,7 @@ impl<'a> Codegen<'a> {
             drops: HashMap::new(),
             pending_drops: Vec::new(),
             clos_ids: HashMap::new(),
+            clos_syms: HashSet::new(),
             vtables: HashMap::new(),
             argc,
             argv,

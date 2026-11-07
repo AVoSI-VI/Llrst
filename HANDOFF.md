@@ -411,15 +411,15 @@ Files: `compiler/src/parse/mod.rs`, `compiler/src/parse/expr.rs`, `compiler/src/
 6. `[x]` `tests/check.sh` and `tests/mir.sh` byte-equal; `scripts/self.sh --stage` reaches `stage2=equal`.
 7. `[x]` Commit: `lang: generic trait impls, Show, bnot, numeric literal forms, const.not_lit`.
 
-### Phase 13: concurrency and net `[ ]`
+### Phase 13: concurrency and net `[x]`
 
 Files: `std/thread.llr`, new `std/sync.llr`, `std/net.llr`, new `std/net_dns.llr`, `std/sys_posix.llr`, `std/sys_windows.llr`, `std/sys_wasm.llr`, `runtime/llr_win_sock.c`, `runtime/llr_stat.c`, `docs/canon/io.md`.
 
-1. `[ ]` `std/sync.llr`: `(mutex T)` with `new lock ((&mut m) (clos ((&mut T)) unit))` so the guard cannot escape, and `(chan T)` with `new send recv try_recv close` over a mutex and condition variable (`pthread_cond_*` externs on POSIX, `CONDITION_VARIABLE` on Windows). Sending requires nothing beyond ownership; there is no `Send` trait, documented in `docs/spec/memory.md`.
-2. `[ ]` `thread.spawn ((clos () T)) (handle T)` and `thread.join (handle T) T`; the pool is unchanged.
-3. `[ ]` `net.resolve (host) (res (vec str) str)` over `getaddrinfo`; `connect` accepts a name or an IPv6 literal; `listen6`; `net.udp_bind udp_send udp_recv`; `net.set_timeout (fd ms)`. Windows maps the new errno values in `map_wsa`.
-4. `[ ]` wasm: every new extern writes `target.unsupported` and returns `-1` as the existing ones do.
-5. `[ ]` Commit: `std: mutex, channel, spawn and join, dns, udp, ipv6, socket timeouts`.
+1. `[x]` `std/sync.llr`: `(mutex T)` with `new lock ((&mut m) (clos ((&mut T)) unit))` so the guard cannot escape, and `(chan T)` with `new send recv try_recv close` over a mutex and condition variable (`pthread_cond_*` externs on POSIX, `CONDITION_VARIABLE` on Windows). Sending requires nothing beyond ownership; there is no `Send` trait, documented in `docs/spec/memory.md`.
+2. `[x]` `thread.spawn ((clos () T)) (handle T)` and `thread.join (handle T) T`; the pool is unchanged.
+3. `[x]` `net.resolve (host) (res (vec str) str)` over `getaddrinfo`; `connect` accepts a name or an IPv6 literal; `listen6`; `net.udp_bind udp_send udp_recv`; `net.set_timeout (fd ms)`. Windows maps the new errno values in `map_wsa`.
+4. `[x]` wasm: every new extern writes `target.unsupported` and returns `-1` as the existing ones do.
+5. `[x]` Commit: `std: mutex, channel, spawn and join, dns, udp, ipv6, socket timeouts`.
 
 ### Phase 14: language ergonomics `[ ]`
 
@@ -564,4 +564,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-04: Phase 11. `time` is the wall and monotonic clock; `fs.now_ms` forwards to `time.now_ms`. `rand` is xorshift64*. `bytes` is the endian and LEB128 helper for `h2`, `http_ws`, `mqtt_pkt`, `pb`, `sha`, and wasm LEB. `url`, `sha256`, and `sha.b64_decode` are new. JSON numbers keep their source text, including floats, and `\u` escapes become UTF-8. `assert_ne` and `assert_near` lower in both compilers. HPACK's prefix integer stays. `self/elf*`, `coff`, `macho*`, `x64_buf`, and `ui/ttf*` stay on their `str` readers. `target/self/x64_ref` is not in this checkout. `tests/run.ps1`: goldens, std, ui, lines, check, and self fails=0. `tests/mir.ps1` fails=0. `tests/cross.sh` is `fail|setup|lld=missing` on this host.
 - 2026-11-06: `OPT.md` moved to `history/OPT.md`. Phase 12. Generic trait impls monomorphize like generic fns; `trait.dup` keys the head type. `Show` covers the primitives, `str`, `vec`, `opt`, and `res`. `assert_eq` on other `Show` types calls `test.eq_by`. `bnot`, `0b`/`0o`, `_` separators, exponent floats, and `\u{HHHH}` are in both front ends. A non-literal `const` is `const.not_lit`. Struct and enum bounds are checked at instantiation. `vec.clone_str` is gone. x64 `ucomisd` plus `sete` treated NaN as equal; `==`, `!=`, `<`, and `<=` now mask the parity flag so NaN compares as unordered. `tests/check.ps1` and `tests/mir.ps1` fails=0. `scripts/self.ps1 --stage` is `self|stage2=equal`. `tests/run.ps1` fails on cross targets only (`lld` is not on this host).
 - 2026-11-07: Phase 21 (i128) inserted from the **Gaps** B row; TLS and llr-sql renumbered 22 and 23 and the TLS limb sizes rewritten for i128 products. No code changed. Suite not re-run.
+- 2026-11-07: Phase 13. `mutex.lock` keeps the guard inside a unit closure. `chan` is a deque behind a mutex and condition variable; `clone` shares it and there is no `Send` trait. `thread.spawn` and `thread.join` return the closure's value; the pool is unchanged. `net_dns.resolve` is `getaddrinfo`. `connect` takes a literal or a name, `listen6` binds `::1`, and UDP and `set_timeout` are on `net`. A second instance of a generic that builds a closure gets a suffixed symbol. `tests/run.ps1` is `done|fails=2`: `std/http` `http_many` crashed once under the full suite and passed when re-run, and the cross targets fail because `lld` is not on this host. `llrc check self/llrs.llr` reports no errors.
 

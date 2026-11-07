@@ -46,10 +46,16 @@
 | tty | `(os.is_tty fd)` |
 | exit | `(os.exit code)` |
 | cwd | `(os.cwd)` returns `(res str str)`. Failure, including a path past 1 MiB, is `io.cwd` |
-| listen | `(net.listen port)` returns `(res i64 str)`, the listening fd. Port 0 is any port. Backlog 1 |
+| listen | `(net.listen port)` returns `(res i64 str)`, the listening fd. Port 0 is any port. Binds 127.0.0.1 |
+| listen6 | `(net.listen6 port)` is the same on `::1` |
 | local port | `(net.local_port fd)` returns `(res i64 str)` |
 | accept | `(net.accept fd)` blocks and returns `(res i64 str)` |
-| connect | `(net.connect host port)` returns `(res i64 str)`. `host` is a dotted IPv4 |
+| connect | `(net.connect host port)` returns `(res i64 str)`. `host` is a dotted IPv4, an IPv6 literal, or a name |
+| resolve | `(net_dns.resolve host)` returns `(res (vec str) str)`. Failure is `io.resolve\|host=` |
+| udp bind | `(net.udp_bind port)` returns `(res i64 str)`, bound to 127.0.0.1 |
+| udp send | `(net.udp_send fd host port (& data))` returns `(res unit str)` |
+| udp recv | `(net.udp_recv fd n)` returns `(res str str)`. An empty string is an empty datagram |
+| socket timeout | `(net.set_timeout fd ms)` sets send and receive. `ms <= 0` waits forever. Failure is `io.timeout\|fd=` |
 | recv | `(net.recv fd n)` returns `(res str str)`. An empty string is end of stream |
 | send | `(net.send fd (& data))` returns `(res unit str)` and writes every byte |
 | close socket | `(net.close fd)` |
@@ -80,6 +86,10 @@
 | start pool | `(thread.start n)` returns `(res pool str)`. `n < 1` is `thread.start\|n=` |
 | submit | `(thread.submit (&mut p) work)`. `work` is `(clos () unit)` and can capture a binding. The pool grows when the queue is longer than the worker count |
 | stop | `(thread.stop (&mut p))` joins. Drop does this too |
+| spawn | `(thread.spawn work)` returns `(handle T)`. `work` is `(clos () T)` |
+| join | `(thread.join h)` waits and returns `T`. Drop joins and drops the value |
+| mutex | `(mutex.new v)` then `(mutex.lock (&mut m) body)`. `body` is `(clos ((&mut T)) unit)`, so the guard cannot be stored |
+| channel | `(chan.new)`, `(chan.send (& c) v)` moves `v` and returns `bool`, `(chan.recv (& c))` and `(chan.try_recv (& c))` return `(opt T)`, `(chan.close (& c))`. `(chan.clone (& c))` shares it. There is no `Send` trait |
 
 ## HTTP
 
