@@ -3,7 +3,7 @@
 ;; expr kind: 0 lit, 1 name, 2 let, 3 set, 4 do, 5 if, 6 while, 7 loop, 8 for,
 ;;   9 brk, 10 cont, 11 ret, 12 match, 13 ref, 14 deref, 15 field, 16 cast, 17 bin,
 ;;   18 and, 19 or, 20 not, 21 neg, 22 wneg, 23 call, 24 callptr, 25 try, 26 panic,
-;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop, 31 clos.
+;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop, 31 clos, 35 absent match guard.
 ;; item kind: 0 use, 1 mod, 2 fn, 3 extern, 4 struct, 5 enum, 6 impl, 7 const, 8 test,
 ;;   9 trait, 10 trait impl. A trait impl keeps the self type on ret.
 (use std.ast_expr)
@@ -418,6 +418,14 @@
   (assert (. it inline))
   (assert_eq (. it kind) 3u8)
   (assert (> (. it len) 0)))
+
+(test ast_match_arm
+  (let src "(fn main () unit (match 1 (1 (if true) 2) (_ 3)))")
+  (let r (res.unwrap (parse_src src)))
+  (let e (vec.get (& (. (vec.get (& r) 0) body)) 0))
+  (assert_eq (. e kind) 12u8)
+  (assert_eq (vec.len (& (. e kids))) 7)
+  (assert_eq (. (vec.get (& (. e kids)) 5) kind) 35u8))
 
 (test ast_trait_impl
   (let src

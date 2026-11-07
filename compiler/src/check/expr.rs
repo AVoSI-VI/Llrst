@@ -440,7 +440,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Checks a condition. A failure to be `bool` is `type.not_bool`, not `type.mismatch`.
-    fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
+    pub(crate) fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
         match self.check_expr(e, Some(&Ty::Bool)) {
             Ok(v) => Ok(v),
             Err(d) if d.code == "type.mismatch" && d.span == e.span && d.kv.iter().any(|(k, v)| *k == "want" && v == "bool") => {
@@ -462,7 +462,9 @@ fn has_break(e: &Expr) -> bool {
         ExprKind::Let { init, .. } => init.as_ref().map(|e| has_break(e)).unwrap_or(false),
         ExprKind::Assign { place, value } => has_break(place) || has_break(value),
         ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
-        ExprKind::Match { scrut, arms, .. } => has_break(scrut) || arms.iter().any(|a| has_break(&a.body)),
+        ExprKind::Match { scrut, arms, .. } => {
+            has_break(scrut) || arms.iter().any(|a| a.guard.as_ref().is_some_and(has_break) || has_break(&a.body))
+        }
         ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
         ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::BNot(x) | ExprKind::Not(x) => has_break(x),
         ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),

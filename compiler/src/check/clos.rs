@@ -102,6 +102,9 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
             for a in arms {
                 let mut inner = bound.clone();
                 bind_pat(&mut inner, &a.pat);
+                if let Some(g) = &a.guard {
+                    walk(ck, &mut inner, g, out, seen);
+                }
                 walk(ck, &mut inner, &a.body, out, seen);
             }
         }
@@ -157,7 +160,9 @@ fn bind_pat(bound: &mut HashSet<String>, p: &ast::Pat) {
         ast::Pat::Bind(n, _) => {
             bound.insert(n.clone());
         }
-        ast::Pat::Variant { subs, .. } => subs.iter().for_each(|s| bind_pat(bound, s)),
+        ast::Pat::Variant { subs, .. } | ast::Pat::Struct { subs, .. } | ast::Pat::Or { subs, .. } => {
+            subs.iter().for_each(|s| bind_pat(bound, s));
+        }
         ast::Pat::Wild(_) | ast::Pat::Lit(_, _) => {}
     }
 }
@@ -204,6 +209,9 @@ fn remap_expr(e: &mut Expr, start: u32) {
             remap_expr(scrut, start);
             for a in arms {
                 remap_pat(&mut a.pat, start);
+                if let Some(g) = &mut a.guard {
+                    remap_expr(g, start);
+                }
                 remap_expr(&mut a.body, start);
             }
         }
@@ -230,7 +238,7 @@ fn remap_expr(e: &mut Expr, start: u32) {
 fn remap_pat(p: &mut Pat, start: u32) {
     match p {
         Pat::Bind(l) => l.0 -= start,
-        Pat::Variant { subs, .. } => subs.iter_mut().for_each(|s| remap_pat(s, start)),
+        Pat::Variant { subs, .. } | Pat::Struct(subs) | Pat::Or(subs) => subs.iter_mut().for_each(|s| remap_pat(s, start)),
         Pat::Wild | Pat::Lit(_) => {}
     }
 }

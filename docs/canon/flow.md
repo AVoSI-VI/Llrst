@@ -30,7 +30,14 @@ No `else if` chain; use `match` on a value or nested `if` at most 2 deep. Deeper
 (match r
   ((res.ok v) (use v))
   ((res.err e) (io.eputs (& e))))         ; yes: exhaustive, variants in declaration order
+(match n
+  (0 (if (> n 0)) 1)                      ; guard: (PAT (if EXPR) EXPR); a failing guard tries the next arm
+  ((or 1 2) 3)                            ; or-pattern; every alternative binds the same names
+  (_ 0))
+(match s (("hi" 1) (_ 0)))                ; string literal, compared with str.eq
+(match p ((point x y) x))                 ; struct pattern, fields in declaration order
 ```
+A guard does not count as covering its pattern. `match.missing` still reports what is left.
 Wildcard `_` only when 3+ variants are ignored.
 
 ## Early return

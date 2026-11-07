@@ -99,7 +99,7 @@ fn transfer(
     all.push(term_accesses(&blk.term, blk.term_span));
     for accs in all {
         for a in &accs {
-            if !uses_moved(a.kind) && !(a.kind == AccessKind::Write && !a.place.is_local()) {
+            if !uses_moved(a.kind) {
                 continue;
             }
             if let Some(at) = moved_span(state, moved_at, field_at, &a.place) {
@@ -129,6 +129,15 @@ fn transfer(
                     state.whole.remove(l);
                     state.fields.retain(|(ll, _)| *ll != l);
                     state.uninit.remove(l);
+                }
+                // A write puts the value back. Match guards move a binding out and,
+                // when the guard fails, move it back onto the scrutinee place.
+                AccessKind::Write => {
+                    if let Some(i) = a.place.lone_field() {
+                        state.fields.remove(&(l, i));
+                    } else if a.place.proj.iter().any(|p| matches!(p, Proj::Downcast(_))) {
+                        state.whole.remove(l);
+                    }
                 }
                 _ => {}
             }

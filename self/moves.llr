@@ -165,11 +165,35 @@
               (vec.set (&mut (. st wl)) l (. a line))
               (vec.set (&mut (. st wc)) l (. a col))
               (vec.set (&mut (. st wn)) l (. a len))))))))
-  (if (and (== (. a kind) 1u8) (mir.is_local (& (. a pl))))
+  (if (== (. a kind) 1u8) (note_write st a)))
+
+(fn note_write ((st (&mut mv)) (a (& borrow.acc))) unit
+  (let l (. (. a pl) local))
+  (if (mir.is_local (& (. a pl)))
     (do
       (borrow.setb (&mut (. st whole)) l false)
       (borrow.setb (&mut (. st uninit)) l false)
-      (drop_local st l))))
+      (ret (drop_local st l))))
+  (let f (mir.lone_field (& (. a pl))))
+  (if (>= f 0) (ret (drop_one st l f)))
+  (if (has_down (& (. a pl))) (borrow.setb (&mut (. st whole)) l false)))
+
+(fn has_down ((pl (& mir.place))) bool
+  (for i 0 (vec.len (& (. pl pk))) (if (== (@ (vec.get (& (. pl pk)) i)) 2u8) (ret true)))
+  false)
+
+(fn drop_one ((st (&mut mv)) (l i64) (f i64)) unit
+  (let mut fl (vec.new <i64>))
+  (let mut ff (vec.new <i64>))
+  (let mut fsl (vec.new <i64>))
+  (let mut fsc (vec.new <i64>))
+  (for i 0 (vec.len (& (. st fl)))
+    (if (not (and (== (@ (vec.get (& (. st fl)) i)) l) (== (@ (vec.get (& (. st ff)) i)) f)))
+      (keep_field st i (&mut fl) (&mut ff) (&mut fsl) (&mut fsc))))
+  (set (. st fl) fl)
+  (set (. st ff) ff)
+  (set (. st fsl) fsl)
+  (set (. st fsc) fsc))
 
 (fn report ((out (&mut (vec diag.dg)))
    (b (& mir.body))
@@ -195,9 +219,7 @@
 (fn emit_use ((out (&mut (vec diag.dg))) (b (& mir.body)) (st (& mv)) (a (& borrow.acc))) unit
   (let l (. (. a pl) local))
   (if (and (uses (. a kind)) (borrow.bit (& (. st uninit)) l)) (emit_init out b a))
-  (if (and (or (uses (. a kind)) (and (== (. a kind) 1u8) (not (mir.is_local (& (. a pl))))))
-     (moved st a))
-    (emit_move out b a l (move_line st a) (move_col st a))))
+  (if (and (uses (. a kind)) (moved st a)) (emit_move out b a l (move_line st a) (move_col st a))))
 
 (fn moved ((st (& mv)) (a (& borrow.acc))) bool
   (let l (. (. a pl) local))

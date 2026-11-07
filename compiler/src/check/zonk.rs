@@ -65,7 +65,17 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
             scrut: bx(c, scrut)?,
             arms: arms
                 .into_iter()
-                .map(|a| Ok(Arm { pat: a.pat, body: zonk_expr(c, a.body)?, span: a.span }))
+                .map(|a| {
+                    Ok(Arm {
+                        pat: a.pat,
+                        guard: match a.guard {
+                            Some(g) => Some(zonk_expr(c, g)?),
+                            None => None,
+                        },
+                        body: zonk_expr(c, a.body)?,
+                        span: a.span,
+                    })
+                })
                 .collect::<PResult<_>>()?,
             by_ref,
         },

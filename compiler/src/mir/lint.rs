@@ -134,6 +134,9 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
         Match { scrut, arms } => {
             walk_expr(diags, scrut, scope);
             for a in arms {
+                if let Some(g) = &a.guard {
+                    walk_expr(diags, g, scope);
+                }
                 walk_expr(diags, &a.body, scope);
             }
         }

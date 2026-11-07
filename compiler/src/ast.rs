@@ -176,13 +176,17 @@ pub enum Pat {
     Bind(String, Span),
     Lit(Lit, Span),
     Variant { path: String, subs: Vec<Pat>, span: Span },
+    /// `(or PAT PAT...)`.
+    Or { subs: Vec<Pat>, span: Span },
+    /// Positional `(point x y)`.
+    Struct { path: String, subs: Vec<Pat>, span: Span },
 }
 
 impl Pat {
     pub fn span(&self) -> Span {
         match self {
             Pat::Wild(s) | Pat::Bind(_, s) | Pat::Lit(_, s) => *s,
-            Pat::Variant { span, .. } => *span,
+            Pat::Variant { span, .. } | Pat::Or { span, .. } | Pat::Struct { span, .. } => *span,
         }
     }
 }
@@ -190,6 +194,8 @@ impl Pat {
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
+    /// `(PAT (if EXPR) EXPR)`. Absent on a plain `(PAT EXPR)` arm.
+    pub guard: Option<Expr>,
     pub body: Expr,
 }
 

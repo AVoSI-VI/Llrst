@@ -77,7 +77,7 @@ EXPR :=
   (loop BODY...)                             ; exit with (brk)
   (for NAME EXPR EXPR BODY...)               ; integer range [lo, hi)
   (brk) | (cont) | (ret) | (ret EXPR)
-  (match EXPR ARM...)                        ; ARM := (PAT EXPR)
+  (match EXPR ARM...)                        ; ARM := (PAT EXPR) | (PAT (if EXPR) EXPR)
   (& PLACE) | (&mut PLACE) | (@ EXPR)        ; borrow, mutable borrow, deref
   (. EXPR NAME)                              ; field access
   (as TYPE EXPR)                             ; numeric cast
@@ -94,7 +94,7 @@ EXPR :=
   (clos ((NAME TYPE)*) TYPE BODY...)         ; closure; captures whole bindings; body cannot contain a closure
 
 PLACE := NAME | (. PLACE NAME) | (@ EXPR)
-PAT   := _ | NAME | LIT | (ENUM.VARIANT PAT...) | (ENUM.VARIANT)
+PAT   := _ | NAME | LIT | (or PAT PAT...) | (ENUM.VARIANT PAT...) | (ENUM.VARIANT) | (TYPE PAT...)
 ```
 
 Literal suffixes select integer type: `7u8`, `7i32`, `7u64`. Unsuffixed defaults to `i64`,
@@ -107,7 +107,7 @@ Struct construction is positional: `(point 1 2)`. Enum construction: `(shape.cir
 `(opt.none)`. Field read `(. p x)`. Field write `(set (. p x) 3)`.
 
 String literals have type `(& str)` and point to static data. Owned strings come from
-`str.from`, `str.cat`, etc.
+`str.from`, `str.cat`, etc. A string literal pattern matches through `str.eq`.
 
 ## Example
 

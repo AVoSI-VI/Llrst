@@ -73,7 +73,7 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `type.*` | `type.mismatch` (`want=` `got=`) `type.arity` (`want=` `got=`) `type.not_callable` (`got=`) `type.no_field` (`ty=` `field=`) `type.no_variant` (`ty=` `variant=`) `type.infer` (`name=` `got=` or `fix=`) `type.not_numeric` (`got=` or `op=` `got=`) `type.not_bool` (`got=`) `type.generic_arity` (`name=` `want=` `got=`) `type.generic_fn_value` (`name=`) `type.unit_bind` (`name=`) `type.not_ref` (`got=`) `type.not_place` `type.bad_cast` (`from=` `to=` on stage 0) `type.try` (`got=` `ret=` on stage 0) `type.assert_eq` (`got=` on stage 0) `type.bad` |
 | `const.*` | `const.not_lit` (`name=`) |
 | `lit.*` | `lit.overflow` (`ty=` `got=` on stage 0) |
-| `match.*` | `match.missing` (`missing=` or `fix=`) `match.bad_lit` `match.not_enum` (`got=` on stage 0) |
+| `match.*` | `match.missing` (`missing=` or `fix=`) `match.bad_lit` `match.not_enum` (`got=` on stage 0) `match.or` (`name=`) |
 | `move.*` `borrow.*` `mut.*` `init.*` | see memory.md. `mut.required` may be `name=` `fix=` or, on stage 0 only, `through=&` |
 | `flow.*` | `flow.brk_outside` `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |

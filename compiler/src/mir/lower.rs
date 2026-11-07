@@ -218,7 +218,7 @@ impl<'a> Lower<'a> {
     }
 
     /// One field of a struct local that has no user `drop` method.
-    fn can_move_field(&self, p: &Place) -> bool {
+    pub(crate) fn can_move_field(&self, p: &Place) -> bool {
         if p.lone_field().is_none() {
             return false;
         }

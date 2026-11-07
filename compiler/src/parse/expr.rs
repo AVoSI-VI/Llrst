@@ -215,10 +215,7 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
             let scrut = bx(parse_expr(&items[1])?);
             let mut arms = Vec::new();
             for a in &items[2..] {
-                let l = a.list().filter(|l| l.len() == 2).ok_or_else(|| {
-                    Diag::error(a.span(), "parse.expect").kv("want", "(pat expr)").kv("got", a.show())
-                })?;
-                arms.push(Arm { pat: parse_pat(&l[0])?, body: parse_expr(&l[1])? });
+                arms.push(parse_arm(a)?);
             }
             ExprKind::Match { scrut, arms }
         }
@@ -313,6 +310,20 @@ fn parse_clos(items: &[Sexpr], sp: Span) -> PResult<ExprKind> {
     Ok(ExprKind::Clos { params, ret, body: parse_body(&items[3..])? })
 }
 
+fn parse_arm(a: &Sexpr) -> PResult<Arm> {
+    let l = a.list().ok_or_else(|| Diag::error(a.span(), "parse.expect").kv("want", "(pat expr)").kv("got", a.show()))?;
+    if l.len() == 2 {
+        return Ok(Arm { pat: parse_pat(&l[0])?, guard: None, body: parse_expr(&l[1])? });
+    }
+    if l.len() == 3 {
+        let g = l[1].list().filter(|g| g.len() == 2 && g[0].atom() == Some("if")).ok_or_else(|| {
+            Diag::error(l[1].span(), "parse.expect").kv("want", "(if expr)").kv("got", l[1].show())
+        })?;
+        return Ok(Arm { pat: parse_pat(&l[0])?, guard: Some(parse_expr(&g[1])?), body: parse_expr(&l[2])? });
+    }
+    Err(Diag::error(a.span(), "parse.expect").kv("want", "(pat expr)").kv("got", a.show()))
+}
+
 pub fn parse_pat(s: &Sexpr) -> PResult<Pat> {
     let sp = s.span();
     match s {
@@ -331,10 +342,21 @@ pub fn parse_pat(s: &Sexpr) -> PResult<Pat> {
         }
         Sexpr::List(items, _) => {
             let head = items.first().and_then(|h| h.atom()).ok_or_else(|| {
-                Diag::error(sp, "parse.expect").kv("want", "enum.variant")
+                Diag::error(sp, "parse.expect").kv("want", "pattern")
             })?;
+            if head == "or" {
+                if items.len() < 3 {
+                    return Err(arity(sp, "or", "2+", items.len() - 1));
+                }
+                let subs = items[1..].iter().map(parse_pat).collect::<PResult<Vec<_>>>()?;
+                return Ok(Pat::Or { subs, span: sp });
+            }
             let subs = items[1..].iter().map(parse_pat).collect::<PResult<Vec<_>>>()?;
-            Ok(Pat::Variant { path: head.to_string(), subs, span: sp })
+            if head.contains('.') {
+                Ok(Pat::Variant { path: head.to_string(), subs, span: sp })
+            } else {
+                Ok(Pat::Struct { path: head.to_string(), subs, span: sp })
+            }
         }
     }
 }

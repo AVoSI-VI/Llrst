@@ -1,0 +1,3 @@
+(struct point (x i64) (y i64))
+
+(fn main () unit (match (point 1 2) ((point x) x) (_ 0)))

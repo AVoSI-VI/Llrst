@@ -1,0 +1,46 @@
+;; Guards, or-patterns, string patterns, and positional struct patterns.
+(use std.io)
+(use std.str)
+
+(struct point (pub (x i64)) (pub (y i64)))
+
+(fn tag ((n i64)) str
+  (match n
+    (0 (if false) (str.from "no"))
+    ((or 0 1) (str.from "low"))
+    (2 (if (> n 0)) (str.from "two"))
+    (_ (str.from "other"))))
+
+(fn word ((s str)) str
+  (match s
+    ("no" (str.from "bad"))
+    ("hi" (str.from "yes"))
+    (_ (str.from "other"))))
+
+(fn at ((p point)) i64
+  (match p ((point 2 y) y) ((point x _) x)))
+
+(fn pick ((o (opt str))) str
+  (match o
+    ((opt.some s) (if (str.eq (& s) "hi")) (str.from "yes"))
+    ((opt.some _) (str.from "other"))
+    ((opt.none) (str.from "none"))))
+
+(fn num ((o (opt i64))) i64
+  (match o ((or (opt.some n) (opt.some n)) n) ((opt.none) 0)))
+
+(fn main () unit
+  (io.puts (& (tag 0)))
+  (io.puts (& (tag 1)))
+  (io.puts (& (tag 2)))
+  (io.puts (& (tag 9)))
+  (io.puts (& (word (str.from "hi"))))
+  (io.puts (& (word (str.from "zz"))))
+  (match "hi" ("hi" (io.puts "lit")) (_ (io.puts "no")))
+  (io.puts (& (str.from_int (at (point 2 5)))))
+  (io.puts (& (str.from_int (at (point 7 1)))))
+  (io.puts (& (pick (opt.some (str.from "hi")))))
+  (io.puts (& (pick (opt.some (str.from "no")))))
+  (io.puts (& (pick (opt.none <str>))))
+  (io.puts (& (str.from_int (num (opt.some 4)))))
+  (match (opt.none <i64>) ((or (opt.some _) (opt.none)) (io.puts "all"))))

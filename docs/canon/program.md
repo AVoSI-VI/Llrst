@@ -32,7 +32,9 @@ each exported method is `(pub (fn ...))`. There is no `(pub (impl ...))`. Using 
 item from another file is `name.private|name=|module=|fix=(pub ...)`. A struct field is
 private unless it is `(pub (name type))`. Code in the struct's file, including its `impl`,
 may use private fields. Another file gets `name.private_field` on `(. p name)` and on a
-positional constructor. `(mem.replace (&mut place) new)` swaps the whole struct and copies
+positional constructor. A struct pattern `(point x y)` reads the same fields in
+declaration order, and a private field there is the same `name.private_field`.
+`(mem.replace (&mut place) new)` swaps the whole struct and copies
 private fields. Another file may do that without naming the fields. `name.private_field`
 does not apply. This is the escape. An enum variant is private unless it is `(pub (name type*))`.
 Code in the enum's file may construct and match a private variant. Another file gets

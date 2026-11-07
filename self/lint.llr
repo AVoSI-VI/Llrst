@@ -272,9 +272,13 @@
 
 (fn walk_match ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
   (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
-  (let mut i 2)
-  (while (< i (vec.len (& (. e kids))))
-    (do (walk_expr out path (vec.get (& (. e kids)) i) scope) (set i (+ i 2)))))
+  (let mut i 1)
+  (while (< (+ i 2) (vec.len (& (. e kids))))
+    (do
+      (if (!= (. (vec.get (& (. e kids)) (+ i 1)) kind) 35u8)
+        (walk_expr out path (vec.get (& (. e kids)) (+ i 1)) scope))
+      (walk_expr out path (vec.get (& (. e kids)) (+ i 2)) scope)
+      (set i (+ i 3)))))
 
 (fn walk_kids ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (from i64) (scope (&mut (vec bind)))) unit
   (for i from (vec.len (& (. e kids))) (walk_expr out path (vec.get (& (. e kids)) i) scope)))

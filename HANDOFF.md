@@ -421,13 +421,13 @@ Files: `std/thread.llr`, new `std/sync.llr`, `std/net.llr`, new `std/net_dns.llr
 4. `[x]` wasm: every new extern writes `target.unsupported` and returns `-1` as the existing ones do.
 5. `[x]` Commit: `std: mutex, channel, spawn and join, dns, udp, ipv6, socket timeouts`.
 
-### Phase 14: language ergonomics `[ ]`
+### Phase 14: language ergonomics `[~]`
 
 Files: both parsers, both checkers, both lowerers (`compiler/src/parse/expr.rs`, `check/pat.rs`, `mir/lower_match.rs`; `self/thir_pat.llr`, `self/lower_match.llr`, `self/lower_cf.llr`, `self/load.llr`, `self/resolve.llr`), `docs/spec/grammar.md`, `docs/canon/flow.md`, `docs/canon/program.md`, `tests/err`, `tests/run`.
 
 Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at the end.
 
-1. `[ ]` Patterns: guard `(PAT (if EXPR) EXPR)`, or-pattern `(or PAT PAT...)`, string literal patterns through `str.eq`, struct patterns `(point x y)`. `match.missing` still covers the result.
+1. `[x]` Patterns: guard `(PAT (if EXPR) EXPR)`, or-pattern `(or PAT PAT...)`, string literal patterns through `str.eq`, struct patterns `(point x y)`. `match.missing` still covers the result.
 2. `[ ]` `(for NAME lo hi step BODY...)` with a signed step; `(brk LABEL)` and `(cont LABEL)` with `(loop LABEL ...)`; `(while ...)` unchanged. Canon keeps `[lo hi)` as the default.
 3. `[ ]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
 4. `[ ]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
@@ -565,4 +565,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-06: `OPT.md` moved to `history/OPT.md`. Phase 12. Generic trait impls monomorphize like generic fns; `trait.dup` keys the head type. `Show` covers the primitives, `str`, `vec`, `opt`, and `res`. `assert_eq` on other `Show` types calls `test.eq_by`. `bnot`, `0b`/`0o`, `_` separators, exponent floats, and `\u{HHHH}` are in both front ends. A non-literal `const` is `const.not_lit`. Struct and enum bounds are checked at instantiation. `vec.clone_str` is gone. x64 `ucomisd` plus `sete` treated NaN as equal; `==`, `!=`, `<`, and `<=` now mask the parity flag so NaN compares as unordered. `tests/check.ps1` and `tests/mir.ps1` fails=0. `scripts/self.ps1 --stage` is `self|stage2=equal`. `tests/run.ps1` fails on cross targets only (`lld` is not on this host).
 - 2026-11-07: Phase 21 (i128) inserted from the **Gaps** B row; TLS and llr-sql renumbered 22 and 23 and the TLS limb sizes rewritten for i128 products. No code changed. Suite not re-run.
 - 2026-11-07: Phase 13. `mutex.lock` keeps the guard inside a unit closure. `chan` is a deque behind a mutex and condition variable; `clone` shares it and there is no `Send` trait. `thread.spawn` and `thread.join` return the closure's value; the pool is unchanged. `net_dns.resolve` is `getaddrinfo`. `connect` takes a literal or a name, `listen6` binds `::1`, and UDP and `set_timeout` are on `net`. A second instance of a generic that builds a closure gets a suffixed symbol. `tests/run.ps1` is `done|fails=2`: `std/http` `http_many` crashed once under the full suite and passed when re-run, and the cross targets fail because `lld` is not on this host. `llrc check self/llrs.llr` reports no errors.
+- 2026-11-07: Phase 14 item 1. Match arms accept `(PAT (if EXPR) EXPR)`. `(or PAT PAT...)` requires the same bindings on every alternative (`match.or` when a name differs). String literals match through `str.eq`. `(point x y)` is a positional struct pattern. A guard does not count toward `match.missing`. `tests/run/match_form.llr` and the new `tests/err/match_*` goldens match between `llrc` and `llrs`, including `emit-mir` of `match_nested`, `match_drop`, `match_form`, and `std/opt.llr`.
 

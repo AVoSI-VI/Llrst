@@ -76,11 +76,15 @@ pub enum Pat {
     Bind(LocalId),
     Lit(Lit),
     Variant { idx: u32, subs: Vec<Pat> },
+    Or(Vec<Pat>),
+    /// Positional fields of the scrutinee struct.
+    Struct(Vec<Pat>),
 }
 
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
+    pub guard: Option<Expr>,
     pub body: Expr,
     pub span: Span,
 }

@@ -56,6 +56,15 @@
   (trunc (&mut (. w drops)) d)
   (trunc (&mut (. w all)) a)))
 
+(pub (fn emit_top ((w (&mut lower.low))) unit
+  (let n (vec.len (& (. w dmarks))))
+  (if (== n 0) (ret))
+  (let d (+ (@ (vec.get (& (. w dmarks)) (- n 1))) 0))
+  (let a (+ (@ (vec.get (& (. w amarks)) (- n 1))) 0))
+  (let mut i (- (vec.len (& (. w drops))) 1))
+  (while (>= i d) (lower.push w (mir.sdrop (@ (vec.get (& (. w drops)) i)))) (set i (- i 1)))
+  (for j a (vec.len (& (. w all))) (lower.push w (mir.sdead (@ (vec.get (& (. w all)) j)))))))
+
 (fn trunc ((v (&mut (vec i64))) (n i64)) unit (while (> (vec.len v) n) (let _ (vec.pop v))))
 
 (pub (fn drops_to ((w (&mut lower.low)) (depth i64)) unit

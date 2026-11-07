@@ -30,7 +30,9 @@ fn expr_clos(e: &ast::Expr) -> bool {
         ExprKind::For { lo, hi, body, .. } => expr_clos(lo) || expr_clos(hi) || has_clos(body),
         ExprKind::If { cond, then, els } => expr_clos(cond) || expr_clos(then) || els.as_deref().map(expr_clos).unwrap_or(false),
         ExprKind::Return(v) => v.as_deref().map(expr_clos).unwrap_or(false),
-        ExprKind::Match { scrut, arms } => expr_clos(scrut) || arms.iter().any(|a| expr_clos(&a.body)),
+        ExprKind::Match { scrut, arms } => {
+            expr_clos(scrut) || arms.iter().any(|a| a.guard.as_ref().is_some_and(expr_clos) || expr_clos(&a.body))
+        }
         ExprKind::Ref { place, .. } | ExprKind::Deref(place) | ExprKind::Not(place) | ExprKind::Neg(place) | ExprKind::WNeg(place) | ExprKind::BNot(place) | ExprKind::Try(place) | ExprKind::Panic(place) | ExprKind::Assert(place) | ExprKind::Drop(place) | ExprKind::Field { base: place, .. } | ExprKind::Cast { expr: place, .. } => expr_clos(place),
         ExprKind::Call { args, .. } => has_clos(args),
         ExprKind::CallPtr { callee, args } => expr_clos(callee) || has_clos(args),

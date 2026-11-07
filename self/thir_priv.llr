@@ -1,0 +1,91 @@
+;; Visibility diagnostics shared by calls and patterns.
+(use std.str)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (fn priv_code ((p (& prog.prog)) (id i64)) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let mid (thir.kv2 "name.private" "name" (prog.fn_path p id) "module" modp))
+  (thir.kv (& mid) "fix" (str.from "(pub ...)"))))
+
+(fn wrap_pub ((name (& str)) (shown (& str))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) name)
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) shown)
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_field_msg ((p (& prog.prog)) (id i64) (f (& prog.sfield)) (args (& (vec ty.sty)))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let shown (thir.nshow p (& (ty.subst (& (. f ty)) args))))
+  (let fix (wrap_pub (& (. f name)) (& shown)))
+  (let a
+    (thir.kv2 "name.private_field"
+      "field"
+      (str.clone (& (. f name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(fn field_vis ((p (& prog.prog)) (c (& thir.ck)) (id i64) (f (& prog.sfield))) bool
+  (or (. f is_pub) (== (. (vec.get (& (. p defs)) id) module) (. c module))))
+
+(fn hidden_field ((p (& prog.prog)) (c (& thir.ck)) (s (& ty.sty)) (name (& str))) str
+  (if (!= (. s kind) 8u8) (ret (str.new)))
+  (let d (vec.get (& (. p defs)) (. s id)))
+  (if (!= (. d kind) 0u8) (ret (str.new)))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let f (vec.get (& (. d sfields)) i))
+    (if (and (str.eq (& (. f name)) name) (not (field_vis p c (. s id) f)))
+      (ret (priv_field_msg p (. s id) f (& (. s args))))))
+  (str.new))
+
+(pub (fn field_err ((p (& prog.prog)) (c (& thir.ck)) (base (& ty.sty)) (name (& str))) str
+  (let s (thir.shallow c base))
+  (let hid (hidden_field p c (& s) name))
+  (if (> (str.len (& hid)) 0) (ret hid))
+  (thir.kv2 "type.no_field" "ty" (thir.nshow p (& s)) "field" (str.clone name))))
+
+(fn var_fix ((p (& prog.prog)) (v (& prog.svar))) str
+  (let mut s (str.from "(pub ("))
+  (str.push (&mut s) (& (. v name)))
+  (for i 0 (vec.len (& (. v tys)))
+    (do
+      (let shown (thir.nshow p (vec.get (& (. v tys)) i)))
+      (str.push_byte (&mut s) 32u8)
+      (str.push (&mut s) (& shown))))
+  (str.push (&mut s) "))")
+  s)
+
+(fn priv_var ((p (& prog.prog)) (id i64) (v (& prog.svar))) str
+  (let d (vec.get (& (. p defs)) id))
+  (let modp (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))
+  (let fix (var_fix p v))
+  (let a
+    (thir.kv2 "name.private_variant"
+      "variant"
+      (str.clone (& (. v name)))
+      "ty"
+      (str.clone (& (. d name)))))
+  (let b (thir.kv (& a) "module" modp))
+  (thir.kv (& b) "fix" fix))
+
+(pub (fn ctor_priv ((p (& prog.prog)) (c (& thir.ck)) (id i64) (args (& (vec ty.sty)))) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (== (. d module) (. c module)) (ret (str.new)))
+  (for i 0 (vec.len (& (. d sfields)))
+    (let f (vec.get (& (. d sfields)) i))
+    (if (not (. f is_pub)) (ret (priv_field_msg p id f args))))
+  (str.new)))
+
+(pub (fn var_err ((p (& prog.prog)) (c (& thir.ck)) (id i64) (idx i64) (var str)) str
+  (let d (vec.get (& (. p defs)) id))
+  (if (< idx 0) (ret (thir.kv2 "type.no_variant" "ty" (str.clone (& (. d name))) "variant" var)))
+  (let v (vec.get (& (. d svars)) idx))
+  (if (or (. v is_pub) (== (. d module) (. c module))) (ret (str.new)))
+  (priv_var p id v)))
