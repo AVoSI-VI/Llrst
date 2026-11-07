@@ -1,10 +1,15 @@
+# Compile speed (done)
+
+This was `COMP.md` until 2026-11-06. Every phase is closed.
+The live handoff is [../HANDOFF.md](../HANDOFF.md). The text below is kept as written.
+
 # Llrst: compile-speed plan for `self/`
 
 This file is the work plan for making the self-hosted compiler (`self/`, binary `llrs`,
 installed as `llrc`) compile faster. It is written so another agent can pick it up cold.
-Read it, then [OPT.md](OPT.md) (the findings this plan schedules; items are cited by
+Read it, then [../OPT.md](../OPT.md) (the findings this plan schedules; items are cited by
 number as "OPT 1" .. "OPT 15"), then the **Rules for this work** in
-[HANDOFF.md](HANDOFF.md). When code and this file disagree, trust the code and fix this
+[../HANDOFF.md](../HANDOFF.md). When code and this file disagree, trust the code and fix this
 file. OPT.md is the evidence record and is not edited except to append measurements.
 
 Status legend: `[ ]` not started, `[~]` in progress, `[x]` done. Update the boxes as you
@@ -85,6 +90,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 5 | (this commit) | 14.6 | 19.8 | 21.0 | 1.37 |
 | 6 | (this commit) | 14.4 | 18.2 | 19.3 | 1.50 |
 | 7 | (this commit) | 14.4 | 17.3 | 18.7 | 1.46 |
+| 8 | (this commit) | 14.4 | 17.5 | 19.0 | 1.63 |
 
 ## Verification
 
@@ -618,24 +624,39 @@ Steps:
 3. `[x]` Full **Verification**; measure; fill the row.
 4. `[x]` Commit: `self: toolchain probed once, LLRST_CC, bulk object copies`.
 
-### Phase 8: close out `[ ]`
+### Phase 8: close out `[x]`
 
 Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
 
-1. `[ ]` Re-measure everything in **Measuring** with the final `llrs0` and with `llrs1`
+1. `[x]` Re-measure everything in **Measuring** with the final `llrs0` and with `llrs1`
    (to confirm the `llrs1`/`llrs0` ratio is still ~1.1, i.e. the backend is still not
    the bottleneck). Append the final table to `OPT.md` under **Measurements** with the
-   commit hash; do not edit OPT's findings text.
-2. `[ ]` For every OPT item 13 and 14 sub-bullet, either do it now if a timer shows it
+   commit hash; do not edit OPT's findings text. Measured tree is `6190934` (this phase
+   does not change `self/`). `llrs1` / `llrs0` on `build` is 21.58 / 19.00 = 1.14.
+   Check is 17.62 / 14.41 = 1.22.
+2. `[x]` For every OPT item 13 and 14 sub-bullet, either do it now if a timer shows it
    (each is a one-line `vec.append`/`vec.reserve` change) or write one line here saying
-   it was not visible.
-3. `[ ]` OPT 15 (register allocation) stays where it is: `HANDOFF.md` Phase 15 item 1.
+   it was not visible. No `self/` change: none of these has a `time|` spike of its own.
+   - OPT 13 `sexp.peek` re-read in `skip_ws` and `adv`: not visible; it is inside `time|load` (0.63 s on `self/llrs.llr`, 0.20 s on `hello`).
+   - OPT 13 `str.slice` per token plus the `ast_expr` clone: not visible; same `time|load`.
+   - OPT 13 `ast_expr.forms` allocating a fresh vector up to three times per list: not visible; same `time|load`.
+   - OPT 13 `same_std` calling `os.cwd` twice per std file: not visible; those calls are inside the 0.63 s load.
+   - OPT 14 `while` / `vec.remove` at 0 instead of `vec.append`: not visible. The vectors are short (one OS module, method lists, call arguments) and sit inside `time|load` or `time|check` (13.6 s) with no separate spike.
+   - OPT 14 `done_has` and `cg_mod.done_ids`: not visible. `done_ids` runs once per build inside `time|codegen` (3.00 s).
+   - OPT 14 `diag.any_err` after every fn: not visible. It sits inside `time|check` (13.6 s) and `time|codegen` (3.00 s) with no separate spike.
+   - OPT 14 `cg_frame.set_flag` / `row_copy` and `place` / `step` `ty.clone`: not visible inside `time|codegen` (3.00 s).
+   - OPT 14 `lower_clos.into_clos` deep clone: not visible inside `time|check` (13.6 s).
+   - OPT 14 `mir.succs` per block: not visible. Phase 5 already builds successor lists once per analysis; the remaining allocations are inside `time|check`.
+   - OPT 14 `diag.append` clone and insertion sort: not visible. `flush` runs once per build, and that cost does not show up beside `time|check`.
+   - OPT 14 `prog.impl_of` linear `ty.eq`: not visible. The scan is 39 impls inside `time|check`.
+   - OPT 14 `collect.add_timpl` duplicate check: not visible inside `time|load` (0.63 s).
+3. `[x]` OPT 15 (register allocation) stays where it is: `HANDOFF.md` Phase 15 item 1.
    The measured `llrs1`/`llrs0` ratio is the evidence that it is a ~10% lever for
-   compile time, not the 55x.
-4. `[ ]` Move this file to `history/comp.md` with every box checked, add it to the
+   compile time, not the 55x. This machine: 1.14 on `build`, 1.22 on `check`.
+4. `[x]` Move this file to `history/comp.md` with every box checked, add it to the
    finished-plans list at the top of `HANDOFF.md` and to the `README.md` table, and
    update the `HANDOFF.md` **Status** block (`self|...`) with the new build time.
-5. `[ ]` Commit: `docs: compile-speed plan closed, measurements recorded`.
+5. `[x]` Commit: `docs: compile-speed plan closed, measurements recorded`.
 
 ## Decisions (made for this plan; do not reopen without a measurement)
 
@@ -852,3 +873,15 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   `done|fails=0`. The rest is the pre-existing set (ui `link.failed`, float
   asserts, deque/opt compile errors, `std/fmt` and `std/str_more`
   `want=1.500|got=1.000`, five cross targets with an empty `got`).
+- 2026-11-06: Phase 8. `scripts/self.ps1 --stage` printed `self|stage2=equal`.
+  Second-run `llrs0` walls: check 14.41 s (first 14.41), emit-obj 17.47 s
+  (first 18.30), build 19.00 s (first 18.60), hello build 1.63 s (first 1.61).
+  Second-run `time|` splits, in seconds: check load 0.63 / check 13.61;
+  emit-obj load 0.63 / check 13.72 / codegen 3.00 / object 0.06; build
+  load 0.64 / check 13.92 / codegen 3.00 / object 0.05 / link 1.31; hello
+  load 0.20 / check 0.03 / codegen 0.00 / object 0.00 / link 1.33.
+  Second-run `llrs1` walls: check 17.62 s (first 19.50), emit-obj 20.46 s
+  (first 20.59), build 21.58 s (first 21.73), hello build 1.71 s (first 1.70).
+  `llrs1` / `llrs0` is 1.14 on `build` and 1.22 on `check`. OPT 13 and OPT 14
+  were not visible in those timers, so `self/` is unchanged. The final table
+  is appended to `OPT.md` at `6190934`. Suite not re-run: this phase is docs.

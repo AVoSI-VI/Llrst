@@ -45,6 +45,28 @@ What the numbers say:
 No profiler was run. The per-item impact estimates below come from reading the code
 and from the phase split above; the ordering is a judgement, not a measurement.
 
+### After phases 0-7 (`6190934`, 2026-11-06)
+
+Same host and `SOURCE_DATE_EPOCH=0`. `llrs0` and `llrs1` were rebuilt by
+`scripts/self.ps1 --stage` (`self|stage2=equal`). Each command was run twice; the table
+is the second run. Phase splits are in [history/comp.md](history/comp.md).
+
+| compiler | command | input | wall time |
+| --- | --- | --- | --- |
+| `llrs0` | `check` | `self/llrs.llr` | 14.41 s |
+| `llrs0` | `build --emit-obj` | `self/llrs.llr` | 17.47 s |
+| `llrs0` | `build` (link) | `self/llrs.llr` | 19.00 s |
+| `llrs0` | `build` (link) | `examples/hello.llr` | 1.63 s |
+| `llrs1` | `check` | `self/llrs.llr` | 17.62 s |
+| `llrs1` | `build --emit-obj` | `self/llrs.llr` | 20.46 s |
+| `llrs1` | `build` (link) | `self/llrs.llr` | 21.58 s |
+| `llrs1` | `build` (link) | `examples/hello.llr` | 1.71 s |
+
+`llrs0` `build` of `self/llrs.llr` is 19.00 s against 355.36 s above. `llrs1` / `llrs0`
+on that build is 1.14 (21.58 / 19.00); on `check` it is 1.22 (17.62 / 14.41).
+Second-run `llrs0` `time|` splits for that build, in seconds: load 0.64, check 13.92,
+codegen 3.00, object 0.05, link 1.31. Hello `build` is load 0.20 and link 1.33.
+
 ## Findings, highest estimated impact first
 
 Notation: N = fn defs in the program (~3,600), F = instantiated fns, C = call sites,

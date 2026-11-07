@@ -4,7 +4,8 @@ This file is the work plan for Llrst. It is written so another agent can pick it
 Read it, then `docs/canon/README.md`, then the workflow you need in `docs/workflows/`.
 Finished plans are in `history/`: [history/bootstrap.md](history/bootstrap.md) (the first
 build), [history/self-hosting.md](history/self-hosting.md) (the `self/` compiler),
-[history/phases.md](history/phases.md) (phases 0-7), and
+[history/phases.md](history/phases.md) (phases 0-7),
+[history/comp.md](history/comp.md) (compile speed of `self/`), and
 [history/ui.md](history/ui.md) (the `llr-ui` framework). The widget workflow is
 [docs/workflows/ui.md](docs/workflows/ui.md).
 When code and this file disagree, trust the code and fix this file.
@@ -104,7 +105,7 @@ instances are compiled; std bodies are checked lazily.
 ```
 commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
 suite|not re-run for the 2026-11-03 gap catalogue|last recorded fails=0 under the self compiler (2026-10-31, history/phases.md)
-self|stage2=equal|scripts/self.sh --stage at 2026-11-01|darwin arm64
+self|stage2=equal|scripts/self.ps1 --stage at 2026-11-06|windows x64|llrs0 build self/llrs.llr 19.0s|llrs1/llrs0=1.14
 wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
 lines|compiler=9979 rs|self=20032 llr|std=9471 llr (55 modules)|ui=9622 llr|tools=2099 llr|max_file=runtime/llr_ui_win_a11y.c 596|budget=500 soft, 1000 hard
 ```
@@ -431,7 +432,7 @@ Files: `self/cg_frame.llr`, `self/cg_op.llr`, `self/isa_*.llr`, `self/elf.llr`, 
 
 Large; listed last. Each item is its own commit.
 
-1. `[ ]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green.
+1. `[ ]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green. [history/comp.md](history/comp.md) records the 2026-11-06 `llrs1`/`llrs0` build ratio as 1.14 (21.6 s / 19.0 s), about a 14% compile-time lever.
 2. `[ ]` `--debug` emits `.debug_line` (DWARF 5) in ELF and Mach-O and a line table in COFF, from the statement spans `self/lower.llr` already sets.
 3. `[ ]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
 4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
