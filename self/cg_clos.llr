@@ -62,8 +62,7 @@
   (cg_isa.classify hw (& cls) (&mut args))
   (let mut ai 0)
   (if (cg_lay.is_agg (& (. c ret))) (do (pass_slot b hw (vec.get (& args) 0) 0) (set ai 1)))
-  (let mut ls (cg_lay.new))
-  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let seq (cg_lay.seq (&mut (. g lays)) p (& (. c caps)) 0))
   (for i 0 (vec.len (& (. c caps)))
     (if (not (ty.is_unit (vec.get (& (. c caps)) i)))
       (do
@@ -165,8 +164,7 @@
   sym)
 
 (fn drop_caps ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (c (& mir.clbody))) unit
-  (let mut ls (cg_lay.new))
-  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let seq (cg_lay.seq (&mut (. g lays)) p (& (. c caps)) 0))
   (for i 0 (vec.len (& (. c caps)))
     (if (prog.needs_drop p (vec.get (& (. c caps)) i))
       (drop_cap g b (vec.get (& (. c caps)) i) (@ (vec.get (& (. seq offs)) i))))))
@@ -187,8 +185,7 @@
    (pk (& (vec u8)))
    (pi (& (vec i64)))) unit
   (let c (vec.get (& (. b clos)) (. r op)))
-  (let mut ls (cg_lay.new))
-  (let seq (cg_lay.seq (&mut ls) p (& (. c caps)) 0))
+  (let seq (cg_lay.seq (&mut (. g lays)) p (& (. c caps)) 0))
   (let n (if (<= (. seq size) 0) 1 (. seq size)))
   (let alloc (cg_mod.func_sym g p (prog.std_fn p "sys" "alloc") (vec.new <ty.sty>)))
   (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 (cg_isa.arg_i 0) n)

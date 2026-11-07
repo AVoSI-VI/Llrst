@@ -258,9 +258,8 @@
    (ic (&mut inline.icache))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
-      (let args (opt.or (vec.pop (&mut (. g pargs))) (vec.new <ty.sty>)))
-      (let id (opt.or (vec.pop (&mut (. g pend))) 0))
-      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args kept ic)))))
+      (let i (opt.or (vec.pop (&mut (. g pend))) 0))
+      (if (not (cg_mod.is_done g i)) (inst g p ds i kept ic)))))
 
 (fn from_kept ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -277,13 +276,14 @@
 (fn inst ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (ds (&mut (vec diag.dg)))
-   (id i64)
-   (args (vec ty.sty))
+   (i i64)
    (kept (&mut check.kept))
    (ic (&mut inline.icache))) unit
-  (cg_mod.mark_done g id (& args))
-  (let ix (check.kept_ix p id (& args) kept))
-  (if (>= ix 0) (ret (from_kept g p ds id ix (& args) kept)))
+  (cg_mod.mark_done g i)
+  (let id (fid_at g i))
+  (let args (clone_tys (vec.get (& (. g fargs)) i)))
+  (let slot (check.kept_ix p id (& args) kept))
+  (if (>= slot 0) (ret (from_kept g p ds id slot (& args) kept)))
   (match (thir.check_fn p id (clone_tys (& args)) ds)
     ((res.err _) ())
     ((res.ok e)
@@ -296,6 +296,8 @@
         (cg_term.compile g p (& b) sym true)))))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
+
+(fn fid_at ((g (& cg_mod.cg)) (i i64)) i64 (@ (vec.get (& (. g fid)) i)))
 
 (fn sym_at ((g (& cg_mod.cg)) (i i64)) i64 (@ (vec.get (& (. g dsym)) i)))
 

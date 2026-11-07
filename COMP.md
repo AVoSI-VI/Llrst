@@ -83,7 +83,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 3 | (this commit) | 86.1 | 99.9 | 103.5 | 5.90 |
 | 4 | (this commit) | 79.4 | 90.0 | 88.6 | 1.38 |
 | 5 | (this commit) | 14.6 | 19.8 | 21.0 | 1.37 |
-| 6 | | | | | |
+| 6 | (this commit) | 14.4 | 18.2 | 19.3 | 1.50 |
 | 7 | | | | | |
 
 ## Verification
@@ -500,7 +500,7 @@ Steps:
 4. `[x]` Full **Verification**; fill the row.
 5. `[x]` Commit: `self: liveness worklist, hoisted accesses, per-point loan sets`.
 
-### Phase 6: checker and codegen tables (OPT 7, 8, 9, 10) `[ ]`
+### Phase 6: checker and codegen tables (OPT 7, 8, 9, 10) `[x]`
 
 Expected: `thir.shallow` clones the whole type at every chain step, twice per `unify`;
 `cg_mod.find_fn` is a linear scan over all instantiations per call terminator and twice
@@ -558,15 +558,15 @@ for `shallow`.
 
 Steps:
 
-1. `[ ]` Split `thir.llr` under 450 (e.g. the `ck` scope helpers or the `zonk`/`unify`
+1. `[x]` Split `thir.llr` under 450 (e.g. the `ck` scope helpers or the `zonk`/`unify`
    family into `self/thir_unify.llr`). Byte-equal, separate step.
-2. `[ ]` `shallow`; verify with `check.ps1`/`mir.ps1`.
-3. `[ ]` `ty.hash`, `find_fn`/`pend` by index, `cg_lay` index, keyed tables; verify with
+2. `[x]` `shallow`; verify with `check.ps1`/`mir.ps1`.
+3. `[x]` `ty.hash`, `find_fn`/`pend` by index, `cg_lay` index, keyed tables; verify with
    `x64_ref.ps1`, including one `--checked` build of `self/llrs.llr --emit-obj` compared
    against the baseline compiler's output (the snapshot has no `--checked` entries; do it
    by hand once and record the two hashes in the log).
-4. `[ ]` Full **Verification**; measure; fill the row.
-5. `[ ]` Commit: `self: shallow clones once, hashed instance, layout, and constant tables`.
+4. `[x]` Full **Verification**; measure; fill the row.
+5. `[x]` Commit: `self: shallow clones once, hashed instance, layout, and constant tables`.
 
 ### Phase 7: link probing and object assembly (OPT 11, OPT 12) `[ ]`
 
@@ -792,3 +792,37 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   float asserts, deque/opt compile errors, `std/fmt` and `std/str_more`
   `want=1.500|got=1.000`, five cross targets with an empty `got`). Nested
   `check.ps1`, `mir.ps1`, and the self pass printed `done|fails=0`.
+- 2026-11-06: Phase 6. `shallow` walks the inference chain by reference and clones
+  the resolved type once. Type names moved to `self/thir_show.llr` so `thir.llr`
+  is 449 lines. `ty.hash` folds kind, id, flag, text, and arguments with the same
+  FNV mix `cg_mod.mix` uses; `mangle` still hashes `ty.show`. `cg.fmap` maps
+  `mix(id, hash of args)` to instance indices, checked with `args_eq`. `pend`
+  stores those indices and `pargs` is gone, so `is_done` and `mark_done` read
+  `fdone`. `cg_lay.of_idx` is keyed by `ty.hash` and checked with `ty.eq`;
+  `size`, field steps, aggregate copies, and `store_rec` read the cached layout.
+  `cg_clos` shares `g.lays`. String, scalar, vtable, and drop tables are maps
+  beside the old vectors. `wasm_mod` still scans; it is not on the measured
+  path. Second-run `llrs0` walls: check 14.35 s, emit-obj 18.17 s, build
+  19.27 s, hello build 1.50 s. Second-run `time|` splits, in seconds: check
+  load 0.63 / check 13.56; emit-obj load 0.64 / check 13.59 / codegen 3.25 /
+  object 0.63; build load 0.61 / check 13.47 / codegen 3.23 / object 0.61 /
+  link 1.28; hello load 0.20 / check 0.03 / codegen 0.00 / object 0.00 /
+  link 1.19.
+  Codegen fell from 4.45 s. `scripts/self.ps1 --stage` printed
+  `self|stage2=equal`. `tests/check.ps1` and `tests/mir.ps1` on `llrs0` were
+  `done|fails=0`. The Phase 0 snapshot is not on this machine. The phase 5
+  compiler, rebuilt by stage 0 at `60326f1`, saved `target/self/x64_ref` for
+  the current sources. `tests/x64_ref.ps1` against that snapshot was
+  `done|fails=4`: the same pre-existing `std/deque.llr` and `std/opt.llr`
+  `--test` failures, and no `first=` mismatch, including `self/llrs` ELF and
+  COFF. `--checked` `--emit-obj` of `self/llrs.llr` matched that compiler:
+  COFF SHA256 `4B7652B9DC3491BBEEA556D416E601B327A0048CEC20B7C18BFA8DD580B80586`,
+  ELF SHA256 `7032A5835489B9DAF49EDBCE7AE25EE54D22FC32779A323C3E0626002ABE67D6`.
+  `tests/run.ps1` under `llrs2` exited 1, `done|fails=40`. Nested `check.ps1`,
+  `mir.ps1`, and the self pass printed `done|fails=0`. The extra failure
+  against the phase 5 count is `std/http` `http_many` `code=-1073741819`.
+  The phase 5 and phase 6 test executables are the same bytes and both crash
+  on that test (5 of 15 runs each). The rest is the pre-existing set (ui
+  `link.failed`, float asserts, deque/opt compile errors, `std/fmt` and
+  `std/str_more` `want=1.500|got=1.000`, five cross targets with an empty
+  `got`).

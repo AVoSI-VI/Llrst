@@ -62,6 +62,21 @@
   (for i 0 (vec.len a) (if (not (eq (vec.get a i) (vec.get b i))) (ret false)))
   true)
 
+(fn mix ((h i64) (c i64)) i64 (wmul (bxor h c) 16777619))
+
+(fn hash_bytes ((h i64) (s (& str))) i64
+  (let mut n h)
+  (for i 0 (str.len s) (set n (mix n (as i64 (str.at s i)))))
+  n)
+
+(pub (fn hash ((t (& sty))) i64
+  (let mut h (mix 2166136261 (as i64 (. t kind))))
+  (set h (mix h (. t id)))
+  (set h (mix h (if (. t flag) 1 0)))
+  (set h (hash_bytes h (& (. t text))))
+  (for i 0 (vec.len (& (. t args))) (set h (mix h (hash (vec.get (& (. t args)) i)))))
+  h))
+
 (pub (fn eq ((a (& sty)) (b (& sty))) bool
   (if (!= (. a kind) (. b kind)) (ret false))
   (if (!= (. a id) (. b id)) (ret false))
@@ -240,3 +255,10 @@
 (test ty_show_ref
   (let t (ref_ty false (str.from "a") (adt 3 (vec.new <sty>))))
   (assert_eq (& (show (& t))) "(& 'a adt3)"))
+
+(test ty_hash_stable
+  (let a (int 3))
+  (let b (int 3))
+  (assert_eq (hash (& a)) (hash (& b)))
+  (let nested (adt 1 (vec.new <sty>)))
+  (assert (!= (hash (& a)) (hash (& nested)))))

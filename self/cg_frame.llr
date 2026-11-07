@@ -100,9 +100,11 @@
     hw))
 
 (fn local_slot ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (cur (&mut i64)) (t (& ty.sty))) unit
-  (let l (cg_lay.of (&mut (. g lays)) p t))
-  (vec.push (&mut (. fx off)) (alloc cur (. l size) (. l align)))
-  (vec.push (&mut (. fx z)) (<= (. l size) 0))
+  (let ix (cg_lay.of_idx (&mut (. g lays)) p t))
+  (let sz (cg_lay.size_at (& (. g lays)) ix))
+  (let al (cg_lay.align_at (& (. g lays)) ix))
+  (vec.push (&mut (. fx off)) (alloc cur sz al))
+  (vec.push (&mut (. fx z)) (<= sz 0))
   (let mask (field_mask p t))
   (if (> (vec.len (& mask)) 0) (push_fields fx cur (& mask)) (push_whole fx cur p t)))
 
@@ -388,11 +390,11 @@
    (ty (& ty.sty))
    (variant (&mut i64))
    (n i64)) ty.sty
-  (let l (cg_lay.of (&mut (. g lays)) p ty))
+  (let ix (cg_lay.of_idx (&mut (. g lays)) p ty))
   (let off
     (if (>= (@ variant) 0)
-      (@ (vec.get (vec.get (& (. l vars)) (@ variant)) n))
-      (@ (vec.get (& (. l fields)) n))))
+      (cg_lay.var_at (& (. g lays)) ix (@ variant) n)
+      (cg_lay.field_at (& (. g lays)) ix n)))
   (if (!= off 0) (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr off))
   (let next (mir.field_ty p ty (@ variant) n))
   (set (@ variant) (neg 1))
