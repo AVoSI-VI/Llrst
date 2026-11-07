@@ -152,6 +152,10 @@
     (isa_a64.setcc (&mut (. c a)) cc dst (. c float_cc))
     (isa_x64.setcc (&mut (. c x)) s cc dst))))
 
+(pub (fn ord_mask ((c (&mut code)) (s (& isa)) (ne bool) (dst i64) (tmp i64)) unit
+  (if (. s a64) (ret ()))
+  (isa_x64.ord_mask (&mut (. c x)) s ne dst tmp)))
+
 (pub (fn add_rr ((c (&mut code)) (s (& isa)) (w i64) (dst i64) (src i64)) unit
   (if (. s a64)
     (isa_a64.add_rr (&mut (. c a)) w dst src)

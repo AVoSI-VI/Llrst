@@ -1,3 +1,8 @@
+# Compile-time findings (archive)
+
+This was `OPT.md` until 2026-11-06. It is the evidence record for
+[comp.md](comp.md). The live handoff is [../HANDOFF.md](../HANDOFF.md).
+
 # Llrst: compile-time findings for `self/`
 
 Where the self-hosted compiler (`llrs`, installed as `llrc`) spends its time, and what

@@ -149,6 +149,12 @@ impl<'a> Reader<'a> {
                                 }
                             }
                         }
+                        b'u' => {
+                            let cp = self.unicode_escape()?;
+                            let mut buf = [0u8; 4];
+                            let ch = char::from_u32(cp).ok_or_else(|| Diag::error(Span::new(self.file, self.i - 2, self.i), "lex.bad_escape"))?;
+                            out.extend(ch.encode_utf8(&mut buf).as_bytes());
+                        }
                         _ => return Err(Diag::error(Span::new(self.file, self.i - 2, self.i), "lex.bad_escape")),
                     }
                 }
@@ -156,6 +162,30 @@ impl<'a> Reader<'a> {
             }
         }
         Ok(Sexpr::Str(out, Span::new(self.file, start, self.i)))
+    }
+
+    /// `\u{HHHH}` with 1 to 6 hex digits, at most U+10FFFF, not a surrogate.
+    fn unicode_escape(&mut self) -> PResult<u32> {
+        let start = self.i;
+        if self.b.get(self.i) != Some(&b'{') {
+            return Err(Diag::error(Span::new(self.file, start - 2, self.i), "lex.bad_escape"));
+        }
+        self.i += 1;
+        let hex = self.i;
+        while self.b.get(self.i).map_or(false, |c| c.is_ascii_hexdigit()) {
+            self.i += 1;
+        }
+        let n = self.i - hex;
+        if n == 0 || n > 6 || self.b.get(self.i) != Some(&b'}') {
+            return Err(Diag::error(Span::new(self.file, start - 2, self.i), "lex.bad_escape"));
+        }
+        let text = std::str::from_utf8(&self.b[hex..self.i]).unwrap();
+        self.i += 1;
+        let cp = u32::from_str_radix(text, 16).unwrap();
+        if cp > 0x10FFFF || (0xD800..=0xDFFF).contains(&cp) {
+            return Err(Diag::error(Span::new(self.file, start - 2, self.i), "lex.bad_escape"));
+        }
+        Ok(cp)
     }
 }
 

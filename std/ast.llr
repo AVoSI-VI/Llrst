@@ -201,22 +201,32 @@
 
 (fn ty_name ((text str) (line i64) (col i64)) ty (ty 0u8 text (vec.new <ty>) line col 0))
 
+(fn method_head ((t (& tree)) (n i64)) bool
+  (if (!= (sexp.kind t n) 2u8) (ret false))
+  (let h (sexp.head t n))
+  (or (str.eq h "fn") (or (str.eq h "pub") (str.eq h "inline"))))
+
+(fn trait_self ((t (& tree)) (n i64)) bool
+  (if (== (sexp.kind t n) 0u8) (ret (not (str.starts (sexp.text t n) "<"))))
+  (not (method_head t n)))
+
 (fn parse_timpl ((t (& tree)) (ids (& (vec i64))) (n i64)) (res item str)
   (let line (sexp.line t n))
   (let col (sexp.col t n))
   (let mut it (blank_item 10u8 (str.clone (sexp.text t (@ (vec.get ids 1)))) false line col))
-  (set (. it ret) (ty_name (str.clone (sexp.text t (@ (vec.get ids 2)))) line col))
+  (set (. it ret) (try (ast_expr.parse_ty t (@ (vec.get ids 2)))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t ids 3 (&mut gens))))
   (let mut fns (vec.new <item>))
-  (for i 3 (vec.len ids) (vec.push (&mut fns) (try (parse_item t (@ (vec.get ids i)) false))))
+  (for i at (vec.len ids) (vec.push (&mut fns) (try (parse_item t (@ (vec.get ids i)) false))))
+  (set (. it gens) gens)
   (set (. it fns) fns)
   (res.ok it))
 
 (fn parse_impl ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
   (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "type" "eof"))))
-  (if (and (> (vec.len (& ids)) 2)
-     (and (== (sexp.kind t (@ (vec.get (& ids) 2))) 0u8)
-       (not (str.starts (sexp.text t (@ (vec.get (& ids) 2))) "<"))))
+  (if (and (> (vec.len (& ids)) 2) (trait_self t (@ (vec.get (& ids) 2))))
     (ret (parse_timpl t (& ids) n)))
   (let mut gens (vec.new <str>))
   (let at (try (take_gens t (& ids) 2 (&mut gens))))

@@ -55,6 +55,12 @@
 (pub (fn ne_str ((loc (& str)) (got (& str)) (want (& str))) unit
   (if (str.eq got want) (fail_ne loc got))))
 
+(pub (fn eq_by <T:Eq:Show> ((loc (& str)) (got (& T)) (want (& T))) unit
+  (if (not (Eq.eq got want)) (fail_eq loc (& (Show.show got)) (& (Show.show want))))))
+
+(pub (fn ne_by <T:Eq:Show> ((loc (& str)) (got (& T)) (want (& T))) unit
+  (if (Eq.eq got want) (fail_ne loc (& (Show.show got))))))
+
 ;; Windows cannot fork a Cranelift stack, so each test is a fresh process.
 (fn run_win ((name (& str)) (f (fn () unit))) i64
   (match (os.env "LLR_TEST_CHILD")

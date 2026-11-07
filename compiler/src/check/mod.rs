@@ -1,5 +1,6 @@
 //! Type checker. Checks one function instance at a time against concrete type args and
 //! produces THIR. Generic bodies are checked per instantiation.
+mod assert;
 mod call;
 mod clos;
 mod expr;

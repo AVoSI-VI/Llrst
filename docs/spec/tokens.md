@@ -35,6 +35,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `as` | cast |
 | `and` `or` `not` | booleans |
 | `neg` | numeric negate |
+| `bnot` | bitwise complement of an integer |
 | `wadd` `wsub` `wmul` `wneg` | wrapping arithmetic; never traps |
 | `band` `bor` `bxor` `shl` `shr` | bitwise |
 | `trait` | trait declaration |
@@ -74,9 +75,10 @@ costs tokens). Dotted name `a.b` means `b` inside module or type `a`.
 
 ## Literals
 
-`123` `123u8` `123i32` `0x7F` `0xFFi32` `1.5` `1.5f32` `true` `false` `"text"`
-An integer may be written in hexadecimal as `0x` plus digits. Digits are `0-9`, `a-e`, and `A-F`. The same type suffixes as decimal apply (`0x7Fi32`). The prefix is lowercase `0x`. A lowercase `f`, `i`, or `u` starts a suffix, so a hex digit `f` is written `F`.
-String escapes: `\n \r \t \0 \" \\ \xHH`.
+`123` `123u8` `123i32` `0x7F` `0xFFi32` `0b1010` `0o17` `1_000` `1.5` `1.5f32` `1e9` `1.5e-3` `true` `false` `"text"`
+An integer may be written in hexadecimal (`0x`), binary (`0b`), or octal (`0o`). Digits above 9 are `a-f` and `A-F`. The same type suffixes as decimal apply (`0x7Fi32`, `0b1010u8`). Prefixes are lowercase. A lowercase `f`, `i`, or `u` starts a suffix, so a hex digit `f` is written `F`. `_` may separate digits (`1_000`, `0xFF_FF`).
+A float may use an exponent: `1e9`, `1.5e-3`, `1E+2`. The exponent makes the literal a float even when there is no dot.
+String escapes: `\n \r \t \0 \" \\ \xHH \u{HHHH}`. `\u{HHHH}` is one to six hex digits, at most U+10FFFF, not a surrogate, and is encoded as UTF-8.
 
 ## Token budget rules (for std and tools authors)
 

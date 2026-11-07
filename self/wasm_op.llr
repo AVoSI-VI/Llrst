@@ -67,6 +67,7 @@
   (if (== k 2u8) (ret (eval_bin g p fx locs r)))
   (if (or (== k 3u8) (== k 4u8)) (ret (eval_neg g p fx locs r)))
   (if (== k 5u8) (ret (eval_not g p fx locs r)))
+  (if (== k 21u8) (ret (eval_bnot g p fx locs r)))
   (if (== k 6u8) (ret (wasm_cast.eval g p fx locs r)))
   (if (== k 9u8) (ret (eval_discr g p fx locs r)))
   (if (== k 10u8) (ret (do (wasm_abi.i64c fx 0) (wasm_abi.set_acc fx) (ty.ptr_ty (ty.int 4)))))
@@ -116,6 +117,19 @@
   (wasm_abi.i64c fx at)
   (wasm_abi.set_acc fx)
   (ty.ptr_ty (ty.clone (& (. r ty)))))
+
+(fn eval_bnot ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))) ty.sty
+  (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx (neg 1))
+  (wasm_abi.put fx 133)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.fit fx (cg_lay.width (& t)) (cg_lay.signed (& t)))
+  t)
 
 (fn eval_not ((g (&mut wasm_mod.wm))
    (p (& prog.prog))

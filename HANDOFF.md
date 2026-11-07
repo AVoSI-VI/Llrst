@@ -5,7 +5,8 @@ Read it, then `docs/canon/README.md`, then the workflow you need in `docs/workfl
 Finished plans are in `history/`: [history/bootstrap.md](history/bootstrap.md) (the first
 build), [history/self-hosting.md](history/self-hosting.md) (the `self/` compiler),
 [history/phases.md](history/phases.md) (phases 0-7),
-[history/comp.md](history/comp.md) (compile speed of `self/`), and
+[history/comp.md](history/comp.md) (compile speed of `self/`),
+[history/OPT.md](history/OPT.md) (retired optimization notes), and
 [history/ui.md](history/ui.md) (the `llr-ui` framework). The widget workflow is
 [docs/workflows/ui.md](docs/workflows/ui.md).
 When code and this file disagree, trust the code and fix this file.
@@ -202,7 +203,7 @@ Checker conventions (`check/`)
 - `coerce`: `&mut T` where `& T` is wanted inserts `(& (@ e))`.
 - `if` without else accepts any then-type (value discarded); `and`/`or` take 2+ args.
 - `(try e)` works on `res`/`opt`; variant 0 is ok/some, 1 is err/none (std relies on it).
-- `(assert_eq a b)` lowers to `test.eq_str/eq_int/eq_bool(loc, got, want)`; `(panic m)` to
+- `(assert_eq a b)` lowers to `test.eq_str` / `eq_int` / `eq_bool` for `(& str)`, `i64`, `bool`, and `u8`. Other types with `Show` and `Eq` call `test.eq_by` / `test.ne_by`. `f64` and `f32` call `test.eq_f64` with epsilon 0. `(panic m)` to
   `sys.panic(loc, m)`; `loc` is a `"file|line|col"` literal built by `loc_lit`.
 - Callee resolution order: local fn-typed variable, `lookup_fn`, struct ctor, enum variant,
   builtin (`thir::Builtin::from_path`).
@@ -230,44 +231,49 @@ Tools (`tools/`, `docs/tools/`)
 
 ## Line budget
 
-Raw `wc -l` on 2026-11-04. Rows are `.llr`, `.rs`, `.c`, and `.m` files under `compiler/src`, `self`, `std`, `ui`, `tools`, and `runtime` at 400 lines or above. Split before adding if a file is near 500. `scripts/check-lines.sh`
+Raw line count on 2026-11-06. Rows are `.llr`, `.rs`, `.c`, and `.m` files under `compiler/src`, `self`, `std`, `ui`, `tools`, and `runtime` at 400 lines or above. Split before adding if a file is near 500. `scripts/check-lines.sh`
 and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `tools`, `docs`, `scripts`,
 `tests`, `self`, and `runtime` for `.rs .llr .md .sh .c .m`. `.gitattributes` stores `*.c` and `*.h` as LF.
 
 | File | Lines | Note |
 | --- | --- | --- |
 | `runtime/llr_ui_win_a11y.c` | 596 | Over the 500-line soft cap |
+| `compiler/src/resolve.rs` | 499 | |
 | `self/thir_expr.llr` | 497 | |
-| `self/lower.llr` | 496 | |
 | `runtime/llr_win.c` | 496 | |
-| `self/thir.llr` | 492 | |
-| `compiler/src/mir/lower.rs` | 491 | |
-| `compiler/src/codegen/func.rs` | 490 | Trace push/pop lives in `codegen/trace.rs` |
-| `compiler/src/resolve.rs` | 490 | |
-| `compiler/src/check/expr.rs` | 486 | |
-| `self/collect.llr` | 485 | |
+| `compiler/src/mir/lower.rs` | 495 | |
+| `compiler/src/codegen/func.rs` | 494 | Trace push/pop lives in `codegen/trace.rs` |
+| `self/link.llr` | 491 | |
 | `runtime/llr_ui_android_in.c` | 485 | |
 | `ui/text.llr` | 475 | |
 | `std/http.llr` | 475 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
+| `compiler/src/check/expr.rs` | 472 | Assert lowering lives in `check/assert.rs` |
 | `compiler/src/borrow/holders.rs` | 471 | |
+| `runtime/llr_stat.c` | 459 | |
+| `self/wasm_op.llr` | 452 | |
+| `self/thir.llr` | 449 | |
 | `self/elf.llr` | 448 | |
 | `std/re.llr` | 445 | |
+| `self/thir_call.llr` | 442 | Variant constructors stay reachable when a method shares the name |
+| `std/sys_wasm.llr` | 440 | |
 | `self/wasm_abi.llr` | 440 | |
-| `self/wasm_op.llr` | 438 | |
-| `self/link.llr` | 438 | |
+| `self/lower.llr` | 438 | |
 | `self/isa_a64.llr` | 436 | integer, branch, and memory seam; fp, frame, and overflow are split out |
+| `std/ast.llr` | 434 | |
+| `runtime/llr_win_proc.c` | 432 | |
 | `ui/element.llr` | 430 | |
+| `self/collect.llr` | 428 | Trait-impl registration lives in `timpl.llr` |
 | `ui/ttf_glyf.llr` | 427 | |
 | `ui/semantics.llr` | 427 | |
-| `std/ast.llr` | 424 | |
-| `self/holders.llr` | 423 | |
-| `runtime/llr_win_proc.c` | 423 | |
-| `self/thir_call.llr` | 479 | Variant constructors stay reachable when a method shares the name |
 | `compiler/src/codegen/mod.rs` | 420 | |
 | `ui/widget.llr` | 417 | |
+| `self/cg_frame.llr` | 417 | |
+| `self/prog.llr` | 416 | |
 | `compiler/src/link.rs` | 416 | |
-| `self/cg_frame.llr` | 415 | |
+| `std/ast_expr.llr` | 415 | |
 | `std/xml.llr` | 409 | |
+| `self/wasm_fn.llr` | 408 | |
+| `self/cg_mod.llr` | 406 | |
 
 ## Gaps (2026-11-03)
 
@@ -392,17 +398,17 @@ Files: `std/io.llr`, `std/fs.llr`, `std/path.llr`, `std/os.llr`, new `std/time.l
 8. `[x]` `test.eq_f64 (loc got want eps)`, `test.ne_int`, `test.ne_str`; `assert_near` and `assert_ne` forms in both compilers lower to them (grammar, `docs/canon/tests.md`, `tests/run/assert_more`).
 9. `[x]` Commit: `std: time, rand, bytes, url, sha256, line io, json floats, float asserts`.
 
-### Phase 12: language changes std needs `[ ]`
+### Phase 12: language changes std needs `[x]`
 
 Files: `compiler/src/parse/mod.rs`, `compiler/src/parse/expr.rs`, `compiler/src/resolve.rs`, `compiler/src/check/traits.rs`, `compiler/src/check/expr.rs`, `compiler/src/traitres.rs`, `compiler/src/mir/lower.rs`, `self/collect.llr`, `self/thir_trait.llr`, `self/thir_expr.llr`, `self/lit.llr`, `self/lower.llr`, `std/cmp.llr`, `std/test.llr`, `docs/spec/grammar.md`, `docs/spec/tokens.md`, `docs/spec/types.md`, `docs/spec/errors.md`, `tests/err`, `tests/run`.
 
-1. `[ ]` Generic trait impls: `(impl Eq (vec T) <T:Eq> (fn eq ...))`. `is_trait_impl` accepts a list type; the impl is monomorphized per instance like a generic fn; `trait.dup` compares the head type only. Then `Eq Ord Hash Clone` for `(vec T)`, `(opt T)`, `(res T E)` in `std/cmp.llr`, and `vec.clone_str` is deleted.
-2. `[ ]` `(pub (trait Show (fn show ((& Self)) str)))` in `std/cmp.llr` with impls for every primitive, `str`, `vec`, `opt`, `res`. `assert_eq` and `assert_ne` resolve through `Show` and `Eq` when the operand is not `(& str)`, `i64`, `bool`, or `u8`, so `type.assert_eq` is emitted only for a type with no `Show`. `f64` and `f32` use `Show` plus `test.eq_f64` with an exact compare.
-3. `[ ]` `bnot` as a unary integer form in both parsers and both backends (`x64_int`, `a64_int`, `wasm_op`).
-4. `[ ]` Literals: `0b` `0o`, `_` separators, `1e9` and `1.5e-3` floats, `\u{HHHH}` string escapes encoded as UTF-8. `docs/spec/tokens.md` lists all of them.
-5. `[ ]` New errors: `const.not_lit` for a `const` whose initializer is not a literal (today silent, `compiler/src/mir/lower.rs:293`); struct and enum bounds are either honored at instantiation or reported `type.bound_unused`. Goldens in `tests/err`, rows in `docs/spec/errors.md`.
-6. `[ ]` `tests/check.sh` and `tests/mir.sh` byte-equal; `scripts/self.sh --stage` reaches `stage2=equal`.
-7. `[ ]` Commit: `lang: generic trait impls, Show, bnot, numeric literal forms, const.not_lit`.
+1. `[x]` Generic trait impls: `(impl Eq (vec T) <T:Eq> (fn eq ...))`. `is_trait_impl` accepts a list type; the impl is monomorphized per instance like a generic fn; `trait.dup` compares the head type only. Then `Eq Ord Hash Clone` for `(vec T)`, `(opt T)`, `(res T E)` in `std/cmp.llr`, and `vec.clone_str` is deleted.
+2. `[x]` `(pub (trait Show (fn show ((& Self)) str)))` in `std/cmp.llr` with impls for every primitive, `str`, `vec`, `opt`, `res`. `assert_eq` and `assert_ne` resolve through `Show` and `Eq` when the operand is not `(& str)`, `i64`, `bool`, or `u8`, so `type.assert_eq` is emitted only for a type with no `Show`. `f64` and `f32` use `Show` plus `test.eq_f64` with an exact compare.
+3. `[x]` `bnot` as a unary integer form in both parsers and both backends (`x64_int`, `a64_int`, `wasm_op`).
+4. `[x]` Literals: `0b` `0o`, `_` separators, `1e9` and `1.5e-3` floats, `\u{HHHH}` string escapes encoded as UTF-8. `docs/spec/tokens.md` lists all of them.
+5. `[x]` New errors: `const.not_lit` for a `const` whose initializer is not a literal (today silent, `compiler/src/mir/lower.rs:293`); struct and enum bounds are honored at instantiation (`trait.missing` when the argument does not implement the bound). Goldens in `tests/err`, `const.not_lit` in `docs/spec/errors.md`.
+6. `[x]` `tests/check.sh` and `tests/mir.sh` byte-equal; `scripts/self.sh --stage` reaches `stage2=equal`.
+7. `[x]` Commit: `lang: generic trait impls, Show, bnot, numeric literal forms, const.not_lit`.
 
 ### Phase 13: concurrency and net `[ ]`
 
@@ -540,4 +546,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-04: Phase 10. `vec_more` holds clone, extend, filled, resize, truncate, first, swap_remove, eq, dedup, min, max, sort_by, retain, each, map, and filter. `vec.clone_str` forwards to `vec.clone`. `vec` fields `p`, `len`, and `cap` are public so that impl can see the buffer. `map` gains values, each, clear, take, and get_or_insert. `set` and `deque` are new. `(set EXPR)` constructs the struct; `(set PLACE EXPR)` is still assignment. opt and res gain the combinators, and pure default matches call `opt.or`. `cmp` covers `u8`, `i32`, `u32`, `u64`, `bool`, `f64`, and `f32`. Element-clone loops call `vec.clone`. `deps.seen` is a set. `find_key` in `cg_mod` and `wasm_mod` stays a scan: a set has no payload. A method that shares a variant name is tried first; a type error drops that diagnostic and uses the constructor. `tests/run.ps1`: goldens, std, ui, lines, check, and self fails=0. `tests/mir.ps1` fails=0. `lld` is missing on this host. `target/self/x64_ref` is not in this checkout.
 - 2026-11-04: Phases 16-22 (sql, sqlite, postgresql, mariadb, mssql, tls, llr-sql) added to the plan. No code changed. Suite not re-run.
 - 2026-11-04: Phase 11. `time` is the wall and monotonic clock; `fs.now_ms` forwards to `time.now_ms`. `rand` is xorshift64*. `bytes` is the endian and LEB128 helper for `h2`, `http_ws`, `mqtt_pkt`, `pb`, `sha`, and wasm LEB. `url`, `sha256`, and `sha.b64_decode` are new. JSON numbers keep their source text, including floats, and `\u` escapes become UTF-8. `assert_ne` and `assert_near` lower in both compilers. HPACK's prefix integer stays. `self/elf*`, `coff`, `macho*`, `x64_buf`, and `ui/ttf*` stay on their `str` readers. `target/self/x64_ref` is not in this checkout. `tests/run.ps1`: goldens, std, ui, lines, check, and self fails=0. `tests/mir.ps1` fails=0. `tests/cross.sh` is `fail|setup|lld=missing` on this host.
+- 2026-11-06: `OPT.md` moved to `history/OPT.md`. Phase 12. Generic trait impls monomorphize like generic fns; `trait.dup` keys the head type. `Show` covers the primitives, `str`, `vec`, `opt`, and `res`. `assert_eq` on other `Show` types calls `test.eq_by`. `bnot`, `0b`/`0o`, `_` separators, exponent floats, and `\u{HHHH}` are in both front ends. A non-literal `const` is `const.not_lit`. Struct and enum bounds are checked at instantiation. `vec.clone_str` is gone. x64 `ucomisd` plus `sete` treated NaN as equal; `==`, `!=`, `<`, and `<=` now mask the parity flag so NaN compares as unordered. `tests/check.ps1` and `tests/mir.ps1` fails=0. `scripts/self.ps1 --stage` is `self|stage2=equal`. `tests/run.ps1` fails on cross targets only (`lld` is not on this host).
 

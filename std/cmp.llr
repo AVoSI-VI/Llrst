@@ -144,3 +144,216 @@
   (assert (== d z))
   (let n32 (/ 0.0f32 0.0f32))
   (assert (not (Eq.eq (& n32) (& n32)))))
+
+(pub (trait Show (fn show ((& Self)) str)))
+
+(fn show_u ((n u64)) str
+  (if (== n 0u64) (ret (str.from "0")))
+  (let mut ds (vec.new <u8>))
+  (let mut x n)
+  (while (> x 0u64)
+    (do
+      (vec.push (&mut ds) (as u8 (+ 48 (as i64 (% x 10u64)))))
+      (set x (/ x 10u64))))
+  (let mut s (str.new))
+  (let mut i (vec.len (& ds)))
+  (while (> i 0) (do (set i (- i 1)) (str.push_byte (&mut s) (@ (vec.get (& ds) i)))))
+  s)
+
+(impl Show i64 (fn show ((a (& i64))) str (str.from_int (@ a))))
+
+(impl Show i32 (fn show ((a (& i32))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show i16 (fn show ((a (& i16))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show i8 (fn show ((a (& i8))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show u8 (fn show ((a (& u8))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show u16 (fn show ((a (& u16))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show u32 (fn show ((a (& u32))) str (str.from_int (as i64 (@ a)))))
+
+(impl Show u64 (fn show ((a (& u64))) str (show_u (@ a))))
+
+(impl Show bool (fn show ((a (& bool))) str (if (@ a) (str.from "true") (str.from "false"))))
+
+(impl Show f64 (fn show ((a (& f64))) str (str.from_f64 (@ a) 6)))
+
+(impl Show f32 (fn show ((a (& f32))) str (str.from_f64 (as f64 (@ a)) 6)))
+
+(impl Show str (fn show ((a (& str))) str (str.clone a)))
+
+(impl Eq i8 (fn eq ((a (& i8)) (b (& i8))) bool (== (@ a) (@ b))))
+
+(impl Eq i16 (fn eq ((a (& i16)) (b (& i16))) bool (== (@ a) (@ b))))
+
+(impl Eq u16 (fn eq ((a (& u16)) (b (& u16))) bool (== (@ a) (@ b))))
+
+(impl Ord i8 (fn cmp ((a (& i8)) (b (& i8))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Ord i16 (fn cmp ((a (& i16)) (b (& i16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Ord u16 (fn cmp ((a (& u16)) (b (& u16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash i8 (fn hash ((k (& i8))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Hash i16 (fn hash ((k (& i16))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Hash u16 (fn hash ((k (& u16))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
+
+(impl Clone i8 (fn clone ((a (& i8))) i8 (@ a)))
+
+(impl Clone i16 (fn clone ((a (& i16))) i16 (@ a)))
+
+(impl Clone u16 (fn clone ((a (& u16))) u16 (@ a)))
+
+(impl Eq
+  (vec T)
+  <T:Eq>
+  (fn eq ((a (& (vec T))) (b (& (vec T)))) bool (vec.eq a b)))
+
+(impl Ord
+  (vec T)
+  <T:Ord>
+  (fn cmp ((a (& (vec T))) (b (& (vec T)))) i64
+    (let n (if (< (vec.len a) (vec.len b)) (vec.len a) (vec.len b)))
+    (for i 0 n
+      (let c (Ord.cmp (vec.get a i) (vec.get b i)))
+      (if (!= c 0) (ret c)))
+    (if (< (vec.len a) (vec.len b)) -1 (if (> (vec.len a) (vec.len b)) 1 0))))
+
+(impl Hash
+  (vec T)
+  <T:Hash>
+  (fn hash ((a (& (vec T)))) i64
+    (let mut h 0)
+    (for i 0 (vec.len a) (set h (wadd (wmul h 31) (Hash.hash (vec.get a i)))))
+    (band h 9223372036854775807)))
+
+(impl Clone (vec T) <T:Clone> (fn clone ((a (& (vec T)))) (vec T) (vec.clone a)))
+
+(impl Show
+  (vec T)
+  <T:Show>
+  (fn show ((a (& (vec T)))) str
+    (let mut s (str.from "["))
+    (for i 0 (vec.len a)
+      (if (> i 0) (str.push (&mut s) ", "))
+      (str.push (&mut s) (& (Show.show (vec.get a i)))))
+    (str.push (&mut s) "]")
+    s))
+
+(impl Eq
+  (opt T)
+  <T:Eq>
+  (fn eq ((a (& (opt T))) (b (& (opt T)))) bool
+    (match a
+      ((opt.some x) (match b ((opt.some y) (Eq.eq x y)) ((opt.none) false)))
+      ((opt.none) (match b ((opt.some _) false) ((opt.none) true))))))
+
+(impl Ord
+  (opt T)
+  <T:Ord>
+  (fn cmp ((a (& (opt T))) (b (& (opt T)))) i64
+    (match a
+      ((opt.none) (match b ((opt.none) 0) ((opt.some _) -1)))
+      ((opt.some x) (match b ((opt.none) 1) ((opt.some y) (Ord.cmp x y)))))))
+
+(impl Hash
+  (opt T)
+  <T:Hash>
+  (fn hash ((a (& (opt T)))) i64
+    (match a ((opt.none) 0) ((opt.some x) (wadd 1 (Hash.hash x))))))
+
+(impl Clone
+  (opt T)
+  <T:Clone>
+  (fn clone ((a (& (opt T)))) (opt T)
+    (match a ((opt.some x) (opt.some (Clone.clone x))) ((opt.none) (opt.none <T>)))))
+
+(impl Show
+  (opt T)
+  <T:Show>
+  (fn show ((a (& (opt T)))) str
+    (match a
+      ((opt.none) (str.from "none"))
+      ((opt.some x)
+        (do
+          (let mut s (str.from "some("))
+          (str.push (&mut s) (& (Show.show x)))
+          (str.push (&mut s) ")")
+          s)))))
+
+(impl Eq
+  (res T E)
+  <T:Eq E:Eq>
+  (fn eq ((a (& (res T E))) (b (& (res T E)))) bool
+    (match a
+      ((res.ok x) (match b ((res.ok y) (Eq.eq x y)) ((res.err _) false)))
+      ((res.err x) (match b ((res.ok _) false) ((res.err y) (Eq.eq x y)))))))
+
+(impl Ord
+  (res T E)
+  <T:Ord E:Ord>
+  (fn cmp ((a (& (res T E))) (b (& (res T E)))) i64
+    (match a
+      ((res.ok x) (match b ((res.ok y) (Ord.cmp x y)) ((res.err _) -1)))
+      ((res.err x) (match b ((res.ok _) 1) ((res.err y) (Ord.cmp x y)))))))
+
+(impl Hash
+  (res T E)
+  <T:Hash E:Hash>
+  (fn hash ((a (& (res T E)))) i64
+    (match a ((res.ok x) (wadd 1 (Hash.hash x))) ((res.err x) (wadd 2 (Hash.hash x))))))
+
+(impl Clone
+  (res T E)
+  <T:Clone E:Clone>
+  (fn clone ((a (& (res T E)))) (res T E)
+    (match a
+      ((res.ok x) (res.ok <T E> (Clone.clone x)))
+      ((res.err x) (res.err <T E> (Clone.clone x))))))
+
+(impl Show
+  (res T E)
+  <T:Show E:Show>
+  (fn show ((a (& (res T E)))) str
+    (match a
+      ((res.ok x)
+        (do
+          (let mut s (str.from "ok("))
+          (str.push (&mut s) (& (Show.show x)))
+          (str.push (&mut s) ")")
+          s))
+      ((res.err x)
+        (do
+          (let mut s (str.from "err("))
+          (str.push (&mut s) (& (Show.show x)))
+          (str.push (&mut s) ")")
+          s)))))
+
+(test cmp_coll
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 1)
+  (vec.push (&mut v) 2)
+  (let c (Clone.clone (& v)))
+  (assert (Eq.eq (& v) (& c)))
+  (assert (< (Ord.cmp (& v) (& c)) 1))
+  (assert_eq (& (Show.show (& v))) "[1, 2]")
+  (let s (opt.some 3))
+  (let n (opt.none <i64>))
+  (assert (Eq.eq (& s) (& (Clone.clone (& s)))))
+  (assert (not (Eq.eq (& s) (& n))))
+  (assert_eq (& (Show.show (& s))) "some(3)")
+  (assert_eq (& (Show.show (& n))) "none")
+  (let okv (res.ok <i64 str> 4))
+  (let errv (res.err <i64 str> (str.from "no")))
+  (assert (Eq.eq (& okv) (& (Clone.clone (& okv)))))
+  (assert_eq (& (Show.show (& okv))) "ok(4)")
+  (assert_eq (& (Show.show (& errv))) "err(no)")
+  (assert_eq 1.5 1.5)
+  (assert_ne 1.5 2.5)
+  (assert_eq 7i32 7i32)
+  (let u 9u64)
+  (assert_eq (& (Show.show (& u))) "9"))

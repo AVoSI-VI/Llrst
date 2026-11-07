@@ -8,7 +8,7 @@ File extension: `.llr`. Encoding: UTF-8. Audience: models. One form per task.
 file    := form*
 form    := atom | string | '(' form* ')'
 atom    := [^()"\s;]+          ; identifiers, numbers, keywords, dotted names, 'a lifetimes
-string  := '"' ( [^"\\] | '\\' [nrt0"\\] | '\\x' hex hex )* '"'
+string  := '"' ( [^"\\] | '\\' [nrt0"\\] | '\\x' hex hex | '\\u{' hex+ '}' )* '"'
 comment := ';' .* eol
 ```
 
@@ -32,8 +32,9 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (impl TYPE FN...)                            ; methods; called as TYPE.NAME
 (impl TYPE <T> FN...)
 (trait NAME (fn NAME (TYPE...) TYPE)...)     ; method params are types; first is (& Self) or (&mut Self)
-(impl TRAIT TYPE FN...)                      ; monomorphized impl; TYPE is a concrete name
-(const NAME TYPE EXPR)                       ; compile-time scalar or string literal
+(impl TRAIT TYPE FN...)                      ; TYPE is a name or a type form such as (vec T)
+(impl TRAIT TYPE <T:Eq> FN...)               ; generic impl; monomorphized per instance; trait.dup compares the head
+(const NAME TYPE EXPR)                       ; EXPR must be a literal; otherwise const.not_lit
 (test NAME BODY...)                          ; test body, run by llr-test
 (pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline (per method inside impl)
 

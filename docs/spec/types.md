@@ -100,7 +100,7 @@ float-to-int saturates and int-to-float rounds.
 
 ## Traits
 
-`(trait Eq (fn eq ((& Self) (& Self)) bool))` declares a trait. `(impl Eq i64 (fn eq ...))` is the impl. The impl type is a concrete name. `(Eq.eq a b)` on a concrete type, including a substituted generic, is a direct call to that impl.
+`(trait Eq (fn eq ((& Self) (& Self)) bool))` declares a trait. `(impl Eq i64 (fn eq ...))` is a concrete impl. `(impl Eq (vec T) <T:Eq> (fn eq ...))` is a generic impl: the self type may be a type form, and the impl is monomorphized per instance the way a generic fn is. `trait.dup` compares the trait and the head type, so `(vec T)` and `(vec str)` are the same head. A struct or enum bound such as `<T:Eq>` is checked when that type is instantiated. `(Eq.eq a b)` on a concrete type, including a substituted generic, is a direct call to that impl.
 
 `<T:Eq:Ord>` adds bounds. A missing impl is `trait.missing|trait=|ty=`. A second impl is `trait.dup|trait=|ty=`.
 

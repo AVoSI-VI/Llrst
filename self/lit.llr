@@ -9,14 +9,6 @@
   (if (and (>= c 65u8) (<= c 70u8)) (ret (+ (- (as i64 c) 65) 10)))
   (neg 1))
 
-(fn parse_hex ((s (& str)) (lo i64) (hi i64)) i64
-  (let mut n 0)
-  (for i lo hi
-    (let d (hex_dig (str.at s i)))
-    (if (< d 0) (ret (neg 1)))
-    (set n (+ (* n 16) d)))
-  n)
-
 (fn parse_dec ((s (& str)) (lo i64) (hi i64)) i64
   (let mut n 0)
   (for i lo hi (set n (+ (* n 10) (- (as i64 (str.at s i)) 48))))
@@ -38,17 +30,40 @@
     (do (let d (str.at s 1)) (ret (and (>= d 48u8) (<= d 57u8)))))
   false)
 
+(fn strip_us ((s (& str)) (lo i64) (hi i64)) str
+  (let mut o (str.new))
+  (for i lo hi (if (!= (str.at s i) 95u8) (str.push_byte (&mut o) (str.at s i))))
+  o)
+
+(fn radix_of ((body (& str))) i64
+  (if (str.starts body "0x") (ret 16))
+  (if (str.starts body "0b") (ret 2))
+  (if (str.starts body "0o") (ret 8))
+  0)
+
+(fn parse_rad ((s (& str)) (lo i64) (hi i64) (base i64)) i64
+  (let mut n 0)
+  (for i lo hi
+    (let d (hex_dig (str.at s i)))
+    (if (or (< d 0) (>= d base)) (ret (neg 1)))
+    (set n (+ (* n base) d)))
+  n)
+
+(fn has_exp ((s (& str))) bool (or (str.has s "e") (str.has s "E")))
+
 (pub (fn parse_num ((s (& str))) num
   (if (not (is_num s)) (ret (num false false 0 (str.new) (str.new))))
   (let mut neg false)
-  (let mut lo 0)
-  (if (== (str.at s 0) 45u8) (do (set neg true) (set lo 1)))
+  (if (== (str.at s 0) 45u8) (set neg true))
   (let at (split_suf s))
   (let suf (str.slice s at (str.len s)))
-  (let body (str.slice s lo at))
-  (let float (or (str.has (& body) ".") (str.starts (& suf) "f")))
+  (let body (strip_us s (if neg 1 0) at))
+  (let rad (radix_of (& body)))
+  (let float (and (== rad 0) (or (str.has (& body) ".") (or (has_exp (& body)) (str.starts (& suf) "f")))))
   (if float (ret (num true true 0 suf (float_show (& body) neg))))
-  (let mut v (if (str.starts (& body) "0x") (parse_hex (& body) 2 (str.len (& body))) (parse_dec (& body) 0 (str.len (& body)))))
+  (let mut v
+    (if (> rad 0) (parse_rad (& body) 2 (str.len (& body)) rad) (parse_dec (& body) 0 (str.len (& body)))))
+  (if (< v 0) (ret (num false false 0 (str.new) (str.new))))
   (if neg (set v (neg v)))
   (num true false v suf (str.new))))
 
@@ -58,13 +73,72 @@
   (if (and (> hi 0) (== (str.at s (- hi 1)) 46u8)) (set hi (- hi 1)))
   (if (== hi 0) (str.from "0") (str.slice s 0 hi)))
 
-(fn float_show ((body (& str)) (neg bool)) str
-  (let t (trim_zeros body))
-  (if (not neg) (ret t))
-  (if (str.eq (& t) "0") (ret (str.from "-0")))
+(fn sign_show ((t (& str)) (neg bool)) str
+  (if (not neg) (ret (str.clone t)))
+  (if (str.eq t "0") (ret (str.from "-0")))
   (let mut s (str.from "-"))
-  (str.push (&mut s) (& t))
+  (str.push (&mut s) t)
   s)
+
+(fn trim_float ((s (& str))) str
+  (if (str.has s ".") (trim_zeros s) (str.clone s)))
+
+(fn float_show ((body (& str)) (neg bool)) str
+  (if (has_exp body) (ret (sign_show (& (trim_float (& (expand_exp body)))) neg)))
+  (sign_show (& (trim_zeros body)) neg))
+
+(fn exp_at ((s (& str))) i64
+  (for i 0 (str.len s)
+    (let c (str.at s i))
+    (if (or (== c 101u8) (== c 69u8)) (ret i)))
+  (neg 1))
+
+(fn read_signed ((s (& str)) (i i64)) i64
+  (let mut j i)
+  (let mut neg false)
+  (if (and (< j (str.len s)) (== (str.at s j) 43u8)) (set j (+ j 1)))
+  (if (and (< j (str.len s)) (== (str.at s j) 45u8)) (do (set neg true) (set j (+ j 1))))
+  (let mut n 0)
+  (while (< j (str.len s))
+    (do (set n (+ (* n 10) (- (as i64 (str.at s j)) 48))) (set j (+ j 1))))
+  (if neg (neg n) n))
+
+(fn zeros ((n i64)) str
+  (let mut s (str.new))
+  (for _i 0 n (str.push_byte (&mut s) 48u8))
+  s)
+
+(fn expand_exp ((body (& str))) str
+  (let at (exp_at body))
+  (if (< at 0) (ret (str.clone body)))
+  (let sig (str.slice body 0 at))
+  (let exp (read_signed body (+ at 1)))
+  (let mut digits (str.new))
+  (let mut point (str.len (& sig)))
+  (for i 0 (str.len (& sig))
+    (let c (str.at (& sig) i))
+    (if (== c 46u8) (set point (str.len (& digits))) (str.push_byte (&mut digits) c)))
+  (let spot (+ point exp))
+  (if (<= spot 0)
+    (do
+      (let mut s (str.from "0."))
+      (str.push (&mut s) (& (zeros (neg spot))))
+      (str.push (&mut s) (& digits))
+      (ret s)))
+  (if (>= spot (str.len (& digits)))
+    (do
+      (let mut s (str.clone (& digits)))
+      (str.push (&mut s) (& (zeros (- spot (str.len (& digits))))))
+      (ret (trim_lead (& s)))))
+  (let mut s (str.slice (& digits) 0 spot))
+  (str.push_byte (&mut s) 46u8)
+  (str.push (&mut s) (& (str.slice (& digits) spot (str.len (& digits)))))
+  s)
+
+(fn trim_lead ((s (& str))) str
+  (let mut i 0)
+  (while (and (< i (- (str.len s) 1)) (== (str.at s i) 48u8)) (set i (+ i 1)))
+  (str.slice s i (str.len s)))
 
 (fn hex_byte ((n i64)) str
   (let digits "0123456789abcdef")
@@ -93,21 +167,33 @@
   (while (< (. i i) hi)
     (let c (str.at src (. i i)))
     (if (== c 92u8)
-      (do (set (. i i) (+ (. i i) 1)) (str.push_byte (&mut o) (esc_one src (&mut i))))
+      (do (set (. i i) (+ (. i i) 1)) (apply_esc (&mut o) src (&mut i)))
       (do (str.push_byte (&mut o) c) (set (. i i) (+ (. i i) 1)))))
   o))
 
 (struct cur (i i64))
 
-(fn esc_one ((src (& str)) (i (&mut cur))) u8
+(fn apply_esc ((o (&mut str)) (src (& str)) (i (&mut cur))) unit
   (let c (str.at src (. i i)))
   (set (. i i) (+ (. i i) 1))
-  (if (== c 110u8) (ret 10u8))
-  (if (== c 114u8) (ret 13u8))
-  (if (== c 116u8) (ret 9u8))
-  (if (== c 48u8) (ret 0u8))
-  (if (== c 120u8) (ret (esc_hex src i)))
-  c)
+  (if (== c 110u8) (ret (str.push_byte o 10u8)))
+  (if (== c 114u8) (ret (str.push_byte o 13u8)))
+  (if (== c 116u8) (ret (str.push_byte o 9u8)))
+  (if (== c 48u8) (ret (str.push_byte o 0u8)))
+  (if (== c 120u8) (ret (str.push_byte o (esc_hex src i))))
+  (if (== c 117u8) (ret (push_utf o src i)))
+  (str.push_byte o c))
+
+(fn push_utf ((o (&mut str)) (src (& str)) (i (&mut cur))) unit
+  (if (!= (str.at src (. i i)) 123u8) (ret))
+  (set (. i i) (+ (. i i) 1))
+  (let mut cp 0)
+  (while (and (< (. i i) (str.len src)) (!= (str.at src (. i i)) 125u8))
+    (do
+      (set cp (+ (* cp 16) (hex_dig (str.at src (. i i)))))
+      (set (. i i) (+ (. i i) 1))))
+  (if (< (. i i) (str.len src)) (set (. i i) (+ (. i i) 1)))
+  (let _ok (str.push_utf8 o cp)))
 
 (fn esc_hex ((src (& str)) (i (&mut cur))) u8
   (let a (hex_dig (str.at src (. i i))))

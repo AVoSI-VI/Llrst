@@ -297,13 +297,14 @@
   (let at (append g (& raw) 8))
   (let drop (drop_sym g t))
   (put_i64 g at drop)
-  (for i 0 (vec.len ids) (vt_word g p ids at i))
+  (let args (prog.impl_subst p tr t))
+  (for i 0 (vec.len ids) (vt_word g p ids at i (& args)))
   (vec.push (&mut (. g vkey)) key)
   (vec.push (&mut (. g vaddr)) at)
   at))
 
-(fn vt_word ((g (&mut wm)) (p (& prog.prog)) (ids (& (vec i64))) (at i64) (i i64)) unit
-  (let ord (func_sym g p (@ (vec.get ids i)) (vec.new <ty.sty>)))
+(fn vt_word ((g (&mut wm)) (p (& prog.prog)) (ids (& (vec i64))) (at i64) (i i64) (args (& (vec ty.sty)))) unit
+  (let ord (func_sym g p (@ (vec.get ids i)) (ty.clone_tys args)))
   (put_i64 g (+ at (* (+ i 1) 8)) ord))
 
 (fn vt_key ((tr i64) (t (& ty.sty))) str

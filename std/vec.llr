@@ -164,8 +164,6 @@
     (let y (. b k))
     (if (< x y) -1 (if (> x y) 1 0))))
 
-(pub (fn clone_str ((v (& (vec str)))) (vec str) (vec.clone v)))
-
 (test vec_push_get
   (let mut v (vec.new <i64>))
   (vec.push (&mut v) 3)
@@ -231,7 +229,7 @@
   (assert (< (Ord.cmp (& left) (& right)) 0))
   (let mut ss (vec.new <str>))
   (vec.push (&mut ss) (str.from "z"))
-  (assert_eq (vec.len (& (vec.clone_str (& ss)))) 1)
+  (assert_eq (vec.len (& (vec.clone (& ss)))) 1)
   (vec.drop (&mut v)))
 
 (test vec_index

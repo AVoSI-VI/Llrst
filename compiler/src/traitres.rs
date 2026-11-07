@@ -2,7 +2,7 @@
 use crate::ast::{self, Item};
 use crate::diag::{Diag, Diags, PResult, Span};
 use crate::resolve::{resolve_ty, Def, DefKind, Program, TraitDef};
-use crate::ty::{DefId, Ty};
+use crate::ty::{DefId, IntTy, Ty, TyPrinter};
 
 /// `(box (dyn Trait))`. The single argument must be `(dyn Trait)`.
 pub fn box_ty(prog: &Program, module: u32, args: &[ast::TyExpr], sp: Span) -> PResult<Ty> {
@@ -93,17 +93,20 @@ fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> P
     if !prog.visible(mi, tr) {
         return Err(prog.private_diag(t.span, tr));
     }
-    let self_ty = resolve_ty(prog, mi, &[], &ast::TyExpr::Name(t.ty_name.clone(), t.span))?;
+    let self_ty = resolve_ty(prog, mi, &t.generics.types, &t.self_ty)?;
     let sigs = td.methods.clone();
     if t.methods.len() != sigs.len() {
         return Err(Diag::error(t.span, "trait.method").kv("name", t.trait_name.clone()));
     }
+    let head = head_name(prog, &self_ty);
     let mut ids = Vec::new();
     for (m, (name, params, ret)) in t.methods.iter().zip(sigs.iter()) {
         if m.name != *name {
             return Err(Diag::error(m.span, "trait.method").kv("name", m.name.clone()));
         }
-        let mut def = crate::resolve::finish_fn(prog, mi, m, &[], None, diags)?;
+        let mut method = m.clone();
+        prepend_generics(&mut method.generics, &t.generics);
+        let mut def = crate::resolve::finish_fn(prog, mi, &method, &[], Some(tr), diags)?;
         for p in &mut def.params {
             p.1 = subst_self(&p.1, &self_ty);
         }
@@ -113,10 +116,9 @@ fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> P
         if def.params.iter().map(|p| &p.1).ne(want_ps.iter()) || def.ret != want_ret {
             return Err(Diag::error(m.span, "type.mismatch").kv("want", t.trait_name.clone()).kv("got", m.name.clone()));
         }
-        def.owner = Some(tr);
         let id = DefId(prog.defs.len() as u32);
         prog.defs.push(Def {
-            name: format!("{}_{}", m.name, t.ty_name),
+            name: format!("{}_{}", m.name, head),
             module: mi,
             span: m.span,
             kind: DefKind::Fn(def),
@@ -124,10 +126,33 @@ fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> P
         });
         ids.push(id);
     }
-    if prog.impls.insert((tr, self_ty), ids).is_some() {
-        diags.push(Diag::error(t.span, "trait.dup").kv("trait", t.trait_name.clone()).kv("ty", t.ty_name.clone()));
+    if prog.impls.keys().any(|(id, pat)| *id == tr && same_head(pat, &self_ty)) {
+        diags.push(Diag::error(t.span, "trait.dup").kv("trait", t.trait_name.clone()).kv("ty", head));
     }
+    prog.impls.insert((tr, self_ty), ids);
     Ok(())
+}
+
+fn prepend_generics(dst: &mut ast::Generics, src: &ast::Generics) {
+    let mut types = src.types.clone();
+    types.append(&mut dst.types);
+    let mut bounds = src.bounds.clone();
+    bounds.append(&mut dst.bounds);
+    dst.types = types;
+    dst.bounds = bounds;
+}
+
+fn head_name(prog: &Program, ty: &Ty) -> String {
+    match ty {
+        Ty::Adt(d, _) => prog.type_name(*d),
+        Ty::Int(i) => i.name().to_string(),
+        Ty::Bool => "bool".into(),
+        Ty::F32 => "f32".into(),
+        Ty::F64 => "f64".into(),
+        Ty::Unit => "unit".into(),
+        Ty::Never => "never".into(),
+        _ => "ty".into(),
+    }
 }
 
 pub fn subst_self(t: &Ty, self_ty: &Ty) -> Ty {
@@ -195,5 +220,126 @@ pub fn dyn_sig(tr: &TraitDef, slot: usize, fat: &Ty) -> (Vec<Ty>, Ty) {
 }
 
 pub fn impl_of<'p>(prog: &'p Program, tr: DefId, ty: &Ty) -> Option<&'p Vec<DefId>> {
-    prog.impls.get(&(tr, ty.clone()))
+    let ty = ground_int(ty);
+    if let Some(ids) = prog.impls.get(&(tr, ty.clone())) {
+        return Some(ids);
+    }
+    let (ids, subst) = generic_impl(prog, tr, &ty)?;
+    if !bounds_hold(prog, ids, &subst) {
+        return None;
+    }
+    Some(ids)
+}
+
+/// Type arguments that instantiate the impl of `tr` for `ty`. Empty for a concrete impl.
+pub fn impl_subst(prog: &Program, tr: DefId, ty: &Ty) -> Vec<Ty> {
+    let ty = ground_int(ty);
+    if prog.impls.contains_key(&(tr, ty.clone())) {
+        return Vec::new();
+    }
+    generic_impl(prog, tr, &ty).map(|(_, s)| s).unwrap_or_default()
+}
+
+/// An unsuffixed integer is `i64` when selecting an impl.
+fn ground_int(ty: &Ty) -> Ty {
+    match ty {
+        Ty::Infer(_, true) => Ty::Int(IntTy::I64),
+        Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(ground_int).collect()),
+        Ty::Ref { mutable, lt, inner } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(ground_int(inner)) },
+        Ty::Ptr(inner) => Ty::Ptr(Box::new(ground_int(inner))),
+        other => other.clone(),
+    }
+}
+
+fn generic_impl<'p>(prog: &'p Program, tr: DefId, ty: &Ty) -> Option<(&'p Vec<DefId>, Vec<Ty>)> {
+    for ((id, pat), ids) in &prog.impls {
+        if *id != tr || ids.is_empty() || !same_head(pat, ty) {
+            continue;
+        }
+        let n = prog.fn_def(ids[0]).generics.len();
+        let mut subst = vec![None; n];
+        if bind(pat, ty, &mut subst) {
+            if let Some(subst) = subst.into_iter().collect::<Option<Vec<_>>>() {
+                return Some((ids, subst));
+            }
+        }
+    }
+    None
+}
+
+fn same_head(a: &Ty, b: &Ty) -> bool {
+    match (a, b) {
+        (Ty::Adt(x, _), Ty::Adt(y, _)) => x == y,
+        _ => a == b,
+    }
+}
+
+fn bind(pat: &Ty, got: &Ty, subst: &mut [Option<Ty>]) -> bool {
+    match pat {
+        Ty::Param(i, _) => {
+            let i = *i as usize;
+            if i >= subst.len() {
+                return false;
+            }
+            match &subst[i] {
+                Some(prev) => prev == got,
+                None => {
+                    subst[i] = Some(got.clone());
+                    true
+                }
+            }
+        }
+        Ty::Adt(d, args) => match got {
+            Ty::Adt(g, gargs) if d == g && args.len() == gargs.len() => args.iter().zip(gargs).all(|(a, b)| bind(a, b, subst)),
+            _ => false,
+        },
+        Ty::Ref { mutable, inner, .. } => match got {
+            Ty::Ref { mutable: m, inner: inn, .. } if m == mutable => bind(inner, inn, subst),
+            _ => false,
+        },
+        Ty::Ptr(inner) => match got {
+            Ty::Ptr(inn) => bind(inner, inn, subst),
+            _ => false,
+        },
+        other => other == got,
+    }
+}
+
+fn bounds_hold(prog: &Program, ids: &[DefId], subst: &[Ty]) -> bool {
+    let Some(id) = ids.first() else { return true };
+    let bounds = prog.fn_def(*id).bounds.clone();
+    for (i, row) in bounds.iter().enumerate() {
+        let Some(ty) = subst.get(i) else { return row.is_empty() };
+        for tr in row {
+            if impl_of(prog, *tr, ty).is_none() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn adt_bounds(prog: &Program, id: DefId) -> &[Vec<DefId>] {
+    match &prog.def(id).kind {
+        crate::resolve::DefKind::Struct(s) => &s.bounds,
+        crate::resolve::DefKind::Enum(e) => &e.bounds,
+        _ => &[],
+    }
+}
+
+pub fn apply_adt(prog: &Program, module: u32, d: DefId, args: &[ast::TyExpr], generics: &[String], sp: Span) -> PResult<Ty> {
+    let args = args.iter().map(|a| resolve_ty(prog, module, generics, a)).collect::<PResult<Vec<_>>>()?;
+    if !args.iter().any(Ty::has_param) {
+        for (i, row) in adt_bounds(prog, d).iter().enumerate() {
+            if let Some(ty) = args.get(i) {
+                for tr in row {
+                    if impl_of(prog, *tr, ty).is_none() {
+                        let shown = TyPrinter { names: &|id: DefId| prog.type_name(id) }.show(ty);
+                        return Err(Diag::error(sp, "trait.missing").kv("trait", prog.type_name(*tr)).kv("ty", shown));
+                    }
+                }
+            }
+        }
+    }
+    Ok(Ty::Adt(d, args))
 }

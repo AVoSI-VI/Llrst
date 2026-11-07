@@ -2,7 +2,7 @@
 use super::Checker;
 use crate::diag::{Diag, PResult, Span};
 use crate::thir::*;
-use crate::traitres::{self, impl_of};
+use crate::traitres::{self, impl_of, impl_subst};
 use crate::ty::{DefId, Ty};
 
 fn mk(kind: ExprKind, ty: Ty, span: Span) -> Expr {
@@ -45,9 +45,10 @@ impl<'a> Checker<'a> {
             Diag::error(sp, "trait.missing").kv("trait", self.prog.type_name(tr)).kv("ty", self.show(&self_ty))
         })?;
         let f = ids[slot];
+        let targs = impl_subst(self.prog, tr, &self_ty);
         let mut all = vec![args[0].clone()];
         all.extend(args[1..].iter().cloned());
-        self.check_fn_call(f, &[], &all, None, sp).map(Some)
+        self.check_fn_call(f, &targs, &all, None, sp).map(Some)
     }
 
     fn dyn_call(&mut self, tr: DefId, slot: usize, recv: Expr, rest: &[crate::ast::Expr], sp: Span) -> PResult<Option<Expr>> {

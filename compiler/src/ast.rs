@@ -95,7 +95,8 @@ pub struct TraitDecl {
 #[derive(Clone, Debug)]
 pub struct TraitImpl {
     pub trait_name: String,
-    pub ty_name: String,
+    pub self_ty: TyExpr,
+    pub generics: Generics,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
@@ -224,6 +225,8 @@ pub enum ExprKind {
     Neg(Box<Expr>),
     /// Negation that always wraps.
     WNeg(Box<Expr>),
+    /// Bitwise complement of an integer.
+    BNot(Box<Expr>),
     Call { callee: String, targs: Vec<TyExpr>, args: Vec<Expr> },
     CallPtr { callee: Box<Expr>, args: Vec<Expr> },
     Try(Box<Expr>),

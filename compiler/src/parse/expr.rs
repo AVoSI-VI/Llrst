@@ -26,7 +26,7 @@ fn is_type_name(head: &str) -> bool {
         && !matches!(
             head,
             "let" | "set" | "do" | "if" | "while" | "loop" | "for" | "brk" | "cont" | "ret" | "match" | "as" | "and"
-                | "or" | "not" | "neg" | "wneg" | "try" | "panic" | "assert" | "assert_eq" | "assert_ne" | "assert_near" | "drop" | "sizeof" | "call"
+                | "or" | "not" | "neg" | "wneg" | "bnot" | "try" | "panic" | "assert" | "assert_eq" | "assert_ne" | "assert_near" | "drop" | "sizeof" | "call"
         )
 }
 
@@ -74,23 +74,39 @@ pub fn parse_lit_atom(a: &str) -> Option<Lit> {
     if !(c.is_ascii_digit() || (c == b'-' && a.len() > 1 && a.as_bytes()[1].is_ascii_digit())) {
         return None;
     }
-    // split numeric body from suffix
     let body_end = a
         .char_indices()
         .find(|&(i, ch)| i > 0 && (ch == 'i' || ch == 'u' || ch == 'f'))
         .map(|(i, _)| i)
         .unwrap_or(a.len());
-    let (body, suffix) = a.split_at(body_end);
+    let (raw, suffix) = a.split_at(body_end);
     let suffix = if suffix.is_empty() { None } else { Some(suffix.to_string()) };
-    if body.contains('.') || suffix.as_deref().map_or(false, |s| s.starts_with('f')) {
-        return body.parse::<f64>().ok().map(|v| Lit::Float(v, suffix));
+    let flat: String = raw.chars().filter(|c| *c != '_').collect();
+    let neg = flat.starts_with('-');
+    let body = if neg { &flat[1..] } else { flat.as_str() };
+    if body.is_empty() {
+        return None;
     }
-    let v = if let Some(h) = body.strip_prefix("0x") {
-        i128::from_str_radix(h, 16).ok()
+    let radix = if body.starts_with("0x") {
+        Some(16)
+    } else if body.starts_with("0b") {
+        Some(2)
+    } else if body.starts_with("0o") {
+        Some(8)
+    } else {
+        None
+    };
+    let float = radix.is_none()
+        && (body.contains('.') || body.contains('e') || body.contains('E') || suffix.as_deref().map_or(false, |s| s.starts_with('f')));
+    if float {
+        return body.parse::<f64>().ok().map(|v| Lit::Float(if neg { -v } else { v }, suffix));
+    }
+    let v = if let Some(r) = radix {
+        i128::from_str_radix(&body[2..], r).ok()
     } else {
         body.parse::<i128>().ok()
     };
-    v.map(|v| Lit::Int(v, suffix))
+    v.and_then(|v| if neg { v.checked_neg() } else { Some(v) }).map(|v| Lit::Int(v, suffix))
 }
 
 pub fn parse_expr(s: &Sexpr) -> PResult<Expr> {
@@ -236,6 +252,7 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
         "not" => ExprKind::Not(one(items, sp, "not")?),
         "neg" => ExprKind::Neg(one(items, sp, "neg")?),
         "wneg" => ExprKind::WNeg(one(items, sp, "wneg")?),
+        "bnot" => ExprKind::BNot(one(items, sp, "bnot")?),
         "try" => ExprKind::Try(one(items, sp, "try")?),
         "panic" => ExprKind::Panic(one(items, sp, "panic")?),
         "assert" => ExprKind::Assert(one(items, sp, "assert")?),

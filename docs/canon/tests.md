@@ -11,8 +11,7 @@
 `test` forms live at the end of the file they test. `llr-test FILE_OR_DIR` compiles each
 file with `--test`, which makes `main` a runner over all `test` forms.
 
-Asserts: `(assert cond)`, `(assert_eq a b)` for `(& str)`, `i64`, `bool`, `u8`,
-`(assert_ne a b)` for `(& str)` and integers, `(assert_near got want eps)` for `f64` and `f32`.
+Asserts: `(assert cond)`, `(assert_eq a b)` and `(assert_ne a b)`. `(& str)`, `i64`, `bool`, and `u8` use the `test.eq_*` helpers. `f64` and `f32` use `Show` and `test.eq_f64` with an exact compare (`assert_ne` uses `Eq`). Any other type with `Show` and `Eq` uses `test.eq_by` / `test.ne_by`. A type with no `Show` is `type.assert_eq`. `(assert_near got want eps)` is for `f64` and `f32`.
 Failure prints `F|FILE|LINE|COL|assert|want=..|got=..` and the test is marked failed.
 
 ## Golden tests (compiler and tools)

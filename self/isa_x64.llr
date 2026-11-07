@@ -96,6 +96,12 @@
 (pub (fn setcc ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (cc i64) (dst i64)) unit
   (x64_int.setcc b (xcc cc) (gpr s dst))))
 
+(pub (fn ord_mask ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (ne bool) (dst i64) (tmp i64)) unit
+  (let d (gpr s dst))
+  (let t (gpr s tmp))
+  (x64_int.setcc b (if ne x64_buf.p x64_buf.np) t)
+  (if ne (x64_int.or_rr b 1 d t) (x64_int.and_rr b 1 d t))))
+
 (pub (fn add_rr ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (dst i64) (src i64)) unit
   (x64_int.add_rr b w (gpr s dst) (gpr s src))))
 

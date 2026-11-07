@@ -173,7 +173,7 @@
   (if (== k 14u8) (ret (into_ref p w e dest)))
   (if (== k 17u8) (ret (into_cast p w e dest)))
   (if (== k 18u8) (ret (into_bin p w e dest)))
-  (if (or (== k 19u8) (== k 20u8)) (ret (into_neg p w e dest)))
+  (if (or (== k 19u8) (or (== k 20u8) (== k 34u8))) (ret (into_neg p w e dest)))
   (if (== k 21u8) (ret (into_not p w e dest)))
   (if (or (== k 22u8) (== k 23u8)) (ret (lower_cf.into_logic p w e dest)))
   (if (== k 24u8) (ret (lower_call.into_call p w e dest)))
@@ -391,7 +391,7 @@
 (fn into_neg ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
   (let a (as_operand p w (vec.get (& (. e kids)) 0)))
   (let mut r (mir.rvoid))
-  (set (. r kind) (if (== (. e kind) 20u8) 4u8 3u8))
+  (set (. r kind) (if (== (. e kind) 20u8) 4u8 (if (== (. e kind) 34u8) 21u8 3u8)))
   (vec.push (&mut (. r ops)) a)
   (push w (mir.sassign dest r)))
 

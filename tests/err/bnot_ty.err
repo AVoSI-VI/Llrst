@@ -1,0 +1,1 @@
+E|tests/err/bnot_ty.llr|1|24|10|type.not_numeric|op=bnot|got=f64

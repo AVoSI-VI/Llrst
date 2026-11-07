@@ -151,7 +151,9 @@ impl<'a> Checker<'a> {
             }
         }
         let params: Vec<Ty> = sd.fields.iter().map(|f| f.1.subst(&inst)).collect();
+        let bounds = sd.bounds.clone();
         let fields = self.check_args(args, &params, sp)?;
+        self.check_bounds(&bounds, &inst, sp)?;
         Ok(mk(ExprKind::Struct { def: t, fields }, ty, sp))
     }
 
@@ -163,7 +165,9 @@ impl<'a> Checker<'a> {
             let _ = self.unify(&ty, w);
         }
         let params: Vec<Ty> = ed.variants[idx as usize].1.iter().map(|f| f.subst(&inst)).collect();
+        let bounds = ed.bounds.clone();
         let fields = self.check_args(args, &params, sp)?;
+        self.check_bounds(&bounds, &inst, sp)?;
         Ok(mk(ExprKind::Variant { def: t, idx, fields }, ty, sp))
     }
 

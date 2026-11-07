@@ -194,6 +194,14 @@ impl<'a> Checker<'a> {
                 let k = if matches!(e.kind, A::WNeg(_)) { ExprKind::WNeg(Box::new(x)) } else { ExprKind::Neg(Box::new(x)) };
                 mk(k, ty, sp)
             }
+            A::BNot(x) => {
+                let x = self.check_expr(x, want.filter(|t| t.is_int()))?;
+                if !self.shallow(&x.ty).is_int() {
+                    return Err(Diag::error(sp, "type.not_numeric").kv("op", "bnot").kv("got", self.show(&x.ty)));
+                }
+                let ty = x.ty.clone();
+                mk(ExprKind::BNot(Box::new(x)), ty, sp)
+            }
             A::Call { callee, targs, args } => self.check_call(callee, targs, args, want, sp)?,
             A::CallPtr { callee, args } => {
                 let callee = self.check_expr(callee, None)?;
@@ -443,50 +451,6 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_assert_eq(&mut self, l: &ast::Expr, r: &ast::Expr, sp: Span, ne: bool) -> PResult<Expr> {
-        let l = self.check_expr(l, None)?;
-        let r = self.check_expr(r, Some(&l.ty.clone()))?;
-        self.expect(&r, &l.ty.clone())?;
-        let t = self.shallow(&l.ty);
-        let (name, conv): (&str, Option<Ty>) = match &t {
-            Ty::Ref { inner, .. } if self.zonk_ty(inner) == self.str_ty() => (if ne { "ne_str" } else { "eq_str" }, None),
-            Ty::Bool if !ne => ("eq_bool", None),
-            Ty::Int(IntTy::I64) => (if ne { "ne_int" } else { "eq_int" }, None),
-            Ty::Infer(_, true) => {
-                self.unify(&t, &Ty::Int(IntTy::I64));
-                (if ne { "ne_int" } else { "eq_int" }, None)
-            }
-            Ty::Int(_) => (if ne { "ne_int" } else { "eq_int" }, Some(Ty::Int(IntTy::I64))),
-            _ => return Err(Diag::error(sp, "type.assert_eq").kv("got", self.show(&t))),
-        };
-        let f = self.std_fn("test", name).ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", format!("test.{}", name)))?;
-        let cast = |e: Expr| match &conv {
-            Some(t) => mk(ExprKind::Cast(Box::new(e)), t.clone(), sp),
-            None => e,
-        };
-        let loc = self.loc_lit(sp);
-        Ok(mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, cast(l), cast(r)] }, Ty::Unit, sp))
-    }
-
-    fn check_assert_near(&mut self, g: &ast::Expr, w: &ast::Expr, eps: &ast::Expr, sp: Span) -> PResult<Expr> {
-        let g = self.check_expr(g, None)?;
-        let t = self.shallow(&g.ty);
-        let conv = match &t {
-            Ty::F64 => false,
-            Ty::F32 => true,
-            _ => return Err(Diag::error(sp, "type.assert_eq").kv("got", self.show(&t))),
-        };
-        let w = self.check_expr(w, Some(&g.ty))?;
-        self.expect(&w, &g.ty)?;
-        let eps = self.check_expr(eps, Some(&Ty::F64))?;
-        self.expect(&eps, &Ty::F64)?;
-        let f = self.std_fn("test", "eq_f64").ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", "test.eq_f64"))?;
-        let cast = |e: Expr| {
-            if conv { mk(ExprKind::Cast(Box::new(e)), Ty::F64, sp) } else { e }
-        };
-        let loc = self.loc_lit(sp);
-        Ok(mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, cast(g), cast(w), eps] }, Ty::Unit, sp))
-    }
 }
 
 /// True when a `brk` targets this loop body (not a nested loop).
@@ -500,7 +464,7 @@ fn has_break(e: &Expr) -> bool {
         ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
         ExprKind::Match { scrut, arms, .. } => has_break(scrut) || arms.iter().any(|a| has_break(&a.body)),
         ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
-        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::Not(x) => has_break(x),
+        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::BNot(x) | ExprKind::Not(x) => has_break(x),
         ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),
         ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } | ExprKind::BoxPack { data: x, .. } | ExprKind::DynPack { data: x, .. } => has_break(x),
         _ => false,

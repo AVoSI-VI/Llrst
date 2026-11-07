@@ -7,7 +7,7 @@ The live handoff is [../HANDOFF.md](../HANDOFF.md). The text below is kept as wr
 
 This file is the work plan for making the self-hosted compiler (`self/`, binary `llrs`,
 installed as `llrc`) compile faster. It is written so another agent can pick it up cold.
-Read it, then [../OPT.md](../OPT.md) (the findings this plan schedules; items are cited by
+Read it, then [OPT.md](OPT.md) (the findings this plan schedules; items are cited by
 number as "OPT 1" .. "OPT 15"), then the **Rules for this work** in
 [../HANDOFF.md](../HANDOFF.md). When code and this file disagree, trust the code and fix this
 file. OPT.md is the evidence record and is not edited except to append measurements.

@@ -3,6 +3,7 @@
 (use std.map)
 (use std.str)
 (use proj.diag)
+(use proj.impls)
 (use proj.ty)
 
 (pub (struct spar (pub (name str)) (pub (ty ty.sty))))
@@ -356,11 +357,9 @@
       ((opt.none) (str.clone (& (. (vec.get (& (. p mods)) (. d module)) path))))))
     (& (. d name)))))
 
-(pub (fn impl_of ((p (& prog)) (tr i64) (t (& ty.sty))) i64
-  (for i 0 (vec.len (& (. p ims)))
-    (let im (vec.get (& (. p ims)) i))
-    (if (and (== (. im tr) tr) (ty.eq (& (. im ty)) t)) (ret i)))
-  (neg 1)))
+(pub (fn impl_of ((p (& prog)) (tr i64) (t (& ty.sty))) i64 (impls.of p tr t)))
+
+(pub (fn impl_subst ((p (& prog)) (tr i64) (t (& ty.sty))) (vec ty.sty) (impls.subst p tr t)))
 
 (pub (fn add_impl ((p (&mut prog)) (tr i64) (t ty.sty) (ids (vec i64))) unit
   (vec.push (&mut (. p ims)) (impr tr t ids))))

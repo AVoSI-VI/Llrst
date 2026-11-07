@@ -31,8 +31,9 @@
     (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_object elf.sec_rodata at (* words 8)))
   (let drop (cg_mod.drop_sym g t))
   (elf.add_rel (&mut (. g obj)) elf.sec_rodata at (cg_mod.ptr_kind g) drop 0)
+  (let args (prog.impl_subst p tr t))
   (for i 0 n
-    (let fs (cg_mod.func_sym g p (@ (vec.get ids i)) (vec.new <ty.sty>)))
+    (let fs (cg_mod.func_sym g p (@ (vec.get ids i)) (ty.clone_tys (& args))))
     (elf.add_rel (&mut (. g obj)) elf.sec_rodata (+ at (* (+ i 1) 8)) (cg_mod.ptr_kind g) fs 0))
   (cg_mod.vt_put g k data)
   data))

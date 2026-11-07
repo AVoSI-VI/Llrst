@@ -416,9 +416,13 @@ impl<'a> Lower<'a> {
                     self.assign(&dest, Rvalue::Bin(*op, a, b), sp);
                 }
             }
-            ExprKind::Neg(x) | ExprKind::WNeg(x) => {
+            ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::BNot(x) => {
                 let a = self.as_operand(x);
-                let rv = if matches!(e.kind, ExprKind::WNeg(_)) { Rvalue::WNeg(a) } else { Rvalue::Neg(a) };
+                let rv = match &e.kind {
+                    ExprKind::WNeg(_) => Rvalue::WNeg(a),
+                    ExprKind::BNot(_) => Rvalue::BNot(a),
+                    _ => Rvalue::Neg(a),
+                };
                 self.assign(&dest, rv, sp);
             }
             ExprKind::Not(x) => {

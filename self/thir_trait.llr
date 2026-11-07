@@ -32,8 +32,8 @@
   (if (< ii 0)
     (ret (res.err (thir.kv2 "trait.missing" "trait" (str.clone (& (. d name))) "ty" (thir.nshow p (& self_ty))))))
   (let f (@ (vec.get (& (. (vec.get (& (. p ims)) ii) ids)) slot)))
-  (let empty (vec.new <ty.sty>))
-  (thir_call.check_fn_call p c e f (& empty) false (& (ty.unit))))
+  (let args (prog.impl_subst p tr (& self_ty)))
+  (thir_call.check_fn_call p c e f (& args) false (& (ty.unit))))
 
 (fn sig_i ((d (& prog.def)) (name (& str))) i64
   (for i 0 (vec.len (& (. d sigs)))

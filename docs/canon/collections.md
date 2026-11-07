@@ -2,7 +2,7 @@
 
 ## Operations over T
 
-`Eq`, `Ord`, `Hash`, and `Clone` are traits in `std/cmp.llr`. A call is `(Eq.eq a b)`. `Ord.cmp` is negative when the first value comes first. `i64`, `str`, `u8`, `i32`, `u32`, `u64`, and `bool` implement all four. `f64` and `f32` implement `Eq` and `Clone` only; `Eq` is `==`, so NaN is not equal to NaN. `vec.has` and `vec.index` need `T: Eq`. `vec.sort` needs `T: Ord`. `vec.clone` needs `T: Clone`. Map keys need `K: Hash` and `K: Eq`. `map.keys` and `set.items` need `K: Clone` and `K: Ord`.
+`Eq`, `Ord`, `Hash`, `Clone`, and `Show` are traits in `std/cmp.llr`. A call is `(Eq.eq a b)`. `Ord.cmp` is negative when the first value comes first. The integer types, `str`, and `bool` implement `Eq`, `Ord`, `Hash`, `Clone`, and `Show`. `f64` and `f32` implement `Eq`, `Clone`, and `Show`; `Eq` is `==`, so NaN is not equal to NaN. `(vec T)`, `(opt T)`, and `(res T E)` implement those traits when their arguments do (`Ord` on `res` needs both `T: Ord` and `E: Ord`). `vec.has` and `vec.index` need `T: Eq`. `vec.sort` needs `T: Ord`. `vec.clone` needs `T: Clone`. Map keys need `K: Hash` and `K: Eq`. `map.keys` and `set.items` need `K: Clone` and `K: Ord`.
 
 `(& (dyn Eq))` is a fat pointer. Pass `(& n)` where `(& (dyn Eq))` is expected and `n`'s type implements `Eq`. `Clone` returns `Self`, so it is not a trait object.
 
@@ -25,7 +25,7 @@
 | first match | `(vec.find (& v) pred)` returns `(opt i64)`. Same closure as `any` |
 | sort | `(vec.sort (&mut v))` when `T: Ord`, stable |
 | sort by | `(vec.sort_by (&mut v) cmp)` stable. `cmp` is `(clos ((& T) (& T)) i64)`; `0` keeps the left run |
-| clone | `(vec.clone (& v))` when `T: Clone`. `(vec.clone_str (& v))` forwards to it |
+| clone | `(vec.clone (& v))` when `T: Clone`, or `(Clone.clone (& v))` |
 | extend | `(vec.extend (&mut v) (& src))` clones each element when `T: Clone` |
 | filled | `(vec.filled n (& x))` when `T: Clone`. `n < 0` panics |
 | resize | `(vec.resize (&mut v) n (& x))` truncates or clones `x` up to `n` |

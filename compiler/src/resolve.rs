@@ -8,12 +8,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 pub struct StructDef {
     pub generics: Vec<String>,
+    pub bounds: Vec<Vec<DefId>>,
     pub lifetimes: Vec<String>,
     pub fields: Vec<(String, Ty, bool)>,
 }
 
 pub struct EnumDef {
     pub generics: Vec<String>,
+    pub bounds: Vec<Vec<DefId>>,
     pub lifetimes: Vec<String>,
     pub variants: Vec<(String, Vec<Ty>, bool)>,
 }
@@ -315,11 +317,11 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     m.use_span.insert(alias, *sp);
                 }
                 Item::Struct(s) => {
-                    let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
+                    let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), bounds: Vec::new(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
                     crate::prelude::add(&mut prog, *is_std, s.is_pub, path, &s.name, id, s.span, diags);
                 }
                 Item::Enum(e) => {
-                    let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), e.is_pub, diags);
+                    let id = push_def(&mut prog, &mut m, &e.name, mi, e.span, DefKind::Enum(EnumDef { generics: e.generics.types.clone(), bounds: Vec::new(), lifetimes: e.generics.lifetimes.clone(), variants: Vec::new() }), e.is_pub, diags);
                     crate::prelude::add(&mut prog, *is_std, e.is_pub, path, &e.name, id, e.span, diags);
                 }
                 Item::Trait(t) => {
@@ -339,8 +341,10 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                 Item::Struct(s) => {
                     let id = prog.modules[mi as usize].items[&s.name];
                     let fields = s.fields.iter().map(|f| Ok((f.name.clone(), resolve_ty(&prog, mi, &s.generics.types, &f.ty)?, f.is_pub))).collect::<PResult<Vec<_>>>()?;
+                    let (_, bounds) = crate::traitres::fn_generics(&prog, mi, &[], &s.generics, s.span)?;
                     if let DefKind::Struct(sd) = &mut prog.defs[id.0 as usize].kind {
                         sd.fields = fields;
+                        sd.bounds = bounds;
                     }
                 }
                 Item::Enum(e) => {
@@ -350,8 +354,10 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                         let tys = v.fields.iter().map(|t| resolve_ty(&prog, mi, &e.generics.types, t)).collect::<PResult<Vec<_>>>()?;
                         variants.push((v.name.clone(), tys, v.is_pub));
                     }
+                    let (_, bounds) = crate::traitres::fn_generics(&prog, mi, &[], &e.generics, e.span)?;
                     if let DefKind::Enum(ed) = &mut prog.defs[id.0 as usize].kind {
                         ed.variants = variants;
+                        ed.bounds = bounds;
                     }
                 }
                 Item::Fn(f) => {
@@ -381,6 +387,9 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
                     }
                 }
                 Item::Const(c) => {
+                    if !matches!(c.value.kind, ast::ExprKind::Lit(_)) {
+                        diags.push(Diag::error(c.value.span, "const.not_lit").kv("name", c.name.clone()));
+                    }
                     let ty = resolve_ty(&prog, mi, &[], &c.ty)?;
                     let mut m = std::mem::replace(&mut prog.modules[mi as usize], dummy_module());
                     push_def(&mut prog, &mut m, &c.name, mi, c.span, DefKind::Const(ConstDef { ty, value: c.value.clone() }), c.is_pub, diags);
@@ -474,7 +483,7 @@ pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) 
             if want != args.len() {
                 return Err(Diag::error(*sp, "type.generic_arity").kv("name", n.clone()).kv("want", want.to_string()).kv("got", args.len().to_string()));
             }
-            Ty::Adt(d, args.iter().map(|a| resolve_ty(prog, module, generics, a)).collect::<PResult<Vec<_>>>()?)
+            return crate::traitres::apply_adt(prog, module, d, args, generics, *sp);
         }
         TyExpr::Ref { mutable, lt, inner, .. } => match inner.as_ref() {
             TyExpr::Dyn(name, sp) => crate::traitres::dyn_ty(prog, module, *mutable, name, *sp)?,

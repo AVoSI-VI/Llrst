@@ -15,6 +15,8 @@ Source: `std/test.llr`. Import with `(use std.test)` for module functions; types
 | `test.eq_f64` | `((loc (& str)) (got f64) (want f64) (eps f64))` | `unit` |
 | `test.ne_int` | `((loc (& str)) (got i64) (want i64))` | `unit` |
 | `test.ne_str` | `((loc (& str)) (got (& str)) (want (& str)))` | `unit` |
+| `test.eq_by <T:Eq:Show>` | `((loc (& str)) (got (& T)) (want (& T)))` | `unit` |
+| `test.ne_by <T:Eq:Show>` | `((loc (& str)) (got (& T)) (want (& T)))` | `unit` |
 | `test.run` | `((name (& str)) (f (fn () unit)))` | `i64` |
 | `test.done` | `((fails i64))` | `unit` |
 

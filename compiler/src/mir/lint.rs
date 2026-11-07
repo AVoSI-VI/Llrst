@@ -137,7 +137,7 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
                 walk_expr(diags, &a.body, scope);
             }
         }
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | BNot(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => walk_expr(diags, place, scope),
         Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             walk_expr(diags, l, scope);
@@ -224,7 +224,7 @@ fn mark_op(read: &mut [bool], op: &Operand) {
 fn mark_stmt(read: &mut [bool], s: &Stmt) {
     let Stmt::Assign(_, rv) = s else { return };
     match rv {
-        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
+        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::BNot(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
             mark_op(read, op);
         }
         Rvalue::Ref { place, .. } | Rvalue::BoxBorrow { place, .. } | Rvalue::Discr(place) => mark_place(read, place),
@@ -307,7 +307,7 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             arms.iter().for_each(|a| one(&a.body));
             None
         }
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | BNot(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => Some(one(place)),
         Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             one(l);

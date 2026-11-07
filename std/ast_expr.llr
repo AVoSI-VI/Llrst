@@ -343,6 +343,7 @@
   (if (str.eq h "not") (ret (parse_one t ids 20u8 line col)))
   (if (str.eq h "neg") (ret (parse_one t ids 21u8 line col)))
   (if (str.eq h "wneg") (ret (parse_one t ids 22u8 line col)))
+  (if (str.eq h "bnot") (ret (parse_one t ids 34u8 line col)))
   (if (str.eq h "call") (ret (parse_do t ids 24u8 line col)))
   (if (str.eq h "try") (ret (parse_one t ids 25u8 line col)))
   (if (str.eq h "panic") (ret (parse_one t ids 26u8 line col)))
