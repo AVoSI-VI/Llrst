@@ -266,9 +266,11 @@
   (walk_from out path e 1 scope))
 
 (fn walk_for ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (let end (if (. e mut) 3 2))
   (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
   (if (> (vec.len (& (. e kids))) 1) (walk_expr out path (vec.get (& (. e kids)) 1) scope))
-  (walk_from out path e 2 scope))
+  (if (and (. e mut) (> (vec.len (& (. e kids))) 2)) (walk_expr out path (vec.get (& (. e kids)) 2) scope))
+  (walk_from out path e end scope))
 
 (fn walk_match ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
   (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))

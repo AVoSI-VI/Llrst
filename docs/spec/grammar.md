@@ -74,9 +74,10 @@ EXPR :=
   (do EXPR...)                               ; sequence, value of last
   (if EXPR EXPR) | (if EXPR EXPR EXPR)       ; else branch optional (unit)
   (while EXPR BODY...)
-  (loop BODY...)                             ; exit with (brk)
-  (for NAME EXPR EXPR BODY...)               ; integer range [lo, hi)
-  (brk) | (cont) | (ret) | (ret EXPR)
+  (loop BODY...) | (loop NAME BODY...)       ; NAME is a label when another form follows
+  (for NAME EXPR EXPR BODY...)               ; integer range [lo, hi), step +1
+  (for NAME EXPR EXPR ATOM BODY...)          ; ATOM is a signed step; the end stays exclusive
+  (brk) | (brk NAME) | (cont) | (cont NAME) | (ret) | (ret EXPR)
   (match EXPR ARM...)                        ; ARM := (PAT EXPR) | (PAT (if EXPR) EXPR)
   (& PLACE) | (&mut PLACE) | (@ EXPR)        ; borrow, mutable borrow, deref
   (. EXPR NAME)                              ; field access
@@ -102,6 +103,12 @@ or to the expected type when known. Floats: `1.0` default `f64`, `1.0f32`.
 
 A function body is a sequence; the last expression is the return value unless it is a
 statement form (`let`, `set`, `while`, `for`, `loop`), in which case the body returns unit.
+
+A `for` step is the atom after `hi` when a body form follows it: a literal or a name.
+It is evaluated once. A positive step continues while the index is `< hi`. A negative
+step continues while the index is `> hi`. A zero step runs no iterations. Omit the atom
+for step `+1`, which is `[lo, hi)`. `(while ...)` is unchanged. `(brk)` and `(cont)` with
+no name target the innermost `loop`, `while`, or `for`. A name targets `(loop NAME ...)`.
 
 Struct construction is positional: `(point 1 2)`. Enum construction: `(shape.circle 1.0)`,
 `(opt.none)`. Field read `(. p x)`. Field write `(set (. p x) 3)`.

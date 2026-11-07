@@ -118,9 +118,11 @@ pub enum ExprKind {
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },
     While { cond: Box<Expr>, body: Box<Expr> },
     Loop(Box<Expr>),
-    For { local: LocalId, lo: Box<Expr>, hi: Box<Expr>, body: Box<Expr> },
-    Break,
-    Continue,
+    /// `step` is absent for the default `+1` range. Present steps are evaluated once.
+    For { local: LocalId, lo: Box<Expr>, hi: Box<Expr>, step: Option<Box<Expr>>, body: Box<Expr> },
+    /// How many enclosing loops to skip. `0` is the innermost.
+    Break(u32),
+    Continue(u32),
     Return(Option<Box<Expr>>),
     /// `by_ref` is Some(mutable) when the scrutinee was a reference to an enum.
     Match { scrut: Box<Expr>, arms: Vec<Arm>, by_ref: Option<bool> },

@@ -25,9 +25,12 @@ fn expr_clos(e: &ast::Expr) -> bool {
         ExprKind::Let { init, .. } => init.as_deref().map(expr_clos).unwrap_or(false),
         ExprKind::Set { place, value } | ExprKind::Bin { l: place, r: value, .. } | ExprKind::And(place, value) | ExprKind::Or(place, value) | ExprKind::AssertEq(place, value) | ExprKind::AssertNe(place, value) => expr_clos(place) || expr_clos(value),
         ExprKind::AssertNear(a, b, c) => expr_clos(a) || expr_clos(b) || expr_clos(c),
-        ExprKind::Do(xs) | ExprKind::Loop(xs) => has_clos(xs),
+        ExprKind::Do(xs) => has_clos(xs),
+        ExprKind::Loop { body, .. } => has_clos(body),
         ExprKind::While { cond, body } => expr_clos(cond) || has_clos(body),
-        ExprKind::For { lo, hi, body, .. } => expr_clos(lo) || expr_clos(hi) || has_clos(body),
+        ExprKind::For { lo, hi, step, body, .. } => {
+            expr_clos(lo) || expr_clos(hi) || step.as_ref().is_some_and(|s| expr_clos(s)) || has_clos(body)
+        }
         ExprKind::If { cond, then, els } => expr_clos(cond) || expr_clos(then) || els.as_deref().map(expr_clos).unwrap_or(false),
         ExprKind::Return(v) => v.as_deref().map(expr_clos).unwrap_or(false),
         ExprKind::Match { scrut, arms } => {
@@ -36,6 +39,6 @@ fn expr_clos(e: &ast::Expr) -> bool {
         ExprKind::Ref { place, .. } | ExprKind::Deref(place) | ExprKind::Not(place) | ExprKind::Neg(place) | ExprKind::WNeg(place) | ExprKind::BNot(place) | ExprKind::Try(place) | ExprKind::Panic(place) | ExprKind::Assert(place) | ExprKind::Drop(place) | ExprKind::Field { base: place, .. } | ExprKind::Cast { expr: place, .. } => expr_clos(place),
         ExprKind::Call { args, .. } => has_clos(args),
         ExprKind::CallPtr { callee, args } => expr_clos(callee) || has_clos(args),
-        ExprKind::Break | ExprKind::Continue | ExprKind::Lit(_) | ExprKind::Name(_) | ExprKind::Sizeof(_) => false,
+        ExprKind::Break(_) | ExprKind::Continue(_) | ExprKind::Lit(_) | ExprKind::Name(_) | ExprKind::Sizeof(_) => false,
     }
 }

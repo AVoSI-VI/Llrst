@@ -104,12 +104,13 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
         _ => {}
     }
     match &e.kind {
-        Let { .. } | Name(_) | Lit(_) | Break | Continue | Sizeof(_) => {}
+        Let { .. } | Name(_) | Lit(_) | Break(_) | Continue(_) | Sizeof(_) => {}
         Set { place, value } => {
             walk_expr(diags, place, scope);
             walk_expr(diags, value, scope);
         }
-        Do(xs) | Loop(xs) => walk_seq(diags, xs, scope),
+        Do(xs) => walk_seq(diags, xs, scope),
+        Loop { body, .. } => walk_seq(diags, body, scope),
         If { cond, then, els } => {
             walk_expr(diags, cond, scope);
             walk_expr(diags, then, scope);
@@ -121,9 +122,12 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
             walk_expr(diags, cond, scope);
             walk_seq(diags, body, scope);
         }
-        For { lo, hi, body, .. } => {
+        For { lo, hi, step, body, .. } => {
             walk_expr(diags, lo, scope);
             walk_expr(diags, hi, scope);
+            if let Some(step) = step {
+                walk_expr(diags, step, scope);
+            }
             walk_seq(diags, body, scope);
         }
         Return(x) => {
@@ -284,8 +288,12 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             one(place);
             Some(one(value))
         }
-        Do(xs) | Loop(xs) => {
+        Do(xs) => {
             many(xs);
+            None
+        }
+        Loop { body, .. } => {
+            many(body);
             None
         }
         If { cond, then, els } => {
@@ -298,9 +306,12 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             many(body);
             None
         }
-        For { lo, hi, body, .. } => {
+        For { lo, hi, step, body, .. } => {
             one(lo);
             one(hi);
+            if let Some(step) = step {
+                one(step);
+            }
             many(body);
             None
         }
@@ -334,6 +345,6 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             many(body);
             None
         }
-        Lit(_) | Break | Continue | Sizeof(_) | Name(_) => None,
+        Lit(_) | Break(_) | Continue(_) | Sizeof(_) | Name(_) => None,
     };
 }

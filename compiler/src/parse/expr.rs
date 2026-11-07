@@ -188,21 +188,12 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
             }
             ExprKind::While { cond: bx(parse_expr(&items[1])?), body: parse_body(&items[2..])? }
         }
-        "loop" => ExprKind::Loop(parse_body(&items[1..])?),
-        "for" => {
-            if n < 3 {
-                return Err(arity(sp, "for", "3+", n));
-            }
-            let name = items[1].atom().ok_or_else(|| Diag::error(items[1].span(), "parse.expect").kv("want", "name"))?;
-            ExprKind::For {
-                name: name.to_string(),
-                lo: bx(parse_expr(&items[2])?),
-                hi: bx(parse_expr(&items[3])?),
-                body: parse_body(&items[4..])?,
-            }
+        "loop" => {
+            let (label, rest) = loop_head(items);
+            ExprKind::Loop { label, body: parse_body(rest)? }
         }
-        "brk" => ExprKind::Break,
-        "cont" => ExprKind::Continue,
+        "for" => parse_for(items, sp, n)?,
+        "brk" | "cont" => parse_jump(head, items, sp, n)?,
         "ret" => match n {
             0 => ExprKind::Return(None),
             1 => ExprKind::Return(Some(bx(parse_expr(&items[1])?))),
@@ -292,6 +283,53 @@ fn parse_form(head: &str, items: &[Sexpr], sp: Span) -> PResult<Expr> {
         }
     };
     Ok(mk(k, sp))
+}
+
+/// A leading name is the label when another form follows it. A lone name is the body.
+fn loop_head(items: &[Sexpr]) -> (Option<String>, &[Sexpr]) {
+    if items.len() >= 3 {
+        if let Sexpr::Atom(a, _) = &items[1] {
+            if parse_lit_atom(a).is_none() {
+                return (Some(a.clone()), &items[2..]);
+            }
+        }
+    }
+    (None, &items[1..])
+}
+
+fn parse_for(items: &[Sexpr], sp: Span, n: usize) -> PResult<ExprKind> {
+    if n < 3 {
+        return Err(arity(sp, "for", "3+", n));
+    }
+    let name = items[1].atom().ok_or_else(|| Diag::error(items[1].span(), "parse.expect").kv("want", "name"))?;
+    let mut at = 4;
+    let mut step = None;
+    if items.len() > 5 && matches!(items.get(4), Some(Sexpr::Atom(_, _))) {
+        step = Some(bx(parse_expr(&items[4])?));
+        at = 5;
+    }
+    Ok(ExprKind::For {
+        name: name.to_string(),
+        lo: bx(parse_expr(&items[2])?),
+        hi: bx(parse_expr(&items[3])?),
+        step,
+        body: parse_body(&items[at..])?,
+    })
+}
+
+fn parse_jump(head: &str, items: &[Sexpr], sp: Span, n: usize) -> PResult<ExprKind> {
+    if n > 1 {
+        return Err(arity(sp, head, "0..1", n));
+    }
+    let label = if n == 1 {
+        let a = items[1].atom().filter(|a| parse_lit_atom(a).is_none()).ok_or_else(|| {
+            Diag::error(items[1].span(), "parse.expect").kv("want", "name").kv("got", items[1].show())
+        })?;
+        Some(a.to_string())
+    } else {
+        None
+    };
+    Ok(if head == "brk" { ExprKind::Break(label) } else { ExprKind::Continue(label) })
 }
 
 fn parse_clos(items: &[Sexpr], sp: Span) -> PResult<ExprKind> {

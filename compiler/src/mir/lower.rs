@@ -148,7 +148,7 @@ impl<'a> Lower<'a> {
             }
         }
     }
-    fn local(&self, l: LocalId) -> LocalIdx {
+    pub(crate) fn local(&self, l: LocalId) -> LocalIdx {
         self.local_map[l.0 as usize]
     }
 
@@ -353,35 +353,12 @@ impl<'a> Lower<'a> {
                 self.terminate(Term::Goto(head), sp);
                 self.cur = exit;
             }
-            ExprKind::For { local, lo, hi, body } => {
-                let i = self.local(*local);
-                self.scopes.last_mut().unwrap().all.push(i);
-                let lo_op = self.as_operand(lo);
-                self.assign(&Place::local(i), Rvalue::Use(lo_op), sp);
-                let hi_op = self.as_operand(hi);
-                let hi_t = self.temp(hi.ty.clone(), sp);
-                self.assign(&Place::local(hi_t), Rvalue::Use(hi_op), sp);
-                let head = self.goto_new(sp);
-                let bb = self.new_block();
-                let step = self.new_block();
-                let exit = self.new_block();
-                let c = self.temp(Ty::Bool, sp);
-                self.assign(&Place::local(c), Rvalue::Bin(BinOp::Lt, Operand::Copy(Place::local(i)), Operand::Copy(Place::local(hi_t))), sp);
-                self.terminate(Term::If(Operand::Copy(Place::local(c)), bb, exit), sp);
-                self.cur = bb;
-                self.loops.push(LoopCtx { brk: exit, cont: step, scope_depth: self.scopes.len() });
-                self.expr_stmt(body);
-                self.loops.pop();
-                self.terminate(Term::Goto(step), sp);
-                self.cur = step;
-                let one = Operand::Const(Const::Int(1, int_of(&lo.ty)), lo.ty.clone());
-                self.assign(&Place::local(i), Rvalue::Bin(BinOp::Add, Operand::Copy(Place::local(i)), one), sp);
-                self.terminate(Term::Goto(head), sp);
-                self.cur = exit;
-            }
-            ExprKind::Break | ExprKind::Continue => {
-                let lp = self.loops.last().expect("loop ctx");
-                let (target, depth) = if matches!(e.kind, ExprKind::Break) { (lp.brk, lp.scope_depth) } else { (lp.cont, lp.scope_depth) };
+            ExprKind::For { local, lo, hi, step, body } => self.lower_for(*local, lo, hi, step, body, sp),
+            ExprKind::Break(up) | ExprKind::Continue(up) => {
+                let is_brk = matches!(e.kind, ExprKind::Break(_));
+                let idx = self.loops.len() - 1 - *up as usize;
+                let target = if is_brk { self.loops[idx].brk } else { self.loops[idx].cont };
+                let depth = self.loops[idx].scope_depth;
                 self.drops_to_depth(depth, sp);
                 self.terminate(Term::Goto(target), sp);
                 self.cur = self.new_block();

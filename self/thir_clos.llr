@@ -191,10 +191,11 @@
    (bound (&mut (vec str)))
    (seen (&mut (vec str)))
    (out (&mut (vec str)))) unit
-  (walk_n c e 0 2 bound seen out)
+  (let end (if (. e mut) 3 2))
+  (walk_n c e 0 end bound seen out)
   (let mut inner (copy_names bound))
   (note_let (&mut inner) (& (. e text)))
-  (walk_n c e 2 (vec.len (& (. e kids))) (&mut inner) seen out))
+  (walk_n c e end (vec.len (& (. e kids))) (&mut inner) seen out))
 
 (fn walk_match ((c (& thir.ck))
    (e (& expr))

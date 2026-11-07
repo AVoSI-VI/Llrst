@@ -67,39 +67,44 @@ impl<'a> Checker<'a> {
             }
             A::While { cond, body } => {
                 let cond = self.check_bool(cond)?;
-                self.enter_loop();
+                self.enter_loop(None, sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 mk(ExprKind::While { cond: Box::new(cond), body: Box::new(body?) }, Ty::Unit, sp)
             }
-            A::Loop(body) => {
-                self.enter_loop();
+            A::Loop { label, body } => {
+                self.enter_loop(label.clone(), sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 let body = body?;
-                let ty = if has_break(&body) { Ty::Unit } else { Ty::Never };
+                let ty = if super::loop_breaks(&body, 0) { Ty::Unit } else { Ty::Never };
                 mk(ExprKind::Loop(Box::new(body)), ty, sp)
             }
-            A::For { name, lo, hi, body } => {
+            A::For { name, lo, hi, step, body } => {
                 let lo = self.check_expr(lo, None)?;
                 let hi = self.check_expr(hi, Some(&lo.ty.clone()))?;
+                let step = match step {
+                    Some(s) => Some(Box::new(self.check_expr(s, Some(&lo.ty.clone()))?)),
+                    None => None,
+                };
                 if !self.shallow(&lo.ty).is_int() {
                     return Err(Diag::error(lo.span, "type.not_numeric").kv("got", self.show(&lo.ty)));
                 }
                 self.expect(&hi, &lo.ty.clone())?;
+                if let Some(s) = &step {
+                    self.expect(s, &lo.ty.clone())?;
+                }
                 self.push_scope();
                 let local = self.declare(name, lo.ty.clone(), false, sp)?;
-                self.enter_loop();
+                self.enter_loop(None, sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 self.pop_scope();
-                mk(ExprKind::For { local, lo: Box::new(lo), hi: Box::new(hi), body: Box::new(body?) }, Ty::Unit, sp)
+                mk(ExprKind::For { local, lo: Box::new(lo), hi: Box::new(hi), step, body: Box::new(body?) }, Ty::Unit, sp)
             }
-            A::Break | A::Continue => {
-                if !self.in_loop() {
-                    return Err(Diag::error(sp, "flow.brk_outside"));
-                }
-                let k = if matches!(e.kind, A::Break) { ExprKind::Break } else { ExprKind::Continue };
+            A::Break(label) | A::Continue(label) => {
+                let up = self.jump_up(label, sp)?;
+                let k = if matches!(e.kind, A::Break(_)) { ExprKind::Break(up) } else { ExprKind::Continue(up) };
                 mk(k, Ty::Never, sp)
             }
             A::Return(v) => {
@@ -453,22 +458,3 @@ impl<'a> Checker<'a> {
 
 }
 
-/// True when a `brk` targets this loop body (not a nested loop).
-fn has_break(e: &Expr) -> bool {
-    match &e.kind {
-        ExprKind::Break => true,
-        ExprKind::While { .. } | ExprKind::Loop(_) | ExprKind::For { .. } => false,
-        ExprKind::Block(items) => items.iter().any(has_break),
-        ExprKind::Let { init, .. } => init.as_ref().map(|e| has_break(e)).unwrap_or(false),
-        ExprKind::Assign { place, value } => has_break(place) || has_break(value),
-        ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
-        ExprKind::Match { scrut, arms, .. } => {
-            has_break(scrut) || arms.iter().any(|a| a.guard.as_ref().is_some_and(has_break) || has_break(&a.body))
-        }
-        ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
-        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::BNot(x) | ExprKind::Not(x) => has_break(x),
-        ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),
-        ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } | ExprKind::BoxPack { data: x, .. } | ExprKind::DynPack { data: x, .. } => has_break(x),
-        _ => false,
-    }
-}

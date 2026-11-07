@@ -36,7 +36,7 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
     let span = e.span;
     let bx = |c: &mut Checker, x: Box<Expr>| -> PResult<Box<Expr>> { Ok(Box::new(zonk_expr(c, *x)?)) };
     let kind = match e.kind {
-        ExprKind::Lit(_) | ExprKind::Local(_) | ExprKind::Const(_) | ExprKind::Break | ExprKind::Continue | ExprKind::FnRef(_) => e.kind,
+        ExprKind::Lit(_) | ExprKind::Local(_) | ExprKind::Const(_) | ExprKind::Break(_) | ExprKind::Continue(_) | ExprKind::FnRef(_) => e.kind,
         ExprKind::Let { local, init } => ExprKind::Let {
             local,
             init: match init {
@@ -56,7 +56,16 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
         },
         ExprKind::While { cond, body } => ExprKind::While { cond: bx(c, cond)?, body: bx(c, body)? },
         ExprKind::Loop(b) => ExprKind::Loop(bx(c, b)?),
-        ExprKind::For { local, lo, hi, body } => ExprKind::For { local, lo: bx(c, lo)?, hi: bx(c, hi)?, body: bx(c, body)? },
+        ExprKind::For { local, lo, hi, step, body } => ExprKind::For {
+            local,
+            lo: bx(c, lo)?,
+            hi: bx(c, hi)?,
+            step: match step {
+                Some(s) => Some(bx(c, s)?),
+                None => None,
+            },
+            body: bx(c, body)?,
+        },
         ExprKind::Return(v) => ExprKind::Return(match v {
             Some(x) => Some(bx(c, x)?),
             None => None,

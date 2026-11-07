@@ -75,7 +75,7 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `lit.*` | `lit.overflow` (`ty=` `got=` on stage 0) |
 | `match.*` | `match.missing` (`missing=` or `fix=`) `match.bad_lit` `match.not_enum` (`got=` on stage 0) `match.or` (`name=`) |
 | `move.*` `borrow.*` `mut.*` `init.*` | see memory.md. `mut.required` may be `name=` `fix=` or, on stage 0 only, `through=&` |
-| `flow.*` | `flow.brk_outside` `flow.unreachable` (W) |
+| `flow.*` | `flow.brk_outside` `flow.label` (`name=`) `flow.label_dup` (`name=`) `flow.unreachable` (W) |
 | `inline.reject` | `why=extern` or `why=form\|got=clos` |
 | `clos.nested` | a closure body contains a closure |
 | `trait.*` | `trait.missing` (`trait=` `ty=`) `trait.dup` (`trait=` `ty=`) `trait.object` (`why=self`, `why=ref`, or `why=dyn`) `trait.method` (`name=`) |

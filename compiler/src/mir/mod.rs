@@ -2,6 +2,7 @@
 mod inline;
 pub mod lint;
 pub mod lower;
+mod lower_cf;
 mod lower_call;
 mod lower_clos;
 mod lower_div;

@@ -55,6 +55,7 @@
   (pub (iset (vec bool)))
   (pub (iint (vec bool)))
   (pub (loopn i64))
+  (pub (llab (vec str)))
   (pub (in_clos bool))
   (pub (path str))
   (pub (diags (vec diag.dg)))))
@@ -97,6 +98,7 @@
       (vec.new <bool>)
       (vec.new <bool>)
       0
+      (vec.new <str>)
       false
       (str.new)
       (vec.new <diag.dg>)))

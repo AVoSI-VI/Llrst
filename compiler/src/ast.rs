@@ -214,10 +214,12 @@ pub enum ExprKind {
     Do(Vec<Expr>),
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },
     While { cond: Box<Expr>, body: Vec<Expr> },
-    Loop(Vec<Expr>),
-    For { name: String, lo: Box<Expr>, hi: Box<Expr>, body: Vec<Expr> },
-    Break,
-    Continue,
+    /// `label` is set when a name follows `loop` and a body form follows that name.
+    Loop { label: Option<String>, body: Vec<Expr> },
+    /// `step` is the atom after `hi` when a body form follows it. Absent means `+1`.
+    For { name: String, lo: Box<Expr>, hi: Box<Expr>, step: Option<Box<Expr>>, body: Vec<Expr> },
+    Break(Option<String>),
+    Continue(Option<String>),
     Return(Option<Box<Expr>>),
     Match { scrut: Box<Expr>, arms: Vec<Arm> },
     Ref { mutable: bool, place: Box<Expr> },
