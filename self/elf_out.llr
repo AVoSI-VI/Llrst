@@ -2,6 +2,7 @@
 ;; so a symbol shndx does not change when an empty rela blob is left out.
 ;; Relocs are RELA. The payload bytes are not added to r_addend.
 (use std.str)
+(use std.sys)
 (use std.vec)
 
 (const sht_prog i64 1)
@@ -75,8 +76,15 @@
 
 (fn align_up ((n i64) (a i64)) i64 (let m (% n a)) (if (== m 0) n (+ n (- a m))))
 
-(fn append ((b (&mut (vec u8))) (src (& (vec u8)))) unit
-  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+(pub (fn copy ((dst (&mut (vec u8))) (src (& (vec u8)))) unit
+  (let n (vec.len src))
+  (if (== n 0) (ret))
+  (let at (vec.len dst))
+  (vec.reserve dst n)
+  (sys.memcpy (ptr.add (vec.ptr dst) at) (vec.ptr src) (as u64 n))
+  (set (. dst len) (+ at n))))
+
+(fn append ((b (&mut (vec u8))) (src (& (vec u8)))) unit (copy b src))
 
 (fn emit_at ((b (&mut (vec u8))) (off i64) (src (& (vec u8)))) unit
   (while (< (vec.len b) off) (vec.push b 0u8))
@@ -86,10 +94,7 @@
   (if (== (vec.len src) 0) (ret))
   (emit_at b off src))
 
-(fn to_str ((b (& (vec u8)))) str
-  (let mut s (str.new))
-  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
-  s)
+(fn to_str ((b (& (vec u8)))) str (str.from_bytes b))
 
 (fn shdr ((b (&mut (vec u8)))
    (name i64)

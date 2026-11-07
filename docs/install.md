@@ -69,7 +69,9 @@ that never uses `ui` does not need that directory. The executable path comes fro
 Windows host: `scripts/install.ps1` builds stage 0, then `scripts/self.ps1` builds the three
 `llrs` stages, and installs `llrc.exe`. `.cargo/config.toml` raises the Windows main-thread
 stack so the stage-0 compiles fit. The installed compiler links with `cl` when the `.obj`
-shims are the ones on disk, and passes `/STACK:8388608`. `powershell -File tests\run.ps1`
+shims are the ones on disk, and passes `/STACK:8388608`. A Developer Prompt already has
+`cl` on `PATH`, so the link skips `vcvars64.bat`. `$LLRST_CC` set to `cl`, `clang`, `gcc`,
+or `cc` selects that driver and skips the other probes. `powershell -File tests\run.ps1`
 runs the golden suite. Output paths gain an `.exe` suffix. `/tmp` in programs maps to the
 Windows temp directory. `llrc run` passes the argument vector through `llr_exec`.
 

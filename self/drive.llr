@@ -118,15 +118,19 @@
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
   (if (. o emit_dylib) (cg_reload.emit (&mut g) (& p) entry) (cg_entry.emit_main (&mut g) entry))
   (set t (time.mono_ms))
+  (let needs (cg_mod.needs (& g)))
   (let bytes (cg_mod.finish (& g)))
   (if (. o emit_obj)
     (ret (do (let code (write_obj o (& bytes) (&mut ds))) (phase "object" t) code)))
   (phase "object" t)
   (set t (time.mono_ms))
-  (let err (link.link (& bytes) (& (out_path o)) (& (. o target)) (& (. o file)) (. o emit_dylib)))
+  (let err (link_out o (& bytes) (& needs)))
   (phase "link" t)
   (if (> (str.len (& err)) 0) (do (io.eputs (& err)) (ret 1)))
   (finish o (&mut ds)))
+
+(fn link_out ((o (& flags)) (bytes (& str)) (needs (& (vec str)))) str
+  (link.link bytes (& (out_path o)) (& (. o target)) (& (. o file)) (. o emit_dylib) needs))
 
 (fn stopped ((o (& flags))) bool
   (or (str.eq (& (. o cmd)) "check") (str.eq (& (. o cmd)) "emit-mir")))

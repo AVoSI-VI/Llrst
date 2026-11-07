@@ -93,6 +93,8 @@
 
 (pub (fn at ((b (& buf)) (i i64)) u8 (@ (vec.get (& (. b bytes)) i))))
 
+(pub (fn bytes ((b (& buf))) (& (vec u8)) (& (. b bytes))))
+
 (pub (fn push ((b (&mut buf)) (x u8)) unit (vec.push (&mut (. b bytes)) x)))
 
 (fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))

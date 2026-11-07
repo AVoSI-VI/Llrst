@@ -86,8 +86,7 @@
     (if (== (. r sec) sec) (put_rel (&mut b) r)))
   b)
 
-(fn put_bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit
-  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+(fn put_bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit (elf_out.copy b src))
 
 (fn pad4 ((b (&mut (vec u8)))) unit (while (!= (% (vec.len b) 4) 0) (vec.push b 0u8)))
 
@@ -123,10 +122,7 @@
 
 (fn nrel ((rels (& (vec u8)))) i64 (/ (vec.len rels) 10))
 
-(fn to_str ((b (& (vec u8)))) str
-  (let mut s (str.new))
-  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
-  s)
+(fn to_str ((b (& (vec u8)))) str (str.from_bytes b))
 
 (fn emit_raw ((b (&mut (vec u8)))
    (text (& (vec u8)))
@@ -278,7 +274,8 @@
   (let out (str.from "target/coff_main"))
   (let exe (str.from "target\\coff_main.exe"))
   (rm (& exe))
-  (let err (link.link (& (hello)) (& out) "windows" "target/coff_main" false))
+  (let needs (vec.new <str>))
+  (let err (link.link (& (hello)) (& out) "windows" "target/coff_main" false (& needs)))
   (if (!= (str.len (& err)) 0) (assert_eq (& err) ""))
   (let ran (os.capture (& exe)))
   (rm (& exe))

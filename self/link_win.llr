@@ -1,4 +1,6 @@
 ;; cl /Fe plus /link /STACK:8388608. vcvars64.bat runs when cl is not on PATH.
+;; LLRST_CC (cl, clang, gcc, cc) skips the compiler probe. The vcvars environment
+;; is not cached.
 (use std.os)
 (use std.path)
 (use std.str)
@@ -47,6 +49,8 @@
   (str.push (&mut s) " >nul && ")
   s)
 
+(pub (fn cl_prefix () str (prefix)))
+
 (fn tool_ok ((name (& str))) bool
   (let mut cmd (str.clone name))
   (str.push (&mut cmd) " --version")
@@ -58,12 +62,26 @@
   (if (tool_ok "cc") (ret (str.from "cc")))
   (str.new))
 
-(fn cl_ready () bool (if (has_cl) (ret true)) (> (str.len (& (bat))) 0))
+(pub (struct picked (pub (name str)) (pub (prefix str))))
 
-(pub (fn pick ((gnu bool) (msvc bool)) str
-  (if gnu (do (let g (first_gnu)) (if (> (str.len (& g)) 0) (ret g))))
-  (if (and msvc (cl_ready)) (ret (str.from "cl")))
+(fn cc_known ((s (& str))) bool
+  (or (str.eq s "cl") (or (str.eq s "clang") (or (str.eq s "gcc") (str.eq s "cc")))))
+
+(pub (fn cc_override () str
+  (match (os.env "LLRST_CC")
+    ((opt.some cc) (if (cc_known (& cc)) (ret (str.clone (& cc)))))
+    ((opt.none) ()))
   (str.new)))
+
+(fn cl_pick () picked
+  (let pre (prefix))
+  (if (str.eq (& pre) "missing") (ret (picked (str.new) (str.new))))
+  (picked (str.from "cl") pre))
+
+(pub (fn pick ((gnu bool) (msvc bool)) picked
+  (if gnu (do (let g (first_gnu)) (if (> (str.len (& g)) 0) (ret (picked g (str.new))))))
+  (if msvc (ret (cl_pick)))
+  (picked (str.new) (str.new))))
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (dq p))))
 
@@ -80,10 +98,10 @@
    (web (& str))
    (more (& str))
    (main (& str))
-   (shared bool)) str
-  (let pre (prefix))
-  (if (str.eq (& pre) "missing") (ret (fail main "cl" "cl missing")))
-  (let mut cmd (str.clone (& pre)))
+   (shared bool)
+   (pre (& str))) str
+  (if (str.eq pre "missing") (ret (fail main "cl" "cl missing")))
+  (let mut cmd (str.clone pre))
   (str.push (&mut cmd) "cl /nologo /Fe:")
   (str.push (&mut cmd) (& (dq (& (exe_of out)))))
   (push_q (&mut cmd) obj)
@@ -106,3 +124,11 @@
   (str.push (&mut cmd) " /link /STACK:8388608 /Brepro")
   (let code (os.shell (& cmd)))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code))))))
+
+(test cc_known
+  (assert (cc_known "cl"))
+  (assert (cc_known "clang"))
+  (assert (cc_known "gcc"))
+  (assert (cc_known "cc"))
+  (assert (not (cc_known "lld")))
+  (assert (not (cc_known ""))))

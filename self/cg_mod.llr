@@ -5,6 +5,7 @@
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
+(use proj.elf_out)
 (use proj.macho)
 (use proj.prog)
 (use proj.ty)
@@ -358,7 +359,7 @@
 (fn append_x ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (let b (& (. c x)))
   (let base (vec.len (& (. (. g obj) text))))
-  (for i 0 (x64_buf.len b) (vec.push (&mut (. (. g obj) text)) (x64_buf.at b i)))
+  (elf_out.copy (&mut (. (. g obj) text)) (x64_buf.bytes b))
   (for i 0 (vec.len (& (. b rels)))
     (let r (vec.get (& (. b rels)) i))
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
@@ -367,11 +368,20 @@
 (fn append_a ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (let b (& (. c a)))
   (let base (vec.len (& (. (. g obj) text))))
-  (for i 0 (a64_buf.len b) (vec.push (&mut (. (. g obj) text)) (a64_buf.at b i)))
+  (elf_out.copy (&mut (. (. g obj) text)) (a64_buf.bytes b))
   (for i 0 (vec.len (& (. b rels)))
     (let r (vec.get (& (. b rels)) i))
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
   (elf.set_sym (&mut (. g obj)) sym base (a64_buf.len b)))
+
+(pub (fn needs ((g (& cg))) (vec str)
+  (let mut o (vec.new <str>))
+  (let syms (& (. (. g obj) syms)))
+  (for i 0 (vec.len syms)
+    (let s (vec.get syms i))
+    (if (and (== (. s sec) elf.sec_undef) (> (str.len (& (. s name))) 0))
+      (vec.push (&mut o) (str.clone (& (. s name))))))
+  o))
 
 (pub (fn append_fn ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (if (. (. g isa) a64) (ret (append_a g sym c)))

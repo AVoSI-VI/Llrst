@@ -84,7 +84,7 @@ in seconds; `hello` is `llrs0 build examples/hello.llr`.
 | 4 | (this commit) | 79.4 | 90.0 | 88.6 | 1.38 |
 | 5 | (this commit) | 14.6 | 19.8 | 21.0 | 1.37 |
 | 6 | (this commit) | 14.4 | 18.2 | 19.3 | 1.50 |
-| 7 | | | | | |
+| 7 | (this commit) | 14.4 | 17.3 | 18.7 | 1.46 |
 
 ## Verification
 
@@ -568,7 +568,7 @@ Steps:
 4. `[x]` Full **Verification**; measure; fill the row.
 5. `[x]` Commit: `self: shallow clones once, hashed instance, layout, and constant tables`.
 
-### Phase 7: link probing and object assembly (OPT 11, OPT 12) `[ ]`
+### Phase 7: link probing and object assembly (OPT 11, OPT 12) `[x]`
 
 Expected: linking is ~4 s on Windows regardless of program size, which is most of a
 `hello` build after the phases above. Object assembly is linear but pushes every byte of
@@ -613,10 +613,10 @@ string; only how often the probes run changes. `x64_ref.ps1` covers assembly; th
 
 Steps:
 
-1. `[ ]` Probe once, `LLRST_CC`, `needs` list; measure `time|link` on `hello`.
-2. `[ ]` Bulk copies; measure `time|object` on `self/llrs.llr`.
-3. `[ ]` Full **Verification**; measure; fill the row.
-4. `[ ]` Commit: `self: toolchain probed once, LLRST_CC, bulk object copies`.
+1. `[x]` Probe once, `LLRST_CC`, `needs` list; measure `time|link` on `hello`.
+2. `[x]` Bulk copies; measure `time|object` on `self/llrs.llr`.
+3. `[x]` Full **Verification**; measure; fill the row.
+4. `[x]` Commit: `self: toolchain probed once, LLRST_CC, bulk object copies`.
 
 ### Phase 8: close out `[ ]`
 
@@ -826,3 +826,29 @@ Files: this file, `OPT.md`, `HANDOFF.md`, `README.md`, `history/`.
   `link.failed`, float asserts, deque/opt compile errors, `std/fmt` and
   `std/str_more` `want=1.500|got=1.000`, five cross targets with an empty
   `got`).
+- 2026-11-06: Phase 7. Windows link resolves runtime directories once, picks
+  `clang`/`gcc`/`cc`/`cl` once, and passes the `cl` prefix into `link_win.link`
+  so `has_cl` and `vcvars64.bat` are not spawned again. `$LLRST_CC` (`cl`,
+  `clang`, `gcc`, or `cc`) skips those probes. The environment `vcvars64.bat`
+  prints is not cached; `docs/install.md` says a Developer Prompt avoids that
+  batch file. Undefined symbol names from the object are passed to `link`
+  instead of scanning the object bytes. `append_x`/`append_a`, COFF section
+  bytes, and ELF section copies use `vec.reserve` plus `sys.memcpy`.
+  `coff.to_str` and `elf_out.to_str` use `str.from_bytes`. `emit_rels` is
+  unchanged. Second-run `llrs0` walls: check 14.36 s, emit-obj 17.27 s, build
+  18.69 s, hello build 1.46 s. Second-run `time|` splits, in seconds: check
+  load 0.61 / check 13.59; emit-obj load 0.61 / check 13.53 / codegen 3.00 /
+  object 0.06; build load 0.63 / check 13.61 / codegen 2.98 / object 0.03 /
+  link 1.38; hello load 0.20 / check 0.02 / codegen 0.02 / object 0.00 /
+  link 1.16. `time|link` on hello stayed about 1.2 s because `cl` is already
+  on `PATH` here, so `vcvars64.bat` was not the cost. `time|object` fell from
+  0.63 s to 0.06 s. `scripts/self.ps1 --stage` printed `self|stage2=equal`.
+  `tests/check.ps1` and `tests/mir.ps1` on `llrs0` were `done|fails=0`.
+  `tests/x64_ref.ps1` was `done|fails=6`: the same four pre-existing
+  `std/deque.llr` and `std/opt.llr` `--test` failures, plus `self/llrs` ELF
+  `first=41` and COFF `first=9` from this phase's source change. Unchanged
+  inputs had no `first=` mismatch. `tests/run.ps1` under `llrs2` exited 1,
+  `done|fails=39`. Nested `check.ps1`, `mir.ps1`, and the self pass printed
+  `done|fails=0`. The rest is the pre-existing set (ui `link.failed`, float
+  asserts, deque/opt compile errors, `std/fmt` and `std/str_more`
+  `want=1.500|got=1.000`, five cross targets with an empty `got`).

@@ -52,6 +52,9 @@ links `llr_stat_ios.o` and `llr_now_ios.o` (or the `_ios_sim` pair), renames `_m
 also links the UI pair. The simulator triple uses `-target arm64-apple-ios-simulator`
 and the `iphonesimulator` SDK. `self/` does not emit an `x86_64` Apple object. A missing
 SDK, NDK, or target object is `link.failed`. Windows uses the probed linker in `link_win.llr`.
+`$LLRST_CC` may be `cl`, `clang`, `gcc`, or `cc`. When it is set, that driver is used and the
+other compiler probes are skipped. `cl` still runs `vcvars64.bat` when `cl` is not already
+on `PATH`. The environment that batch file prints is not cached.
 
 `tests/a64.sh` builds each `tests/run` golden with `--target aarch64-unknown-linux-gnu`,
 links it freestanding, and runs it. A Linux aarch64 host runs the binary. Any other host
