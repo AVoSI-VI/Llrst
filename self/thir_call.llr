@@ -33,8 +33,13 @@
       (if (. v flag) (ret (res.ok (. v ex))))))
   (let b (builtin_id name))
   (if (>= b 0) (ret (call_builtin p c e b (& args) won want)))
-  (if (str.has name ".") (ret (thir_trait.call_trait p c e name)))
-  (res.err (str.from "name.unknown"))))
+  (if (str.has name ".")
+    (do
+      (let dot (opt.or (str.rfind_byte name 46u8) (neg 1)))
+      (let trn (str.slice name 0 dot))
+      (let tr (prog.lookup_trait p (. c module) (& trn)))
+      (if (>= tr 0) (ret (thir_trait.call_trait p c e name)))))
+  (res.err (thir.kv "name.unknown" "name" (str.clone name)))))
 
 (pub (struct maybe (pub (flag bool)) (pub (ex thir.ex))))
 

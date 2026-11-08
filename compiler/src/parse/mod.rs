@@ -34,9 +34,9 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "pub", "1", n));
             }
             let inner = items[1].head().unwrap_or("");
-            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline" | "trait") {
+            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline" | "trait" | "use") {
                 return Err(Diag::error(items[1].span(), "parse.expect")
-                    .kv("want", "fn extern struct enum const inline trait")
+                    .kv("want", "fn extern struct enum const inline trait use")
                     .kv("got", inner)
                     .kv("fix", "(pub (fn ...)) per method"));
             }
@@ -53,7 +53,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "use", "1", n));
             }
             let path = name_of(&items[1])?;
-            Item::Use(path.split('.').map(|s| s.to_string()).collect(), sp)
+            Item::Use(path.split('.').map(|s| s.to_string()).collect(), sp, is_pub)
         }
         "mod" => {
             if n != 1 {

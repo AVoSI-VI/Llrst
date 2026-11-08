@@ -31,14 +31,21 @@
   (scan text key (&mut o))
   o))
 
-(fn file_of ((dir (& str)) (name (& str))) str
+(fn file_of ((dir (& str)) (name (& str)) (key (& str))) str
+  (if (str.eq key "proj.")
+    (ret (path.join dir (& (str.cat (& (str.replace_byte name 46u8 47u8)) ".llr")))))
   (path.join dir
     (& (str.cat (& (match (str.rfind_byte name 46u8)
          ((opt.some seg) (str.slice name (+ seg 1) (str.len name)))
          ((opt.none) (str.clone name))))
        ".llr"))))
 
-(fn add_file ((v (&mut (vec dep))) (seen (&mut (set str))) (path str) (ui (& str)) (key (& str))) unit
+(fn add_file ((v (&mut (vec dep)))
+   (seen (&mut (set str)))
+   (path str)
+   (ui (& str))
+   (key (& str))
+   (root (& str))) unit
   (if (set.has seen (& path)) (ret))
   (match (fs.read (& path))
     ((res.err _) ())
@@ -48,18 +55,18 @@
         (set.add seen (str.clone (& path)))
         (vec.push v (dep (str.clone (& path)) mt))
         (let names (mods (& text) key))
-        (let dir (if (str.eq key "ui.") (str.from ui) (path.dir (& path))))
+        (let dir (if (str.eq key "ui.") (str.from ui) (path.dir root)))
         (for i 0 (vec.len (& names))
-          (add_file v seen (file_of (& dir) (vec.get (& names) i)) ui key))))))
+          (add_file v seen (file_of (& dir) (vec.get (& names) i) key) ui key root))))))
 
 (pub (fn list ((file (& str)) (ui (& str))) (vec dep)
   (let mut v (vec.new <dep>))
   (let mut seen (set.new <str>))
-  (add_file (&mut v) (&mut seen) (str.from file) ui "proj.")
+  (add_file (&mut v) (&mut seen) (str.from file) ui "proj." file)
   (let text (match (fs.read file) ((res.ok s) s) ((res.err _) (str.new))))
   (let names (mods (& text) "ui."))
   (for i 0 (vec.len (& names))
-    (add_file (&mut v) (&mut seen) (file_of ui (vec.get (& names) i)) ui "ui."))
+    (add_file (&mut v) (&mut seen) (file_of ui (vec.get (& names) i) "ui.") ui "ui." file))
   v))
 
 (pub (fn changed ((v (& (vec dep)))) bool

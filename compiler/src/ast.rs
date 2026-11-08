@@ -127,7 +127,7 @@ pub struct TestDecl {
 
 #[derive(Clone, Debug)]
 pub enum Item {
-    Use(Vec<String>, Span),
+    Use(Vec<String>, Span, bool),
     Mod(String, Span),
     Fn(FnDecl),
     Struct(StructDecl),

@@ -210,7 +210,8 @@ Checker conventions (`check/`)
 
 Resolver (`resolve.rs`)
 - All `std/*.llr` are always loaded; std types are prelude (no `use`), std module fns
-  need `(use std.X)`. `proj.X` loads `X.llr` beside the main file.
+  need `(use std.X)`. `proj.X` loads `X.llr` beside the main file. `proj.a.b` loads
+  `a/b.llr` there. `(pub (use ...))` re-exports that module's public items.
 - A std file compiled directly (its tests) is registered as both `main` and `std.X`.
 - `type.fn` resolves methods first, then module-level fns of the module defining the type.
   `vec.sort`, `vec.has`, `vec.index` and the `map` key functions take trait bounds
@@ -238,7 +239,7 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `to
 | File | Lines | Note |
 | --- | --- | --- |
 | `runtime/llr_ui_win_a11y.c` | 596 | Over the 500-line soft cap |
-| `compiler/src/resolve.rs` | 499 | |
+| `compiler/src/resolve.rs` | 431 | Loader lives in `load.rs`; pub-use clashes live in `reexp.rs` |
 | `self/thir_expr.llr` | 497 | |
 | `runtime/llr_win.c` | 496 | |
 | `compiler/src/mir/lower.rs` | 495 | |
@@ -429,7 +430,7 @@ Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at th
 
 1. `[x]` Patterns: guard `(PAT (if EXPR) EXPR)`, or-pattern `(or PAT PAT...)`, string literal patterns through `str.eq`, struct patterns `(point x y)`. `match.missing` still covers the result.
 2. `[x]` `(for NAME lo hi step BODY...)` with a signed step; `(brk LABEL)` and `(cont LABEL)` with `(loop LABEL ...)`; `(while ...)` unchanged. Canon keeps `[lo hi)` as the default.
-3. `[ ]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
+3. `[x]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
 4. `[ ]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
 5. `[ ]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
 
@@ -567,4 +568,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-07: Phase 13. `mutex.lock` keeps the guard inside a unit closure. `chan` is a deque behind a mutex and condition variable; `clone` shares it and there is no `Send` trait. `thread.spawn` and `thread.join` return the closure's value; the pool is unchanged. `net_dns.resolve` is `getaddrinfo`. `connect` takes a literal or a name, `listen6` binds `::1`, and UDP and `set_timeout` are on `net`. A second instance of a generic that builds a closure gets a suffixed symbol. `tests/run.ps1` is `done|fails=2`: `std/http` `http_many` crashed once under the full suite and passed when re-run, and the cross targets fail because `lld` is not on this host. `llrc check self/llrs.llr` reports no errors.
 - 2026-11-07: Phase 14 item 1. Match arms accept `(PAT (if EXPR) EXPR)`. `(or PAT PAT...)` requires the same bindings on every alternative (`match.or` when a name differs). String literals match through `str.eq`. `(point x y)` is a positional struct pattern. A guard does not count toward `match.missing`. `tests/run/match_form.llr` and the new `tests/err/match_*` goldens match between `llrc` and `llrs`, including `emit-mir` of `match_nested`, `match_drop`, `match_form`, and `std/opt.llr`.
 - 2026-11-07: Phase 14 item 2. `(for NAME lo hi ATOM BODY...)` takes a signed step when `ATOM` is a literal or a name and a body form follows. Positive keeps `< hi`, negative uses `> hi`, and zero runs nothing. The form without a step stays `[lo hi)`. `(loop NAME BODY...)` labels a loop; `(brk NAME)` and `(cont NAME)` target it. `(while ...)` is unchanged. `flow.label` and `flow.label_dup` are the new errors. `tests/run/flow_form.llr` covers the step and the labels.
+- 2026-11-07: Phase 14 item 3. `(use proj.a.b)` loads `a/b.llr` under the main file's directory; deeper segments are directories. The alias is the last segment. `(pub (use ...))` re-exports the public items, so an importer calls `module.name`. A private item stays hidden. A repeated name is `name.dup`. A public use is not `use.unused`. `tests/run/proj_use.llr` covers the path and the re-export.
 

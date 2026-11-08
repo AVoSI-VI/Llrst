@@ -1,0 +1,3 @@
+(use proj.dup.both)
+
+(fn main () unit ())

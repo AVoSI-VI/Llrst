@@ -160,10 +160,13 @@
   (if (<= (str.len name) n) (ret false))
   (== (str.at name n) 46u8))
 
+(fn pub_use ((m (& prog.modu)) (i i64)) bool
+  (and (< i (vec.len (& (. m upub)))) (@ (vec.get (& (. m upub)) i))))
+
 (fn mod_items ((p (& prog.prog)) (mk (& marks)) (out (&mut (vec diag.dg))) (mi i64)) unit
   (let m (vec.get (& (. p mods)) mi))
   (for i 0 (vec.len (& (. m uals)))
-    (if (not (@ (vec.get (vec.get (& (. mk uses)) mi) i)))
+    (if (and (not (pub_use m i)) (not (@ (vec.get (vec.get (& (. mk uses)) mi) i))))
       (push_w out
         (& (. m file))
         (at (& (. m uline)) i)

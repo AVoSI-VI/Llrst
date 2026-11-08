@@ -190,7 +190,7 @@ pub fn lookup(prog: &Program, module: u32, name: &str) -> Option<DefId> {
         let m = &prog.modules[module as usize];
         let mi = *m.uses.get(alias)?;
         prog.used_uses.borrow_mut().insert((module, alias.to_string()));
-        return prog.modules[mi as usize].items.get(item).copied();
+        return prog.exported(mi, item);
     }
     let m = &prog.modules[module as usize];
     if let Some(id) = m.items.get(name) {

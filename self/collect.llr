@@ -5,6 +5,7 @@
 (use std.str)
 (use proj.prog)
 (use proj.prog_idx)
+(use proj.reexp)
 (use proj.src)
 (use proj.resolve)
 (use proj.ty)
@@ -36,6 +37,7 @@
   (vec.push (&mut (. m uline)) (. it line))
   (vec.push (&mut (. m ucol)) (. it col))
   (vec.push (&mut (. m ulen)) (. it len))
+  (vec.push (&mut (. m upub)) (. it is_pub))
   (res.ok ()))
 
 (fn add_named ((p (&mut prog.prog)) (mi i64) (name str) (d prog.def)) i64
@@ -81,6 +83,7 @@
   (try (fill_traits (&mut p) (& ss)))
   (try (fill_impls (&mut p) (&mut ss)))
   (try (fill_rest (&mut p) (&mut ss)))
+  (reexp.check (&mut p))
   (prog_idx.build (&mut p))
   (res.ok p)))
 

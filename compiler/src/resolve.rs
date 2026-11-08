@@ -1,11 +1,8 @@
 use crate::ast::{self, Item, TyExpr};
-use crate::diag::{Diag, Diags, PResult, SourceMap, Span};
-use crate::parse::parse_items;
-use crate::sexpr::read_file;
+use crate::diag::{Diag, Diags, PResult, Span};
 use crate::ty::{DefId, IntTy, Ty};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 pub struct StructDef {
     pub generics: Vec<String>,
     pub bounds: Vec<Vec<DefId>>,
@@ -65,6 +62,8 @@ pub struct Module {
     pub items: HashMap<String, DefId>,
     pub uses: HashMap<String, u32>,
     pub use_span: HashMap<String, Span>,
+    /// `(pub (use ...))` targets, in source order. Omitted from `use_span`.
+    pub reexports: Vec<(u32, Span)>,
     pub tests: Vec<ast::TestDecl>,
     pub is_std: bool,
 }
@@ -152,7 +151,7 @@ impl Program {
         if let Some((a, b)) = name.split_once('.') {
             let mi = *self.modules[module as usize].uses.get(a)?;
             self.used_uses.borrow_mut().insert((module, a.to_string()));
-            return self.modules[mi as usize].items.get(b).copied().filter(|d| self.is_type(*d));
+            return self.exported(mi, b).filter(|d| self.is_type(*d));
         }
         let m = &self.modules[module as usize];
         if let Some(d) = m.items.get(name).copied().filter(|d| self.is_type(*d)) {
@@ -181,7 +180,10 @@ impl Program {
     }
     fn import_fn(&self, module: u32, alias: &str, name: &str) -> Option<DefId> {
         let mi = self.modules[module as usize].uses.get(alias).copied()?;
-        let d = self.mod_fn(mi, name)?;
+        let d = self.exported(mi, name)?;
+        if !matches!(self.def(d).kind, DefKind::Fn(_)) {
+            return None;
+        }
         self.used_uses.borrow_mut().insert((module, alias.to_string()));
         Some(d)
     }
@@ -196,125 +198,54 @@ impl Program {
         let d = if let Some((a, b)) = path.split_once('.') {
             let mi = *self.modules[module as usize].uses.get(a)?;
             self.used_uses.borrow_mut().insert((module, a.to_string()));
-            *self.modules[mi as usize].items.get(b)?
+            self.exported(mi, b)?
         } else {
             let m = &self.modules[module as usize];
             *m.items.get(path)?
         };
         matches!(self.def(d).kind, DefKind::Const(_)).then_some(d)
     }
-}
 
-pub struct Loader<'a> {
-    pub sm: &'a mut SourceMap,
-    pub diags: &'a Diags,
-    pub std_dir: PathBuf,
-    pub proj_dir: PathBuf,
-    pub ui_dir: Option<PathBuf>,
-    parsed: Vec<(String, u32, Vec<Item>, bool)>,
-    by_path: HashMap<String, u32>,
-}
-
-impl<'a> Loader<'a> {
-    pub fn new(sm: &'a mut SourceMap, diags: &'a Diags, std_dir: PathBuf, proj_dir: PathBuf, ui_dir: Option<PathBuf>) -> Self {
-        Loader { sm, diags, std_dir, proj_dir, ui_dir, parsed: Vec::new(), by_path: HashMap::new() }
+    /// An item of `module`, or a public item reached through `(pub (use ...))`.
+    pub fn exported(&self, module: u32, name: &str) -> Option<DefId> {
+        self.exported_from(module, name, &mut HashSet::new())
     }
 
-    fn load_file(&mut self, mod_path: &str, file: &Path, is_std: bool) -> PResult<u32> {
-        if let Some(&i) = self.by_path.get(mod_path) {
-            return Ok(i);
+    fn exported_from(&self, module: u32, name: &str, seen: &mut HashSet<u32>) -> Option<DefId> {
+        if !seen.insert(module) {
+            return None;
         }
-        let text = std::fs::read_to_string(file).map_err(|_| {
-            Diag::error(Span::default(), "io.read").kv("path", file.display().to_string().replace('\\', "/"))
-        })?;
-        let shown = file.display().to_string().replace('\\', "/");
-        let fid = self.sm.add(shown, text);
-        let forms = read_file(fid, self.sm.text(fid))?;
-        let items = parse_items(&forms)?;
-        let idx = self.parsed.len() as u32;
-        self.by_path.insert(mod_path.to_string(), idx);
-        self.parsed.push((mod_path.to_string(), fid, items, is_std));
-        Ok(idx)
-    }
-
-    pub fn load(mut self, main: &Path, target: Option<&str>) -> PResult<Program> {
-        let os_file = crate::driver::os_extern_file(target)?;
-        let main_idx = self.load_file("main", main, false)?;
-        let mut std_files: Vec<PathBuf> = std::fs::read_dir(&self.std_dir)
-            .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", self.std_dir.display().to_string()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().map_or(false, |e| e == "llr"))
-            .collect();
-        std_files.sort();
-        let main_canon = std::fs::canonicalize(main).ok();
-        for f in std_files {
-            let name = f.file_stem().unwrap().to_string_lossy().to_string();
-            if name == "sys_posix" || name == "sys_windows" || name == "sys_wasm" {
-                continue;
-            }
-            if std::fs::canonicalize(&f).ok() == main_canon {
-                self.by_path.insert(format!("std.{}", name), main_idx);
-                self.parsed[main_idx as usize].0 = format!("std.{}", name);
-                self.parsed[main_idx as usize].3 = true;
-                continue;
-            }
-            self.load_file(&format!("std.{}", name), &f, true)?;
+        if let Some(id) = self.modules[module as usize].items.get(name).copied() {
+            return Some(id);
         }
-        self.append_os(os_file)?;
-        let mut i = 0;
-        while i < self.parsed.len() {
-            let uses: Vec<(Vec<String>, Span)> = self.parsed[i]
-                .2
-                .iter()
-                .filter_map(|it| match it {
-                    Item::Use(p, s) => Some((p.clone(), *s)),
-                    _ => None,
-                })
-                .collect();
-            for (p, sp) in uses {
-                let path = p.join(".");
-                if p.len() == 2 && p[0] == "proj" {
-                    let f = self.proj_dir.join(format!("{}.llr", p[1]));
-                    self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
-                } else if p.len() == 2 && p[0] == "ui" {
-                    let dir = self.ui_dir.clone().ok_or_else(|| {
-                        Diag::error(Span::default(), "io.read").kv("path", "ui").kv("fix", "set LLRST_UI")
-                    })?;
-                    let f = dir.join(format!("{}.llr", p[1]));
-                    self.load_file(&path, &f, false).map_err(|d| if d.code == "io.read" { d.kv("use", path.clone()) } else { d })?;
-                } else if !(p.len() == 2 && p[0] == "std" && self.by_path.contains_key(&path)) {
-                    return Err(Diag::error(sp, "name.not_module").kv("name", path));
+        let targets: Vec<u32> = self.modules[module as usize].reexports.iter().map(|(m, _)| *m).collect();
+        for mi in targets {
+            if let Some(id) = self.exported_from(mi, name, seen) {
+                if self.def(id).is_pub {
+                    return Some(id);
                 }
             }
-            i += 1;
         }
-        collect(self.parsed, self.by_path, main_idx, self.diags)
-    }
-
-    fn append_os(&mut self, name: &str) -> PResult<()> {
-        let file = self.std_dir.join(name);
-        let text = std::fs::read_to_string(&file)
-            .map_err(|_| Diag::error(Span::default(), "io.read").kv("path", file.display().to_string()))?;
-        let shown = file.display().to_string().replace('\\', "/");
-        let fid = self.sm.add(shown, text);
-        let extra = parse_items(&read_file(fid, self.sm.text(fid))?)?;
-        let idx = *self.by_path.get("std.sys").ok_or_else(|| Diag::error(Span::default(), "io.read").kv("path", "std/sys.llr"))?;
-        self.parsed[idx as usize].2.extend(extra);
-        Ok(())
+        None
     }
 }
 
-fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
+pub(crate) fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String, u32>, main_idx: u32, diags: &Diags) -> PResult<Program> {
     let mut prog = Program { defs: Vec::new(), modules: Vec::new(), methods: HashMap::new(), main_module: main_idx, prelude: HashMap::new(), impls: HashMap::new(), target_arch: String::new(), used_fns: RefCell::new(HashSet::new()), used_uses: RefCell::new(HashSet::new()) };
     for (path, file, items, is_std) in &parsed {
         let mi = prog.modules.len() as u32;
-        let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), tests: Vec::new(), is_std: *is_std };
+        let mut m = Module { path: path.clone(), file: *file, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), reexports: Vec::new(), tests: Vec::new(), is_std: *is_std };
         for it in items {
             match it {
-                Item::Use(p, sp) => {
+                Item::Use(p, sp, is_pub) => {
                     let alias = p.last().unwrap().clone();
-                    m.uses.insert(alias.clone(), by_path[&p.join(".")]);
-                    m.use_span.insert(alias, *sp);
+                    let target = by_path[&p.join(".")];
+                    m.uses.insert(alias.clone(), target);
+                    if *is_pub {
+                        m.reexports.push((target, *sp));
+                    } else {
+                        m.use_span.insert(alias, *sp);
+                    }
                 }
                 Item::Struct(s) => {
                     let id = push_def(&mut prog, &mut m, &s.name, mi, s.span, DefKind::Struct(StructDef { generics: s.generics.types.clone(), bounds: Vec::new(), lifetimes: s.generics.lifetimes.clone(), fields: Vec::new() }), s.is_pub, diags);
@@ -400,11 +331,12 @@ fn collect(parsed: Vec<(String, u32, Vec<Item>, bool)>, by_path: HashMap<String,
             }
         }
     }
+    crate::reexp::check(&prog, diags);
     Ok(prog)
 }
 
 fn dummy_module() -> Module {
-    Module { path: String::new(), file: 0, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), tests: Vec::new(), is_std: false }
+    Module { path: String::new(), file: 0, items: HashMap::new(), uses: HashMap::new(), use_span: HashMap::new(), reexports: Vec::new(), tests: Vec::new(), is_std: false }
 }
 
 fn push_def(prog: &mut Program, m: &mut Module, name: &str, module: u32, span: Span, kind: DefKind, is_pub: bool, diags: &Diags) -> DefId {

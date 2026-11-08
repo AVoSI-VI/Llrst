@@ -335,7 +335,7 @@
   (if (str.eq h "const") (ret (parse_const t n is_pub)))
   (if (str.eq h "trait") (ret (parse_trait t n is_pub)))
   (if (and (str.eq h "impl") (not is_pub)) (ret (parse_impl t n)))
-  (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
+  (if (str.eq h "use") (ret (parse_named t n 0u8 is_pub)))
   (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))
   (if (and (str.eq h "test") (not is_pub)) (ret (parse_test t n)))
   (res.err (ast_expr.bad_head t n h)))
@@ -344,10 +344,11 @@
   (or (str.eq h "fn")
     (or (str.eq h "extern")
       (or (str.eq h "struct")
-        (or (str.eq h "enum") (or (str.eq h "const") (or (str.eq h "inline") (str.eq h "trait"))))))))
+        (or (str.eq h "enum")
+          (or (str.eq h "const") (or (str.eq h "inline") (or (str.eq h "trait") (str.eq h "use")))))))))
 
 (fn pub_bad ((t (& tree)) (n i64) (got (& str))) str
-  (let mut m (ast_expr.err_at t n "fn extern struct enum const inline trait" got))
+  (let mut m (ast_expr.err_at t n "fn extern struct enum const inline trait use" got))
   (str.push (&mut m) "|fix=(pub (fn ...)) per method")
   m)
 
@@ -437,6 +438,13 @@
   (assert_eq (vec.len (& (. (vec.get (& r) 0) fns))) 1)
   (assert_eq (. (vec.get (& r) 1) kind) 10u8)
   (assert_eq (& (. (. (vec.get (& r) 1) ret) text)) "i64"))
+
+(test ast_pub_use
+  (let r (res.unwrap (parse_src "(pub (use proj.a.b))")))
+  (let it (vec.get (& r) 0))
+  (assert (. it is_pub))
+  (assert_eq (. it kind) 0u8)
+  (assert_eq (& (. it name)) "proj.a.b"))
 
 (test ast_bad
   (match (parse_src "(bogus)")

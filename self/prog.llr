@@ -49,6 +49,7 @@
   (pub (uline (vec i64)))
   (pub (ucol (vec i64)))
   (pub (ulen (vec i64)))
+  (pub (upub (vec bool)))
   (pub (imap (map str i64)))
   (pub (umap (map str i64)))))
 
@@ -115,6 +116,7 @@
     (vec.new <i64>)
     (vec.new <i64>)
     (vec.new <i64>)
+    (vec.new <bool>)
     (map.new <str i64>)
     (map.new <str i64>))))
 
@@ -232,6 +234,41 @@
     (ret (map_id (& (. m umap)) alias)))
   (find_name (& (. m uals)) (& (. m umod)) alias)))
 
+(pub (fn export_id ((p (& prog)) (module i64) (name (& str))) i64
+  (let mut seen (vec.new <i64>))
+  (export_seen p module name (&mut seen))))
+
+(fn export_seen ((p (& prog)) (module i64) (name (& str)) (seen (&mut (vec i64)))) i64
+  (if (seen_has seen module) (ret (neg 1)))
+  (vec.push seen module)
+  (let local (item_id (vec.get (& (. p mods)) module) name))
+  (if (>= local 0) (ret local))
+  (let n (use_len p module))
+  (let mut i 0)
+  (while (< i n)
+    (if (use_pub p module i)
+      (do
+        (let sub (export_seen p (use_at p module i) name seen))
+        (if (pub_def p sub) (ret sub))))
+    (set i (+ i 1)))
+  (neg 1))
+
+(fn seen_has ((seen (&mut (vec i64))) (module i64)) bool
+  (for i 0 (vec.len seen) (if (== (@ (vec.get seen i)) module) (ret true)))
+  false)
+
+(fn use_len ((p (& prog)) (module i64)) i64 (vec.len (& (. (vec.get (& (. p mods)) module) uals))))
+
+(fn use_pub ((p (& prog)) (module i64) (i i64)) bool
+  (let m (vec.get (& (. p mods)) module))
+  (and (< i (vec.len (& (. m upub)))) (@ (vec.get (& (. m upub)) i))))
+
+(fn use_at ((p (& prog)) (module i64) (i i64)) i64
+  (@ (vec.get (& (. (vec.get (& (. p mods)) module) umod)) i)))
+
+(fn pub_def ((p (& prog)) (id i64)) bool
+  (and (>= id 0) (. (vec.get (& (. p defs)) id) is_pub)))
+
 (pub (fn pre_id ((p (& prog)) (name (& str))) i64
   (if (indexed (map.len (& (. p pmap))) (vec.len (& (. p pn)))) (ret (map_id (& (. p pmap)) name)))
   (find_name (& (. p pn)) (& (. p pi)) name)))
@@ -264,7 +301,7 @@
   (let b (str.slice name (+ dot 1) (str.len name)))
   (let mi (use_mod (vec.get (& (. p mods)) module) (& a)))
   (if (< mi 0) (ret (neg 1)))
-  (let id (item_id (vec.get (& (. p mods)) mi) (& b)))
+  (let id (export_id p mi (& b)))
   (if (< id 0) (ret (neg 1)))
   (if (and want_ty (not (is_type p id))) (ret (neg 1)))
   id)
@@ -304,7 +341,10 @@
   (let a (str.slice path 0 dot))
   (let b (str.slice path (+ dot 1) (str.len path)))
   (let mi (use_mod (vec.get (& (. p mods)) module) (& a)))
-  (if (>= mi 0) (do (let id (mod_fn p mi (& b))) (if (>= id 0) (ret id))))
+  (if (>= mi 0)
+    (do
+      (let id (export_id p mi (& b)))
+      (if (and (>= id 0) (is_fn p id)) (ret id))))
   (let t (lookup_type p module (& a)))
   (if (>= t 0)
     (do

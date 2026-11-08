@@ -19,7 +19,8 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 
 ```
 (mod NAME)                                   ; declares this file is module NAME
-(use PATH)                                   ; import module; PATH = std.io | my.mod
+(use PATH)                                   ; std.NAME | proj.NAME | proj.a.b ; alias is the last segment
+(pub (use PATH))                             ; re-export the public items of PATH
 (fn NAME ARGS RET BODY...)                   ; function
 (fn NAME <T:Eq U> ARGS RET BODY...)          ; bound list after the colon; several params stay separate
 (inline (fn ...))                            ; substitute ret, loops, match, and owned params; a recursive call stays a call; a closure in the body is inline.reject|why=form|got=clos
@@ -36,12 +37,19 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (impl TRAIT TYPE <T:Eq> FN...)               ; generic impl; monomorphized per instance; trait.dup compares the head
 (const NAME TYPE EXPR)                       ; EXPR must be a literal; otherwise const.not_lit
 (test NAME BODY...)                          ; test body, run by llr-test
-(pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline (per method inside impl)
+(pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline use (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )
 FIELD  := (NAME TYPE) | (pub (NAME TYPE))   ; private unless pub
 VARIANT:= (NAME TYPE*) | (pub (NAME TYPE*))   ; private unless pub
 ```
+
+`(use proj.a.b)` loads `a/b.llr` from the directory of the file that holds `main`.
+Each further segment is another directory. The name in the importing file is the last
+segment. `(pub (use PATH))` re-exports that module's public items, so an importer
+calls them as `module.name`. A private item is not re-exported. A name already defined
+in the module, or two re-exports of different items, is `name.dup`. A public use is
+not `use.unused`.
 
 ## Types
 

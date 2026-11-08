@@ -42,8 +42,15 @@ Code in the enum's file may construct and match a private variant. Another file 
 it is `pub`. A `pub` std type or trait name is unique across `std`; a second module
 declaring one is `name.dup|name=|module=`, and the first keeps the name.
 
-Import a sibling module with `(use proj.name)` where the root is the directory of the file
-holding `main`.
+Import a sibling module with `(use proj.name)`. The root is the directory of the file
+holding `main`. `(use proj.a.b)` loads `a/b.llr` under that root. Each further segment
+is another directory, so `proj.a.b.c` is `a/b/c.llr`. The name in this file is the last
+segment: `b.item`, `c.item`.
+
+`(pub (use PATH))` re-exports the public items of that module. A file that imports this
+one calls them as `module.item`. A private item is not re-exported. A name this module
+already defines, or two re-exports of different items, is `name.dup`. The alias still
+works in this file. A public use is not `use.unused`.
 
 ## File order
 

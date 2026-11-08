@@ -178,18 +178,17 @@
     (set i (+ i 1)))
   (res.ok ()))
 
+(fn proj_file ((dir (& str)) (modp (& str))) str
+  (let rest (if (str.starts modp "proj.") (str.slice modp 5 (str.len modp)) (str.clone modp)))
+  (path.join dir (& (str_cat (& (str.replace_byte (& rest) 46u8 47u8)) ".llr"))))
+
 (fn load_proj ((srcs (&mut (vec src.loaded)))
    (paths (&mut (vec str)))
    (dir (& str))
    (modp (& str))
    (main (& str))) (res unit str)
   (if (>= (path_i paths modp) 0) (ret (res.ok ())))
-  (let file
-    (path.join dir
-      (& (str_cat (& (match (str.rfind_byte modp 46u8)
-           ((opt.some seg) (str.slice modp (+ seg 1) (str.len modp)))
-           ((opt.none) (str.clone modp))))
-         ".llr"))))
+  (let file (proj_file dir modp))
   (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
     ((res.ok _) (res.ok ()))
     ((res.err e)
