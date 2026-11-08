@@ -92,5 +92,5 @@ usage|llrc version
 instead of a process `main`. `--checked` traps wrapping arithmetic,
 out-of-range shifts, and casts that do not fit. `--deny CODE` may be repeated; each named
 warning is printed as `E` and the process exits 1. `run FILE -- ARGS` passes `ARGS` to the
-program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps every local in a stack slot
-and does not run that optimizer.
+program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps an address-taken local in a
+stack slot and puts other scalar locals in callee-saved registers. It does not run that optimizer.

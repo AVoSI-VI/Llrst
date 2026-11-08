@@ -18,12 +18,14 @@
   (if (== r cg_isa.sp) (ret a64_buf.sp))
   (if (== r cg_isa.ret_i) (ret a64_buf.x0))
   (if (and (>= r 16) (< r 32)) (ret (- r 16)))
+  (if (and (>= r 48) (< r 64)) (ret (+ a64_buf.x19 (- r 48))))
   a64_buf.x9))
 
 (pub (fn fpr ((r i64)) i64
   (if (== r cg_isa.fp0) (ret a64_buf.v16))
   (if (== r cg_isa.fp1) (ret a64_buf.v17))
   (if (== r cg_isa.ret_f) (ret a64_buf.v0))
+  (if (and (>= r 64) (< r 80)) (ret (+ a64_buf.v8 (- r 64))))
   (if (>= r 32) (ret (- r 32)))
   a64_buf.v16))
 

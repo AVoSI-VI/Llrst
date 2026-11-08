@@ -1,0 +1,30 @@
+;; Panic-trace pushes. The frame still allocates the slots; this file only emits them.
+(use proj.cg_frame)
+(use proj.cg_isa)
+(use proj.cg_mod)
+
+(fn emit_at ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (disp i64) (name (& str))) unit
+  (let ns (cg_mod.cstr_sym g name))
+  (cg_isa.trace_push (&mut (. fx buf)) (& (. fx isa)) disp ns (cg_mod.trace_push g)))
+
+(fn pop_at ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (disp i64)) unit
+  (cg_isa.trace_pop (&mut (. fx buf)) (& (. fx isa)) disp (cg_mod.trace_pop g)))
+
+(pub (fn push_inline ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (slot i64) (name (& str))) unit
+  (emit_at g fx (@ (vec.get (& (. fx toff)) slot)) name)))
+
+(pub (fn pop ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx))) unit
+  (if (not (. fx do_trace)) (ret))
+  (pop_at g fx (. fx trace))))
+
+(pub (fn pop_inline ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (slot i64)) unit
+  (pop_at g fx (@ (vec.get (& (. fx toff)) slot)))))
+
+(pub (fn bpush ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (disp i64) (name (& str))) unit
+  (let ns (cg_mod.cstr_sym g name))
+  (let sym (cg_mod.trace_push g))
+  (cg_isa.trace_push b (& (. g isa)) disp ns sym)))
+
+(pub (fn bpop ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (disp i64)) unit
+  (let sym (cg_mod.trace_pop g))
+  (cg_isa.trace_pop b (& (. g isa)) disp sym)))

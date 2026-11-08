@@ -39,6 +39,10 @@
 
 (pub (fn movsd_store ((b (&mut x64_buf.buf)) (m (& x64_buf.mem)) (src i64)) unit (sse_m b 242 17 src m)))
 
+(pub (fn movups_load ((b (&mut x64_buf.buf)) (dst i64) (m (& x64_buf.mem))) unit (sse_m b 0 16 dst m)))
+
+(pub (fn movups_store ((b (&mut x64_buf.buf)) (m (& x64_buf.mem)) (src i64)) unit (sse_m b 0 17 src m)))
+
 (pub (fn cvtsi2ss ((b (&mut x64_buf.buf)) (dst i64) (src i64) (w i64)) unit
   (x64_buf.emit_sse b 243 42 dst src w)))
 

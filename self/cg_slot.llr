@@ -1,0 +1,122 @@
+;; Which scalar locals can live in a callee-saved register.
+;; A use needs the local's address when it is a ref, or a projection that is
+;; not a leading deref. Deref reads the value, so the local can stay in a register.
+(use proj.cg_isa)
+(use proj.cg_lay)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(pub (struct plan
+  (pub (kind (vec i64)))
+  (pub (idx (vec i64)))
+  (pub (ngpr i64))
+  (pub (nfpr i64))))
+
+(fn note ((hit (&mut (vec bool))) (local i64) (pk (& (vec u8))) (ref bool)) unit
+  (if (or (< local 0) (>= local (vec.len hit))) (ret))
+  (if (and (> (vec.len pk) 0) (== (@ (vec.get pk 0)) 1u8)) (ret))
+  (if (or ref (> (vec.len pk) 0)) (vec.set hit local true)))
+
+(fn note_op ((hit (&mut (vec bool))) (o (& mir.op))) unit
+  (note hit (. o local) (& (. o pk)) false))
+
+(fn note_ops ((hit (&mut (vec bool))) (ops (& (vec mir.op)))) unit
+  (for i 0 (vec.len ops) (note_op hit (vec.get ops i))))
+
+(fn note_rv ((hit (&mut (vec bool))) (r (& mir.rv))) unit
+  (if (== (. r kind) 1u8) (note hit (. r local) (& (. r pk)) true))
+  (note_ops hit (& (. r ops))))
+
+(fn note_st ((hit (&mut (vec bool))) (s (& mir.st))) unit
+  (if (or (== (. s kind) 0u8) (== (. s kind) 1u8)) (note hit (. s local) (& (. s pk)) false))
+  (note_rv hit (& (. s rv))))
+
+(fn note_term ((hit (&mut (vec bool))) (t (& mir.term))) unit
+  (note_op hit (& (. t op)))
+  (note_ops hit (& (. t args)))
+  (if (== (. t kind) 3u8) (note hit (. t dest) (& (. t dpk)) false)))
+
+(fn hits ((b (& mir.body))) (vec bool)
+  (let mut hit (vec.new <bool>))
+  (for i 0 (vec.len (& (. b locs))) (vec.push (&mut hit) false))
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for k 0 (vec.len (& (. blk stmts))) (note_st (&mut hit) (vec.get (& (. blk stmts)) k)))
+    (note_term (&mut hit) (& (. blk term))))
+  hit)
+
+(fn push_mem ((k (&mut (vec i64))) (xs (&mut (vec i64)))) unit
+  (vec.push k cg_isa.slot_mem)
+  (vec.push xs 0))
+
+(fn add ((p (& prog.prog))
+   (s (& cg_isa.isa))
+   (t (& ty.sty))
+   (hit bool)
+   (gi (&mut i64))
+   (fi (&mut i64))
+   (k (&mut (vec i64)))
+   (xs (&mut (vec i64)))) unit
+  (if (or hit (or (not (cg_lay.is_scalar t)) (prog.needs_drop p t))) (ret (push_mem k xs)))
+  (let float (cg_lay.is_float t))
+  (let n (if float (cg_isa.saved_fpr_n s) (cg_isa.saved_gpr_n s)))
+  (let cur (if float fi gi))
+  (if (>= (@ cur) n) (ret (push_mem k xs)))
+  (let at (@ cur))
+  (set (@ cur) (+ at 1))
+  (vec.push k (if float cg_isa.slot_fpr cg_isa.slot_gpr))
+  (vec.push xs at))
+
+(pub (fn build ((p (& prog.prog)) (b (& mir.body)) (s (& cg_isa.isa))) plan
+  (let hit (hits b))
+  (let mut k (vec.new <i64>))
+  (let mut xs (vec.new <i64>))
+  (let mut gi 0)
+  (let mut fi 0)
+  (for i 0 (vec.len (& (. b locs)))
+    (add p s (& (. (vec.get (& (. b locs)) i) ty)) (@ (vec.get (& hit) i)) (&mut gi) (&mut fi) (&mut k) (&mut xs)))
+  (plan k xs gi fi)))
+
+(fn loc ((t ty.sty)) thir.loc (thir.loc_new (str.from "x") t true 1 1))
+
+(fn body ((t ty.sty) (n i64) (st (opt mir.st))) mir.body
+  (let mut b (mir.empty_body))
+  (for i 0 n (vec.push (&mut (. b locs)) (loc (ty.clone (& t)))))
+  (let mut stmts (vec.new <mir.st>))
+  (match st ((opt.some s) (vec.push (&mut stmts) s)) ((opt.none) ()))
+  (vec.push (&mut (. b blocks)) (mir.blk stmts (mir.tnone)))
+  b)
+
+(fn ref0 () mir.st
+  (let mut r (mir.rvoid))
+  (set (. r kind) 1u8)
+  (set (. r local) 0)
+  (mir.sassign (mir.ploc 0) r))
+
+(test slot_gpr
+  (let p (prog.blank_prog))
+  (let b (body (ty.int 3) 2 (opt.none)))
+  (let pl (build (& p) (& b) (& (cg_isa.isa false false))))
+  (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_gpr)
+  (assert_eq (@ (vec.get (& (. pl idx)) 0)) 0)
+  (assert_eq (@ (vec.get (& (. pl idx)) 1)) 1)
+  (assert_eq (. pl ngpr) 2))
+
+(test slot_ref_stays
+  (let p (prog.blank_prog))
+  (let b (body (ty.int 3) 1 (opt.some (ref0))))
+  (let pl (build (& p) (& b) (& (cg_isa.isa false false))))
+  (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_mem)
+  (assert_eq (. pl ngpr) 0))
+
+(test slot_fpr
+  (let p (prog.blank_prog))
+  (let t (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))
+  (let b (body t 1 (opt.none)))
+  (let sysv (build (& p) (& b) (& (cg_isa.isa false false))))
+  (let arm (build (& p) (& b) (& (cg_isa.isa true false))))
+  (assert_eq (@ (vec.get (& (. sysv kind)) 0)) cg_isa.slot_mem)
+  (assert_eq (@ (vec.get (& (. arm kind)) 0)) cg_isa.slot_fpr)
+  (assert_eq (. arm nfpr) 1))

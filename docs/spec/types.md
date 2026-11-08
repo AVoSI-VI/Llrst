@@ -123,4 +123,4 @@ float-to-int saturates and int-to-float rounds.
 
 `(sizeof T)` is the size in bytes of `T`, computed when the call is compiled. `mem.replace` swaps a place with a new value and returns the old one, including private fields of a whole struct. `mem.forget` drops the compiler's duty to run `drop` on a value. `sys.argc` and `sys.argv` read the process arguments. `sys.arch` is a compile-time `(& str)`.
 
-Every local is a stack slot. Stage 0 sets Cranelift `opt_level=speed`. The installed `llrs` compiler does not.
+A scalar local whose address is never taken lives in a callee-saved register when one is free. SysV has five GPRs and no callee-saved XMM, so its floats stay in memory. Win64 has seven GPRs and XMM6–XMM15. AAPCS64 has ten GPRs and d8–d15. Anything else is a stack slot. The prologue spills those registers and the epilogue reloads them. Stage 0 sets Cranelift `opt_level=speed`.

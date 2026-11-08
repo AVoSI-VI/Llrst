@@ -93,7 +93,7 @@ flowchart LR
 | check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr`, `thir_lit.llr`, `thir_clos.llr` | one typed body per instance; closure capture |
 | MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `lower_clos.llr`, `lower_div.llr`, `inline.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div`, inline substitution |
 | borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `static_ck.llr`, `lint.llr` | loans, holders, init, `'static`, warnings |
-| codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | every local a slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
+| codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_slot.llr`, `cg_trace.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | scalar locals in callee-saved registers when their address is not taken, otherwise a stack slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr`, `wasm.llr`, `wasm_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), Mach-O arm64, or one Wasm module (`.wasm`) for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3 on wasm. |
 | link | `link.llr`, `link_so.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims. A reference to `llr_ui_open` also links the host UI shim. `--emit-dylib` passes `-shared` or `/LD` |
 | driver | `llrs.llr`, `drive.llr`, `diag.llr`, `cg_reload.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj --emit-dylib`; reachable instances from `main` or `--test` |
@@ -243,6 +243,7 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `to
 | `self/thir_expr.llr` | 497 | |
 | `runtime/llr_win.c` | 496 | |
 | `compiler/src/mir/lower.rs` | 495 | |
+| `self/cg_frame.llr` | 496 | Register slots live in `cg_slot.llr`; trace pushes live in `cg_trace.llr` |
 | `compiler/src/codegen/func.rs` | 494 | Trace push/pop lives in `codegen/trace.rs` |
 | `self/link.llr` | 491 | |
 | `runtime/llr_ui_android_in.c` | 485 | |
@@ -259,16 +260,16 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `to
 | `std/sys_wasm.llr` | 440 | |
 | `self/wasm_abi.llr` | 440 | |
 | `self/lower.llr` | 438 | |
-| `self/isa_a64.llr` | 436 | integer, branch, and memory seam; fp, frame, and overflow are split out |
+| `self/isa_a64.llr` | 438 | integer, branch, and memory seam; fp, frame, and overflow are split out |
 | `std/ast.llr` | 434 | |
 | `runtime/llr_win_proc.c` | 432 | |
 | `ui/element.llr` | 430 | |
 | `self/collect.llr` | 428 | Trait-impl registration lives in `timpl.llr` |
 | `ui/ttf_glyf.llr` | 427 | |
 | `ui/semantics.llr` | 427 | |
+| `self/cg_isa.llr` | 422 | Callee-saved local slots are `slot_mem`, `slot_gpr`, and `slot_fpr` |
 | `compiler/src/codegen/mod.rs` | 420 | |
 | `ui/widget.llr` | 417 | |
-| `self/cg_frame.llr` | 417 | |
 | `self/prog.llr` | 416 | |
 | `compiler/src/link.rs` | 416 | |
 | `std/ast_expr.llr` | 415 | |
@@ -422,7 +423,7 @@ Files: `std/thread.llr`, new `std/sync.llr`, `std/net.llr`, new `std/net_dns.llr
 4. `[x]` wasm: every new extern writes `target.unsupported` and returns `-1` as the existing ones do.
 5. `[x]` Commit: `std: mutex, channel, spawn and join, dns, udp, ipv6, socket timeouts`.
 
-### Phase 14: language ergonomics `[~]`
+### Phase 14: language ergonomics `[x]`
 
 Files: both parsers, both checkers, both lowerers (`compiler/src/parse/expr.rs`, `check/pat.rs`, `mir/lower_match.rs`; `self/thir_pat.llr`, `self/lower_match.llr`, `self/lower_cf.llr`, `self/load.llr`, `self/resolve.llr`), `docs/spec/grammar.md`, `docs/canon/flow.md`, `docs/canon/program.md`, `tests/err`, `tests/run`.
 
@@ -432,15 +433,15 @@ Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at th
 2. `[x]` `(for NAME lo hi step BODY...)` with a signed step; `(brk LABEL)` and `(cont LABEL)` with `(loop LABEL ...)`; `(while ...)` unchanged. Canon keeps `[lo hi)` as the default.
 3. `[x]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
 4. `[x]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
-5. `[ ]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
+5. `[x]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
 
-### Phase 15: compiler and tooling `[ ]`
+### Phase 15: compiler and tooling `[~]`
 
 Files: `self/cg_frame.llr`, `self/cg_op.llr`, `self/isa_*.llr`, `self/elf.llr`, `self/elf_out.llr`, `self/macho_out.llr`, `self/coff.llr`, `self/drive.llr`, `tools/llr-doc.llr`, new `tools/llr-bench.llr`, new `tools/llr-lsp.llr`, `docs/tools/`, `docs/spec/targets.md`.
 
 Large; listed last. Each item is its own commit.
 
-1. `[ ]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green. [history/comp.md](history/comp.md) records the 2026-11-06 `llrs1`/`llrs0` build ratio as 1.14 (21.6 s / 19.0 s), about a 14% compile-time lever.
+1. `[x]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green. [history/comp.md](history/comp.md) records the 2026-11-06 `llrs1`/`llrs0` build ratio as 1.14 (21.6 s / 19.0 s), about a 14% compile-time lever.
 2. `[ ]` `--debug` emits `.debug_line` (DWARF 5) in ELF and Mach-O and a line table in COFF, from the statement spans `self/lower.llr` already sets.
 3. `[ ]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
 4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
@@ -570,4 +571,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-07: Phase 14 item 2. `(for NAME lo hi ATOM BODY...)` takes a signed step when `ATOM` is a literal or a name and a body form follows. Positive keeps `< hi`, negative uses `> hi`, and zero runs nothing. The form without a step stays `[lo hi)`. `(loop NAME BODY...)` labels a loop; `(brk NAME)` and `(cont NAME)` target it. `(while ...)` is unchanged. `flow.label` and `flow.label_dup` are the new errors. `tests/run/flow_form.llr` covers the step and the labels.
 - 2026-11-07: Phase 14 item 3. `(use proj.a.b)` loads `a/b.llr` under the main file's directory; deeper segments are directories. The alias is the last segment. `(pub (use ...))` re-exports the public items, so an importer calls `module.name`. A private item stays hidden. A repeated name is `name.dup`. A public use is not `use.unused`. `tests/run/proj_use.llr` covers the path and the re-export.
 - 2026-11-07: Phase 14 item 4. `(try e)` on `(res T E)` inside a function that returns `(res U F)` calls `From.from` when `F` implements `From` and that method's parameter is `E`. The same error type is unchanged. Anything else stays `type.mismatch`. The impl may replace the `Self` parameter; `trait.dup` still allows one impl per head. `tests/run/try_from.llr` covers a concrete source, a generic source, and a copied `i64`. `tests/err/try_from.llr` is the mismatch.
+- 2026-11-07: Phase 14 closed. Phase 15 item 1. A scalar local with no address-taken use lives in a callee-saved register: SysV `rbx r12-r15`, Win64 `rbx rsi rdi r12-r15` and `xmm6-xmm15`, AAPCS64 `x19-x28` and `d8-d15`. SysV floats stay in memory. The slot kind is `slot_mem`, `slot_gpr`, or `slot_fpr`. The prologue spills the registers it uses and the epilogue reloads them. A leading deref reads the register; a ref or any other projection keeps the local in memory.
 

@@ -60,6 +60,27 @@
 
 (pub (const cls_float i64 1))
 
+;; Slot kind. Memory is a frame displacement. GPR and FPR are callee-saved locals.
+(pub (const slot_mem i64 0))
+
+(pub (const slot_gpr i64 1))
+
+(pub (const slot_fpr i64 2))
+
+(pub (fn saved_i ((n i64)) i64 (+ 48 n)))
+
+(pub (fn saved_f ((n i64)) i64 (+ 64 n)))
+
+(pub (fn saved_gpr_n ((s (& isa))) i64
+  (if (. s a64) (ret 10))
+  (if (. s win) (ret 7))
+  5))
+
+(pub (fn saved_fpr_n ((s (& isa))) i64
+  (if (. s a64) (ret 8))
+  (if (. s win) (ret 10))
+  0))
+
 (pub (struct isa (pub (a64 bool)) (pub (win bool))))
 
 (pub (struct arg (pub (reg i64)) (pub (xmm bool)) (pub (off i64))))
@@ -85,6 +106,22 @@
   (if (. s a64)
     (isa_a64.st (&mut (. c a)) w src base disp)
     (isa_x64.st (&mut (. c x)) s w src base disp))))
+
+(pub (fn slot_io ((c (&mut code)) (s (& isa)) (fpr bool) (n i64) (disp i64) (load bool)) unit
+  (if (not fpr) (ret (gpr_io c s n disp load)))
+  (if (. s a64) (ret (slot_fpr_a c n disp load)))
+  (isa_x64.xmm_slot (&mut (. c x)) n disp load)))
+
+(fn gpr_io ((c (&mut code)) (s (& isa)) (n i64) (disp i64) (load bool)) unit
+  (if load
+    (ld c s 8 (saved_i n) fp disp)
+    (st c s 8 (saved_i n) fp disp)))
+
+(fn slot_fpr_a ((c (&mut code)) (n i64) (disp i64) (load bool)) unit
+  (let s (isa true false))
+  (if load
+    (fld c (& s) false (saved_f n) fp disp)
+    (fst c (& s) false fp disp (saved_f n))))
 
 (pub (fn lea ((c (&mut code)) (s (& isa)) (dst i64) (base i64) (disp i64)) unit
   (if (. s a64)

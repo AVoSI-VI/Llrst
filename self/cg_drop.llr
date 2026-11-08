@@ -1,5 +1,6 @@
 ;; Drop flags and per-type glue. Glue pushes a panic frame named drop.<type>.
 (use proj.cg_frame)
+(use proj.cg_trace)
 (use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
@@ -98,14 +99,14 @@
 (pub (fn glue ((g (&mut cg_mod.cg)) (p (& prog.prog)) (t (& ty.sty)) (sym i64)) unit
   (let mut b (cg_isa.new_code))
   (let disp (frame_open g (&mut b)))
-  (cg_frame.bpush g (&mut b) disp (& (frame_name p t)))
+  (cg_trace.bpush g (&mut b) disp (& (frame_name p t)))
   (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
   (if (== (. t kind) 15u8)
     (glue_box g p (&mut b))
     (if (== (. t kind) 10u8)
       (glue_clos (&mut b) (& (. g isa)) (cg_isa.arg_i 0))
       (if (== (. t kind) 8u8) (glue_adt g p (&mut b) t) ())))
-  (cg_frame.bpop g (&mut b) disp)
+  (cg_trace.bpop g (&mut b) disp)
   (cg_isa.epilogue (&mut b) (& (. g isa)))
   (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
   (cg_mod.append_fn g sym (& b))))
