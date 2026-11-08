@@ -44,7 +44,7 @@ install them, document them, write agent workflows.
 | backend | Stage 0 is Cranelift 0.136 (`cranelift-codegen/frontend/module/object/native`), pure Rust, four hardware ISAs. The installed compiler is stage-2 `llrs` from `self/`, emitting x86-64 ELF64 or COFF and aarch64 ELF or Mach-O directly; `llrc` stays in the tree until two releases agree. |
 | syntax | S-expressions, delimiters `( ) "` only; trivial grammar, no precedence. |
 | memory | ownership + borrows with NLL-style regions on MIR; checked, no GC. |
-| tools | `read grep find edit fmt test diff` first (highest-frequency agent tools); `write ls rm git http doc check` added since. One `.llr` per binary. |
+| tools | `read grep find edit fmt test diff` first (highest-frequency agent tools); `write ls rm git http doc check bench lsp` added since. One `.llr` per binary. |
 | tool output | `tag|field|...`, one record per line; exit 0 ok, 1 tool error (`E|<tool>|0|0|0|code|k=v` on stderr), 2 negative result. Lists end with `more|...` when truncated. |
 | integers | `+ - * neg` wrap by default. `--checked` traps them, `shl` `shr` outside `0..bitwidth`, an integer cast that does not fit, a float-to-int whose truncation does not fit, and an int-to-float that is not exact. Without it a shift count is masked with `bitwidth - 1`, a cast truncates, float-to-int saturates, int-to-float rounds. `MIN / -1` and `MIN % -1` always panic `int.overflow` via `sys.checked_div`. `wadd wsub wmul wneg` always wrap. |
 | regex | backtracking, ASCII, no non-greedy; `\N` backreferences compare captured bytes and an unset group does not match; `--ic` lowercases pattern and text; word boundaries are ASCII `[A-Za-z0-9_]` only (`std/re.llr`). Fine for tool-sized input. |
@@ -435,7 +435,7 @@ Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at th
 4. `[x]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
 5. `[x]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
 
-### Phase 15: compiler and tooling `[~]`
+### Phase 15: compiler and tooling `[x]`
 
 Files: `self/cg_frame.llr`, `self/cg_op.llr`, `self/isa_*.llr`, `self/elf.llr`, `self/elf_out.llr`, `self/macho_out.llr`, `self/coff.llr`, `self/drive.llr`, `tools/llr-doc.llr`, new `tools/llr-bench.llr`, new `tools/llr-lsp.llr`, `docs/tools/`, `docs/spec/targets.md`.
 
@@ -444,8 +444,8 @@ Large; listed last. Each item is its own commit.
 1. `[x]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green. [history/comp.md](history/comp.md) records the 2026-11-06 `llrs1`/`llrs0` build ratio as 1.14 (21.6 s / 19.0 s), about a 14% compile-time lever.
 2. `[x]` `--debug` emits `.debug_line` (DWARF 5) in ELF and Mach-O and a line table in COFF, from the statement spans `self/lower.llr` already sets.
 3. `[x]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
-4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
-5. `[ ]` Commit per item: `self: registers for scalar locals`, `self: debug line tables`, `self: riscv64 and x86_64 darwin`, `tools: llr-doc private, llr-bench, llr-lsp`.
+4. `[x]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
+5. `[x]` Commit per item: `self: registers for scalar locals`, `self: debug line tables`, `self: riscv64 and x86_64 darwin`, `tools: llr-doc private, llr-bench, llr-lsp`.
 
 ### Phase 16: sql common layer `[ ]`
 
@@ -574,4 +574,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-07: Phase 14 closed. Phase 15 item 1. A scalar local with no address-taken use lives in a callee-saved register: SysV `rbx r12-r15`, Win64 `rbx rsi rdi r12-r15` and `xmm6-xmm15`, AAPCS64 `x19-x28` and `d8-d15`. SysV floats stay in memory. The slot kind is `slot_mem`, `slot_gpr`, or `slot_fpr`. The prologue spills the registers it uses and the epilogue reloads them. A leading deref reads the register; a ref or any other projection keeps the local in memory.
 - 2026-11-07: Phase 15 item 2. `--debug` writes a DWARF 5 `.debug_line` section into ELF and Mach-O and a COFF line-number table on `.text`. Each statement span is a row at the first byte of that statement. A sequence ends one byte past the function and relocates to the function symbol. Without the flag the object bytes are unchanged. `wasm32` ignores the flag.
 - 2026-11-07: Phase 15 item 3. `riscv64` is a third ISA behind `cg_isa`: LP64D, ELF `e_machine` 243, float ABI double. `x86_64-apple-darwin` emits Mach-O x86-64 with the SysV register map. `tests/cross.sh` builds both; `s390x` still skips.
+- 2026-11-07: Phase 15 item 4. `llr-doc --private` lists private fns, types, consts, traits, and impl methods. `llr-bench FILE` rewrites each `(bench NAME ...)` into a unit function, times calls until 20 ms or 1048576 iterations, and prints `bench|NAME|ns`. `llr-lsp` speaks LSP over stdio: full-text sync, `textDocument/publishDiagnostics` from `llrc check`, and `textDocument/definition` from `llr-grep` on `(fn|extern|struct|enum|const|trait) NAME`. `io.read_exact` reads the framed body. Phase 15 is closed.
 

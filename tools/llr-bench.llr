@@ -1,0 +1,198 @@
+;; llr-bench FILE: time each (bench NAME ...) and print bench|NAME|ns.
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.os)
+(use std.path)
+(use std.sexp)
+(use std.sys)
+
+(fn die ((e (& str))) never (io.eputs (& (fmt.pipe2 "E|<bench>|0|0|0" e))) (os.exit 1))
+
+(fn is_bench ((t (& sexp.tree)) (n i64)) bool
+  (and (== (sexp.kind t n) 2u8) (str.eq (sexp.head t n) "bench")))
+
+(fn fn_name ((t (& sexp.tree)) (n i64)) str
+  (let h (sexp.head t n))
+  (if (and (str.eq h "fn") (> (sexp.count t n) 1))
+    (ret (str.clone (sexp.text t (sexp.child t n 1)))))
+  (if (and (str.eq h "pub") (> (sexp.count t n) 1)) (ret (fn_name t (sexp.child t n 1))))
+  (str.new))
+
+(fn has_main ((t (& sexp.tree))) bool
+  (for i 0 (vec.len (& (. t top)))
+    (if (str.eq (& (fn_name t (@ (vec.get (& (. t top)) i)))) "main") (ret true)))
+  false)
+
+(fn has_use ((t (& sexp.tree)) (path (& str))) bool
+  (for i 0 (vec.len (& (. t top)))
+    (let n (@ (vec.get (& (. t top)) i)))
+    (if (and (str.eq (sexp.head t n) "use") (> (sexp.count t n) 1))
+      (if (str.eq (sexp.text t (sexp.child t n 1)) path) (ret true))))
+  false)
+
+(fn bad_bench ((t (& sexp.tree))) bool
+  (for i 0 (vec.len (& (. t top)))
+    (let n (@ (vec.get (& (. t top)) i)))
+    (if (is_bench t n)
+      (if (or (< (sexp.count t n) 2) (!= (sexp.kind t (sexp.child t n 1)) 0u8)) (ret true))))
+  false)
+
+(fn body_src ((text (& str)) (t (& sexp.tree)) (n i64)) str
+  (let start (sexp.end t (sexp.child t n 1)))
+  (let stop (- (sexp.end t n) 1))
+  (if (<= stop start) (ret (str.new)))
+  (str.slice text start stop))
+
+(fn quote_llr ((s (& str))) str
+  (let mut o (str.from "\""))
+  (for i 0 (str.len s)
+    (let b (str.at s i))
+    (if (== b 92u8)
+      (str.push (&mut o) "\\\\")
+      (if (== b 34u8) (str.push (&mut o) "\\\"") (str.push_byte (&mut o) b))))
+  (str.push_byte (&mut o) 34u8)
+  o)
+
+(fn add_uses ((s (&mut str)) (t (& sexp.tree))) unit
+  (if (not (has_use t "std.fmt")) (str.push s "(use std.fmt)\n"))
+  (if (not (has_use t "std.io")) (str.push s "(use std.io)\n"))
+  (if (not (has_use t "std.time")) (str.push s "(use std.time)\n")))
+
+(fn add_copy ((s (&mut str)) (text (& str)) (t (& sexp.tree)) (n i64)) unit
+  (str.push s (& (str.slice text (sexp.byte t n) (sexp.end t n))))
+  (str.push_byte s 10u8))
+
+(fn add_fn ((s (&mut str)) (text (& str)) (t (& sexp.tree)) (n i64) (i i64)) unit
+  (str.push s "(fn llr_bench_")
+  (str.push s (& (str.from_int i)))
+  (str.push s " () unit")
+  (let body (body_src text t n))
+  (if (== (str.len (& body)) 0)
+    (str.push s ")\n")
+    (do (str.push_byte s 10u8) (str.push s (& body)) (str.push s ")\n"))))
+
+(fn add_time ((s (&mut str)) (i i64) (name (& str))) unit
+  (str.push s "(fn time_")
+  (str.push s (& (str.from_int i)))
+  (str.push s " () unit\n  (let mut iters 1)\n  (let mut elapsed 0)\n  (loop\n")
+  (str.push s "    (let t0 (time.mono_ms))\n    (for k 0 iters (if (>= k 0) (llr_bench_")
+  (str.push s (& (str.from_int i)))
+  (str.push s ")))\n    (set elapsed (- (time.mono_ms) t0))\n")
+  (str.push s "    (if (or (>= elapsed 20) (>= iters 1048576)) (brk))\n")
+  (str.push s "    (set iters (* iters 2)))\n  (measure ")
+  (str.push s (& (quote_llr name)))
+  (str.push s " iters elapsed))\n"))
+
+(fn add_main ((s (&mut str)) (n i64)) unit
+  (str.push s "(fn main () unit\n")
+  (for i 0 n (do (str.push s "  (time_") (str.push s (& (str.from_int i))) (str.push s ")\n")))
+  (str.push s ")\n"))
+
+(fn measure_fn () str
+  (str.from "(fn measure ((name (& str)) (iters i64) (elapsed i64)) unit\n  (let ns (if (<= elapsed 0) 0 (/ (* elapsed 1000000) iters)))\n  (io.puts (& (fmt.pipe3 \"bench\" (& (fmt.field name)) (& (fmt.int ns))))))\n"))
+
+(fn build ((text (& str)) (t (& sexp.tree))) str
+  (let mut s (str.new))
+  (add_uses (&mut s) t)
+  (let mut n 0)
+  (let mut names (vec.new <str>))
+  (for i 0 (vec.len (& (. t top)))
+    (let node (@ (vec.get (& (. t top)) i)))
+    (if (is_bench t node)
+      (do
+        (add_fn (&mut s) text t node n)
+        (vec.push (&mut names) (str.clone (sexp.text t (sexp.child t node 1))))
+        (set n (+ n 1)))
+      (add_copy (&mut s) text t node)))
+  (str.push (&mut s) (& (measure_fn)))
+  (for i 0 n (add_time (&mut s) i (vec.get (& names) i)))
+  (add_main (&mut s) n)
+  s)
+
+(fn gen ((text (& str))) (res str str)
+  (let t (match (sexp.read text) ((res.ok tree) tree) ((res.err e) (ret (res.err e)))))
+  (if (not (has_bench_any (& t))) (ret (res.err (str.from "bench.none"))))
+  (if (bad_bench (& t)) (ret (res.err (str.from "bench.name"))))
+  (if (has_main (& t)) (ret (res.err (str.from "bench.main"))))
+  (res.ok (build text (& t))))
+
+(fn has_bench_any ((t (& sexp.tree))) bool
+  (for i 0 (vec.len (& (. t top))) (if (is_bench t (@ (vec.get (& (. t top)) i))) (ret true)))
+  false)
+
+(fn quote_sh ((s (& str))) str
+  (let mut o (str.from "\""))
+  (str.push (&mut o) s)
+  (str.push_byte (&mut o) 34u8)
+  o)
+
+(fn compile ((src (& str)) (out (& str))) i64
+  (let mut cmd (opt.or (os.env "LLRC") (str.from "llrc")))
+  (str.push (&mut cmd) " build ")
+  (str.push (&mut cmd) (& (quote_sh src)))
+  (str.push (&mut cmd) " -o ")
+  (str.push (&mut cmd) (& (quote_sh out)))
+  (os.shell (& cmd)))
+
+(fn exe_of ((out (& str))) str
+  (if (and (== sys.os_id 2) (not (str.ends out ".exe"))) (str.cat out ".exe") (str.clone out)))
+
+(fn remove_f ((p (& str))) unit
+  (if (fs.exists p) (match (fs.remove p) ((res.ok _) ()) ((res.err _) ()))))
+
+(fn compile_run ((dir (& str)) (prog (& str))) (res str str)
+  (let tag (str.cat ".llr-bench-" (& (str.from_int (os.pid)))))
+  (let genp (path.join dir (& (str.cat (& tag) ".llr"))))
+  (let outp (path.join dir (& tag)))
+  (match (fs.write (& genp) prog) ((res.err e) (ret (res.err e))) ((res.ok _) ()))
+  (let code (compile (& genp) (& outp)))
+  (let exe (exe_of (& outp)))
+  (if (!= code 0)
+    (do (remove_f (& genp)) (remove_f (& exe)) (ret (res.err (str.from "bench.build")))))
+  (let none (vec.new <str>))
+  (let ran (os.run (& exe) (& none) ""))
+  (remove_f (& genp))
+  (remove_f (& exe))
+  (match ran
+    ((res.err e) (res.err e))
+    ((res.ok c)
+      (if (== (. c code) 0) (res.ok (str.clone (& (. c out)))) (res.err (str.clone (& (. c err))))))))
+
+(fn run_file ((src (& str))) unit
+  (let text (match (fs.read src) ((res.ok s) s) ((res.err e) (die (& e)))))
+  (match (gen (& text))
+    ((res.err e) (do (if (str.eq (& e) "bench.none") (os.exit 2)) (die (& e))))
+    ((res.ok prog)
+      (match (compile_run (& (path.dir src)) (& prog))
+        ((res.ok out) (io.put (& out)))
+        ((res.err e) (do (if (str.eq (& e) "bench.build") (os.exit 1)) (die (& e))))))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-bench" "time each (bench NAME ...) form"))
+  (cli.pos (&mut c) "file")
+  (cli.parse (&mut c) (os.args))
+  (run_file (cli.at (& c) 0)))
+
+(test bench_gen
+  (let src
+    "(use std.io)\n(fn add ((a i64) (b i64)) i64 (+ a b))\n(bench add\n  (let n (add 1 2)))\n(bench two (let k 1))\n")
+  (let g (res.unwrap (gen src)))
+  (assert (str.has (& g) "(fn add "))
+  (assert (str.has (& g) "(fn llr_bench_0 () unit"))
+  (assert (str.has (& g) "(add 1 2)"))
+  (assert (str.has (& g) "(measure \"add\""))
+  (assert (str.has (& g) "(fn time_1 () unit"))
+  (assert (not (str.has (& g) "(bench ")))
+  (let at (opt.unwrap (str.find (& g) "(use std.io)")))
+  (assert (opt.is_none (& (str.find_from (& g) "(use std.io)" (+ at 1)))))
+  (match (gen "(fn main () unit)\n(bench a (let k 1))")
+    ((res.ok _) (assert false))
+    ((res.err e) (assert (str.eq (& e) "bench.main"))))
+  (match (gen "(fn a () unit)")
+    ((res.ok _) (assert false))
+    ((res.err e) (assert (str.eq (& e) "bench.none"))))
+  (match (gen "(bench (x) (let k 1))")
+    ((res.ok _) (assert false))
+    ((res.err e) (assert (str.eq (& e) "bench.name")))))

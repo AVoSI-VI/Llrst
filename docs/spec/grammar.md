@@ -37,6 +37,7 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (impl TRAIT TYPE <T:Eq> FN...)               ; generic impl; monomorphized per instance; trait.dup compares the head
 (const NAME TYPE EXPR)                       ; EXPR must be a literal; otherwise const.not_lit
 (test NAME BODY...)                          ; test body, run by llr-test
+(bench NAME BODY...)                         ; timed body; llr-bench rewrites it and runs it
 (pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline use (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )

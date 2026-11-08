@@ -1,4 +1,4 @@
-;; llr-doc FILE.llr... [--out DIR]: std page from pub signatures.
+;; llr-doc FILE.llr... [--out DIR] [--private]: a page from signatures.
 (use std.cli)
 (use std.fmt)
 (use std.fs)
@@ -57,15 +57,29 @@
   (if (str.eq (sexp.head t n) "inline") (ret (sexp.child t n 1)))
   n)
 
-(fn take_method ((t (& tree)) (c i64) (ty (& str)) (fns (&mut str))) unit
+(fn item_ok ((h (& str))) bool
+  (or (str.eq h "fn")
+    (or (str.eq h "extern")
+      (or (str.eq h "struct")
+        (or (str.eq h "enum") (or (str.eq h "const") (or (str.eq h "trait") (str.eq h "inline"))))))))
+
+;; The fn node, or -1 when this child is not a method.
+(fn method_fn ((t (& tree)) (c i64)) i64
+  (let h (sexp.head t c))
+  (if (str.eq h "pub") (ret (unwrap_inline t (sexp.child t c 1))))
+  (if (or (str.eq h "inline") (str.eq h "fn")) (ret (unwrap_inline t c)))
+  (neg 1))
+
+(fn take_method ((t (& tree)) (c i64) (ty (& str)) (fns (&mut str)) (show bool)) unit
   (if (!= (sexp.kind t c) 2u8) (ret))
-  (if (not (str.eq (sexp.head t c) "pub")) (ret))
-  (let inner (unwrap_inline t (sexp.child t c 1)))
+  (if (and (not show) (not (str.eq (sexp.head t c) "pub"))) (ret))
+  (let inner (method_fn t c))
+  (if (< inner 0) (ret))
   (if (str.eq (sexp.head t inner) "fn") (add_fn t inner ty fns)))
 
-(fn walk_impl ((t (& tree)) (n i64) (fns (&mut str))) unit
+(fn walk_impl ((t (& tree)) (n i64) (fns (&mut str)) (show bool)) unit
   (let ty (str.clone (sexp.text t (sexp.child t n 1))))
-  (for i 2 (sexp.count t n) (take_method t (sexp.child t n i) (& ty) fns)))
+  (for i 2 (sexp.count t n) (take_method t (sexp.child t n i) (& ty) fns show)))
 
 (fn add_const ((t (& tree)) (n i64) (mod (& str)) (consts (&mut str))) unit
   (str.push consts "| `")
@@ -84,14 +98,17 @@
     (let c (sexp.child t n i))
     (if (and (== (sexp.kind t c) 2u8) (str.eq (sexp.head t c) "fn")) (add_fn t c (& name) traits))))
 
-(fn take_pub ((t (& tree))
+(fn take_item ((t (& tree))
    (n i64)
    (mod (& str))
+   (show bool)
    (types (&mut str))
    (traits (&mut str))
    (consts (&mut str))
    (fns (&mut str))) unit
-  (let inner (unwrap_inline t (sexp.child t n 1)))
+  (let h (sexp.head t n))
+  (if (and (not (str.eq h "pub")) (or (not show) (not (item_ok h)))) (ret))
+  (let inner (if (str.eq h "pub") (unwrap_inline t (sexp.child t n 1)) (unwrap_inline t n)))
   (let ih (sexp.head t inner))
   (if (or (str.eq ih "struct") (str.eq ih "enum")) (add_type t inner types))
   (if (str.eq ih "trait") (add_trait t inner traits))
@@ -100,6 +117,7 @@
 
 (fn walk ((t (& tree))
    (mod (& str))
+   (show bool)
    (types (&mut str))
    (traits (&mut str))
    (consts (&mut str))
@@ -110,8 +128,8 @@
     (if (== (sexp.kind t n) 3u8) (cont))
     (let h (sexp.head t n))
     (if (str.eq h "test") (add_test t n tests))
-    (if (str.eq h "impl") (walk_impl t n fns))
-    (if (str.eq h "pub") (take_pub t n mod types traits consts fns))))
+    (if (str.eq h "impl") (walk_impl t n fns show))
+    (if (or (str.eq h "pub") (item_ok h)) (take_item t n mod show types traits consts fns))))
 
 (fn trim_comment ((s (& str))) str
   (let mut i 0)
@@ -188,7 +206,7 @@
       (str.push_byte (&mut s) 10u8)))
   s)
 
-(fn render ((src (& str)) (text (& str)) (old (& str))) str
+(fn render ((src (& str)) (text (& str)) (old (& str)) (show bool)) str
   (let t (match (sexp.read text) ((res.ok tree) tree) ((res.err e) (die (& e)))))
   (let mod (path.stem (& (path.base src))))
   (let mut types (str.new))
@@ -196,7 +214,7 @@
   (let mut consts (str.new))
   (let mut fns (str.new))
   (let mut tests (str.new))
-  (walk (& t) (& mod) (&mut types) (&mut traits) (&mut consts) (&mut fns) (&mut tests))
+  (walk (& t) (& mod) show (&mut types) (&mut traits) (&mut consts) (&mut fns) (&mut tests))
   (let mut out (head src (& mod) (& (first_comment (& t))) old))
   (str.push (&mut out) (& (sections (& types) (& traits) (& consts) (& fns) (& tests))))
   out)
@@ -206,21 +224,37 @@
   (str.push (&mut name) ".md")
   (path.join dir (& name)))
 
-(fn one ((src (& str)) (out (& str))) unit
+(fn one ((src (& str)) (out (& str)) (show bool)) unit
   (let text (match (fs.read src) ((res.ok s) s) ((res.err e) (die (& e)))))
   (let old
     (if (== (str.len out) 0)
       (str.new)
       (match (fs.read (& (dest out src))) ((res.ok s) s) ((res.err _) (str.new)))))
-  (let page (render src (& text) (& old)))
+  (let page (render src (& text) (& old) show))
   (if (== (str.len out) 0)
     (io.puts (& page))
     (match (fs.write (& (dest out src)) (& page)) ((res.ok _) ()) ((res.err e) (die (& e))))))
 
 (fn main () unit
-  (let mut c (cli.new "llr-doc" "regenerate a std page from pub signatures"))
+  (let mut c (cli.new "llr-doc" "regenerate a page from signatures"))
   (cli.pos (&mut c) "file")
   (cli.opt (&mut c) "out" "")
+  (cli.flag (&mut c) "private")
   (cli.parse (&mut c) (os.args))
   (let out (cli.get (& c) "out"))
-  (for i 0 (cli.count (& c)) (one (cli.at (& c) i) out)))
+  (let show (cli.has (& c) "private"))
+  (for i 0 (cli.count (& c)) (one (cli.at (& c) i) out show)))
+
+(test doc_private
+  (let text
+    "(struct hid (x i64))\n(fn hid () unit)\n(pub (fn vis () unit))\n(impl box\n  (fn hidm () unit)\n  (pub (fn vism () unit)))\n")
+  (let pubp (render "a.llr" text "" false))
+  (assert (str.has (& pubp) "a.vis"))
+  (assert (str.has (& pubp) "box.vism"))
+  (assert (not (str.has (& pubp) "a.hid")))
+  (assert (not (str.has (& pubp) "box.hidm")))
+  (assert (not (str.has (& pubp) "(struct hid")))
+  (let both (render "a.llr" text "" true))
+  (assert (str.has (& both) "a.hid"))
+  (assert (str.has (& both) "box.hidm"))
+  (assert (str.has (& both) "(struct hid")))

@@ -9,6 +9,7 @@
 | read all stdin | `(io.stdin)` returns `str` |
 | read line | `(io.read_line fd)` returns `(opt str)`. The newline is not included. `none` is end of file. Bytes past the line stay with that fd |
 | read lines | `(io.lines fd)` returns `(vec str)`. A final newline does not add an empty line |
+| read exact | `(io.read_exact fd n)` returns `str` of at most `n` bytes. A short string is end of file |
 | read file | `(fs.read (& path))` returns `(res str str)` |
 | write file | `(fs.write (& path) (& data))` returns `(res unit str)` |
 | append file | `(fs.append (& path) (& data))` returns `(res unit str)` |

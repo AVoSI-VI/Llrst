@@ -32,7 +32,7 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | `web/` | browser glue for the wasm UI host |
 | `runtime/` | C shims: `llr_stat.c` on Unix; `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` on Windows |
 | `scripts/` | `install.sh`, `install.ps1`, `self.sh`, `check-lines.sh` |
-| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff llr-doc llr-check` (Llrst) |
+| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff llr-doc llr-check llr-bench llr-lsp` (Llrst) |
 | `tests/` | golden tests; `tests/run.sh` |
 
 Install: `scripts/install.sh` on Linux or macOS, `scripts/install.ps1` on Windows (see `docs/install.md`). `cargo build --release` produces stage 0 only.

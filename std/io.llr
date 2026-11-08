@@ -109,6 +109,17 @@
   (loop (match (read_line fd) ((opt.none) (brk)) ((opt.some s) (vec.push (&mut out) s))))
   out))
 
+;; At most n bytes. Fewer means end of file.
+(pub (fn read_exact ((fd i32) (n i64)) str
+  (let mut s (str.new))
+  (if (<= n 0) (ret s))
+  (str.reserve (&mut s) n)
+  (while (< (. s len) n)
+    (let got (sys.read fd (ptr.add (. s p) (. s len)) (as u64 (- n (. s len)))))
+    (if (<= got 0) (ret s))
+    (set (. s len) (+ (. s len) got)))
+  s))
+
 (test io_streams
   (put "x")
   (puts "y")
@@ -143,4 +154,19 @@
   (let rd3 (sys.open (. path p) 0i32 0i32))
   (match (read_line rd3) ((opt.some s) (assert_eq (& s) "xyz")) ((opt.none) (assert false)))
   (sys.close rd3)
+  (let _ (sys.unlink (. path p))))
+
+(test io_exact
+  (if (== sys.os_id 3) (ret))
+  (let path (str.cstr "/tmp/llr_io_exact.txt"))
+  (let wr (sys.open (. path p) 577i32 420i32))
+  (sys.write_str wr "abcdef")
+  (sys.close wr)
+  (let rd (sys.open (. path p) 0i32 0i32))
+  (assert_eq (& (read_exact rd 2)) "ab")
+  (assert_eq (& (read_exact rd 3)) "cde")
+  (assert_eq (& (read_exact rd 10)) "f")
+  (assert_eq (& (read_exact rd 4)) "")
+  (assert_eq (& (read_exact rd 0)) "")
+  (sys.close rd)
   (let _ (sys.unlink (. path p))))

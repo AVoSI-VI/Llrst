@@ -1,0 +1,472 @@
+;; llr-lsp: LSP over stdio. Diagnostics from llrc check. Definition from llr-grep.
+(use proj.lsp_util)
+(use std.cli)
+(use std.fmt)
+(use std.fs)
+(use std.io)
+(use std.json)
+(use std.json_read)
+(use std.os)
+(use std.path)
+(use std.sys)
+
+(struct rdr (buf str) (at i64))
+
+(struct hit (uri str) (json str))
+
+(struct loc (path str) (line i64) (col i64) (ok bool))
+
+(struct doc (uri str) (text str))
+
+(struct srv (root str) (docs (vec doc)) (shut bool))
+
+(fn at0 ((n i64)) i64 (if (> n 0) (- n 1) 0))
+
+(fn rng ((line i64) (ch i64) (len i64)) str
+  (let n (if (<= len 0) 1 len))
+  (let mut s (str.from "{\"start\":{\"line\":"))
+  (str.push (&mut s) (& (fmt.int (at0 line))))
+  (str.push (&mut s) ",\"character\":")
+  (str.push (&mut s) (& (fmt.int (at0 ch))))
+  (str.push (&mut s) "},\"end\":{\"line\":")
+  (str.push (&mut s) (& (fmt.int (at0 line))))
+  (str.push (&mut s) ",\"character\":")
+  (str.push (&mut s) (& (fmt.int (+ (at0 ch) n))))
+  (str.push (&mut s) "}}")
+  s)
+
+(fn msg_of ((f (& (vec str)))) str
+  (let mut s (str.clone (vec.get f 5)))
+  (for i 6 (vec.len f) (do (str.push_byte (&mut s) 124u8) (str.push (&mut s) (vec.get f i))))
+  s)
+
+(fn one_diag ((line i64) (col i64) (len i64) (sev i64) (msg (& str))) str
+  (let mut s (str.from "{\"range\":"))
+  (str.push (&mut s) (& (rng line col len)))
+  (str.push (&mut s) ",\"severity\":")
+  (str.push (&mut s) (& (fmt.int sev)))
+  (str.push (&mut s) ",\"source\":\"llrc\",\"message\":")
+  (str.push (&mut s) (& (json.quote msg)))
+  (str.push_byte (&mut s) 125u8)
+  s)
+
+(fn parse_dg ((line (& str)) (scratch (& str)) (doc (& str))) (opt hit)
+  (let f (fmt.fields line))
+  (if (< (vec.len (& f)) 6) (ret (opt.none)))
+  (let tag (vec.get (& f) 0))
+  (if (and (not (str.eq tag "E")) (not (str.eq tag "W"))) (ret (opt.none)))
+  (let file (vec.get (& f) 1))
+  (let ln (opt.or (str.to_int (vec.get (& f) 2)) 1))
+  (let col (opt.or (str.to_int (vec.get (& f) 3)) 1))
+  (let len (opt.or (str.to_int (vec.get (& f) 4)) 1))
+  (let sev (if (str.eq tag "E") 1 2))
+  (let uri (if (lsp_util.same_file file scratch) (str.clone doc) (lsp_util.path_uri file)))
+  (opt.some (hit uri (one_diag ln col len sev (& (msg_of (& f)))))))
+
+(fn collect ((err (& str)) (scratch (& str)) (doc (& str))) (vec hit)
+  (let lines (str.lines err))
+  (let mut out (vec.new <hit>))
+  (for i 0 (vec.len (& lines))
+    (match (parse_dg (vec.get (& lines) i) scratch doc)
+      ((opt.some h) (vec.push (&mut out) h))
+      ((opt.none) ())))
+  out)
+
+(fn seen ((uris (& (vec str))) (u (& str))) bool
+  (for i 0 (vec.len uris) (if (str.eq (vec.get uris i) u) (ret true)))
+  false)
+
+(fn pack ((hits (& (vec hit))) (uri (& str))) str
+  (let mut s (str.from "["))
+  (let mut n 0)
+  (for i 0 (vec.len hits)
+    (if (str.eq (& (. (vec.get hits i) uri)) uri)
+      (do
+        (if (> n 0) (str.push_byte (&mut s) 44u8))
+        (str.push (&mut s) (& (. (vec.get hits i) json)))
+        (set n (+ n 1)))))
+  (str.push_byte (&mut s) 93u8)
+  s)
+
+(fn send ((body (& str))) unit
+  (io.put "Content-Length: ")
+  (io.put (& (fmt.int (str.len body))))
+  (io.put "\r\n\r\n")
+  (io.put body))
+
+(fn reply ((id (& str)) (result (& str))) unit
+  (let mut s (str.from "{\"jsonrpc\":\"2.0\",\"id\":"))
+  (str.push (&mut s) id)
+  (str.push (&mut s) ",\"result\":")
+  (str.push (&mut s) result)
+  (str.push_byte (&mut s) 125u8)
+  (send (& s)))
+
+(fn reply_err ((id (& str)) (msg (& str))) unit
+  (let mut s (str.from "{\"jsonrpc\":\"2.0\",\"id\":"))
+  (str.push (&mut s) id)
+  (str.push (&mut s) ",\"error\":{\"code\":-32601,\"message\":")
+  (str.push (&mut s) (& (json.quote msg)))
+  (str.push (&mut s) "}}")
+  (send (& s)))
+
+(fn note ((method (& str)) (params (& str))) unit
+  (let mut s (str.from "{\"jsonrpc\":\"2.0\",\"method\":"))
+  (str.push (&mut s) (& (json.quote method)))
+  (str.push (&mut s) ",\"params\":")
+  (str.push (&mut s) params)
+  (str.push_byte (&mut s) 125u8)
+  (send (& s)))
+
+(fn jtext ((v (& json_read.jval)) (key (& str))) str
+  (match (json_read.get v key)
+    ((opt.none) (str.new))
+    ((opt.some i)
+      (do
+        (let it (vec.get (& (. v items)) i))
+        (if (== (. it kind) 3u8) (str.clone (& (. it text))) (str.new))))))
+
+(fn jint ((v (& json_read.jval)) (key (& str))) i64
+  (match (json_read.get v key)
+    ((opt.none) 0)
+    ((opt.some i) (opt.or (str.to_int (& (. (vec.get (& (. v items)) i) text))) 0))))
+
+(fn id_raw ((v (& json_read.jval))) str
+  (match (json_read.get v "id")
+    ((opt.none) (str.new))
+    ((opt.some i)
+      (do
+        (let it (vec.get (& (. v items)) i))
+        (if (== (. it kind) 0u8) (ret (str.from "null")))
+        (if (== (. it kind) 3u8) (json.quote (& (. it text))) (str.clone (& (. it text))))))))
+
+(fn pget ((v (& json_read.jval))) i64
+  (match (json_read.get v "params") ((opt.some i) i) ((opt.none) (neg 1))))
+
+(fn child ((v (& json_read.jval)) (key (& str))) i64
+  (match (json_read.get v key) ((opt.some i) i) ((opt.none) (neg 1))))
+
+(fn doc_uri ((p (& json_read.jval))) str
+  (let i (child p "textDocument"))
+  (if (< i 0) (ret (str.new)))
+  (jtext (vec.get (& (. p items)) i) "uri"))
+
+(fn nested_text ((p (& json_read.jval)) (obj (& str)) (key (& str))) str
+  (let i (child p obj))
+  (if (< i 0) (ret (str.new)))
+  (jtext (vec.get (& (. p items)) i) key))
+
+(fn change_text ((p (& json_read.jval))) str
+  (let i (child p "contentChanges"))
+  (if (< i 0) (ret (str.new)))
+  (let arr (vec.get (& (. p items)) i))
+  (if (== (vec.len (& (. arr items))) 0) (ret (str.new)))
+  (jtext (vec.get (& (. arr items)) 0) "text"))
+
+(fn fill ((r (&mut rdr))) bool
+  (let chunk (io.read_exact 0 4096))
+  (if (== (str.len (& chunk)) 0) (ret false))
+  (str.push (&mut (. r buf)) (& chunk))
+  true)
+
+(fn read_hdr ((r (&mut rdr))) str
+  (loop
+    (match (str.find_from (& (. r buf)) "\r\n\r\n" (. r at))
+      ((opt.some i)
+        (do (let h (str.slice (& (. r buf)) (. r at) i)) (set (. r at) (+ i 4)) (ret h)))
+      ((opt.none) ()))
+    (if (not (fill r)) (ret (str.new)))))
+
+(fn take_n ((r (&mut rdr)) (n i64)) str
+  (while (< (- (str.len (& (. r buf))) (. r at)) n) (if (not (fill r)) (brk)))
+  (let have (- (str.len (& (. r buf))) (. r at)))
+  (let k (if (> n have) have n))
+  (let s (str.slice (& (. r buf)) (. r at) (+ (. r at) k)))
+  (set (. r at) (+ (. r at) k))
+  (if (> (. r at) 65536)
+    (do (set (. r buf) (str.slice (& (. r buf)) (. r at) (str.len (& (. r buf))))) (set (. r at) 0)))
+  s)
+
+(fn tool_path ((base (& str))) str
+  (let name (if (== sys.os_id 2) (str.cat base ".exe") (str.clone base)))
+  (let selfp (os.exe_path))
+  (if (> (str.len (& selfp)) 0)
+    (do
+      (let beside (path.join (& (path.dir (& selfp))) (& name)))
+      (if (fs.exists (& beside)) (ret beside))))
+  (str.clone base))
+
+(fn argv_of ((extra (& (vec str)))) (vec str)
+  (let raw (opt.or (os.env "LLRC") (str.from "llrc")))
+  (let bits (str.split (& raw) 32u8))
+  (let mut v (vec.new <str>))
+  (for i 0 (vec.len (& bits))
+    (let p (vec.get (& bits) i))
+    (if (> (str.len p) 0) (vec.push (&mut v) (str.clone p))))
+  (if (== (vec.len (& v)) 0) (vec.push (&mut v) (str.from "llrc")))
+  (for i 0 (vec.len extra) (vec.push (&mut v) (str.clone (vec.get extra i))))
+  v)
+
+(fn run_at ((argv (& (vec str))) (err bool)) str
+  (let prog (str.clone (vec.get argv 0)))
+  (let mut args (vec.new <str>))
+  (for i 1 (vec.len argv) (vec.push (&mut args) (str.clone (vec.get argv i))))
+  (match (os.run (& prog) (& args) "")
+    ((res.err e) (if err e (str.new)))
+    ((res.ok c)
+      (if (and err (or (< (. c code) 0) (== (. c code) 127)))
+        (str.from "E|<lsp>|1|1|1|lsp.llrc|fix=install llrc or set LLRC")
+        (if err (str.clone (& (. c err))) (str.clone (& (. c out))))))))
+
+(fn scratch_of ((doc (& str))) str
+  (let dir (if (== (str.len doc) 0) (fs.temp_dir) (path.dir doc)))
+  (let name (str.cat ".llr-lsp-" (& (str.cat (& (str.from_int (os.pid))) ".llr"))))
+  (path.join (& dir) (& name)))
+
+(fn check_src ((text (& str)) (doc (& str))) str
+  (let scratch (scratch_of doc))
+  (match (fs.write (& scratch) text)
+    ((res.err e) (ret (str.cat "E|<lsp>|1|1|1|io.write|" (& e))))
+    ((res.ok _) ()))
+  (let mut extra (vec.new <str>))
+  (vec.push (&mut extra) (str.from "check"))
+  (vec.push (&mut extra) (str.clone (& scratch)))
+  (let err (run_at (& (argv_of (& extra))) true))
+  (match (fs.remove (& scratch)) ((res.ok _) ()) ((res.err _) ()))
+  err)
+
+(fn pub_params ((uri (& str)) (diags (& str))) str
+  (let mut s (str.from "{\"uri\":"))
+  (str.push (&mut s) (& (json.quote uri)))
+  (str.push (&mut s) ",\"diagnostics\":")
+  (str.push (&mut s) diags)
+  (str.push_byte (&mut s) 125u8)
+  s)
+
+(fn emit_diags ((err (& str)) (scratch (& str)) (docu (& str))) unit
+  (let hits (collect err scratch docu))
+  (let mut uris (vec.new <str>))
+  (vec.push (&mut uris) (str.clone docu))
+  (for i 0 (vec.len (& hits))
+    (let u (& (. (vec.get (& hits) i) uri)))
+    (if (not (seen (& uris) u)) (vec.push (&mut uris) (str.clone u))))
+  (for i 0 (vec.len (& uris))
+    (let u (vec.get (& uris) i))
+    (note "textDocument/publishDiagnostics" (& (pub_params u (& (pack (& hits) u)))))))
+
+(fn refresh ((uri (& str)) (text (& str))) unit
+  (let path (lsp_util.uri_path uri))
+  (let err (check_src text (& path)))
+  (emit_diags (& err) (& (scratch_of (& path))) uri))
+
+(fn def_pat ((name (& str))) str
+  (let mut s (str.from "\\((fn|extern|struct|enum|const|trait) "))
+  (str.push (&mut s) name)
+  (str.push (&mut s) "\\b")
+  s)
+
+(fn grep_def ((name (& str)) (root (& str))) str
+  (let mut args (vec.new <str>))
+  (vec.push (&mut args) (tool_path "llr-grep"))
+  (vec.push (&mut args) (def_pat name))
+  (vec.push (&mut args) (str.clone root))
+  (vec.push (&mut args) (str.from "--glob"))
+  (vec.push (&mut args) (str.from "*.llr"))
+  (vec.push (&mut args) (str.from "--max"))
+  (vec.push (&mut args) (str.from "50"))
+  (run_at (& args) false))
+
+(fn better ((best (& loc)) (path (& str)) (doc (& str))) bool
+  (if (not (. best ok)) (ret true))
+  (and (lsp_util.same_file path doc) (not (lsp_util.same_file (& (. best path)) doc))))
+
+(fn take_hit ((line (& str)) (doc (& str)) (best (&mut loc))) unit
+  (let f (fmt.fields line))
+  (if (or (< (vec.len (& f)) 4) (not (str.eq (vec.get (& f) 0) "hit"))) (ret))
+  (let path (str.clone (vec.get (& f) 1)))
+  (if (not (better best (& path) doc)) (ret))
+  (set (. best path) path)
+  (set (. best line) (opt.or (str.to_int (vec.get (& f) 2)) 1))
+  (set (. best col) (opt.or (str.to_int (vec.get (& f) 3)) 1))
+  (set (. best ok) true))
+
+(fn choose ((out (& str)) (doc (& str))) loc
+  (let lines (str.lines out))
+  (let mut best (loc (str.new) 0 0 false))
+  (for i 0 (vec.len (& lines)) (take_hit (vec.get (& lines) i) doc (&mut best)))
+  best)
+
+(fn name_col ((path (& str)) (line i64) (name (& str))) i64
+  (let text (match (fs.read path) ((res.ok s) s) ((res.err _) (ret 0))))
+  (let ls (str.lines (& text)))
+  (if (or (< line 1) (> line (vec.len (& ls)))) (ret 0))
+  (match (str.find (vec.get (& ls) (- line 1)) name) ((opt.some i) (+ i 1)) ((opt.none) 0)))
+
+(fn def_at ((name (& str)) (doc (& str)) (root (& str))) str
+  (if (or (== (str.len name) 0) (== (str.len root) 0)) (ret (str.from "null")))
+  (let best (choose (& (grep_def name root)) doc))
+  (if (not (. best ok)) (ret (str.from "null")))
+  (let col0 (name_col (& (. best path)) (. best line) name))
+  (let col (if (> col0 0) col0 (. best col)))
+  (let mut s (str.from "{\"uri\":"))
+  (str.push (&mut s) (& (json.quote (& (lsp_util.path_uri (& (. best path)))))))
+  (str.push (&mut s) ",\"range\":")
+  (str.push (&mut s) (& (rng (. best line) col (str.len name))))
+  (str.push_byte (&mut s) 125u8)
+  s)
+
+(fn stored ((s (& srv)) (uri (& str))) str
+  (for i 0 (vec.len (& (. s docs)))
+    (if (str.eq uri (& (. (vec.get (& (. s docs)) i) uri)))
+      (ret (str.clone (& (. (vec.get (& (. s docs)) i) text))))))
+  (str.new))
+
+(fn remember ((s (&mut srv)) (uri str) (text str)) unit
+  (for i 0 (vec.len (& (. s docs)))
+    (if (str.eq (& uri) (& (. (vec.get (& (. s docs)) i) uri)))
+      (do (set (. (vec.get_mut (&mut (. s docs)) i) text) text) (ret))))
+  (vec.push (&mut (. s docs)) (doc uri text)))
+
+(fn forget ((s (&mut srv)) (uri (& str))) unit
+  (let mut i 0)
+  (while (< i (vec.len (& (. s docs))))
+    (if (str.eq uri (& (. (vec.get (& (. s docs)) i) uri)))
+      (do (drop (vec.remove (&mut (. s docs)) i)) (ret)))
+    (set i (+ i 1))))
+
+(fn params ((v (& json_read.jval))) (& json_read.jval)
+  (let i (pget v))
+  (if (< i 0) (ret v))
+  (vec.get (& (. v items)) i))
+
+(fn pos_of ((p (& json_read.jval))) (& json_read.jval)
+  (let i (child p "position"))
+  (if (< i 0) (ret p))
+  (vec.get (& (. p items)) i))
+
+(fn on_open ((s (&mut srv)) (v (& json_read.jval))) unit
+  (let p (params v))
+  (let uri (doc_uri p))
+  (let text (nested_text p "textDocument" "text"))
+  (remember s (str.clone (& uri)) (str.clone (& text)))
+  (refresh (& uri) (& text)))
+
+(fn on_change ((s (&mut srv)) (v (& json_read.jval))) unit
+  (let p (params v))
+  (let uri (doc_uri p))
+  (let text (change_text p))
+  (remember s (str.clone (& uri)) (str.clone (& text)))
+  (refresh (& uri) (& text)))
+
+(fn on_save ((s (&mut srv)) (v (& json_read.jval))) unit
+  (let p (params v))
+  (let uri (doc_uri p))
+  (let path (lsp_util.uri_path (& uri)))
+  (let text
+    (if (>= (child p "text") 0)
+      (jtext p "text")
+      (match (fs.read (& path)) ((res.ok body) body) ((res.err _) (str.new)))))
+  (remember s (str.clone (& uri)) (str.clone (& text)))
+  (refresh (& uri) (& text)))
+
+(fn on_close ((s (&mut srv)) (v (& json_read.jval))) unit
+  (let p (params v))
+  (let uri (doc_uri p))
+  (forget s (& uri))
+  (note "textDocument/publishDiagnostics" (& (pub_params (& uri) "[]"))))
+
+(fn on_def ((s (& srv)) (v (& json_read.jval)) (id (& str))) unit
+  (let p (params v))
+  (let uri (doc_uri p))
+  (let path (lsp_util.uri_path (& uri)))
+  (let buf (stored s (& uri)))
+  (let text
+    (if (> (str.len (& buf)) 0)
+      buf
+      (match (fs.read (& path)) ((res.ok body) body) ((res.err _) (str.new)))))
+  (let pos (pos_of p))
+  (let name (lsp_util.word_at (& text) (jint pos "line") (jint pos "character")))
+  (let root (if (> (str.len (& (. s root))) 0) (str.clone (& (. s root))) (path.dir (& path))))
+  (reply id (& (def_at (& name) (& path) (& root)))))
+
+(fn folder_uri ((p (& json_read.jval))) str
+  (let i (child p "workspaceFolders"))
+  (if (< i 0) (ret (str.new)))
+  (let arr (vec.get (& (. p items)) i))
+  (if (or (!= (. arr kind) 4u8) (== (vec.len (& (. arr items))) 0)) (ret (str.new)))
+  (jtext (vec.get (& (. arr items)) 0) "uri"))
+
+(fn put_root ((_s (&mut srv)) (path str)) unit (set (. _s root) path))
+
+(fn set_root ((s (&mut srv)) (v (& json_read.jval))) unit
+  (let p (params v))
+  (let u (jtext p "rootUri"))
+  (if (> (str.len (& u)) 0) (do (put_root s (lsp_util.uri_path (& u))) (ret)))
+  (let f (folder_uri p))
+  (if (> (str.len (& f)) 0) (do (put_root s (lsp_util.uri_path (& f))) (ret)))
+  (put_root s (jtext p "rootPath")))
+
+(fn dispatch ((s (&mut srv)) (v (& json_read.jval))) bool
+  (let m (jtext v "method"))
+  (let id (id_raw v))
+  (if (str.eq (& m) "initialize")
+    (do
+      (set_root s v)
+      (reply (& id) "{\"capabilities\":{\"textDocumentSync\":1,\"definitionProvider\":true}}")
+      (ret true)))
+  (if (str.eq (& m) "shutdown") (do (reply (& id) "null") (set (. s shut) true) (ret true)))
+  (if (str.eq (& m) "exit") (os.exit (if (. s shut) 0 1)))
+  (if (str.eq (& m) "textDocument/didOpen") (do (on_open s v) (ret true)))
+  (if (str.eq (& m) "textDocument/didChange") (do (on_change s v) (ret true)))
+  (if (str.eq (& m) "textDocument/didSave") (do (on_save s v) (ret true)))
+  (if (str.eq (& m) "textDocument/didClose") (do (on_close s v) (ret true)))
+  (if (str.eq (& m) "textDocument/definition") (do (on_def s v (& id)) (ret true)))
+  (if (> (str.len (& id)) 0) (reply_err (& id) "method not found"))
+  true)
+
+(fn serve () unit
+  (let mut r (rdr (str.new) 0))
+  (let mut s (srv (str.new) (vec.new <doc>) false))
+  (loop
+    (let h (read_hdr (&mut r)))
+    (if (== (str.len (& h)) 0) (ret))
+    (let n (lsp_util.header_len (& h)))
+    (if (< n 0) (ret))
+    (let body (take_n (&mut r) n))
+    (match (json_read.read (& body))
+      ((res.err _) ())
+      ((res.ok v) (if (not (dispatch (&mut s) (& v))) (ret))))))
+
+(fn main () unit
+  (let mut c (cli.new "llr-lsp" "LSP over stdio; diagnostics from llrc, definition from llr-grep"))
+  (cli.parse (&mut c) (os.args))
+  (serve))
+
+(test lsp_uri
+  (assert_eq (& (lsp_util.uri_path "file:///C:/a.llr")) "C:/a.llr")
+  (assert_eq (& (lsp_util.uri_path "file:///tmp/a%20b.llr")) "/tmp/a b.llr")
+  (assert_eq (& (lsp_util.path_uri "C:/a b.llr")) "file:///C:/a%20b.llr")
+  (assert (lsp_util.same_file "C:/a/.llr-lsp-1.llr" "C:\\a\\.llr-lsp-1.llr"))
+  (assert (not (lsp_util.same_file "std/vec.llr" ".llr-lsp-1.llr")))
+  (assert_eq (& (lsp_util.word_at "(fn push ((v i64)) unit)" 0 5)) "push")
+  (assert_eq (lsp_util.header_len "Content-Length: 12\r\n\r\n") 12)
+  (assert_eq (lsp_util.header_len "Host: x\r\n") (neg 1))
+  (let v (res.unwrap (json_read.read "{\"id\":3,\"method\":\"initialize\"}")))
+  (assert_eq (& (id_raw (& v))) "3")
+  (let q (res.unwrap (json_read.read "{\"id\":\"ab\"}")))
+  (assert_eq (& (id_raw (& q))) "\"ab\"")
+  (assert (str.has (& (def_pat "push")) "push"))
+  (assert (str.has (& (def_pat "push")) "(fn|extern|struct|enum|const|trait)")))
+
+(test lsp_diag
+  (let err
+    "E|scratch.llr|2|3|4|type.mismatch|want=i64\nW|std/vec.llr|1|1|1|name.unused|name=x\nnoise\n")
+  (let hits (collect err "scratch.llr" "file:///a.llr"))
+  (assert_eq (vec.len (& hits)) 2)
+  (let body (pack (& hits) "file:///a.llr"))
+  (assert (str.has (& body) "type.mismatch"))
+  (assert (str.has (& body) "\"line\":1"))
+  (assert (str.has (& body) "\"character\":2"))
+  (assert (not (str.has (& body) "name.unused")))
+  (let other (pack (& hits) (& (lsp_util.path_uri "std/vec.llr"))))
+  (assert (str.has (& other) "name.unused")))
