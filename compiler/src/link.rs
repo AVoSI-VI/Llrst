@@ -148,7 +148,7 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>, shared: bool) -> PRes
     if wants_web(obj) {
         cmd.arg(find_named("llr_ui_web.o").ok_or_else(ui_missing)?);
     }
-    if wants_name(obj, "llr_reload_prev") {
+    if wants_name(obj, "llr_reload_") {
         cmd.arg(find_named("llr_reload.o").ok_or_else(|| {
             Diag::error(Span::default(), "link.failed").kv("cmd", "cc").kv("got", "llr_reload.o missing")
         })?);

@@ -1,6 +1,6 @@
 # Llrst
 
-Llrst 0.4.5. A compiled, memory-safe language designed for models, not people. Files end in `.llr`.
+Llrst 0.8.0. A compiled, memory-safe language designed for models, not people. Files end in `.llr`.
 The syntax is S-expressions with three delimiters, the memory model is Rust's (ownership,
 borrows, NLL), and every diagnostic is one machine-readable line. The installed compiler
 `llrc` is stage-2 `llrs` from `self/`. Stage 0 in `compiler/` is Rust on Cranelift.
@@ -15,10 +15,15 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | path | content |
 |------|---------|
 | `HANDOFF.md` | rules, decisions, architecture, implementation notes, phased work plan; finished plans in `history/` |
-| `history/ui.md` | finished plan for `llr-ui`, the UI framework |
+| `history/bootstrap.md` | finished plan for the first build |
+| `history/self-hosting.md` | finished plan for the `self/` compiler |
 | `history/phases.md` | finished plan for phases 0-7 |
+| `history/phases-8-15.md` | finished plan for phases 8-15 |
+| `history/progress.md` | progress log through 2026-11-07 |
 | `history/comp.md` | finished plan for compile speed of `self/` |
-| `DARWIN.md` | plan for the aarch64 backend and Mach-O writer in `self/`, so the compiler self-hosts on an arm64 Mac |
+| `history/OPT.md` | retired compile-time findings |
+| `history/ui.md` | finished plan for `llr-ui`, the UI framework |
+| `history/DARWIN.md` | finished plan for self-hosting on an arm64 Mac |
 | `examples/` | runnable programs; start with `examples/hello.llr` |
 | `docs/spec/` | grammar, tokens, types, memory model, error format, targets |
 | `docs/canon/` | the one right way per task |
@@ -26,13 +31,13 @@ borrows, NLL), and every diagnostic is one machine-readable line. The installed 
 | `docs/tools/` | agent tools written in Llrst |
 | `docs/workflows/` | step lists for agents |
 | `compiler/` | stage 0 `llrc` (Rust, Cranelift); not installed |
-| `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs`, emitting x86-64 ELF and COFF and aarch64 ELF and Mach-O |
+| `self/` | installed compiler (`llrs`); the `llrc` command is stage-2 `llrs`, emitting x86-64 ELF, COFF, and Mach-O, aarch64 ELF and Mach-O, riscv64 ELF, and wasm32 |
 | `std/` | standard library (Llrst) |
 | `ui/` | UI framework (Llrst); `(use ui.NAME)` loads `ui/NAME.llr` |
 | `web/` | browser glue for the wasm UI host |
 | `runtime/` | C shims: `llr_stat.c` on Unix; `llr_wsa.c`, `llr_win.c`, `llr_win_sock.c`, `llr_win_proc.c` on Windows |
-| `scripts/` | `install.sh`, `install.ps1`, `self.sh`, `check-lines.sh` |
-| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff llr-doc llr-check llr-bench llr-lsp` (Llrst) |
+| `scripts/` | `install.sh`, `install.ps1`, `self.sh`, `self.ps1`, `check-lines.sh` |
+| `tools/` | `llr-read llr-grep llr-find llr-edit llr-write llr-ls llr-rm llr-git llr-http llr-fmt llr-test llr-diff llr-doc llr-check llr-bench llr-lsp llr-ui` (Llrst) |
 | `tests/` | golden tests; `tests/run.sh` |
 
 Install: `scripts/install.sh` on Linux or macOS, `scripts/install.ps1` on Windows (see `docs/install.md`). `cargo build --release` produces stage 0 only.

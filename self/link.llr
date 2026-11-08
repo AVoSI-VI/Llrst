@@ -300,9 +300,12 @@
   (if (not (vec.has needs sym)) (ret (str.new)))
   (add_need cmd dirs file))
 
+(fn wants_reload ((needs (& (vec str)))) bool
+  (vec.any needs (clos ((n (& str))) bool (str.starts n "llr_reload_"))))
+
 (fn add_pair ((cmd (&mut str)) (dirs (& (vec str))) (needs (& (vec str))) (ext (& str))) str
   (let reload (str.cat "llr_reload" ext))
-  (let err (add_if cmd dirs needs "llr_reload_prev" (& reload)))
+  (let err (if (wants_reload needs) (add_need cmd dirs (& reload)) (str.new)))
   (if (> (str.len (& err)) 0) (ret err))
   (let dl (str.cat "llr_dl" ext))
   (add_if cmd dirs needs "llr_dlopen" (& dl)))
@@ -465,7 +468,11 @@
   (assert (not (wants_web (& n))))
   (vec.push (&mut n) (str.from "llr_web_present"))
   (assert (wants_web (& n)))
-  (assert (not (wants_ui (& (vec.new <str>))))))
+  (assert (not (wants_ui (& (vec.new <str>)))))
+  (let mut r (vec.new <str>))
+  (vec.push (&mut r) (str.from "llr_reload_set_bad"))
+  (assert (wants_reload (& r)))
+  (assert (not (wants_reload (& (vec.new <str>))))))
 
 (test mach_a64
   (assert_eq (mach_a64 "arm64") true)

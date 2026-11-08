@@ -161,7 +161,7 @@
 (fn main () unit
   (let args (os.args))
   (let o (parse (& args)))
-  (if (str.eq (& (. o cmd)) "version") (ret (io.puts "llrc|0.4.5")))
+  (if (str.eq (& (. o cmd)) "version") (ret (io.puts "llrc|0.8.0")))
   (if (or (not (command (& (. o cmd)))) (== (str.len (& (. o file))) 0)) (do (usage) (os.exit 1)))
   (if (str.eq (& (. o cmd)) "emit-mir") (ret (emit_cmd (& o))))
   (if (str.eq (& (. o cmd)) "run") (ret (run_cmd o)))
