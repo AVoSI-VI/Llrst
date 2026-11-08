@@ -104,6 +104,8 @@ float-to-int saturates and int-to-float rounds.
 
 `<T:Eq:Ord>` adds bounds. A missing impl is `trait.missing|trait=|ty=`. A second impl is `trait.dup|trait=|ty=`.
 
+`(trait From (fn from (Self) Self))` is how `(try e)` converts a `res` error. An impl may replace the parameter type; that type is the source, and the return type is the impl type. Inside a function that returns `(res U F)`, `(try e)` on `(res T E)` calls `from` when `F` implements `From` and the parameter is `E`. The same error type is returned unchanged. Anything else is `type.mismatch`. `trait.dup` still allows one `From` impl per head type.
+
 `(& (dyn Eq))` and `(&mut (dyn Eq))` are a 16-byte value: data pointer, then vtable. Passing `(& n)` where that type is expected builds it when `n`'s type implements the trait. A method that returns `Self` or takes `Self` by value is `trait.object|why=self`, so `Clone` is static only.
 
 `(box (dyn Eq))` is the same 16 bytes, but the data pointer owns a heap allocation of one concrete value. It is moved, not copied. Drop calls the vtable's first word (drop in place) and then frees the allocation. Method words follow that drop word. Write the value where the box type is expected and it is packed when its type implements the trait:

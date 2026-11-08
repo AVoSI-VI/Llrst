@@ -42,7 +42,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `clos` | closure type and `(clos ...)` value |
 | `call` | call a closure |
 | `inline` | substitute the function body at the call |
-| `try` | early return of `res.err` or `opt.none` |
+| `try` | early return of `res.err` or `opt.none`; a `res` error may convert through `From` |
 | `panic` | abort with a `P\|` record |
 | `assert` | check a condition |
 | `assert_eq` | check two values |

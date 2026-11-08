@@ -30,9 +30,10 @@
   (for i 0 (vec.len v) (vec.push (&mut o) (collect.id_list (vec.get v i))))
   o)
 
-(fn sig_ok ((d (& prog.def)) (sig (& prog.ssig)) (self_ty (& ty.sty))) bool
+(fn sig_ok ((d (& prog.def)) (sig (& prog.ssig)) (self_ty (& ty.sty)) (from bool)) bool
   (if (!= (vec.len (& (. d spars))) (vec.len (& (. sig params)))) (ret false))
-  (for i 0 (vec.len (& (. d spars))) (if (not (param_ok d sig self_ty i)) (ret false)))
+  (if (not from)
+    (for i 0 (vec.len (& (. d spars))) (if (not (param_ok d sig self_ty i)) (ret false))))
   (let want (ty.subst_self (& (. sig ret)) self_ty))
   (ty.eq (& (. d ret)) (& want)))
 
@@ -54,7 +55,8 @@
     (ret (res.err (collect.impl_bad p mi (& it) "trait.method" (& (. it name)) ""))))
   (let mut f it)
   (let mut d (try (collect.build_fn p mi (& f) (collect.str_list gens) (clone_bounds bounds) tr true self_ty)))
-  (if (not (sig_ok (& d) (vec.get (& (. (vec.get (& (. p defs)) tr) sigs)) slot) self_ty))
+  (let from (str.eq (& (. (vec.get (& (. p defs)) tr) name)) "From"))
+  (if (not (sig_ok (& d) (vec.get (& (. (vec.get (& (. p defs)) tr) sigs)) slot) self_ty from))
     (ret (res.err (collect.impl_bad p mi (& f) "type.mismatch" (& (. (vec.get (& (. p defs)) tr) name)) (& (. f name))))))
   (set (. d name) (impl_name tyn (& (. f name))))
   (set (. d is_pub) true)

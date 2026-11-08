@@ -38,7 +38,7 @@
 | [hpack](hpack.md) | HPACK static table, dynamic table, and Huffman strings. |
 | [hpack_huff](hpack_huff.md) | HPACK Huffman bit strings. |
 | [pb](pb.md) | Protobuf wire types. |
-| [cmp](cmp.md) | `Eq`, `Ord`, `Hash`, and `Clone`. |
+| [cmp](cmp.md) | `Eq`, `Ord`, `Hash`, `Clone`, and `From`. |
 | [mqtt](mqtt.md) | MQTT 3.1.1 broker. QoS 0-2, wildcards, and auth. |
 | [mqtt_pkt](mqtt_pkt.md) | MQTT remaining length and strings. |
 | [mqtt_sess](mqtt_sess.md) | MQTT topic filters. |

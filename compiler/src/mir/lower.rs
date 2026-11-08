@@ -431,7 +431,7 @@ impl<'a> Lower<'a> {
                 let ops: Vec<Operand> = fields.iter().map(|f| self.as_operand(f)).collect();
                 self.assign(&dest, Rvalue::Variant(e.ty.clone(), *idx, ops), sp);
             }
-            ExprKind::Try { expr, is_res } => self.lower_try(expr, *is_res, dest, sp),
+            ExprKind::Try { expr, is_res, from } => self.lower_try(expr, *is_res, from, dest, sp),
             ExprKind::Closure { caps, inner } => self.lower_clos(caps, inner, dest, sp),
         }
     }

@@ -22,6 +22,7 @@ The error type in `std` and tools is always `str`. Programs may define an enum i
 (let f (try (fs.read (& p))))       ; yes: try returns early with the err
 ```
 `try` works on `res` and `opt` inside functions returning the same kind.
+On `res`, a different error converts through `From` when the function's error type implements it and `from`'s parameter is that error. Otherwise it is `type.mismatch`.
 
 ## Unwrapping
 

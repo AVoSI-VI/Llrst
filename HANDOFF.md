@@ -202,7 +202,7 @@ Checker conventions (`check/`)
   Unsuffixed int literals are `Infer(_, int=true)` and default to `i64` in `finish`.
 - `coerce`: `&mut T` where `& T` is wanted inserts `(& (@ e))`.
 - `if` without else accepts any then-type (value discarded); `and`/`or` take 2+ args.
-- `(try e)` works on `res`/`opt`; variant 0 is ok/some, 1 is err/none (std relies on it).
+- `(try e)` works on `res`/`opt`; variant 0 is ok/some, 1 is err/none (std relies on it). On `res`, a different error converts through `From.from` when the function's error type implements `From` and the method's parameter is that error; otherwise `type.mismatch`.
 - `(assert_eq a b)` lowers to `test.eq_str` / `eq_int` / `eq_bool` for `(& str)`, `i64`, `bool`, and `u8`. Other types with `Show` and `Eq` call `test.eq_by` / `test.ne_by`. `f64` and `f32` call `test.eq_f64` with epsilon 0. `(panic m)` to
   `sys.panic(loc, m)`; `loc` is a `"file|line|col"` literal built by `loc_lit`.
 - Callee resolution order: local fn-typed variable, `lookup_fn`, struct ctor, enum variant,
@@ -248,14 +248,14 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `to
 | `runtime/llr_ui_android_in.c` | 485 | |
 | `ui/text.llr` | 475 | |
 | `std/http.llr` | 475 | Chunked bodies live in `http_body.llr`; frames live in `http_ws.llr` |
-| `compiler/src/check/expr.rs` | 472 | Assert lowering lives in `check/assert.rs` |
+| `self/thir_call.llr` | 472 | Variant constructors stay reachable when a method shares the name |
 | `compiler/src/borrow/holders.rs` | 471 | |
 | `runtime/llr_stat.c` | 459 | |
 | `self/wasm_op.llr` | 452 | |
 | `self/thir.llr` | 449 | |
 | `self/elf.llr` | 448 | |
 | `std/re.llr` | 445 | |
-| `self/thir_call.llr` | 442 | Variant constructors stay reachable when a method shares the name |
+| `compiler/src/check/expr.rs` | 440 | Assert lowering lives in `check/assert.rs`; `try` lives in `check/try_from.rs` |
 | `std/sys_wasm.llr` | 440 | |
 | `self/wasm_abi.llr` | 440 | |
 | `self/lower.llr` | 438 | |
@@ -431,7 +431,7 @@ Large. Each item is its own commit with `check.sh` and `mir.sh` byte-equal at th
 1. `[x]` Patterns: guard `(PAT (if EXPR) EXPR)`, or-pattern `(or PAT PAT...)`, string literal patterns through `str.eq`, struct patterns `(point x y)`. `match.missing` still covers the result.
 2. `[x]` `(for NAME lo hi step BODY...)` with a signed step; `(brk LABEL)` and `(cont LABEL)` with `(loop LABEL ...)`; `(while ...)` unchanged. Canon keeps `[lo hi)` as the default.
 3. `[x]` `(use proj.a.b)` loads `a/b.llr` under the main file's directory; `(pub (use ...))` re-exports.
-4. `[ ]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
+4. `[x]` `try` converts the error through `(trait From ...)` when the function's error type implements it; otherwise today's `type.mismatch`.
 5. `[ ]` Commit per item: `lang: match guards and or-patterns`, `lang: for step and labeled brk`, `lang: nested proj and pub use`, `lang: try through From`.
 
 ### Phase 15: compiler and tooling `[ ]`
@@ -569,4 +569,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-07: Phase 14 item 1. Match arms accept `(PAT (if EXPR) EXPR)`. `(or PAT PAT...)` requires the same bindings on every alternative (`match.or` when a name differs). String literals match through `str.eq`. `(point x y)` is a positional struct pattern. A guard does not count toward `match.missing`. `tests/run/match_form.llr` and the new `tests/err/match_*` goldens match between `llrc` and `llrs`, including `emit-mir` of `match_nested`, `match_drop`, `match_form`, and `std/opt.llr`.
 - 2026-11-07: Phase 14 item 2. `(for NAME lo hi ATOM BODY...)` takes a signed step when `ATOM` is a literal or a name and a body form follows. Positive keeps `< hi`, negative uses `> hi`, and zero runs nothing. The form without a step stays `[lo hi)`. `(loop NAME BODY...)` labels a loop; `(brk NAME)` and `(cont NAME)` target it. `(while ...)` is unchanged. `flow.label` and `flow.label_dup` are the new errors. `tests/run/flow_form.llr` covers the step and the labels.
 - 2026-11-07: Phase 14 item 3. `(use proj.a.b)` loads `a/b.llr` under the main file's directory; deeper segments are directories. The alias is the last segment. `(pub (use ...))` re-exports the public items, so an importer calls `module.name`. A private item stays hidden. A repeated name is `name.dup`. A public use is not `use.unused`. `tests/run/proj_use.llr` covers the path and the re-export.
+- 2026-11-07: Phase 14 item 4. `(try e)` on `(res T E)` inside a function that returns `(res U F)` calls `From.from` when `F` implements `From` and that method's parameter is `E`. The same error type is unchanged. Anything else stays `type.mismatch`. The impl may replace the `Self` parameter; `trait.dup` still allows one impl per head. `tests/run/try_from.llr` covers a concrete source, a generic source, and a copied `i64`. `tests/err/try_from.llr` is the mismatch.
 

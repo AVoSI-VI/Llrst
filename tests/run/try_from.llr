@@ -1,0 +1,47 @@
+;; try converts a res error through From. The same error type stays as it is.
+(use std.io)
+
+(enum app (wrap str))
+
+(impl From app (fn from ((m str)) app (app.wrap m)))
+
+(struct boxe <T> (pub (v T)))
+
+(impl From (boxe T) <T> (fn from ((v T)) (boxe T) (boxe <T> v)))
+
+(struct num (pub (n i64)))
+
+(impl From num (fn from ((n i64)) num (num n)))
+
+(fn low ((s (& str))) (res i64 str)
+  (match (str.to_int s) ((opt.some n) (res.ok n)) ((opt.none) (res.err (str.from "bad")))))
+
+(fn high ((s (& str))) (res i64 app)
+  (let n (try (low s)))
+  (res.ok n))
+
+(fn same () (res i64 app)
+  (let n (try (high "4")))
+  (res.ok n))
+
+(fn boxed () (res i64 (boxe str))
+  (let _ (try (low "no")))
+  (res.ok 0))
+
+(fn lowi () (res i64 i64) (res.err 7))
+
+(fn highi () (res i64 num)
+  (let _ (try (lowi)))
+  (res.ok 0))
+
+(fn show_app ((r (res i64 app))) unit
+  (match r
+    ((res.ok n) (io.puts (& (str.from_int n))))
+    ((res.err e) (match e ((app.wrap m) (io.puts (& m)))))))
+
+(fn main () unit
+  (show_app (high "3"))
+  (show_app (high "x"))
+  (show_app (same))
+  (match (boxed) ((res.ok _) (io.puts "ok")) ((res.err e) (io.puts (& (. e v)))))
+  (match (highi) ((res.ok _) (io.puts "ok")) ((res.err e) (io.puts (& (str.from_int (. e n)))))))

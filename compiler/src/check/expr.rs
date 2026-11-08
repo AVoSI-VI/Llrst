@@ -424,26 +424,6 @@ impl<'a> Checker<'a> {
         Ok(mk(ExprKind::Bin { op, l: Box::new(l), r: Box::new(r) }, ty, sp))
     }
 
-    fn check_try(&mut self, x: &ast::Expr, sp: Span) -> PResult<Expr> {
-        let inner = self.check_expr(x, None)?;
-        let t = self.shallow(&inner.ty);
-        let res = self.prog.prelude_type("res");
-        let opt = self.prog.prelude_type("opt");
-        let ret = self.shallow(&self.ret.clone());
-        match (&t, &ret) {
-            (Ty::Adt(d, a), Ty::Adt(rd, ra)) if Some(*d) == res && rd == d => {
-                if !self.unify(&a[1], &ra[1]) {
-                    return Err(self.mismatch(sp, &ra[1], &a[1]));
-                }
-                Ok(mk(ExprKind::Try { expr: Box::new(inner), is_res: true }, a[0].clone(), sp))
-            }
-            (Ty::Adt(d, a), Ty::Adt(rd, _)) if Some(*d) == opt && rd == d => {
-                Ok(mk(ExprKind::Try { expr: Box::new(inner), is_res: false }, a[0].clone(), sp))
-            }
-            _ => Err(Diag::error(sp, "type.try").kv("got", self.show(&t)).kv("ret", self.show(&ret))),
-        }
-    }
-
     /// Checks a condition. A failure to be `bool` is `type.not_bool`, not `type.mismatch`.
     pub(crate) fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
         match self.check_expr(e, Some(&Ty::Bool)) {

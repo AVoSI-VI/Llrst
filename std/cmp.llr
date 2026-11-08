@@ -1,4 +1,4 @@
-;; Eq, Ord, Hash, and Clone. Negative cmp means the first value comes first.
+;; Eq, Ord, Hash, Clone, and From. Negative cmp means the first value comes first.
 (pub (trait Eq (fn eq ((& Self) (& Self)) bool)))
 
 (pub (trait Ord (fn cmp ((& Self) (& Self)) i64)))
@@ -6,6 +6,9 @@
 (pub (trait Hash (fn hash ((& Self)) i64)))
 
 (pub (trait Clone (fn clone ((& Self)) Self)))
+
+;; An impl replaces Self in the parameter. That type is the source `try` converts.
+(pub (trait From (fn from (Self) Self)))
 
 (impl Eq i64 (fn eq ((a (& i64)) (b (& i64))) bool (== (@ a) (@ b))))
 

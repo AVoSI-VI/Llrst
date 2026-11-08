@@ -95,7 +95,7 @@ EXPR :=
   (neg EXPR) | (wneg EXPR)                   ; wneg always wraps
   (CALLEE EXPR...)                           ; call: fn, mod.fn, type.method, type (struct ctor), enum.variant
   (CALLEE <TYPE...> EXPR...)                 ; call with explicit type args
-  (try EXPR)                                 ; unwrap res/opt or return the err/none from the fn
+  (try EXPR)                                 ; unwrap res/opt; a res error converts through From
   (panic EXPR)                               ; print P|... and exit 101
   (assert EXPR) | (assert_eq EXPR EXPR) | (assert_ne EXPR EXPR) | (assert_near EXPR EXPR EXPR)
   (sizeof TYPE)                              ; u64, std internals only

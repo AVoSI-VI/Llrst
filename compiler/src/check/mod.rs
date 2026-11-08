@@ -6,6 +6,7 @@ mod clos;
 mod expr;
 mod pat;
 mod traits;
+mod try_from;
 mod zonk;
 
 use crate::ast;

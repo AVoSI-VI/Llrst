@@ -1,0 +1,21 @@
+(enum app (wrap str))
+
+(impl From app (fn from ((m str)) app (app.wrap m)))
+
+(fn lowi () (res i64 i64) (res.err 1))
+
+(fn bad () (res i64 app)
+  (let n (try (lowi)))
+  (res.ok n))
+
+(enum bare (x str))
+
+(fn low () (res i64 str) (res.err (str.from "bad")))
+
+(fn miss () (res i64 bare)
+  (let n (try (low)))
+  (res.ok n))
+
+(fn main () unit
+  (drop (bad))
+  (drop (miss)))

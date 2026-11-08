@@ -200,7 +200,7 @@
   (for i 0 (vec.len (& (. it fns)))
     (let f (vec.get (& (. it fns)) i))
     (let sig (try (trait_sig p mi f)))
-    (if (not (head_ref (& sig)))
+    (if (and (not (head_ref (& sig))) (not (str.eq (& (. it name)) "From")))
       (note_in p mi f "trait.method" "name" (str.clone (& (. f name))) "" (str.new)))
     (if (not (sig_safe (& sig))) (set safe false))
     (vec.push (&mut sigs) sig))

@@ -141,8 +141,8 @@ pub enum ExprKind {
     Struct { def: DefId, fields: Vec<Expr> },
     Variant { def: DefId, idx: u32, fields: Vec<Expr> },
     FnRef(DefId),
-    /// `(try e)`: `is_res` selects res vs opt.
-    Try { expr: Box<Expr>, is_res: bool },
+    /// `(try e)`: `is_res` selects res vs opt. `from` converts a `res` error.
+    Try { expr: Box<Expr>, is_res: bool, from: Option<(DefId, Vec<Ty>)> },
     /// Owned closure. `caps` are the enclosing bindings, copied or moved into the env.
     Closure { caps: Vec<Expr>, inner: ClosBody },
     /// `&T` stored as a fat pointer for `trait_id`.

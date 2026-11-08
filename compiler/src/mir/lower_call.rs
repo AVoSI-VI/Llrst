@@ -117,7 +117,7 @@ impl<'a> Lower<'a> {
         Some(Place::local(t).deref())
     }
 
-    pub fn lower_try(&mut self, inner: &Expr, is_res: bool, dest: Place, sp: Span) {
+    pub fn lower_try(&mut self, inner: &Expr, is_res: bool, from: &Option<(crate::ty::DefId, Vec<Ty>)>, dest: Place, sp: Span) {
         let t = self.temp(inner.ty.clone(), sp);
         self.expr_into(inner, Place::local(t), sp);
         let d = self.temp(Ty::Int(IntTy::U32), sp);
@@ -131,7 +131,8 @@ impl<'a> Lower<'a> {
             let ep = Place::local(t).downcast(1).field(0);
             let ety = place_ty(self.prog, &self.body, &ep);
             let eop = if self.is_copy(&ety) { Operand::Copy(ep) } else { Operand::Move(ep) };
-            self.assign(&Place::local(0), Rvalue::Variant(ret_ty, 1, vec![eop]), sp);
+            let payload = self.convert_err(eop, from, sp);
+            self.assign(&Place::local(0), Rvalue::Variant(ret_ty, 1, vec![payload]), sp);
         } else {
             self.assign(&Place::local(0), Rvalue::Variant(ret_ty, 1, Vec::new()), sp);
         }
@@ -144,6 +145,19 @@ impl<'a> Lower<'a> {
         if !vty.is_unit() {
             self.assign(&dest, Rvalue::Use(vop), sp);
         }
+    }
+
+    /// Calls `From.from` on the error payload. No conversion leaves the operand as it is.
+    fn convert_err(&mut self, err: Operand, from: &Option<(crate::ty::DefId, Vec<Ty>)>, sp: Span) -> Operand {
+        let Some((f, targs)) = from else { return err };
+        let ret = self.prog.fn_def(*f).ret.subst(targs);
+        let tmp = self.temp(ret, sp);
+        let next = self.new_block();
+        self.terminate(Term::Call { func: Func::Def(*f, targs.clone()), args: vec![err], dest: Place::local(tmp), next, span: sp }, sp);
+        self.cur = next;
+        let pl = Place::local(tmp);
+        let pty = place_ty(self.prog, &self.body, &pl);
+        if self.is_copy(&pty) { Operand::Copy(pl) } else { Operand::Move(pl) }
     }
 
     pub fn lower_ref(&mut self, mutable: bool, place: &Expr, ty: &Ty, dest: Place, sp: Span) {

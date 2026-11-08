@@ -211,22 +211,45 @@
   t)
 
 (fn try_err ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (t i64)) unit
-  (if (. e flag) (err_res p w t) (err_opt w))
+  (if (. e flag) (err_res p w e t) (err_opt w))
   (lower_scope.drops_to w 0)
   (let mut r (mir.tnone))
   (set (. r kind) 4u8)
   (lower.terminate w r))
 
-(fn err_res ((p (& prog.prog)) (w (&mut lower.low)) (t i64)) unit
+(fn err_res ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (t i64)) unit
   (let pl (mir.ppush (mir.ppush (mir.ploc t) 2u8 1) 0u8 0))
   (let et (mir.place_ty p (& (. w locs)) (& pl)))
-  (let o (if (ty.is_copy (& et)) (mir.ocopy pl) (mir.omove pl)))
+  (let mut o (if (ty.is_copy (& et)) (mir.ocopy pl) (mir.omove pl)))
+  (if (. e flag2) (set o (conv p w e o)))
   (let mut r (mir.rvoid))
   (set (. r kind) 8u8)
   (set (. r op) 1)
   (set (. r ty) (ty.clone (& (. w ret))))
   (vec.push (&mut (. r ops)) o)
   (lower.push w (mir.sassign (mir.ploc 0) r)))
+
+(fn conv ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (o mir.op)) mir.op
+  (let d (vec.get (& (. p defs)) (. e id)))
+  (let rt (ty.subst (& (. d ret)) (& (. e tys))))
+  (let tmp (lower.temp p w rt (. e line) (. e col)))
+  (let next (lower.new_block w))
+  (lower.terminate w (from_call e next tmp o))
+  (set (. w cur) next)
+  (let pl (mir.ploc tmp))
+  (let pt (mir.place_ty p (& (. w locs)) (& pl)))
+  (if (ty.is_copy (& pt)) (mir.ocopy pl) (mir.omove pl)))
+
+(fn from_call ((e (& thir.ex)) (next i64) (tmp i64) (o mir.op)) mir.term
+  (let mut t (mir.tnone))
+  (set (. t kind) 3u8)
+  (set (. t bb) next)
+  (set (. t dest) tmp)
+  (set (. t fk) 0u8)
+  (set (. t fid) (. e id))
+  (vec.push (&mut (. t args)) o)
+  (set (. t targs) (ty.clone_tys (& (. e tys))))
+  t)
 
 (fn err_opt ((w (&mut lower.low))) unit
   (let mut r (mir.rvoid))

@@ -72,7 +72,8 @@ fn fill_trait(prog: &mut Program, mi: u32, t: &ast::TraitDecl, diags: &Diags) ->
     for m in &t.methods {
         let params = m.params.iter().map(|p| resolve_ty(prog, mi, &[], &p.ty)).collect::<PResult<Vec<_>>>()?;
         let ret = resolve_ty(prog, mi, &[], &m.ret)?;
-        if params.first().map_or(true, |p| !is_ref_self(p)) {
+        // `From.from` takes the source by value. The impl chooses that type.
+        if t.name != "From" && params.first().map_or(true, |p| !is_ref_self(p)) {
             diags.push(Diag::error(m.span, "trait.method").kv("name", m.name.clone()));
         }
         if params.iter().any(self_by_value) || self_by_value(&ret) {
@@ -113,7 +114,12 @@ fn add_impl(prog: &mut Program, mi: u32, t: &ast::TraitImpl, diags: &Diags) -> P
         def.ret = subst_self(&def.ret, &self_ty);
         let want_ps: Vec<Ty> = params.iter().map(|p| subst_self(p, &self_ty)).collect();
         let want_ret = subst_self(ret, &self_ty);
-        if def.params.iter().map(|p| &p.1).ne(want_ps.iter()) || def.ret != want_ret {
+        let params_differ = if prog.def(tr).name == "From" {
+            def.params.len() != want_ps.len()
+        } else {
+            def.params.iter().map(|p| &p.1).ne(want_ps.iter())
+        };
+        if params_differ || def.ret != want_ret {
             return Err(Diag::error(m.span, "type.mismatch").kv("want", t.trait_name.clone()).kv("got", m.name.clone()));
         }
         let id = DefId(prog.defs.len() as u32);
