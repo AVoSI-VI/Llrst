@@ -23,6 +23,8 @@
 
 (pub (const sec_bss i64 4))
 
+(pub (const sec_line i64 5))
+
 (pub (const local i64 0))
 
 (pub (const global i64 1))
@@ -150,12 +152,22 @@
     (if (== (. r sec) sec) (emit_rel (&mut out) r map)))
   out)
 
+(fn rels_of_vec ((rels (& (vec rela))) (map (& (vec i64)))) (vec u8)
+  (let mut out (vec.new <u8>))
+  (for i 0 (vec.len rels) (emit_rel (&mut out) (vec.get rels i) map))
+  out)
+
 (fn clone_bytes ((src (& (vec u8)))) (vec u8)
   (let mut o (vec.new <u8>))
   (elf_out.copy (&mut o) src)
   o)
 
 (pub (fn bytes ((o (& obj))) str
+  (let line (vec.new <u8>))
+  (let rel (vec.new <rela>))
+  (bytes_line o (& line) (& rel))))
+
+(pub (fn bytes_line ((o (& obj)) (line (& (vec u8))) (lrel (& (vec rela)))) str
   (let mut ord (vec.new <i64>))
   (let mut map (vec.new <i64>))
   (let info (order o (&mut ord) (&mut map)))
@@ -165,6 +177,7 @@
   (let rt (rels_of o sec_text (& map)))
   (let rd (rels_of o sec_data (& map)))
   (let rr (rels_of o sec_rodata (& map)))
+  (let rl (rels_of_vec lrel (& map)))
   (let p
     (elf_out.parts (clone_bytes (& (. o text)))
       (clone_bytes (& (. o data)))
@@ -176,7 +189,9 @@
       rd
       rr
       info
-      (. o machine)))
+      (. o machine)
+      (clone_bytes line)
+      rl))
   (elf_out.assemble (& p))))
 
 ;; Entered with rsp 8 mod 16. The call needs rsp 0 mod 16.

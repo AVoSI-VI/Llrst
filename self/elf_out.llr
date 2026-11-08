@@ -31,6 +31,8 @@
   (rt i64)
   (rd i64)
   (rr i64)
+  (line i64)
+  (rl i64)
   (sym i64)
   (str i64)
   (shstr i64)
@@ -47,7 +49,9 @@
   (rr i64)
   (sym i64)
   (str i64)
-  (sh i64))
+  (sh i64)
+  (line i64)
+  (rl i64))
 
 (pub (struct parts
   (pub (text (vec u8)))
@@ -60,7 +64,9 @@
   (pub (rel_data (vec u8)))
   (pub (rel_rodata (vec u8)))
   (pub (sym_info i64))
-  (pub (machine i64))))
+  (pub (machine i64))
+  (pub (line (vec u8)))
+  (pub (rel_line (vec u8)))))
 
 (fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
 
@@ -140,7 +146,7 @@
   (push_n b shnum 2)
   (push_n b shstr 2))
 
-(fn shstr () names
+(fn shstr ((line bool)) names
   (let mut t (vec.new <u8>))
   (vec.push (&mut t) 0u8)
   (let text (cstr (&mut t) ".text"))
@@ -153,10 +159,23 @@
   (let sym (cstr (&mut t) ".symtab"))
   (let strb (cstr (&mut t) ".strtab"))
   (let sh (cstr (&mut t) ".shstrtab"))
-  (names t text data ro bss rt rd rr sym strb sh))
+  (let mut ln 0)
+  (let mut rl 0)
+  (if line
+    (do (set ln (cstr (&mut t) ".debug_line")) (set rl (cstr (&mut t) ".rela.debug_line"))))
+  (names t text data ro bss rt rd rr sym strb sh ln rl))
 
 (fn count_sh ((p (& parts))) i64
   (let mut n 8)
+  (if (> (vec.len (& (. p rel_text))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p rel_data))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p rel_rodata))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p line))) 0) (set n (+ n 1)))
+  (if (> (vec.len (& (. p rel_line))) 0) (set n (+ n 1)))
+  n)
+
+(fn line_ix ((p (& parts))) i64
+  (let mut n 5)
   (if (> (vec.len (& (. p rel_text))) 0) (set n (+ n 1)))
   (if (> (vec.len (& (. p rel_data))) 0) (set n (+ n 1)))
   (if (> (vec.len (& (. p rel_rodata))) 0) (set n (+ n 1)))
@@ -180,13 +199,19 @@
   (if (> rt_n 0) (do (set rt (align_up off 8)) (set off (+ rt rt_n))))
   (if (> rd_n 0) (do (set rd (align_up off 8)) (set off (+ rd rd_n))))
   (if (> rr_n 0) (do (set rr (align_up off 8)) (set off (+ rr rr_n))))
+  (let mut ln 0)
+  (let mut rl 0)
+  (let ln_n (vec.len (& (. p line))))
+  (let rl_n (vec.len (& (. p rel_line))))
+  (if (> ln_n 0) (do (set ln off) (set off (+ ln ln_n))))
+  (if (> rl_n 0) (do (set rl (align_up off 8)) (set off (+ rl rl_n))))
   (let sym (align_up off 8))
   (set off (+ sym (vec.len (& (. p syms)))))
   (let strb off)
   (set off (+ strb (vec.len (& (. p strs)))))
   (let shstr off)
   (set off (+ shstr sh_n))
-  (lay text data ro bss rt rd rr sym strb shstr (align_up off 8)))
+  (lay text data ro bss rt rd rr ln rl sym strb shstr (align_up off 8)))
 
 (fn put_body ((out (&mut (vec u8))) (p (& parts)) (lay (& lay)) (names (& names))) unit
   (emit_at out (. lay text) (& (. p text)))
@@ -195,6 +220,8 @@
   (emit_blob out (& (. p rel_text)) (. lay rt))
   (emit_blob out (& (. p rel_data)) (. lay rd))
   (emit_blob out (& (. p rel_rodata)) (. lay rr))
+  (emit_blob out (& (. p line)) (. lay line))
+  (emit_blob out (& (. p rel_line)) (. lay rl))
   (emit_at out (. lay sym) (& (. p syms)))
   (emit_at out (. lay str) (& (. p strs)))
   (emit_at out (. lay shstr) (& (. names tab))))
@@ -233,12 +260,15 @@
   (shdr_rel out (& (. p rel_text)) (. names rt) (. lay rt) sym_i 1)
   (shdr_rel out (& (. p rel_data)) (. names rd) (. lay rd) sym_i 2)
   (shdr_rel out (& (. p rel_rodata)) (. names rr) (. lay rr) sym_i 3)
+  (if (> (vec.len (& (. p line))) 0)
+    (shdr out (. names line) sht_prog 0 (. lay line) (vec.len (& (. p line))) 0 0 1 0))
+  (shdr_rel out (& (. p rel_line)) (. names rl) (. lay rl) sym_i (line_ix p))
   (shdr out (. names sym) sht_sym 0 (. lay sym) (vec.len (& (. p syms))) str_i (. p sym_info) 8 24)
   (shdr out (. names str) sht_str 0 (. lay str) (vec.len (& (. p strs))) 0 0 1 0)
   (shdr out (. names sh) sht_str 0 (. lay shstr) (vec.len (& (. names tab))) 0 0 1 0))
 
 (pub (fn assemble ((p (& parts))) str
-  (let names (shstr))
+  (let names (shstr (> (vec.len (& (. p line))) 0)))
   (let n (count_sh p))
   (let lay (layout p (vec.len (& (. names tab)))))
   (let mut out (vec.new <u8>))

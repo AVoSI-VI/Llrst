@@ -106,6 +106,23 @@
   (for i 0 (vec.len (& ix)) (emit_one (&mut b) (vec.get (& (. o rels)) (@ (vec.get (& ix) i))) map))
   b)
 
+(fn list_at ((rels (& (vec elf.rela))) (ix (& (vec i64))) (i i64)) i64
+  (. (vec.get rels (@ (vec.get ix i))) at))
+
+(fn sort_list ((rels (& (vec elf.rela))) (ix (&mut (vec i64)))) unit
+  (let n (vec.len ix))
+  (for i 0 n
+    (for j (+ i 1) n
+      (if (< (list_at rels ix i) (list_at rels ix j)) (vec.swap ix i j)))))
+
+(fn emit_list ((rels (& (vec elf.rela))) (map (& (vec i64)))) (vec u8)
+  (let mut ix (vec.new <i64>))
+  (for i 0 (vec.len rels) (vec.push (&mut ix) i))
+  (sort_list rels (&mut ix))
+  (let mut b (vec.new <u8>))
+  (for i 0 (vec.len (& ix)) (emit_one (&mut b) (vec.get rels (@ (vec.get (& ix) i))) map))
+  b)
+
 (fn clone_bytes ((src (& (vec u8)))) (vec u8) (vec.clone src))
 
 (fn packed ((o (& elf.obj))
@@ -115,7 +132,9 @@
    (strs (vec u8))
    (rt (vec u8))
    (rd (vec u8))
-   (rr (vec u8))) macho_out.parts
+   (rr (vec u8))
+   (line (vec u8))
+   (lr (vec u8))) macho_out.parts
   (macho_out.parts (clone_bytes (& (. o text)))
     (clone_bytes (& (. o data)))
     (clone_bytes (& (. o rodata)))
@@ -132,9 +151,16 @@
     (. vm data)
     (. vm ro)
     (. vm bss)
-    (. vm end)))
+    (. vm end)
+    line
+    lr))
 
 (pub (fn bytes ((o (& elf.obj))) str
+  (let line (vec.new <u8>))
+  (let rel (vec.new <elf.rela>))
+  (bytes_line o (& line) (& rel))))
+
+(pub (fn bytes_line ((o (& elf.obj)) (line (& (vec u8))) (lrel (& (vec elf.rela)))) str
   (let vm
     (macho_out.vmas (vec.len (& (. o text)))
       (vec.len (& (. o data)))
@@ -149,7 +175,8 @@
   (let rt (emit_rels o elf.sec_text (& map)))
   (let rd (emit_rels o elf.sec_data (& map)))
   (let rr (emit_rels o elf.sec_rodata (& map)))
-  (let p (packed o (& vm) (& c) syms strs rt rd rr))
+  (let lr (emit_list lrel (& map)))
+  (let p (packed o (& vm) (& c) syms strs rt rd rr (clone_bytes line) lr))
   (macho_out.assemble (& p))))
 
 (fn put_str ((b (&mut (vec u8))) (s (& str))) unit (for i 0 (str.len s) (vec.push b (str.at s i))))

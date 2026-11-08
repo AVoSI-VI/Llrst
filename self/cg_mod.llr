@@ -2,6 +2,7 @@
 (use proj.a64_buf)
 (use proj.cg_bits)
 (use proj.cg_isa)
+(use proj.cg_line)
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
@@ -46,7 +47,11 @@
   (pub (dpend (vec i64)))
   (pub (tpush i64))
   (pub (tpop i64))
-  (pub (cseen (vec str)))))
+  (pub (cseen (vec str)))
+  (pub (debug bool))
+  (pub (dfiles (vec str)))
+  (pub (dstack (vec (vec cg_line.row))))
+  (pub (drows (vec cg_line.row)))))
 
 (fn push_zeros ((v (&mut (vec u8))) (n i64)) unit (for i 0 n (vec.push v 0u8)))
 
@@ -93,7 +98,11 @@
     (vec.new <i64>)
     (neg 1)
     (neg 1)
-    (vec.new <str>)))
+    (vec.new <str>)
+    false
+    (vec.new <str>)
+    (vec.new < (vec cg_line.row) >)
+    (vec.new <cg_line.row>)))
 
 (pub (fn new ((checked bool) (s cg_isa.isa) (darwin bool) (be bool)) cg
   (let a64 (. s a64))
@@ -419,7 +428,12 @@
   (set (. g tpop) (undef g "llr_trace_pop"))
   (. g tpop)))
 
+(pub (fn set_debug ((g (&mut cg)) (on bool)) unit (set (. g debug) on)))
+
 (pub (fn finish ((g (& cg))) str
-  (if (. g win) (ret (coff.bytes (& (. g obj)))))
-  (if (and (. g darwin) (. (. g isa) a64)) (ret (macho.bytes (& (. g obj)))))
-  (elf.bytes (& (. g obj)))))
+  (let kind (if (== (. (. g obj) machine) elf.mach_a64) elf.a64_abs elf.abs64))
+  (let p (cg_line.encode (& (. g dfiles)) (& (. g drows)) kind (& (. (. g obj) syms))))
+  (if (. g win) (ret (coff.bytes_line (& (. g obj)) (& (. p coff)))))
+  (if (and (. g darwin) (. (. g isa) a64))
+    (ret (macho.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))
+  (elf.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))

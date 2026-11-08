@@ -1,23 +1,42 @@
 ;; Statements, calls, and one MIR body.
+(use proj.a64_buf)
 (use proj.cg_box)
 (use proj.cg_clos)
 (use proj.cg_drop)
 (use proj.cg_frame)
 (use proj.cg_isa)
 (use proj.cg_lay)
+(use proj.cg_line)
 (use proj.cg_mod)
 (use proj.cg_op)
 (use proj.cg_trace)
+(use proj.x64_buf)
 (use proj.mir)
 (use proj.prog)
 (use proj.ty)
 
+(fn code_at ((fx (& cg_frame.fncx))) i64
+  (if (. (. fx isa) a64) (ret (a64_buf.len (& (. (. fx buf) a)))))
+  (x64_buf.len (& (. (. fx buf) x))))
+
+(fn mark ((g (&mut cg_mod.cg)) (fx (& cg_frame.fncx))) unit
+  (if (not (. g debug)) (ret))
+  (if (<= (. fx line) 0) (ret))
+  (let at (code_at fx))
+  (let f (cg_line.file_ix (&mut (. g dfiles)) (& (. fx path))))
+  (cg_line.add (&mut (. g dstack)) at (. fx line) (. fx col) f))
+
 (pub (fn compile ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body)) (sym i64) (trace bool)) unit
+  (let on (. g debug))
+  (cg_line.push_fn on (&mut (. g dstack)))
   (let mut fx (cg_frame.open g p b 256 trace))
   (cg_clos.prepare g p (&mut fx) b)
   (for i 0 (vec.len (& (. b blocks))) (block g p (&mut fx) b i))
   (let _ (cg_isa.finish_code (&mut (. fx buf)) (& (. fx isa))))
-  (cg_mod.append_fn g sym (& (. fx buf)))))
+  (let n (code_at (& fx)))
+  (cg_mod.append_fn g sym (& (. fx buf)))
+  (let pending (cg_line.take_fn on (&mut (. g dstack))))
+  (cg_line.keep (&mut (. g drows)) pending sym n)))
 
 (fn block ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (i i64)) unit
   (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) (@ (vec.get (& (. fx labs)) i)))
@@ -28,6 +47,7 @@
 (fn stmt ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (s (& mir.st))) unit
   (set (. fx line) (. s line))
   (set (. fx col) (. s col))
+  (mark g fx)
   (cg_frame.reset fx)
   (if (== (. s kind) 0u8) (ret (assign g p fx b s)))
   (if (== (. s kind) 1u8)
@@ -167,6 +187,7 @@
    (t (& mir.term))) unit
   (set (. fx line) (. t line))
   (set (. fx col) (. t col))
+  (mark g fx)
   (if (== (. t kind) 0u8)
     (ret (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) (@ (vec.get (& (. fx labs)) (. t bb))))))
   (if (== (. t kind) 1u8) (ret (emit_if g p fx b t)))

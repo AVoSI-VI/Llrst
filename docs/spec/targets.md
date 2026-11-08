@@ -52,6 +52,13 @@ links `llr_stat_ios.o` and `llr_now_ios.o` (or the `_ios_sim` pair), renames `_m
 also links the UI pair. The simulator triple uses `-target arm64-apple-ios-simulator`
 and the `iphonesimulator` SDK. `self/` does not emit an `x86_64` Apple object. A missing
 SDK, NDK, or target object is `link.failed`. Windows uses the probed linker in `link_win.llr`.
+`--debug` writes line tables from the statement spans. ELF and Mach-O gain a DWARF 5
+`.debug_line` section (`__debug_line` in `__DWARF` on Mach-O). Each function is one
+sequence: `DW_LNE_set_address` relocates to that function's symbol, then one row per
+statement (`line`, `column`, file). The sequence ends one byte past the function.
+COFF writes the same lines into `.text`'s line-number table. `wasm32` ignores the flag.
+Without `--debug` the object bytes are unchanged.
+
 `$LLRST_CC` may be `cl`, `clang`, `gcc`, or `cc`. When it is set, that driver is used and the
 other compiler probes are skipped. `cl` still runs `vcvars64.bat` when `cl` is not already
 on `PATH`. The environment that batch file prints is not cached.
