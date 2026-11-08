@@ -1,0 +1,119 @@
+;; Checked overflow. The failing condition lands in t6 for the following jcc.
+(use proj.cg_isa)
+(use proj.isa_rv)
+(use proj.rv_buf)
+(use proj.rv_int)
+
+(fn flag ((b (&mut rv_buf.buf))) unit (rv_buf.pend b rv_buf.pend_flag 8 0 0 0 false))
+
+(fn refit ((b (&mut rv_buf.buf)) (w i64) (signed bool)) unit
+  (if signed (rv_int.sext b rv_buf.t5 rv_buf.t0 w) (rv_int.zext b rv_buf.t5 rv_buf.t0 w))
+  (rv_int.xor b rv_buf.t6 rv_buf.t0 rv_buf.t5)
+  (rv_int.sltu b rv_buf.t6 rv_buf.x0 rv_buf.t6))
+
+(fn add_s ((b (&mut rv_buf.buf)) (w i64)) unit
+  (if (< w 4)
+    (do
+      (rv_int.sext b rv_buf.t0 rv_buf.t0 w)
+      (rv_int.sext b rv_buf.t1 rv_buf.t1 w)
+      (rv_int.add b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+      (refit b w true)
+      (rv_int.mask b rv_buf.t0 w)
+      (ret (flag b))))
+  (if (== w 4) (do (rv_int.sext b rv_buf.t0 rv_buf.t0 4) (rv_int.sext b rv_buf.t1 rv_buf.t1 4)))
+  (rv_int.add b rv_buf.t5 rv_buf.t0 rv_buf.x0)
+  (if (== w 4) (rv_int.addw b rv_buf.t0 rv_buf.t0 rv_buf.t1) (rv_int.add b rv_buf.t0 rv_buf.t0 rv_buf.t1))
+  (rv_int.xor b rv_buf.t6 rv_buf.t0 rv_buf.t5)
+  (rv_int.xor b rv_buf.t5 rv_buf.t5 rv_buf.t1)
+  (rv_int.xori b rv_buf.t5 rv_buf.t5 (neg 1))
+  (rv_int.and_rr b rv_buf.t6 rv_buf.t6 rv_buf.t5)
+  (rv_int.srli b rv_buf.t6 rv_buf.t6 63)
+  (flag b))
+
+(fn add_u ((b (&mut rv_buf.buf)) (w i64)) unit
+  (if (< w 8) (do (rv_int.zext b rv_buf.t0 rv_buf.t0 w) (rv_int.zext b rv_buf.t1 rv_buf.t1 w)))
+  (rv_int.add b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (if (== w 8) (rv_int.sltu b rv_buf.t6 rv_buf.t0 rv_buf.t1) (refit b w false))
+  (rv_int.mask b rv_buf.t0 w)
+  (flag b))
+
+(pub (fn add_ovf ((b (&mut rv_buf.buf)) (w i64) (signed bool)) i64
+  (if signed (add_s b w) (add_u b w))
+  (if signed cg_isa.ovf cg_isa.ne)))
+
+(fn sub_s ((b (&mut rv_buf.buf)) (w i64)) unit
+  (if (< w 4)
+    (do
+      (rv_int.sext b rv_buf.t0 rv_buf.t0 w)
+      (rv_int.sext b rv_buf.t1 rv_buf.t1 w)
+      (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+      (refit b w true)
+      (rv_int.mask b rv_buf.t0 w)
+      (ret (flag b))))
+  (if (== w 4) (do (rv_int.sext b rv_buf.t0 rv_buf.t0 4) (rv_int.sext b rv_buf.t1 rv_buf.t1 4)))
+  (rv_int.add b rv_buf.t5 rv_buf.t0 rv_buf.x0)
+  (if (== w 4) (rv_int.subw b rv_buf.t0 rv_buf.t0 rv_buf.t1) (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t1))
+  (rv_int.xor b rv_buf.t6 rv_buf.t5 rv_buf.t0)
+  (rv_int.xor b rv_buf.t5 rv_buf.t5 rv_buf.t1)
+  (rv_int.and_rr b rv_buf.t6 rv_buf.t6 rv_buf.t5)
+  (rv_int.srli b rv_buf.t6 rv_buf.t6 63)
+  (rv_int.mask b rv_buf.t0 w)
+  (flag b))
+
+(fn sub_u ((b (&mut rv_buf.buf)) (w i64)) unit
+  (if (< w 8) (do (rv_int.zext b rv_buf.t0 rv_buf.t0 w) (rv_int.zext b rv_buf.t1 rv_buf.t1 w)))
+  (rv_int.sltu b rv_buf.t6 rv_buf.t0 rv_buf.t1)
+  (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (rv_int.mask b rv_buf.t0 w)
+  (flag b))
+
+(pub (fn sub_ovf ((b (&mut rv_buf.buf)) (w i64) (signed bool)) i64
+  (if signed (sub_s b w) (sub_u b w))
+  (if signed cg_isa.ovf cg_isa.ne)))
+
+(fn mul_wide ((b (&mut rv_buf.buf)) (signed bool)) unit
+  (if signed (rv_int.mulh b rv_buf.t6 rv_buf.t0 rv_buf.t1) (rv_int.mulhu b rv_buf.t6 rv_buf.t0 rv_buf.t1))
+  (rv_int.mul b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (if signed (do (rv_int.srai b rv_buf.t5 rv_buf.t0 63) (rv_int.xor b rv_buf.t6 rv_buf.t6 rv_buf.t5)))
+  (rv_int.sltu b rv_buf.t6 rv_buf.x0 rv_buf.t6)
+  (flag b))
+
+(fn mul_fit ((b (&mut rv_buf.buf)) (w i64) (signed bool)) unit
+  (if signed
+    (do (rv_int.sext b rv_buf.t0 rv_buf.t0 w) (rv_int.sext b rv_buf.t1 rv_buf.t1 w))
+    (do (rv_int.zext b rv_buf.t0 rv_buf.t0 w) (rv_int.zext b rv_buf.t1 rv_buf.t1 w)))
+  (rv_int.mul b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (if signed (rv_int.sext b rv_buf.t5 rv_buf.t0 w) (rv_int.zext b rv_buf.t5 rv_buf.t0 w))
+  (rv_int.xor b rv_buf.t6 rv_buf.t0 rv_buf.t5)
+  (rv_int.sltu b rv_buf.t6 rv_buf.x0 rv_buf.t6)
+  (rv_int.mask b rv_buf.t0 w)
+  (flag b))
+
+(pub (fn mul_ovf ((b (&mut rv_buf.buf)) (w i64) (signed bool)) i64
+  (if (== w 8) (mul_wide b signed) (mul_fit b w signed))
+  cg_isa.ne))
+
+(pub (fn exact_bits ((b (&mut rv_buf.buf)) (w i64) (dst i64) (src i64)) unit
+  (let d (isa_rv.gpr dst))
+  (let s (isa_rv.gpr src))
+  (let zero (rv_buf.label b))
+  (let loop (rv_buf.label b))
+  (let exit (rv_buf.label b))
+  (let end (rv_buf.label b))
+  (rv_int.bne b s rv_buf.x0 8)
+  (rv_buf.fix_j b zero)
+  (rv_int.add b rv_buf.t5 s rv_buf.x0)
+  (rv_int.addi b d rv_buf.x0 0)
+  (rv_buf.bind b loop)
+  (rv_int.bge b rv_buf.t5 rv_buf.x0 8)
+  (rv_buf.fix_j b exit)
+  (rv_int.addi b d d 1)
+  (rv_int.slli b rv_buf.t5 rv_buf.t5 1)
+  (rv_buf.fix_j b loop)
+  (rv_buf.bind b exit)
+  (rv_int.li b rv_buf.t5 (- (* w 8) 1))
+  (rv_int.sub b d rv_buf.t5 d)
+  (rv_buf.fix_j b end)
+  (rv_buf.bind b zero)
+  (rv_int.addi b d rv_buf.x0 (neg 1))
+  (rv_buf.bind b end)))

@@ -10,12 +10,14 @@
 (use proj.cg_mod)
 (use proj.cg_op)
 (use proj.cg_trace)
+(use proj.rv_buf)
 (use proj.x64_buf)
 (use proj.mir)
 (use proj.prog)
 (use proj.ty)
 
 (fn code_at ((fx (& cg_frame.fncx))) i64
+  (if (. (. fx isa) rv) (ret (rv_buf.len (& (. (. fx buf) r)))))
   (if (. (. fx isa) a64) (ret (a64_buf.len (& (. (. fx buf) a)))))
   (x64_buf.len (& (. (. fx buf) x))))
 

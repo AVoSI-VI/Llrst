@@ -1,0 +1,73 @@
+;; RV64 D and F. Compares write an integer and are ordered: NaN is not less and not equal.
+(use proj.cg_isa)
+(use proj.rv_buf)
+(use proj.rv_int)
+(use proj.rv_mem)
+
+(fn op ((b (&mut rv_buf.buf)) (f7 i64) (rs2 i64) (rs1 i64) (rm i64) (rd i64)) unit
+  (rv_buf.push_w b (rv_buf.rtype f7 rs2 rs1 rm rd 83)))
+
+(fn f7 ((single bool) (d i64)) i64 (if single d (+ d 1)))
+
+(pub (fn fmov ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 16) src src 0 dst)))
+
+(pub (fn fneg ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 16) src src 1 dst)))
+
+(pub (fn fadd ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 0) src dst 7 dst)))
+
+(pub (fn fsub ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 4) src dst 7 dst)))
+
+(pub (fn fmul ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 8) src dst 7 dst)))
+
+(pub (fn fdiv ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (op b (f7 single 12) src dst 7 dst)))
+
+(fn cmp ((b (&mut rv_buf.buf)) (single bool) (rm i64) (rd i64) (rs1 i64) (rs2 i64)) unit
+  (op b (f7 single 80) rs2 rs1 rm rd))
+
+(fn bit ((b (&mut rv_buf.buf)) (cc i64) (rd i64)) unit
+  (let a (. b pa))
+  (let s (. b pb))
+  (let single (. b ps))
+  (if (== cc cg_isa.eq) (ret (cmp b single 2 rd a s)))
+  (if (== cc cg_isa.ne) (do (cmp b single 2 rd a s) (ret (rv_int.xori b rd rd 1))))
+  (if (== cc cg_isa.ult) (ret (cmp b single 1 rd a s)))
+  (if (== cc cg_isa.ule) (ret (cmp b single 0 rd a s)))
+  (if (== cc cg_isa.ugt) (ret (cmp b single 1 rd s a)))
+  (if (== cc cg_isa.uge) (ret (cmp b single 0 rd s a)))
+  (cmp b single 2 rd a a)
+  (rv_int.xori b rd rd 1))
+
+(pub (fn jcc ((b (&mut rv_buf.buf)) (cc i64) (lab i64)) unit
+  (bit b cc rv_buf.t5)
+  (rv_buf.clear b)
+  (rv_buf.push_w b (rv_buf.btype 8 rv_buf.x0 rv_buf.t5 0))
+  (rv_buf.fix_j b lab)))
+
+(pub (fn setcc ((b (&mut rv_buf.buf)) (cc i64) (rd i64)) unit
+  (bit b cc rd)
+  (rv_buf.clear b)))
+
+(pub (fn i2f ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (let rs2 (if (== w 8) 2 0))
+  (let f7 (if single 104 105))
+  (op b f7 rs2 src 7 dst)))
+
+(pub (fn f2i ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (let rs2 (if (== w 8) 2 0))
+  (let f7 (if single 96 97))
+  (op b f7 rs2 src 1 dst)))
+
+(pub (fn f2f ((b (&mut rv_buf.buf)) (to_single bool) (dst i64) (src i64)) unit
+  (if to_single (op b 32 1 src 7 dst) (op b 33 0 src 7 dst))))
+
+(pub (fn fld ((b (&mut rv_buf.buf)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (rv_mem.fld b single dst base disp)))
+
+(pub (fn fst ((b (&mut rv_buf.buf)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (rv_mem.fst b single src base disp)))

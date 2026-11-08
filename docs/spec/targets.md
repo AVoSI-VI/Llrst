@@ -20,28 +20,28 @@ An empty triple uses the host ISA.
 
 ## self/
 
-`self/` accepts an empty triple, an `x86_64` triple that does not contain `apple`, and any
-triple containing `aarch64` or `arm64`. `riscv64` and `s390x` stay on stage 0. `tests/cross.sh`
-prints `skip|cross|target=...|self=x86-64 and aarch64 only` for those two when `LLRC` is a
-`self/` compiler.
+`self/` accepts an empty triple, any `x86_64` triple, any triple containing `riscv64`, and
+any triple containing `aarch64` or `arm64`. `s390x` stays on stage 0. `tests/cross.sh`
+prints `skip|cross|target=...|self=no s390x` for that triple when `LLRC` is a `self/` compiler.
 
 | triple | ISA | object |
 |-------|-----|--------|
-| empty | `uname -m` of `arm64` or `aarch64` is AArch64; otherwise x86-64 | Mach-O arm64 when the host is Darwin and the ISA is AArch64; COFF on Windows; otherwise ELF |
+| empty | `uname -m` of `arm64` or `aarch64` is AArch64; otherwise x86-64 | Mach-O of that ISA when the host is Darwin; COFF on Windows; otherwise ELF |
 | `x86_64-unknown-linux-gnu` | x86-64 | ELF, `e_machine` 62 |
 | `x86_64-pc-windows-gnu` | x86-64 | COFF |
+| `x86_64-apple-darwin` | x86-64, SysV | Mach-O x86-64 |
+| `riscv64gc-unknown-linux-gnu` | RV64GC, LP64D | ELF, `e_machine` 243, float ABI double |
 | `aarch64-unknown-linux-gnu` | AArch64 | ELF, `e_machine` 183 |
 | `aarch64-apple-darwin`, `arm64-apple-darwin` | AArch64 | Mach-O arm64 |
 | `aarch64-apple-ios`, `arm64-apple-ios` | AArch64 | Mach-O arm64 |
 | `aarch64-apple-ios-simulator`, `arm64-apple-ios-simulator` | AArch64 | Mach-O arm64, `iphonesimulator` SDK |
 | `aarch64-linux-android` | AArch64 | ELF shared library, `e_machine` 183 |
-| `x86_64-apple-darwin` | | rejected |
 
 An empty triple links with host `cc`. A Darwin host omits `-pie`. A non-empty Unix triple
 links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`. An Apple
-triple links with `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` and
-`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos
---show-sdk-path`. An Android triple links with
+triple links with `xcrun clang -target arm64-apple-macos`, `x86_64-apple-macos`, or
+`arm64-apple-ios` and `-isysroot` from `xcrun --sdk macosx --show-sdk-path` or
+`xcrun --sdk iphoneos --show-sdk-path`. An Android triple links with
 `$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android21-clang -shared`.
 That link is a NativeActivity library: `llr_stat_android.o`, `llr_now_android.o`,
 `android_native_app_glue` (`llr_ui_android_glue.o`), `llr_android_main.o`, and
@@ -50,7 +50,7 @@ to `llr_ui_open` also links `llr_ui_android.o` and `llr_ui_android_in.o`. An iOS
 links `llr_stat_ios.o` and `llr_now_ios.o` (or the `_ios_sim` pair), renames `_main` to
 `_llr_user_main`, and links `llr_ios_main.o` with UIKit. A reference to `llr_ui_open`
 also links the UI pair. The simulator triple uses `-target arm64-apple-ios-simulator`
-and the `iphonesimulator` SDK. `self/` does not emit an `x86_64` Apple object. A missing
+and the `iphonesimulator` SDK. A missing
 SDK, NDK, or target object is `link.failed`. Windows uses the probed linker in `link_win.llr`.
 `--debug` writes line tables from the statement spans. ELF and Mach-O gain a DWARF 5
 `.debug_line` section (`__debug_line` in `__DWARF` on Mach-O). Each function is one

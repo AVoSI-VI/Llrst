@@ -20,7 +20,8 @@
   (let _ (sym_of g p (ui_fn p "pump")))
   (let _ (sym_of g p (ui_fn p "release")))))
 
-(fn hw ((g (& cg_mod.cg))) cg_isa.isa (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+(fn hw ((g (& cg_mod.cg))) cg_isa.isa
+  (cg_isa.isa (. (. g isa) a64) (. (. g isa) win) (. (. g isa) rv)))
 
 (fn undef ((g (&mut cg_mod.cg)) (name (& str))) i64
   (elf.add_sym (&mut (. g obj)) name elf.global elf.st_func elf.sec_undef 0 0))

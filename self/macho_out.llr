@@ -8,6 +8,10 @@
 
 (const cpu_arm64 i64 0x0100000C)
 
+(const cpu_x64 i64 0x01000007)
+
+(const sub_x64 i64 3)
+
 (const mh_object i64 1)
 
 (const mh_subsects i64 0x2000)
@@ -131,10 +135,10 @@
   (elf_out.push_n b flags 4)
   (elf_out.push_n b 0 12))
 
-(fn put_hdr ((b (&mut (vec u8))) (ncmd i64) (cmdsz i64)) unit
+(fn put_hdr ((b (&mut (vec u8))) (ncmd i64) (cmdsz i64) (x64 bool)) unit
   (elf_out.push_n b mh_magic 4)
-  (elf_out.push_n b cpu_arm64 4)
-  (elf_out.push_n b 0 4)
+  (if x64 (elf_out.push_n b cpu_x64 4) (elf_out.push_n b cpu_arm64 4))
+  (if x64 (elf_out.push_n b sub_x64 4) (elf_out.push_n b 0 4))
   (elf_out.push_n b mh_object 4)
   (elf_out.push_n b ncmd 4)
   (elf_out.push_n b cmdsz 4)
@@ -275,11 +279,11 @@
 
 (fn cmd_count ((p (& parts))) i64 (if (> (vec.len (& (. p line))) 0) 5 4))
 
-(pub (fn assemble ((p (& parts))) str
+(pub (fn assemble ((p (& parts)) (x64 bool)) str
   (let sz (cmd_size p))
   (let lay (layout p sz))
   (let mut b (vec.new <u8>))
-  (put_hdr (&mut b) (cmd_count p) sz)
+  (put_hdr (&mut b) (cmd_count p) sz x64)
   (put_cmds (&mut b) p (& lay))
   (put_body (&mut b) p (& lay))
   (to_str (& b))))

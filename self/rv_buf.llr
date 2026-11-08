@@ -1,0 +1,185 @@
+;; RV64 instruction words, label fixups, and relocation records.
+;; A compare stays pending until setcc or jcc, because there is no flag register.
+;; callplt is R_RISCV_CALL_PLT on auipc+jalr. pcrel_hi pairs with pcrel_lo.
+(use std.vec)
+
+(pub (const x0 i64 0))
+
+(pub (const ra i64 1))
+
+(pub (const sp i64 2))
+
+(pub (const t0 i64 5))
+
+(pub (const t1 i64 6))
+
+(pub (const t2 i64 7))
+
+(pub (const fp i64 8))
+
+(pub (const s1 i64 9))
+
+(pub (const a0 i64 10))
+
+(pub (const t3 i64 28))
+
+(pub (const t4 i64 29))
+
+(pub (const t5 i64 30))
+
+(pub (const t6 i64 31))
+
+(pub (const fixj i64 1))
+
+(pub (const callplt i64 6))
+
+(pub (const pcrel_hi i64 7))
+
+(pub (const pcrel_lo i64 8))
+
+(pub (const abs64 i64 9))
+
+(pub (const pend_rr i64 1))
+
+(pub (const pend_ri i64 2))
+
+(pub (const pend_test i64 3))
+
+(pub (const pend_flag i64 4))
+
+(pub (const pend_flt i64 5))
+
+(pub (struct fix (pub (at i64)) (pub (lab i64)) (pub (kind i64))))
+
+(pub (struct rel (pub (at i64)) (pub (kind i64)) (pub (sym i64))))
+
+(pub (struct buf
+  (pub (bytes (vec u8)))
+  (pub (labs (vec i64)))
+  (pub (fixs (vec fix)))
+  (pub (rels (vec rel)))
+  (pub (live i64))
+  (pub (pw i64))
+  (pub (pa i64))
+  (pub (pb i64))
+  (pub (pi i64))
+  (pub (ps bool))))
+
+(pub (fn new () buf
+  (buf (vec.new <u8>)
+    (vec.new <i64>)
+    (vec.new <fix>)
+    (vec.new <rel>)
+    0
+    0
+    0
+    0
+    0
+    false)))
+
+(pub (fn len ((b (& buf))) i64 (vec.len (& (. b bytes)))))
+
+(pub (fn at ((b (& buf)) (i i64)) u8 (@ (vec.get (& (. b bytes)) i))))
+
+(pub (fn bytes ((b (& buf))) (& (vec u8)) (& (. b bytes))))
+
+(pub (fn push ((b (&mut buf)) (x u8)) unit (vec.push (&mut (. b bytes)) x)))
+
+(fn lo ((n i64) (shift i64)) u8 (as u8 (band (shr n shift) 255)))
+
+(pub (fn push_n ((b (&mut buf)) (n i64) (count i64)) unit (for i 0 count (push b (lo n (* i 8))))))
+
+(pub (fn push_w ((b (&mut buf)) (n i64)) unit (push_n b n 4)))
+
+(pub (fn read_w ((b (& buf)) (pos i64)) i64
+  (let b0 (as i64 (at b pos)))
+  (let b1 (as i64 (at b (+ pos 1))))
+  (let b2 (as i64 (at b (+ pos 2))))
+  (let b3 (as i64 (at b (+ pos 3))))
+  (+ b0 (+ (shl b1 8) (+ (shl b2 16) (shl b3 24))))))
+
+(pub (fn write_w ((b (&mut buf)) (pos i64) (n i64)) unit
+  (vec.set (&mut (. b bytes)) pos (lo n 0))
+  (vec.set (&mut (. b bytes)) (+ pos 1) (lo n 8))
+  (vec.set (&mut (. b bytes)) (+ pos 2) (lo n 16))
+  (vec.set (&mut (. b bytes)) (+ pos 3) (lo n 24))))
+
+(pub (fn rtype ((f7 i64) (rs2 i64) (rs1 i64) (f3 i64) (rd i64) (op i64)) i64
+  (bor (shl f7 25)
+    (bor (shl rs2 20) (bor (shl rs1 15) (bor (shl f3 12) (bor (shl rd 7) op)))))))
+
+(pub (fn itype ((imm i64) (rs1 i64) (f3 i64) (rd i64) (op i64)) i64
+  (bor (shl (band imm 4095) 20) (bor (shl rs1 15) (bor (shl f3 12) (bor (shl rd 7) op))))))
+
+(pub (fn stype ((imm i64) (rs2 i64) (rs1 i64) (f3 i64) (op i64)) i64
+  (let lo5 (band imm 31))
+  (let hi7 (band (shr imm 5) 127))
+  (bor (shl hi7 25) (bor (shl rs2 20) (bor (shl rs1 15) (bor (shl f3 12) (bor (shl lo5 7) op)))))))
+
+(pub (fn btype ((imm i64) (rs2 i64) (rs1 i64) (f3 i64)) i64
+  (let b12 (band (shr imm 12) 1))
+  (let b11 (band (shr imm 11) 1))
+  (let b10 (band (shr imm 5) 63))
+  (let b4 (band (shr imm 1) 15))
+  (bor (shl b12 31)
+    (bor (shl b10 25)
+      (bor (shl rs2 20) (bor (shl rs1 15) (bor (shl f3 12) (bor (shl b4 8) (bor (shl b11 7) 99)))))))))
+
+(pub (fn utype ((imm i64) (rd i64) (op i64)) i64 (bor (band imm 0xFFFFF000) (bor (shl rd 7) op))))
+
+(pub (fn jtype ((imm i64) (rd i64)) i64
+  (let b20 (band (shr imm 20) 1))
+  (let b10 (band (shr imm 1) 1023))
+  (let b11 (band (shr imm 11) 1))
+  (let b19 (band (shr imm 12) 255))
+  (bor (shl b20 31)
+    (bor (shl b10 21) (bor (shl b11 20) (bor (shl b19 12) (bor (shl rd 7) 111)))))))
+
+(pub (fn shimm ((f6 i64) (sh i64) (rs i64) (f3 i64) (rd i64) (op i64)) i64
+  (bor (shl f6 26)
+    (bor (shl (band sh 63) 20) (bor (shl rs 15) (bor (shl f3 12) (bor (shl rd 7) op)))))))
+
+(pub (fn label ((b (&mut buf))) i64
+  (let id (vec.len (& (. b labs))))
+  (vec.push (&mut (. b labs)) (neg 1))
+  id))
+
+(pub (fn bind ((b (&mut buf)) (id i64)) unit (let n (len b)) (vec.set (&mut (. b labs)) id n)))
+
+(pub (fn fix_j ((b (&mut buf)) (lab i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b fixs)) (fix at lab fixj))
+  (push_w b (jtype 0 0))))
+
+(pub (fn reloc ((b (&mut buf)) (kind i64) (sym i64)) unit
+  (let at (len b))
+  (vec.push (&mut (. b rels)) (rel at kind sym))))
+
+(pub (fn pend ((b (&mut buf)) (kind i64) (w i64) (a i64) (bb i64) (imm i64) (single bool)) unit
+  (set (. b live) kind)
+  (set (. b pw) w)
+  (set (. b pa) a)
+  (set (. b pb) bb)
+  (set (. b pi) imm)
+  (set (. b ps) single)))
+
+(pub (fn clear ((b (&mut buf))) unit (set (. b live) 0)))
+
+(fn lab_at ((b (& buf)) (i i64)) i64 (@ (vec.get (& (. b labs)) i)))
+
+(fn fix_at ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) at))
+
+(fn fix_lab ((b (& buf)) (i i64)) i64 (. (vec.get (& (. b fixs)) i) lab))
+
+(fn patch ((b (&mut buf)) (i i64)) bool
+  (let at (fix_at b i))
+  (let target (lab_at b (fix_lab b i)))
+  (if (< target 0) (ret false))
+  (write_w b at (jtype (- target at) 0))
+  true)
+
+(pub (fn finish ((b (&mut buf))) bool
+  (let mut ok true)
+  (let n (vec.len (& (. b fixs))))
+  (for i 0 n (if (not (patch b i)) (set ok false)))
+  ok))

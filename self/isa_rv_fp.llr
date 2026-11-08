@@ -1,0 +1,44 @@
+;; RV64 scalar float. fp0 is ft0 and fp1 is ft1. fa0 is the return register.
+(use proj.isa_rv)
+(use proj.rv_buf)
+(use proj.rv_fp)
+
+(fn f ((r i64)) i64 (isa_rv.fpr r))
+
+(fn g ((r i64)) i64 (isa_rv.gpr r))
+
+(pub (fn fmov ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fmov b single (f dst) (f src))))
+
+(pub (fn fld ((b (&mut rv_buf.buf)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (rv_fp.fld b single (f dst) (g base) disp)))
+
+(pub (fn fst ((b (&mut rv_buf.buf)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (rv_fp.fst b single (g base) disp (f src))))
+
+(pub (fn fadd ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fadd b single (f dst) (f src))))
+
+(pub (fn fsub ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fsub b single (f dst) (f src))))
+
+(pub (fn fmul ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fmul b single (f dst) (f src))))
+
+(pub (fn fdiv ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fdiv b single (f dst) (f src))))
+
+(pub (fn fneg ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_fp.fneg b single (f dst) (f src))))
+
+(pub (fn fcmp ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64)) unit
+  (rv_buf.pend b rv_buf.pend_flt 8 (f dst) (f src) 0 single)))
+
+(pub (fn i2f ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (rv_fp.i2f b single (f dst) (g src) w)))
+
+(pub (fn f2i ((b (&mut rv_buf.buf)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (rv_fp.f2i b single (g dst) (f src) w)))
+
+(pub (fn f2f ((b (&mut rv_buf.buf)) (to_single bool) (dst i64) (src i64)) unit
+  (rv_fp.f2f b to_single (f dst) (f src))))

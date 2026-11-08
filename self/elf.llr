@@ -1,10 +1,11 @@
 ;; ELF64 relocatable writer: text, data, rodata, bss, symtab, strtab.
 ;; PC32, PLT32, and 64 are RELA. new inserts the null symbol, so the first
 ;; add_sym index is 1. Encoder disp32 slots are zeros, so PC32 and PLT32 addends are -4.
-;; e_machine is 62 or 183. AArch64 encoder kinds share numbers with x86-64, so the
-;; machine selects the relocation type and forces addend 0.
+;; e_machine is 62, 183, or 243. Encoder kinds share numbers, so the machine
+;; selects the relocation type. AArch64 and RISC-V addends stay 0.
 (use proj.a64_buf)
 (use proj.elf_out)
+(use proj.rv_buf)
 (use proj.x64_buf)
 (use proj.x64_int)
 (use std.fs)
@@ -44,6 +45,16 @@
 (pub (const mach_x64 i64 62))
 
 (pub (const mach_a64 i64 183))
+
+(pub (const mach_rv i64 243))
+
+(pub (const rv64 i64 2))
+
+(pub (const rv_call i64 19))
+
+(pub (const rv_hi i64 23))
+
+(pub (const rv_lo i64 24))
 
 (pub (const a64_abs i64 257))
 
@@ -97,15 +108,22 @@
   (if (== k a64_buf.abs64) (ret a64_abs))
   0)
 
+(fn enc_rv ((k i64)) i64
+  (if (== k rv_buf.callplt) (ret rv_call))
+  (if (== k rv_buf.pcrel_hi) (ret rv_hi))
+  (if (== k rv_buf.abs64) (ret rv64))
+  0)
+
 (pub (fn enc_kind ((k i64) (mach i64)) i64
   (if (== mach mach_a64) (ret (enc_a64 k)))
+  (if (== mach mach_rv) (ret (enc_rv k)))
   (if (== k x64_buf.abs64) (ret abs64))
   (if (== k x64_buf.pc32) (ret pc32))
   (if (== k x64_buf.plt32) (ret plt32))
   0))
 
 (pub (fn enc_addend ((k i64) (mach i64)) i64
-  (if (== mach mach_a64) (ret 0))
+  (if (or (== mach mach_a64) (== mach mach_rv)) (ret 0))
   (if (== k x64_buf.abs64) 0 (neg 4))))
 
 (pub (fn add_enc ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64)) unit

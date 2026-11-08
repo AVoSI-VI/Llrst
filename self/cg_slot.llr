@@ -98,7 +98,7 @@
 (test slot_gpr
   (let p (prog.blank_prog))
   (let b (body (ty.int 3) 2 (opt.none)))
-  (let pl (build (& p) (& b) (& (cg_isa.isa false false))))
+  (let pl (build (& p) (& b) (& (cg_isa.isa false false false))))
   (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_gpr)
   (assert_eq (@ (vec.get (& (. pl idx)) 0)) 0)
   (assert_eq (@ (vec.get (& (. pl idx)) 1)) 1)
@@ -107,7 +107,7 @@
 (test slot_ref_stays
   (let p (prog.blank_prog))
   (let b (body (ty.int 3) 1 (opt.some (ref0))))
-  (let pl (build (& p) (& b) (& (cg_isa.isa false false))))
+  (let pl (build (& p) (& b) (& (cg_isa.isa false false false))))
   (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_mem)
   (assert_eq (. pl ngpr) 0))
 
@@ -115,8 +115,8 @@
   (let p (prog.blank_prog))
   (let t (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))
   (let b (body t 1 (opt.none)))
-  (let sysv (build (& p) (& b) (& (cg_isa.isa false false))))
-  (let arm (build (& p) (& b) (& (cg_isa.isa true false))))
+  (let sysv (build (& p) (& b) (& (cg_isa.isa false false false))))
+  (let arm (build (& p) (& b) (& (cg_isa.isa true false false))))
   (assert_eq (@ (vec.get (& (. sysv kind)) 0)) cg_isa.slot_mem)
   (assert_eq (@ (vec.get (& (. arm kind)) 0)) cg_isa.slot_fpr)
   (assert_eq (. arm nfpr) 1))

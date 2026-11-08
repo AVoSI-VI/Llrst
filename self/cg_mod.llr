@@ -10,6 +10,7 @@
 (use proj.macho)
 (use proj.prog)
 (use proj.ty)
+(use proj.rv_buf)
 (use proj.x64_buf)
 (use std.map)
 (use std.str)
@@ -106,9 +107,11 @@
 
 (pub (fn new ((checked bool) (s cg_isa.isa) (darwin bool) (be bool)) cg
   (let a64 (. s a64))
+  (let rv (. s rv))
   (let win (. s win))
   (let mut g (fresh checked s darwin win be))
   (if a64 (set (. (. g obj) machine) elf.mach_a64))
+  (if rv (set (. (. g obj) machine) elf.mach_rv))
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
@@ -382,7 +385,10 @@
   (let at (ro_bytes g bytes align))
   (ro_sym g name at (vec.len bytes))))
 
-(pub (fn ptr_kind ((g (& cg))) i64 (if (. (. g isa) a64) elf.a64_abs elf.abs64)))
+(pub (fn ptr_kind ((g (& cg))) i64
+  (if (. (. g isa) a64) (ret elf.a64_abs))
+  (if (. (. g isa) rv) (ret elf.rv64))
+  elf.abs64))
 
 (fn append_x ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (let b (& (. c x)))
@@ -411,7 +417,27 @@
       (vec.push (&mut o) (str.clone (& (. s name))))))
   o))
 
+(fn place_lo ((g (&mut cg)) (at i64)) unit
+  (let au (- at 4))
+  (let mut name (str.from ".L"))
+  (str.push (&mut name) (& (str.from_int au)))
+  (let s (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_none elf.sec_text au 0))
+  (elf.add_rel (&mut (. g obj)) elf.sec_text at elf.rv_lo s 0))
+
+(fn append_r ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (let b (& (. c r)))
+  (let base (vec.len (& (. (. g obj) text))))
+  (elf_out.copy (&mut (. (. g obj) text)) (rv_buf.bytes b))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (let at (+ base (. r at)))
+    (if (== (. r kind) rv_buf.pcrel_lo)
+      (place_lo g at)
+      (elf.add_enc (&mut (. g obj)) elf.sec_text at (. r kind) (. r sym))))
+  (elf.set_sym (&mut (. g obj)) sym base (rv_buf.len b)))
+
 (pub (fn append_fn ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (if (. (. g isa) rv) (ret (append_r g sym c)))
   (if (. (. g isa) a64) (ret (append_a g sym c)))
   (append_x g sym c)))
 
@@ -430,10 +456,13 @@
 
 (pub (fn set_debug ((g (&mut cg)) (on bool)) unit (set (. g debug) on)))
 
+(fn line_kind ((g (& cg))) i64
+  (if (== (. (. g obj) machine) elf.mach_a64) (ret elf.a64_abs))
+  (if (== (. (. g obj) machine) elf.mach_rv) (ret elf.rv64))
+  elf.abs64)
+
 (pub (fn finish ((g (& cg))) str
-  (let kind (if (== (. (. g obj) machine) elf.mach_a64) elf.a64_abs elf.abs64))
-  (let p (cg_line.encode (& (. g dfiles)) (& (. g drows)) kind (& (. (. g obj) syms))))
+  (let p (cg_line.encode (& (. g dfiles)) (& (. g drows)) (line_kind g) (& (. (. g obj) syms))))
   (if (. g win) (ret (coff.bytes_line (& (. g obj)) (& (. p coff)))))
-  (if (and (. g darwin) (. (. g isa) a64))
-    (ret (macho.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))
+  (if (. g darwin) (ret (macho.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))
   (elf.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))

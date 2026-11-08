@@ -123,6 +123,8 @@
   (push_n b align 8)
   (push_n b entsize 8))
 
+(fn eflags ((machine i64)) i64 (if (== machine 243) 4 0))
+
 (fn ehdr ((b (&mut (vec u8))) (machine i64) (shoff i64) (shnum i64) (shstr i64)) unit
   (vec.push b 127u8)
   (vec.push b 69u8)
@@ -138,7 +140,7 @@
   (push_n b 0 8)
   (push_n b 0 8)
   (push_n b shoff 8)
-  (push_n b 0 4)
+  (push_n b (eflags machine) 4)
   (push_n b 64 2)
   (push_n b 0 2)
   (push_n b 0 2)

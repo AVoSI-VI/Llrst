@@ -2,7 +2,7 @@
 # Builds tests/run/hello.llr with --emit-obj for each cross target and checks `file`.
 # aarch64, riscv64, and s390x are then linked freestanding with lld. apple-darwin is not.
 # Apple clang has no RISC-V or SystemZ backend. A keg-only Homebrew LLVM clang does.
-# A self/ compiler rejects riscv64 and s390x; those rows are skip, not fail.
+# A self/ compiler rejects s390x; that row is skip, not fail.
 # Output: ok|cross|TARGET or fail|cross|target=...|got=... or skip|cross|target=...
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,7 +38,7 @@ check() {
   rm -f "$obj"
   if ! "$llrc" build "$root/tests/run/hello.llr" --target "$triple" --emit-obj -o "$tmp/hello" 2>"$tmp/err"; then
     if grep -q 'target.unsupported' "$tmp/err"; then
-      echo "skip|cross|target=$triple|self=x86-64 and aarch64 only"
+      echo "skip|cross|target=$triple|self=no s390x"
       return
     fi
     echo "fail|cross|target=$triple|got=$(head -1 "$tmp/err")"
@@ -101,6 +101,7 @@ link_elf aarch64-unknown-linux-gnu aarch64-unknown-linux-gnu "ARM aarch64"
 link_elf riscv64gc-unknown-linux-gnu riscv64-unknown-linux-gnu "RISC-V"
 link_elf s390x-unknown-linux-gnu s390x-unknown-linux-gnu "S/390"
 check aarch64-apple-darwin "arm64"
+check x86_64-apple-darwin "x86_64"
 
 mir="$("$llrc" emit-mir --target x86_64-pc-windows-gnu "$root/tests/run/os_id.llr" 2>"$tmp/err")" || {
   echo "fail|cross|target=x86_64-pc-windows-gnu|got=$(head -1 "$tmp/err")"

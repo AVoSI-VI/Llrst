@@ -1,0 +1,39 @@
+;; Loads and stores. t6 holds the address when the offset misses imm12.
+(use proj.rv_buf)
+(use proj.rv_int)
+
+(fn base_of ((b (&mut rv_buf.buf)) (base i64) (disp i64)) i64
+  (if (rv_int.fits12 disp) (ret base))
+  (rv_int.li b rv_buf.t6 disp)
+  (rv_int.add b rv_buf.t6 base rv_buf.t6)
+  rv_buf.t6)
+
+(fn disp_of ((disp i64)) i64 (if (rv_int.fits12 disp) disp 0))
+
+(pub (fn ld ((b (&mut rv_buf.buf)) (w i64) (dst i64) (base i64) (disp i64)) unit
+  (let a (base_of b base disp))
+  (let d (disp_of disp))
+  (if (== w 1) (ret (rv_int.lbu b dst a d)))
+  (if (== w 2) (ret (rv_int.lhu b dst a d)))
+  (if (== w 4) (ret (rv_int.lwu b dst a d)))
+  (rv_int.ld b dst a d)))
+
+(pub (fn st ((b (&mut rv_buf.buf)) (w i64) (src i64) (base i64) (disp i64)) unit
+  (let a (base_of b base disp))
+  (let d (disp_of disp))
+  (if (== w 1) (ret (rv_int.sb b src a d)))
+  (if (== w 2) (ret (rv_int.sh b src a d)))
+  (if (== w 4) (ret (rv_int.sw b src a d)))
+  (rv_int.sd b src a d)))
+
+(pub (fn fld ((b (&mut rv_buf.buf)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (let a (base_of b base disp))
+  (let d (disp_of disp))
+  (let f3 (if single 2 3))
+  (rv_buf.push_w b (rv_buf.itype d a f3 dst 7))))
+
+(pub (fn fst ((b (&mut rv_buf.buf)) (single bool) (src i64) (base i64) (disp i64)) unit
+  (let a (base_of b base disp))
+  (let d (disp_of disp))
+  (let f3 (if single 2 3))
+  (rv_buf.push_w b (rv_buf.stype d src a f3 39))))

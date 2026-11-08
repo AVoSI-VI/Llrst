@@ -3,7 +3,7 @@
 Requirements: a Rust toolchain (`cargo`) for stage 0, and a C compiler used only as the linker.
 On Linux or macOS that compiler is `cc`. On Windows it is `cl`.
 Stage 0 is the Rust compiler. The installed `llrc` is stage-2 `llrs`, which emits x86-64
-ELF or COFF and aarch64 ELF or Mach-O.
+ELF, COFF, or Mach-O, aarch64 ELF or Mach-O, and riscv64 ELF.
 
 ```
 scripts/install.sh            # Linux or macOS, installs to ~/.local/{bin,share/llrst}
@@ -32,12 +32,13 @@ layout is whatever the host headers define. On a Mac, the same object translates
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
 in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
 Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
-An Apple triple uses `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` with
-`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos --show-sdk-path`.
+An Apple triple uses `xcrun clang -target arm64-apple-macos`, `x86_64-apple-macos`, or
+`arm64-apple-ios` with `-isysroot` from `xcrun --sdk macosx --show-sdk-path` or
+`xcrun --sdk iphoneos --show-sdk-path`.
 An Android triple uses `$ANDROID_NDK`'s `aarch64-linux-android21-clang` with `-shared`.
-Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, `x86_64`
-without `apple`, and `aarch64` or `arm64`, including `apple-darwin`. `riscv64` and `s390x`
-stay on stage 0. `tests/run.sh` and
+Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, any
+`x86_64` triple including `apple-darwin`, `riscv64`, and `aarch64` or `arm64`, including
+`apple-darwin`. `s390x` stays on stage 0. `tests/run.sh` and
 `tests/run.ps1` check whichever `llrc` `LLRC` names; stage 0 is `target/release/llrc`. Both
 runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` against that
 stage 0 binary. When `LLRC` is not stage 0, `tests/run.sh` runs `tests/cross.sh` again with

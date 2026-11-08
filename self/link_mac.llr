@@ -15,7 +15,8 @@
 
 (pub (fn sim ((t (& str))) bool (str.has t "simulator")))
 
-(pub (fn target_name ((ios bool) (sim bool)) str
+(pub (fn target_name ((ios bool) (sim bool) (x64 bool)) str
+  (if x64 (ret (str.from "x86_64-apple-macos")))
   (if (and ios sim) (ret (str.from "arm64-apple-ios-simulator")))
   (if ios (ret (str.from "arm64-apple-ios")))
   (str.from "arm64-apple-macos")))
@@ -44,7 +45,7 @@
 
 (pub (fn cmd ((obj (& str)) (out (& str)) (target (& str)) (sdk (& str))) str
   (let mut c (str.from "xcrun clang -target "))
-  (str.push (&mut c) (& (target_name (ios target) (sim target))))
+  (str.push (&mut c) (& (target_name (ios target) (sim target) (str.has target "x86_64"))))
   (str.push (&mut c) (& (min_flag target)))
   (str.push (&mut c) " -isysroot ")
   (str.push (&mut c) (& (sh sdk)))
@@ -63,9 +64,10 @@
   (assert (not (ios "aarch64-apple-darwin")))
   (assert (sim "arm64-apple-ios-simulator"))
   (assert (not (sim "arm64-apple-ios")))
-  (assert_eq (& (target_name false false)) "arm64-apple-macos")
-  (assert_eq (& (target_name true false)) "arm64-apple-ios")
-  (assert_eq (& (target_name true true)) "arm64-apple-ios-simulator")
+  (assert_eq (& (target_name false false false)) "arm64-apple-macos")
+  (assert_eq (& (target_name false false true)) "x86_64-apple-macos")
+  (assert_eq (& (target_name true false false)) "arm64-apple-ios")
+  (assert_eq (& (target_name true true false)) "arm64-apple-ios-simulator")
   (assert_eq (& (sdk_flag false false)) "macosx")
   (assert_eq (& (sdk_flag true false)) "iphoneos")
   (assert_eq (& (sdk_flag true true)) "iphonesimulator")

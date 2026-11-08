@@ -1,0 +1,283 @@
+;; RV64IM arithmetic, branches, and the pending compare.
+;; acc/tmp stay in their registers until setcc or jcc consumes the compare.
+(use proj.cg_isa)
+(use proj.rv_buf)
+
+(pub (fn fits12 ((n i64)) bool (and (>= n (neg 2048)) (<= n 2047))))
+
+(fn in32 ((n i64)) bool (and (>= n (neg 2147483648)) (<= n 2147483647)))
+
+(fn sext20 ((hi i64)) i64 (if (>= hi 524288) (- hi 1048576) hi))
+
+(pub (fn addi ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 0 rd 19))))
+
+(pub (fn lui ((b (&mut rv_buf.buf)) (rd i64) (hi i64)) unit
+  (rv_buf.push_w b (rv_buf.utype (shl hi 12) rd 55))))
+
+(pub (fn auipc ((b (&mut rv_buf.buf)) (rd i64) (hi i64)) unit
+  (rv_buf.push_w b (rv_buf.utype (shl hi 12) rd 23))))
+
+(fn r ((b (&mut rv_buf.buf)) (f7 i64) (f3 i64) (rd i64) (rs1 i64) (rs2 i64) (op i64)) unit
+  (rv_buf.push_w b (rv_buf.rtype f7 rs2 rs1 f3 rd op)))
+
+(pub (fn add ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 0 rd rs1 rs2 51)))
+
+(pub (fn sub ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 32 0 rd rs1 rs2 51)))
+
+(pub (fn sll ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 1 rd rs1 rs2 51)))
+
+(pub (fn slt ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 2 rd rs1 rs2 51)))
+
+(pub (fn sltu ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 3 rd rs1 rs2 51)))
+
+(pub (fn xor ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 4 rd rs1 rs2 51)))
+
+(pub (fn srl ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 5 rd rs1 rs2 51)))
+
+(pub (fn sra ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 32 5 rd rs1 rs2 51)))
+
+(pub (fn or ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 6 rd rs1 rs2 51)))
+
+(pub (fn and_rr ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 7 rd rs1 rs2 51)))
+
+(pub (fn mul ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 0 rd rs1 rs2 51)))
+
+(pub (fn mulh ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 1 rd rs1 rs2 51)))
+
+(pub (fn mulhu ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 3 rd rs1 rs2 51)))
+
+(pub (fn div ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 4 rd rs1 rs2 51)))
+
+(pub (fn divu ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 5 rd rs1 rs2 51)))
+
+(pub (fn rem ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 6 rd rs1 rs2 51)))
+
+(pub (fn remu ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 7 rd rs1 rs2 51)))
+
+(pub (fn addw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 0 rd rs1 rs2 59)))
+
+(pub (fn subw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 32 0 rd rs1 rs2 59)))
+
+(pub (fn sllw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 1 rd rs1 rs2 59)))
+
+(pub (fn srlw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 0 5 rd rs1 rs2 59)))
+
+(pub (fn sraw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 32 5 rd rs1 rs2 59)))
+
+(pub (fn mulw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 0 rd rs1 rs2 59)))
+
+(pub (fn divw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 4 rd rs1 rs2 59)))
+
+(pub (fn divuw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 5 rd rs1 rs2 59)))
+
+(pub (fn remw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 6 rd rs1 rs2 59)))
+
+(pub (fn remuw ((b (&mut rv_buf.buf)) (rd i64) (rs1 i64) (rs2 i64)) unit (r b 1 7 rd rs1 rs2 59)))
+
+(fn shamt ((b (&mut rv_buf.buf)) (f6 i64) (f3 i64) (rd i64) (rs i64) (n i64) (op i64)) unit
+  (rv_buf.push_w b (rv_buf.shimm f6 n rs f3 rd op)))
+
+(pub (fn slli ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 0 1 rd rs n 19)))
+
+(pub (fn srli ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 0 5 rd rs n 19)))
+
+(pub (fn srai ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 16 5 rd rs n 19)))
+
+(pub (fn slliw ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 0 1 rd rs n 27)))
+
+(pub (fn srliw ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 0 5 rd rs n 27)))
+
+(pub (fn sraiw ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (n i64)) unit (shamt b 16 5 rd rs n 27)))
+
+(pub (fn andi ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 7 rd 19))))
+
+(pub (fn ori ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 6 rd 19))))
+
+(pub (fn xori ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 4 rd 19))))
+
+(pub (fn sltiu ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 3 rd 19))))
+
+(pub (fn jalr ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 0 rd 103))))
+
+(pub (fn ld ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 3 rd 3))))
+
+(pub (fn lwu ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 6 rd 3))))
+
+(pub (fn lhu ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 5 rd 3))))
+
+(pub (fn lbu ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.itype imm rs 4 rd 3))))
+
+(pub (fn sd ((b (&mut rv_buf.buf)) (rs2 i64) (rs1 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.stype imm rs2 rs1 3 35))))
+
+(pub (fn sw ((b (&mut rv_buf.buf)) (rs2 i64) (rs1 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.stype imm rs2 rs1 2 35))))
+
+(pub (fn sh ((b (&mut rv_buf.buf)) (rs2 i64) (rs1 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.stype imm rs2 rs1 1 35))))
+
+(pub (fn sb ((b (&mut rv_buf.buf)) (rs2 i64) (rs1 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.stype imm rs2 rs1 0 35))))
+
+(pub (fn beq ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 0))))
+
+(pub (fn bne ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 1))))
+
+(pub (fn blt ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 4))))
+
+(pub (fn bge ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 5))))
+
+(pub (fn bltu ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 6))))
+
+(pub (fn bgeu ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (imm i64)) unit
+  (rv_buf.push_w b (rv_buf.btype imm rs2 rs1 7))))
+
+(pub (fn ebreak ((b (&mut rv_buf.buf))) unit (rv_buf.push_w b 0x00100073)))
+
+(fn li32 ((b (&mut rv_buf.buf)) (rd i64) (imm i64)) unit
+  (let hi (band (shr (+ imm 2048) 12) 1048575))
+  (let base (shl (sext20 hi) 12))
+  (lui b rd hi)
+  (let lo (- imm base))
+  (if (!= lo 0) (addi b rd rd lo)))
+
+(fn li64 ((b (&mut rv_buf.buf)) (rd i64) (imm i64)) unit
+  (let mut shift 56)
+  (while (and (> shift 0) (== (band (shr imm shift) 255) 0)) (set shift (- shift 8)))
+  (addi b rd rv_buf.x0 (band (shr imm shift) 255))
+  (while (> shift 0)
+    (do
+      (set shift (- shift 8))
+      (slli b rd rd 8)
+      (let c (band (shr imm shift) 255))
+      (if (!= c 0) (addi b rd rd c)))))
+
+(pub (fn li ((b (&mut rv_buf.buf)) (rd i64) (imm i64)) unit
+  (if (fits12 imm) (ret (addi b rd rv_buf.x0 imm)))
+  (if (in32 imm) (ret (li32 b rd imm)))
+  (li64 b rd imm)))
+
+(pub (fn add_k ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (imm i64)) unit
+  (if (and (fits12 imm) (== rd rs)) (ret (addi b rd rs imm)))
+  (if (fits12 imm) (ret (addi b rd rs imm)))
+  (li b rv_buf.t5 imm)
+  (add b rd rs rv_buf.t5)))
+
+(pub (fn mask ((b (&mut rv_buf.buf)) (rd i64) (w i64)) unit
+  (if (>= w 4) (ret))
+  (if (== w 1) (ret (andi b rd rd 255)))
+  (slli b rd rd 48)
+  (srli b rd rd 48)))
+
+(pub (fn zext ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (w i64)) unit
+  (if (== w 8) (ret (if (!= rd rs) (add b rd rs rv_buf.x0))))
+  (if (== w 1) (ret (andi b rd rs 255)))
+  (if (== w 2) (do (slli b rd rs 48) (ret (srli b rd rd 48))))
+  (slli b rd rs 32)
+  (srli b rd rd 32)))
+
+(pub (fn sext ((b (&mut rv_buf.buf)) (rd i64) (rs i64) (w i64)) unit
+  (if (== w 8) (ret (if (!= rd rs) (add b rd rs rv_buf.x0))))
+  (if (== w 4) (ret (addw b rd rs rv_buf.x0)))
+  (let n (if (== w 1) 56 48))
+  (slli b rd rs n)
+  (srai b rd rd n)))
+
+(fn skip_jal ((b (&mut rv_buf.buf)) (rs1 i64) (rs2 i64) (f3 i64) (lab i64)) unit
+  (rv_buf.push_w b (rv_buf.btype 8 rs2 rs1 f3))
+  (rv_buf.fix_j b lab))
+
+(fn j_flag ((b (&mut rv_buf.buf)) (lab i64)) unit (skip_jal b rv_buf.t6 rv_buf.x0 0 lab))
+
+(fn prep ((b (&mut rv_buf.buf)) (signed bool)) unit
+  (let w (. b pw))
+  (if (>= w 8) (ret))
+  (if signed (sext b rv_buf.t5 (. b pa) w) (zext b rv_buf.t5 (. b pa) w))
+  (if signed (sext b rv_buf.t6 (. b pb) w) (zext b rv_buf.t6 (. b pb) w))
+  (set (. b pa) rv_buf.t5)
+  (set (. b pb) rv_buf.t6))
+
+(fn take_ri ((b (&mut rv_buf.buf)) (signed bool)) unit
+  (let w (. b pw))
+  (if (< w 8) (if signed (sext b rv_buf.t6 (. b pa) w) (zext b rv_buf.t6 (. b pa) w)))
+  (li b rv_buf.t5 (. b pi))
+  (if (< w 8) (set (. b pa) rv_buf.t6))
+  (set (. b pb) rv_buf.t5)
+  (set (. b live) rv_buf.pend_rr))
+
+(fn j_rr ((b (&mut rv_buf.buf)) (cc i64) (lab i64)) unit
+  (let a (. b pa))
+  (let s (. b pb))
+  (if (== cc cg_isa.eq) (ret (skip_jal b a s 1 lab)))
+  (if (== cc cg_isa.ne) (ret (skip_jal b a s 0 lab)))
+  (if (== cc cg_isa.lt) (ret (skip_jal b a s 5 lab)))
+  (if (== cc cg_isa.ge) (ret (skip_jal b a s 4 lab)))
+  (if (== cc cg_isa.gt) (ret (skip_jal b s a 5 lab)))
+  (if (== cc cg_isa.le) (ret (skip_jal b s a 4 lab)))
+  (if (== cc cg_isa.ult) (ret (skip_jal b a s 7 lab)))
+  (if (== cc cg_isa.uge) (ret (skip_jal b a s 6 lab)))
+  (if (== cc cg_isa.ugt) (ret (skip_jal b s a 7 lab)))
+  (skip_jal b s a 6 lab))
+
+(fn j_test ((b (&mut rv_buf.buf)) (cc i64) (lab i64)) unit
+  (and_rr b rv_buf.t5 (. b pa) (. b pb))
+  (if (== cc cg_isa.eq) (skip_jal b rv_buf.t5 rv_buf.x0 1 lab) (skip_jal b rv_buf.t5 rv_buf.x0 0 lab)))
+
+(pub (fn jcc ((b (&mut rv_buf.buf)) (cc i64) (lab i64)) unit
+  (let k (. b live))
+  (if (== k rv_buf.pend_flag) (do (rv_buf.clear b) (ret (j_flag b lab))))
+  (if (== k rv_buf.pend_test) (do (rv_buf.clear b) (ret (j_test b cc lab))))
+  (if (== k rv_buf.pend_ri) (do (take_ri b (signed_cc cc)) (rv_buf.clear b) (ret (j_rr b cc lab))))
+  (if (== k rv_buf.pend_rr) (do (prep b (signed_cc cc)) (rv_buf.clear b) (ret (j_rr b cc lab))))
+  (rv_buf.clear b)))
+
+(fn signed_cc ((cc i64)) bool
+  (or (== cc cg_isa.lt) (or (== cc cg_isa.le) (or (== cc cg_isa.gt) (== cc cg_isa.ge)))))
+
+(fn set1 ((b (&mut rv_buf.buf)) (rd i64) (rs i64)) unit (sltu b rd rv_buf.x0 rs))
+
+(fn set_rr ((b (&mut rv_buf.buf)) (cc i64) (rd i64)) unit
+  (let a (. b pa))
+  (let s (. b pb))
+  (if (== cc cg_isa.eq) (do (xor b rd a s) (ret (sltiu b rd rd 1))))
+  (if (== cc cg_isa.ne) (do (xor b rd a s) (ret (set1 b rd rd))))
+  (if (== cc cg_isa.lt) (ret (slt b rd a s)))
+  (if (== cc cg_isa.ge) (do (slt b rd a s) (ret (xori b rd rd 1))))
+  (if (== cc cg_isa.gt) (ret (slt b rd s a)))
+  (if (== cc cg_isa.le) (do (slt b rd s a) (ret (xori b rd rd 1))))
+  (if (== cc cg_isa.ult) (ret (sltu b rd a s)))
+  (if (== cc cg_isa.uge) (do (sltu b rd a s) (ret (xori b rd rd 1))))
+  (if (== cc cg_isa.ugt) (ret (sltu b rd s a)))
+  (sltu b rd s a)
+  (xori b rd rd 1))
+
+(fn set_test ((b (&mut rv_buf.buf)) (cc i64) (rd i64)) unit
+  (and_rr b rd (. b pa) (. b pb))
+  (if (== cc cg_isa.eq) (sltiu b rd rd 1) (set1 b rd rd)))
+
+(pub (fn setcc ((b (&mut rv_buf.buf)) (cc i64) (rd i64)) unit
+  (let k (. b live))
+  (if (== k rv_buf.pend_flag) (do (rv_buf.clear b) (ret (add b rd rv_buf.t6 rv_buf.x0))))
+  (if (== k rv_buf.pend_test) (do (rv_buf.clear b) (ret (set_test b cc rd))))
+  (if (== k rv_buf.pend_ri) (do (take_ri b (signed_cc cc)) (rv_buf.clear b) (ret (set_rr b cc rd))))
+  (if (== k rv_buf.pend_rr) (do (prep b (signed_cc cc)) (rv_buf.clear b) (ret (set_rr b cc rd))))
+  (rv_buf.clear b)))
+
+(pub (fn mark ((b (&mut rv_buf.buf)) (bit i64)) unit
+  (srli b rv_buf.t6 bit 63)
+  (rv_buf.pend b rv_buf.pend_flag 8 0 0 0 false)))

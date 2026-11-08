@@ -1,0 +1,77 @@
+;; Float half of the ISA seam, split so cg_isa stays under the line budget.
+(use proj.cg_isa)
+(use proj.isa_a64_fp)
+(use proj.isa_rv_fp)
+(use proj.isa_x64_fp)
+
+(pub (fn fmov ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fmov (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fmov (&mut (. c a)) single dst src)
+    (isa_x64_fp.fmov (&mut (. c x)) s single dst src))))
+
+(pub (fn fld ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (base i64) (disp i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fld (&mut (. c r)) single dst base disp)))
+  (if (. s a64)
+    (isa_a64_fp.fld (&mut (. c a)) single dst base disp)
+    (isa_x64_fp.fld (&mut (. c x)) s single dst base disp))))
+
+(pub (fn fst ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (base i64) (disp i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fst (&mut (. c r)) single base disp src)))
+  (if (. s a64)
+    (isa_a64_fp.fst (&mut (. c a)) single base disp src)
+    (isa_x64_fp.fst (&mut (. c x)) s single base disp src))))
+
+(pub (fn fadd ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fadd (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fadd (&mut (. c a)) single dst src)
+    (isa_x64_fp.fadd (&mut (. c x)) s single dst src))))
+
+(pub (fn fsub ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fsub (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fsub (&mut (. c a)) single dst src)
+    (isa_x64_fp.fsub (&mut (. c x)) s single dst src))))
+
+(pub (fn fmul ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fmul (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fmul (&mut (. c a)) single dst src)
+    (isa_x64_fp.fmul (&mut (. c x)) s single dst src))))
+
+(pub (fn fdiv ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fdiv (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fdiv (&mut (. c a)) single dst src)
+    (isa_x64_fp.fdiv (&mut (. c x)) s single dst src))))
+
+(pub (fn fneg ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fneg (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.fneg (&mut (. c a)) single dst src)
+    (isa_x64_fp.fneg (&mut (. c x)) s single dst src))))
+
+(pub (fn fcmp ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.fcmp (&mut (. c r)) single dst src)))
+  (if (. s a64)
+    (do (set (. c float_cc) true) (isa_a64_fp.fcmp (&mut (. c a)) single dst src))
+    (isa_x64_fp.fcmp (&mut (. c x)) s single dst src))))
+
+(pub (fn i2f ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.i2f (&mut (. c r)) single dst src w)))
+  (if (. s a64)
+    (isa_a64_fp.i2f (&mut (. c a)) single dst src w)
+    (isa_x64_fp.i2f (&mut (. c x)) s single dst src w))))
+
+(pub (fn f2i ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (single bool) (dst i64) (src i64) (w i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.f2i (&mut (. c r)) single dst src w)))
+  (if (. s a64)
+    (isa_a64_fp.f2i (&mut (. c a)) single dst src w)
+    (isa_x64_fp.f2i (&mut (. c x)) s single dst src w))))
+
+(pub (fn f2f ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (to_single bool) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (isa_rv_fp.f2f (&mut (. c r)) to_single dst src)))
+  (if (. s a64)
+    (isa_a64_fp.f2f (&mut (. c a)) to_single dst src)
+    (isa_x64_fp.f2f (&mut (. c x)) s to_single dst src))))

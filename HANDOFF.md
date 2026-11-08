@@ -443,7 +443,7 @@ Large; listed last. Each item is its own commit.
 
 1. `[x]` Scalar locals live in callee-saved registers when a function has no address-taken use of them; the ISA seam gains a register slot kind. `tests/x64_ref.sh` snapshots are refreshed on purpose and the suite stays green. [history/comp.md](history/comp.md) records the 2026-11-06 `llrs1`/`llrs0` build ratio as 1.14 (21.6 s / 19.0 s), about a 14% compile-time lever.
 2. `[x]` `--debug` emits `.debug_line` (DWARF 5) in ELF and Mach-O and a line table in COFF, from the statement spans `self/lower.llr` already sets.
-3. `[ ]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
+3. `[x]` `riscv64` in `self/` as a third ISA behind `cg_isa`; `x86_64-apple-darwin` Mach-O x86-64. `tests/cross.sh` stops skipping them.
 4. `[ ]` `llr-doc --private` prints private items; `llr-bench FILE` times each `(bench NAME ...)` form and prints `bench|NAME|ns`; `llr-lsp` speaks LSP over stdio and answers diagnostics by running `llrc check`, definition by `llr-grep` on the resolver's `def` records.
 5. `[ ]` Commit per item: `self: registers for scalar locals`, `self: debug line tables`, `self: riscv64 and x86_64 darwin`, `tools: llr-doc private, llr-bench, llr-lsp`.
 
@@ -573,4 +573,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 - 2026-11-07: Phase 14 item 4. `(try e)` on `(res T E)` inside a function that returns `(res U F)` calls `From.from` when `F` implements `From` and that method's parameter is `E`. The same error type is unchanged. Anything else stays `type.mismatch`. The impl may replace the `Self` parameter; `trait.dup` still allows one impl per head. `tests/run/try_from.llr` covers a concrete source, a generic source, and a copied `i64`. `tests/err/try_from.llr` is the mismatch.
 - 2026-11-07: Phase 14 closed. Phase 15 item 1. A scalar local with no address-taken use lives in a callee-saved register: SysV `rbx r12-r15`, Win64 `rbx rsi rdi r12-r15` and `xmm6-xmm15`, AAPCS64 `x19-x28` and `d8-d15`. SysV floats stay in memory. The slot kind is `slot_mem`, `slot_gpr`, or `slot_fpr`. The prologue spills the registers it uses and the epilogue reloads them. A leading deref reads the register; a ref or any other projection keeps the local in memory.
 - 2026-11-07: Phase 15 item 2. `--debug` writes a DWARF 5 `.debug_line` section into ELF and Mach-O and a COFF line-number table on `.text`. Each statement span is a row at the first byte of that statement. A sequence ends one byte past the function and relocates to the function symbol. Without the flag the object bytes are unchanged. `wasm32` ignores the flag.
+- 2026-11-07: Phase 15 item 3. `riscv64` is a third ISA behind `cg_isa`: LP64D, ELF `e_machine` 243, float ABI double. `x86_64-apple-darwin` emits Mach-O x86-64 with the SysV register map. `tests/cross.sh` builds both; `s390x` still skips.
 
