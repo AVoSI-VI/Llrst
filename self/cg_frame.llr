@@ -69,9 +69,7 @@
 (pub (fn blea ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (base i64) (disp i64)) unit
   (cg_isa.lea b s dst base disp)))
 
-(pub (fn reset ((fx (&mut fncx))) unit
-  (set (. fx used) 0)
-  (set (. fx reg) (neg 1))))
+(pub (fn reset ((fx (&mut fncx))) unit (set (. fx used) 0) (set (. fx reg) (neg 1))))
 
 (pub (fn tmp ((fx (&mut fncx)) (size i64) (align i64)) i64
   (if (<= size 0) (ret (. fx scratch)))
@@ -145,15 +143,39 @@
   (reg_slot p fx cur t k (@ (vec.get (& (. pl idx)) i))))
 
 (fn spill_room ((fx (&mut fncx)) (cur (&mut i64))) unit
-  (let n (if (and (. (. fx isa) win) (not (. (. fx isa) a64))) 16 8))
+  (let n (if (and (not (. (. fx isa) a64)) (not (. (. fx isa) rv))) 16 8))
   (for i 0 (. fx ngpr) (vec.push (&mut (. fx gspill)) (alloc cur 8 8)))
   (for i 0 (. fx nfpr) (vec.push (&mut (. fx fspill)) (alloc cur n n))))
+
+;; SysV has no callee-saved XMM, so its register locals (xmm8-15) are
+;; caller-saved: this function's FPR locals are spilled around every call it
+;; makes, whoever the callee is, and the prologue does not save them. Win64
+;; and AAPCS64 FPR locals are callee-saved and use the prologue/epilogue path.
+(fn caller_fpr ((fx (& fncx))) bool
+  (and (not (. (. fx isa) win)) (and (not (. (. fx isa) a64)) (not (. (. fx isa) rv)))))
+
+(fn fpr_io ((fx (&mut fncx)) (load bool)) unit
+  (for i 0 (. fx nfpr)
+    (cg_isa.slot_io (&mut (. fx buf)) (& (. fx isa)) true i (@ (vec.get (& (. fx fspill)) i)) load)))
+
+(pub (fn spill_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx false))))
+
+(pub (fn reload_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx true))))
+
+(pub (fn call_sym ((fx (&mut fncx)) (sym i64)) unit
+  (spill_f fx)
+  (cg_isa.call_sym (&mut (. fx buf)) (& (. fx isa)) sym)
+  (reload_f fx)))
+
+(pub (fn call_r ((fx (&mut fncx)) (reg i64)) unit
+  (spill_f fx)
+  (cg_isa.call_r (&mut (. fx buf)) (& (. fx isa)) reg)
+  (reload_f fx)))
 
 (fn spill_now ((fx (&mut fncx)) (load bool)) unit
   (for i 0 (. fx ngpr)
     (cg_isa.slot_io (&mut (. fx buf)) (& (. fx isa)) false i (@ (vec.get (& (. fx gspill)) i)) load))
-  (for i 0 (. fx nfpr)
-    (cg_isa.slot_io (&mut (. fx buf)) (& (. fx isa)) true i (@ (vec.get (& (. fx fspill)) i)) load)))
+  (if (not (caller_fpr fx)) (fpr_io fx load)))
 
 (fn push_whole ((fx (&mut fncx)) (cur (&mut i64)) (p (& prog.prog)) (t (& ty.sty))) unit
   (vec.push (&mut (. fx ff)) (vec.new <i64>))
@@ -398,7 +420,9 @@
 
 (fn emit_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64) (name (& str))) unit
   (let ns (cg_mod.cstr_sym g name))
-  (cg_isa.trace_push (&mut (. fx buf)) (& (. fx isa)) disp ns (cg_mod.trace_push g)))
+  (spill_f fx)
+  (cg_isa.trace_push (&mut (. fx buf)) (& (. fx isa)) disp ns (cg_mod.trace_push g))
+  (reload_f fx))
 
 (pub (fn epilogue ((fx (&mut fncx))) unit
   (spill_now fx true)
@@ -425,9 +449,7 @@
   (set (. fx reg) (neg 1))
   (if (and (is_reg fx local) (== (vec.len pk) 0))
     (arm fx local)
-    (if (and (is_reg fx local) (deref0 pk))
-      (into_addr fx local)
-      (addr_local fx cg_isa.addr local)))
+    (if (and (is_reg fx local) (deref0 pk)) (into_addr fx local) (addr_local fx cg_isa.addr local)))
   (let from (if (and (is_reg fx local) (deref0 pk)) 1 0))
   (let mut ty (ty.clone (& (. (vec.get locs local) ty))))
   (if (== from 1) (set ty (ty.inner (& ty))))

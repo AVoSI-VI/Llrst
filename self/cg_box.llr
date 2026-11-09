@@ -23,7 +23,7 @@
   (let bytes (if (<= n 0) 1 n))
   (let alloc (cg_mod.func_sym g p (prog.std_fn p "sys" "alloc") (vec.new <ty.sty>)))
   (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 (cg_isa.arg_i 0) bytes)
-  (cg_isa.call_sym (&mut (. fx buf)) (& (. fx isa)) alloc)
+  (cg_frame.call_sym fx alloc)
   (let heap (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 cg_isa.fp heap cg_isa.acc)
   (if (cg_lay.is_agg (& ty)) (copy_in g p fx hold heap n) (store_in fx (& ty) hold heap))

@@ -40,16 +40,21 @@
   (if (== n 5) (ret x64_buf.r14))
   x64_buf.r15)
 
-(pub (fn xmm ((r i64)) i64
+(pub (fn xmm ((s (& cg_isa.isa)) (r i64)) i64
   (if (== r cg_isa.fp0) (ret 0))
   (if (== r cg_isa.fp1) (ret 1))
   (if (== r cg_isa.ret_f) (ret 0))
-  (if (and (>= r 64) (< r 80)) (ret (+ 6 (- r 64))))
+  (if (and (>= r 64) (< r 80)) (ret (+ (saved_base s) (- r 64))))
   (if (>= r 32) (ret (- r 32)))
   0))
 
-(pub (fn xmm_slot ((b (&mut x64_buf.buf)) (n i64) (disp i64) (load bool)) unit
-  (let xm (+ 6 n))
+;; Win64 saved XMM start at 6 (callee-saved). SysV has none, so locals use
+;; 8..15: no arg or scratch XMM reaches them, and cg_frame treats them as
+;; caller-saved, spilling the function's own around every call.
+(fn saved_base ((s (& cg_isa.isa))) i64 (if (. s win) 6 8))
+
+(pub (fn xmm_slot ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (n i64) (disp i64) (load bool)) unit
+  (let xm (+ (saved_base s) n))
   (let m (mem x64_buf.rbp disp))
   (if load (x64_sse.movups_load b xm (& m)) (x64_sse.movups_store b (& m) xm))))
 

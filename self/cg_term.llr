@@ -409,10 +409,8 @@
       (vec.get (& args) i)
       (@ (vec.get ds i))))
   (if (>= sym 0)
-    (cg_isa.call_sym (&mut (. fx buf)) (& (. fx isa)) sym)
-    (do
-      (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp fp)
-      (cg_isa.call_r (&mut (. fx buf)) (& (. fx isa)) cg_isa.acc))))
+    (cg_frame.call_sym fx sym)
+    (do (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp fp) (cg_frame.call_r fx cg_isa.acc))))
 
 (fn clone_u8 ((v (& (vec u8)))) (vec u8) (vec.clone v))
 

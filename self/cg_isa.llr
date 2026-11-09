@@ -85,17 +85,13 @@
   (if (. s a64) (ret 8))
   (if (. s rv) (ret 12))
   (if (. s win) (ret 10))
-  0))
+  8))
 
 (pub (struct isa (pub (a64 bool)) (pub (win bool)) (pub (rv bool))))
 
 (pub (struct arg (pub (reg i64)) (pub (xmm bool)) (pub (off i64))))
 
-(pub (struct code
-  (pub (x x64_buf.buf))
-  (pub (a a64_buf.buf))
-  (pub (r rv_buf.buf))
-  (pub (float_cc bool))))
+(pub (struct code (pub (x x64_buf.buf)) (pub (a a64_buf.buf)) (pub (r rv_buf.buf)) (pub (float_cc bool))))
 
 (pub (fn arg_i ((n i64)) i64 (+ 16 n)))
 
@@ -124,12 +120,10 @@
   (if (not fpr) (ret (gpr_io c s n disp load)))
   (if (. s rv) (ret (slot_fpr_r c n disp load)))
   (if (. s a64) (ret (slot_fpr_a c n disp load)))
-  (isa_x64.xmm_slot (&mut (. c x)) n disp load)))
+  (isa_x64.xmm_slot (&mut (. c x)) s n disp load)))
 
 (fn gpr_io ((c (&mut code)) (s (& isa)) (n i64) (disp i64) (load bool)) unit
-  (if load
-    (ld c s 8 (saved_i n) fp disp)
-    (st c s 8 (saved_i n) fp disp)))
+  (if load (ld c s 8 (saved_i n) fp disp) (st c s 8 (saved_i n) fp disp)))
 
 (fn slot_fpr_r ((c (&mut code)) (n i64) (disp i64) (load bool)) unit
   (let s (isa false false true))
@@ -439,4 +433,3 @@
   (if (. s rv) (ret (isa_rv_frame.classify cls out)))
   (if (. s a64) (ret (isa_a64_frame.classify cls out)))
   (isa_x64.classify s cls out)))
-

@@ -59,6 +59,10 @@
 
 (pub (fn cvtsd2ss ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 242 90 dst src)))
 
+;; Register copy. movss/movsd between registers merge into the low lane and so
+;; depend on the old destination; movaps copies all 128 bits and renames freely.
+(pub (fn movaps ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 0 40 dst src)))
+
 (pub (fn xorps ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 0 87 dst src)))
 
 (pub (fn xorpd ((b (&mut x64_buf.buf)) (dst i64) (src i64)) unit (sse b 102 87 dst src)))
