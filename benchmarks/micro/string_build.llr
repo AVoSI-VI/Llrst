@@ -1,0 +1,15 @@
+;; why: k changes the first integer so the build cannot be hoisted
+(extern llr_keep ((n i64)) i64)
+
+(fn once ((start i64)) i64
+  (let mut text (str.new))
+  (let mut i 0)
+  (while (< i 64)
+    (if (> i 0) (str.push_byte (&mut text) 44u8))
+    (str.push (&mut text) (& (str.from_int (+ start i))))
+    (set i (+ i 1)))
+  (str.len (& text)))
+
+(bench string_build
+  (let n (llr_keep (once (band k 32))))
+  (if (< n 0) (panic "keep")))

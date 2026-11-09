@@ -67,7 +67,7 @@
 | task | form |
 |------|------|
 | wall clock | `(time.now_ms)` milliseconds since the Unix epoch. `(fs.now_ms)` forwards here for one release |
-| monotonic clock | `(time.mono_ms)` |
+| monotonic clock | `(time.mono_ms)` milliseconds, `(time.mono_ns)` nanoseconds |
 | sleep | `(time.sleep_ms n)` |
 | UTC date | `(time.utc ms)` returns `date`. `(time.iso8601 (& d))` is `YYYY-MM-DDTHH:MM:SS.mmmZ`. `(time.parse_iso (& s))` reads that form |
 | random | `(rand.seed s)`, `(rand.next (&mut r))`, `(rand.below (&mut r) n)`, `(rand.f64 (&mut r))`, `(rand.shuffle (&mut r) (&mut v))`, `(rand.entropy)` |

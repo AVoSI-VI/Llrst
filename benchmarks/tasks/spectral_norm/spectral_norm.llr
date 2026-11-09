@@ -1,0 +1,39 @@
+;; why: ten matrix iterations, same n as the other languages
+(use std.io)
+(use std.str)
+
+(const n i64 500)
+(const iters i64 10)
+
+(fn aval ((i i64) (j i64)) f64
+  (let ij (+ i j))
+  (/ 1.0 (as f64 (+ (+ (/ (* ij (+ ij 1)) 2) i) 1))))
+
+(fn mul ((v (& (vec f64))) (trans bool)) (vec f64)
+  (let mut out (vec.new <f64>))
+  (let mut i 0)
+  (while (< i n)
+    (let mut s 0.0)
+    (let mut j 0)
+    (while (< j n)
+      (let a (if trans (aval j i) (aval i j)))
+      (set s (+ s (* a (@ (vec.get v j)))))
+      (set j (+ j 1)))
+    (vec.push (&mut out) s)
+    (set i (+ i 1)))
+  out)
+
+(fn main () unit
+  (let one 1.0)
+  (let mut u (vec.filled n (& one)))
+  (let mut k 0)
+  (while (< k iters)
+    (let v (mul (& u) false))
+    (set u (mul (& v) true))
+    (set k (+ k 1)))
+  (let mut acc 0)
+  (set k 0)
+  (while (< k n)
+    (set acc (+ acc (as i64 (* (@ (vec.get (& u) k)) 1000000.0))))
+    (set k (+ k 1)))
+  (io.puts (& (str.from_int acc))))

@@ -1,0 +1,24 @@
+;; why: k changes the limit so the sieve cannot be hoisted out of the timer
+(extern llr_keep ((n i64)) i64)
+
+(fn count_primes ((limit i64)) i64
+  (let bit true)
+  (let mut mark (vec.filled (+ limit 1) (& bit)))
+  (vec.set (&mut mark) 0 false)
+  (vec.set (&mut mark) 1 false)
+  (let mut count 0)
+  (let mut i 2)
+  (while (<= i limit)
+    (if (@ (vec.get (& mark) i))
+      (do
+        (set count (+ count 1))
+        (let mut j (* i i))
+        (while (<= j limit)
+          (vec.set (&mut mark) j false)
+          (set j (+ j i)))))
+    (set i (+ i 1)))
+  count)
+
+(bench sieve
+  (let n (llr_keep (count_primes (+ 2000 (band k 1)))))
+  (if (< n 0) (panic "keep")))

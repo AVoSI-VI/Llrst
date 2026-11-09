@@ -1,0 +1,21 @@
+;; why: k seeds the lcg so the sort cannot be hoisted out of the timer
+(extern llr_keep ((n i64)) i64)
+
+(fn lcg ((x i64)) i64 (band (+ (* x 1664525) 1013904223) 4294967295))
+
+(fn at ((p (& (vec i64))) (i i64)) i64 (@ (vec.get p i)))
+
+(fn once ((seed i64)) i64
+  (let mut vals (vec.new <i64>))
+  (let mut x (+ 1 seed))
+  (let mut i 0)
+  (while (< i 256)
+    (set x (lcg x))
+    (vec.push (&mut vals) x)
+    (set i (+ i 1)))
+  (vec.sort (&mut vals))
+  (at (& vals) 128))
+
+(bench sort
+  (let n (llr_keep (once (band k 1023))))
+  (if (< n 0) (panic "keep")))

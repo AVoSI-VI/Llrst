@@ -1,0 +1,19 @@
+;; why: k changes the payload so the allocations cannot be hoisted
+(extern llr_keep ((n i64)) i64)
+
+(fn once ((seed i64)) i64
+  (let mut acc 0)
+  (let mut i 0)
+  (while (< i 32)
+    (let mut row (vec.new <i64>))
+    (let mut j 0)
+    (while (< j 16)
+      (vec.push (&mut row) (+ seed (+ i j)))
+      (set j (+ j 1)))
+    (set acc (+ acc (@ (vec.get (& row) 7))))
+    (set i (+ i 1)))
+  acc)
+
+(bench alloc_churn
+  (let n (llr_keep (once (band k 1023))))
+  (if (< n 0) (panic "keep")))

@@ -1,0 +1,45 @@
+;; why: std json reader, same document as the other languages
+(use std.io)
+(use std.json_read)
+(use std.str)
+
+(const n i64 800000)
+
+(fn line ((a i64) (b i64)) unit
+  (let mut s (str.from_int a))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int b)))
+  (io.puts (& s)))
+
+(fn build () str
+  (let mut text (str.from "["))
+  (let mut i 0)
+  (while (< i n)
+    (if (> i 0) (str.push_byte (&mut text) 44u8))
+    (str.push (&mut text) "{\"id\":")
+    (str.push (&mut text) (& (str.from_int i)))
+    (str.push (&mut text) ",\"ok\":true}")
+    (set i (+ i 1)))
+  (str.push_byte (&mut text) 93u8)
+  text)
+
+(fn add_id ((obj (& jval)) (total i64)) i64
+  (let idx (opt.unwrap (json_read.get obj "id")))
+  (let num (vec.get (& (. obj items)) idx))
+  (+ total (opt.unwrap (str.to_int (& (. num text))))))
+
+(fn sum_ids ((root (& jval))) i64
+  (let mut total 0)
+  (let mut i 0)
+  (let count (vec.len (& (. root items))))
+  (while (< i count)
+    (set total (add_id (vec.get (& (. root items)) i) total))
+    (set i (+ i 1)))
+  (line total count)
+  total)
+
+(fn main () unit
+  (let text (build))
+  (match (json_read.read (& text))
+    ((res.ok root) (let _n (sum_ids (& root))))
+    ((res.err _e) (panic "json"))))

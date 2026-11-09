@@ -1,0 +1,5 @@
+One timed run of check on the largest std module, std/http.llr.
+The number is wall milliseconds. No link.
+
+llrc  check std/http.llr --std std
+llrs2 check std/http.llr --std std

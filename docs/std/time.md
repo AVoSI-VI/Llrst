@@ -14,6 +14,7 @@ Source: `std/time.llr`. Import with `(use std.time)` for module functions; types
 |------|--------|---------|
 | `time.now_ms` | `()` | `i64` |
 | `time.mono_ms` | `()` | `i64` |
+| `time.mono_ns` | `()` | `i64` |
 | `time.sleep_ms` | `((ms i64))` | `unit` |
 | `time.utc` | `((ms i64))` | `date` |
 | `time.iso8601` | `((d (& date)))` | `str` |

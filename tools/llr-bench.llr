@@ -67,7 +67,7 @@
 (fn add_fn ((s (&mut str)) (text (& str)) (t (& sexp.tree)) (n i64) (i i64)) unit
   (str.push s "(fn llr_bench_")
   (str.push s (& (str.from_int i)))
-  (str.push s " () unit")
+  (str.push s " ((k i64)) unit\n  (if (< k 0) (ret))")
   (let body (body_src text t n))
   (if (== (str.len (& body)) 0)
     (str.push s ")\n")
@@ -77,10 +77,10 @@
   (str.push s "(fn time_")
   (str.push s (& (str.from_int i)))
   (str.push s " () unit\n  (let mut iters 1)\n  (let mut elapsed 0)\n  (loop\n")
-  (str.push s "    (let t0 (time.mono_ms))\n    (for k 0 iters (if (>= k 0) (llr_bench_")
+  (str.push s "    (let t0 (time.mono_ns))\n    (for k 0 iters (llr_bench_")
   (str.push s (& (str.from_int i)))
-  (str.push s ")))\n    (set elapsed (- (time.mono_ms) t0))\n")
-  (str.push s "    (if (or (>= elapsed 20) (>= iters 1048576)) (brk))\n")
+  (str.push s " k))\n    (set elapsed (- (time.mono_ns) t0))\n")
+  (str.push s "    (if (or (>= elapsed 200000000) (>= iters 1048576)) (brk))\n")
   (str.push s "    (set iters (* iters 2)))\n  (measure ")
   (str.push s (& (quote_llr name)))
   (str.push s " iters elapsed))\n"))
@@ -91,7 +91,7 @@
   (str.push s ")\n"))
 
 (fn measure_fn () str
-  (str.from "(fn measure ((name (& str)) (iters i64) (elapsed i64)) unit\n  (let ns (if (<= elapsed 0) 0 (/ (* elapsed 1000000) iters)))\n  (io.puts (& (fmt.pipe3 \"bench\" (& (fmt.field name)) (& (fmt.int ns))))))\n"))
+  (str.from "(fn measure ((name (& str)) (iters i64) (elapsed i64)) unit\n  (let ns (if (<= elapsed 0) 0 (/ elapsed iters)))\n  (io.puts (& (fmt.pipe3 \"bench\" (& (fmt.field name)) (& (fmt.int ns))))))\n"))
 
 (fn build ((text (& str)) (t (& sexp.tree))) str
   (let mut s (str.new))
@@ -180,9 +180,10 @@
     "(use std.io)\n(fn add ((a i64) (b i64)) i64 (+ a b))\n(bench add\n  (let n (add 1 2)))\n(bench two (let k 1))\n")
   (let g (res.unwrap (gen src)))
   (assert (str.has (& g) "(fn add "))
-  (assert (str.has (& g) "(fn llr_bench_0 () unit"))
+  (assert (str.has (& g) "(fn llr_bench_0 ((k i64)) unit"))
   (assert (str.has (& g) "(add 1 2)"))
   (assert (str.has (& g) "(measure \"add\""))
+  (assert (str.has (& g) "time.mono_ns"))
   (assert (str.has (& g) "(fn time_1 () unit"))
   (assert (not (str.has (& g) "(bench ")))
   (let at (opt.unwrap (str.find (& g) "(use std.io)")))

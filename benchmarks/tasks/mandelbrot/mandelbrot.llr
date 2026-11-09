@@ -1,0 +1,31 @@
+;; why: escape count, same width as the other languages
+(use std.io)
+(use std.str)
+
+(const w i64 600)
+(const lim i64 50)
+
+(fn pixel ((x i64) (y i64)) bool
+  (let cr (- (/ (* 2.0 (as f64 x)) (as f64 w)) 1.5))
+  (let ci (- (/ (* 2.0 (as f64 y)) (as f64 w)) 1.0))
+  (let mut zr 0.0)
+  (let mut zi 0.0)
+  (let mut k 0)
+  (while (< k lim)
+    (let zr2 (+ (- (* zr zr) (* zi zi)) cr))
+    (set zi (+ (* (* 2.0 zr) zi) ci))
+    (set zr zr2)
+    (if (> (+ (* zr zr) (* zi zi)) 4.0) (ret false))
+    (set k (+ k 1)))
+  true)
+
+(fn main () unit
+  (let mut count 0)
+  (let mut y 0)
+  (while (< y w)
+    (let mut x 0)
+    (while (< x w)
+      (if (pixel x y) (set count (+ count 1)))
+      (set x (+ x 1)))
+    (set y (+ y 1)))
+  (io.puts (& (str.from_int count))))

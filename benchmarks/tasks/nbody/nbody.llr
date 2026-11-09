@@ -1,0 +1,167 @@
+;; why: flat f64 vec; tiny literals are quotients because stage 2 misparses long fractions
+(use std.io)
+(use std.str)
+
+(const steps i64 50000)
+(const dt f64 0.01)
+(const pi f64 3.141592653589793)
+(const days f64 365.24)
+(const nbodies i64 5)
+
+(fn nsqrt ((x f64)) f64
+  (if (== x 0.0) (ret 0.0))
+  (let mut g (if (> x 1.0) (* x 0.5) 1.0))
+  (let mut i 0)
+  (while (< i 8)
+    (set g (* 0.5 (+ g (/ x g))))
+    (set i (+ i 1)))
+  g)
+
+(fn solar () f64 (* 4.0 (* pi pi)))
+
+(fn at ((p (& (vec f64))) (i i64)) f64
+  (@ (vec.get p i)))
+
+(fn put ((p (&mut (vec f64))) (i i64) (v f64)) unit
+  (vec.set p i v))
+
+(fn idx ((b i64) (f i64)) i64
+  (+ (* b 7) f))
+
+(fn push7 ((bs (&mut (vec f64))) (x f64) (y f64) (z f64) (vx f64) (vy f64) (vz f64) (m f64)) unit
+  (vec.push bs x)
+  (vec.push bs y)
+  (vec.push bs z)
+  (vec.push bs vx)
+  (vec.push bs vy)
+  (vec.push bs vz)
+  (vec.push bs m))
+
+(fn kick ((bs (&mut (vec f64))) (i i64) (j i64)) unit
+  (let ax (at bs (idx i 0)))
+  (let ay (at bs (idx i 1)))
+  (let az (at bs (idx i 2)))
+  (let avx (at bs (idx i 3)))
+  (let avy (at bs (idx i 4)))
+  (let avz (at bs (idx i 5)))
+  (let am (at bs (idx i 6)))
+  (let bx (at bs (idx j 0)))
+  (let by (at bs (idx j 1)))
+  (let bz (at bs (idx j 2)))
+  (let bvx (at bs (idx j 3)))
+  (let bvy (at bs (idx j 4)))
+  (let bvz (at bs (idx j 5)))
+  (let bm (at bs (idx j 6)))
+  (let dx (- ax bx))
+  (let dy (- ay by))
+  (let dz (- az bz))
+  (let dist (nsqrt (+ (+ (* dx dx) (* dy dy)) (* dz dz))))
+  (let mag (/ dt (* (* dist dist) dist)))
+  (put bs (idx i 3) (- avx (* dx (* bm mag))))
+  (put bs (idx i 4) (- avy (* dy (* bm mag))))
+  (put bs (idx i 5) (- avz (* dz (* bm mag))))
+  (put bs (idx j 3) (+ bvx (* dx (* am mag))))
+  (put bs (idx j 4) (+ bvy (* dy (* am mag))))
+  (put bs (idx j 5) (+ bvz (* dz (* am mag)))))
+
+(fn move1 ((bs (&mut (vec f64))) (i i64)) unit
+  (let x (at bs (idx i 0)))
+  (let y (at bs (idx i 1)))
+  (let z (at bs (idx i 2)))
+  (let vx (at bs (idx i 3)))
+  (let vy (at bs (idx i 4)))
+  (let vz (at bs (idx i 5)))
+  (put bs (idx i 0) (+ x (* dt vx)))
+  (put bs (idx i 1) (+ y (* dt vy)))
+  (put bs (idx i 2) (+ z (* dt vz))))
+
+(fn advance ((bs (&mut (vec f64)))) unit
+  (let mut i 0)
+  (while (< i nbodies)
+    (let mut j (+ i 1))
+    (while (< j nbodies)
+      (kick bs i j)
+      (set j (+ j 1)))
+    (set i (+ i 1)))
+  (set i 0)
+  (while (< i nbodies)
+    (move1 bs i)
+    (set i (+ i 1))))
+
+(fn pair_e ((ax f64) (ay f64) (az f64) (am f64) (bx f64) (by f64) (bz f64) (bm f64)) f64
+  (let dx (- ax bx))
+  (let dy (- ay by))
+  (let dz (- az bz))
+  (/ (* am bm) (nsqrt (+ (+ (* dx dx) (* dy dy)) (* dz dz)))))
+
+(fn energy ((bs (& (vec f64)))) f64
+  (let mut e 0.0)
+  (let mut i 0)
+  (while (< i nbodies)
+    (let px (at bs (idx i 0)))
+    (let py (at bs (idx i 1)))
+    (let pz (at bs (idx i 2)))
+    (let pvx (at bs (idx i 3)))
+    (let pvy (at bs (idx i 4)))
+    (let pvz (at bs (idx i 5)))
+    (let pm (at bs (idx i 6)))
+    (let kin (+ (+ (* pvx pvx) (* pvy pvy)) (* pvz pvz)))
+    (set e (+ e (* (* 0.5 pm) kin)))
+    (let mut j (+ i 1))
+    (while (< j nbodies)
+      (let qx (at bs (idx j 0)))
+      (let qy (at bs (idx j 1)))
+      (let qz (at bs (idx j 2)))
+      (let qm (at bs (idx j 6)))
+      (set e (- e (pair_e px py pz pm qx qy qz qm)))
+      (set j (+ j 1)))
+    (set i (+ i 1)))
+  e)
+
+(fn offset ((bs (&mut (vec f64))) (sm f64)) unit
+  (let mut px 0.0)
+  (let mut py 0.0)
+  (let mut pz 0.0)
+  (let mut i 0)
+  (while (< i nbodies)
+    (let vx (at bs (idx i 3)))
+    (let vy (at bs (idx i 4)))
+    (let vz (at bs (idx i 5)))
+    (let m (at bs (idx i 6)))
+    (set px (+ px (* vx m)))
+    (set py (+ py (* vy m)))
+    (set pz (+ pz (* vz m)))
+    (set i (+ i 1)))
+  (put bs 3 (/ (neg px) sm))
+  (put bs 4 (/ (neg py) sm))
+  (put bs 5 (/ (neg pz) sm)))
+
+(fn planets ((bs (&mut (vec f64))) (sm f64)) unit
+  (push7 bs 4.84143144246472090 -1.16032004402742839 -0.103622044471123109
+    (* (/ 1.66007664274403694 1000.0) days) (* (/ 7.69901118419740425 1000.0) days)
+    (* (/ -6.90460016972063023 100000.0) days) (* (/ 9.54791938424326609 10000.0) sm))
+  (push7 bs 8.34336671824457987 4.12479856412430479 -0.403523417114321381
+    (* (/ -2.76742510726862411 1000.0) days) (* (/ 4.99852801234917238 1000.0) days)
+    (* (/ 2.30417297573763929 100000.0) days) (* (/ 2.85885980666130812 10000.0) sm))
+  (push7 bs 12.8943695621391310 -15.1111514016986312 -0.223307578892655734
+    (* (/ 2.96460137564761618 1000.0) days) (* (/ 2.37847173959480950 1000.0) days)
+    (* (/ -2.96589568540237556 100000.0) days) (* (/ 4.36624404335156298 100000.0) sm))
+  (push7 bs 15.3796971148509165 -25.9193146099879641 0.179258772950371181
+    (* (/ 2.68067772490389322 1000.0) days) (* (/ 1.62824170038242295 1000.0) days)
+    (* (/ -9.51592254519715870 100000.0) days) (* (/ 5.15138902046611451 100000.0) sm)))
+
+(fn init () (vec f64)
+  (let sm (solar))
+  (let mut bs (vec.new <f64>))
+  (push7 (&mut bs) 0.0 0.0 0.0 0.0 0.0 0.0 sm)
+  (planets (&mut bs) sm)
+  (offset (&mut bs) sm)
+  bs)
+
+(fn main () unit
+  (let mut bs (init))
+  (let mut i 0)
+  (while (< i steps)
+    (advance (&mut bs))
+    (set i (+ i 1)))
+  (io.puts (& (str.from_int (as i64 (* (energy (& bs)) 10000.0))))))

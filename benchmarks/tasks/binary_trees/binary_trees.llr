@@ -1,0 +1,45 @@
+;; why: one vec allocation per node, same depths as the other languages
+(use std.io)
+(use std.str)
+
+(const min_d i64 4)
+(const max_d i64 13)
+
+(struct tree (kids (vec tree)))
+
+(fn make ((d i64)) tree
+  (let mut kids (vec.new <tree>))
+  (if (> d 0)
+    (do
+      (vec.push (&mut kids) (make (- d 1)))
+      (vec.push (&mut kids) (make (- d 1)))))
+  (tree kids))
+
+(fn check ((t (& tree))) i64
+  (if (== (vec.len (& (. t kids))) 0) (ret 1))
+  (let a (check (vec.get (& (. t kids)) 0)))
+  (let b (check (vec.get (& (. t kids)) 1)))
+  (+ (+ 1 a) b))
+
+(fn line ((a i64) (b i64)) unit
+  (let mut s (str.from_int a))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int b)))
+  (io.puts (& s)))
+
+(fn main () unit
+  (let stretch (check (& (make (+ max_d 1)))))
+  (let long (make max_d))
+  (let mut total 0)
+  (let mut d min_d)
+  (while (<= d max_d)
+    (let iterations (shl 1 (+ (- max_d d) min_d)))
+    (let mut acc 0)
+    (let mut i 0)
+    (while (< i iterations)
+      (let node (make d))
+      (set acc (+ acc (check (& node))))
+      (set i (+ i 1)))
+    (set total (+ total acc))
+    (set d (+ d 2)))
+  (line stretch (+ total (check (& long)))))

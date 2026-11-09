@@ -1,0 +1,8 @@
+One timed run of each bootstrap stage. Output goes to benchmarks/results/compile/.
+The number is wall milliseconds for that one build.
+
+llrc  build self/llrs.llr -o llrs0 --std std
+llrs0 build self/llrs.llr -o llrs1 --std std
+llrs1 build self/llrs.llr -o llrs2 --std std
+
+SOURCE_DATE_EPOCH=0, same as scripts/self.sh. Not repeated: a full bootstrap is the sample.

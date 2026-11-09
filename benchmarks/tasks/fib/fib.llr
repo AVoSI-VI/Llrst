@@ -1,0 +1,9 @@
+;; why: recursive calls, same n as the other languages in this directory
+(use std.io)
+(use std.str)
+
+(fn fib ((n i64)) i64
+  (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+
+(fn main () unit
+  (io.puts (& (str.from_int (fib 36)))))

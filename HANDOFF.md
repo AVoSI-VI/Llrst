@@ -113,6 +113,12 @@ commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
 version|0.8.0
 suite|tests/run.sh fails=0|2026-11-08|stage 0
 self|stage2=equal|scripts/self.ps1 --stage at 2026-11-06|windows x64|llrs0 build self/llrs.llr 19.0s|llrs1/llrs0=1.14
+bench|2026-11-08|Linux x86_64|Intel Core Ultra 5 125H|benchmarks/baseline.txt|5-run median|gate=30%
+compile|llrc self/llrs.llr 4.5s|llrs0 21.3s|llrs1 26.0s|llrs1/llrs0=1.22|http check llrc 46ms|llrs2 378ms|llrs2/llrc=8.2
+runtime|stage2/stage0|fib 1.15|sieve 1.13|nbody 1.25|mandelbrot 2.8|spectral 1.35|string 1.29|json 1.19|sort 1.44|map 0.95|trees 1.25
+stage0 vs C|fib 21x|sieve 25x|nbody 57x|mandelbrot 2.6x|spectral 27x|string 16x|json 51x|sort 2.8x|map 12x|trees 10x|fannkuch 39x
+stage0 vs Rust|fib 15x|sieve 28x|nbody 57x|mandelbrot 2.6x|string 25x|json 64x|sort 9.3x|map 5.9x|trees 7.4x
+stage0 vs Nim|fib 24x|sieve 22x|nbody 29x|mandelbrot 2.2x|string 14x|json 4.0x|sort 2.4x|map 3.4x|trees 8.0x
 wasm|self/ emits one .wasm module|os_id=3|wasm32-wasi and wasm32-unknown-unknown|suite=tests/wasm.sh
 lines|compiler=9979 rs|self=20032 llr|std=9471 llr (55 modules)|ui=9622 llr|tools=2099 llr|max_file=runtime/llr_ui_win_a11y.c 596|budget=500 soft, 1000 hard
 ```

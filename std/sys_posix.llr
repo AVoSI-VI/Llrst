@@ -125,6 +125,8 @@
 
 (pub (extern llr_mono_ms () i64))
 
+(pub (extern llr_mono_ns () i64))
+
 (pub (extern llr_sleep_ms ((ms i64)) unit))
 
 (pub (extern llr_entropy ((buf (ptr u8)) (n u64)) i64))

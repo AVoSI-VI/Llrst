@@ -1,0 +1,9 @@
+;; why: k changes the argument so the call cannot be hoisted out of the timer
+(extern llr_keep ((n i64)) i64)
+
+(fn fib ((n i64)) i64
+  (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+
+(bench fib
+  (let n (llr_keep (fib (+ 15 (band k 3)))))
+  (if (< n 0) (panic "keep")))

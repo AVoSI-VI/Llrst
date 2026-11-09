@@ -1,4 +1,6 @@
 /target
+/benchmarks/results/
+.llr-bench-*
 *.o
 *.obj
 /runtime/llr_stat.o

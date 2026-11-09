@@ -263,6 +263,11 @@
   (if (!= (clock_time_get id 0 (low (as (ptr u8) (&mut ts)))) 0i32) (ret (neg 1)))
   (/ ts 1000000))
 
+(fn clock_ns ((id i32)) i64
+  (let mut ts 0)
+  (if (!= (clock_time_get id 0 (low (as (ptr u8) (&mut ts)))) 0i32) (ret (neg 1)))
+  ts)
+
 (pub (fn llr_now_ms () i64 (clock_ms 0i32)))
 
 (pub (fn unlink ((path (ptr u8))) i32 (let _ path) (fail_i "unlink")))
@@ -396,6 +401,8 @@
 (pub (fn llr_exe_path ((buf (ptr u8)) (n u64)) i64 (let _ buf) (let _ n) (neg 1)))
 
 (pub (fn llr_mono_ms () i64 (clock_ms 1i32)))
+
+(pub (fn llr_mono_ns () i64 (clock_ns 1i32)))
 
 (pub (fn llr_sleep_ms ((ms i64)) unit
   (let t0 (llr_mono_ms))

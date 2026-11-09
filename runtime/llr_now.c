@@ -6,6 +6,13 @@
 
 static uint8_t *io_slot;
 
+static volatile int64_t llr_sink;
+
+int64_t llr_keep(int64_t n) {
+    llr_sink += n;
+    return llr_sink;
+}
+
 uint8_t *llr_io_get(void) { return io_slot; }
 
 void llr_io_set(uint8_t *p) { io_slot = p; }
@@ -26,6 +33,19 @@ int64_t llr_now_ms(void) {
 }
 
 int64_t llr_mono_ms(void) { return (int64_t)GetTickCount64(); }
+
+int64_t llr_mono_ns(void) {
+    LARGE_INTEGER c, f;
+    uint64_t q, freq, sec, rem;
+    if (!QueryPerformanceCounter(&c) || !QueryPerformanceFrequency(&f) || f.QuadPart <= 0) {
+        return 0;
+    }
+    q = (uint64_t)c.QuadPart;
+    freq = (uint64_t)f.QuadPart;
+    sec = q / freq;
+    rem = q % freq;
+    return (int64_t)(sec * 1000000000ULL + rem * 1000000000ULL / freq);
+}
 
 void llr_sleep_ms(int64_t ms) {
     if (ms > 0) {
@@ -233,6 +253,14 @@ int64_t llr_mono_ms(void) {
         return 0;
     }
     return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+}
+
+int64_t llr_mono_ns(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
 }
 
 void llr_sleep_ms(int64_t ms) {

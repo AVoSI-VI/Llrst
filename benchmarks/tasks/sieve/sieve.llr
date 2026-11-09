@@ -1,0 +1,31 @@
+;; why: vec of bool, same limit as the other languages in this directory
+(use std.io)
+(use std.str)
+
+(const n i64 5000000)
+
+(fn line ((a i64) (b i64)) unit
+  (let mut s (str.from_int a))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int b)))
+  (io.puts (& s)))
+
+(fn main () unit
+  (let bit true)
+  (let mut mark (vec.filled (+ n 1) (& bit)))
+  (vec.set (&mut mark) 0 false)
+  (vec.set (&mut mark) 1 false)
+  (let mut count 0)
+  (let mut last 0)
+  (let mut i 2)
+  (while (<= i n)
+    (if (@ (vec.get (& mark) i))
+      (do
+        (set count (+ count 1))
+        (set last i)
+        (let mut j (* i i))
+        (while (<= j n)
+          (vec.set (&mut mark) j false)
+          (set j (+ j i)))))
+    (set i (+ i 1)))
+  (line count last))
