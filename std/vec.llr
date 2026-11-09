@@ -11,18 +11,20 @@
   (pub (fn len ((self (& (vec T)))) i64 (. self len)))
   (pub (fn is_empty ((self (& (vec T)))) bool (== (. self len) 0)))
   (pub (fn ptr ((self (& (vec T)))) (ptr T) (. self p)))
+  ;; why: a known reserve allocates that many slots; a single push starts at 8 and then doubles.
   (pub (fn reserve ((self (&mut (vec T))) (extra i64)) unit
     (let need (+ (. self len) extra))
     (if (<= need (. self cap)) (ret))
-    (let mut cap (if (< (. self cap) 8) 8 (* (. self cap) 2)))
+    (let mut cap (if (> (. self cap) 0) (* (. self cap) 2) (if (and (<= extra 1) (< need 8)) 8 need)))
     (while (< cap need) (set cap (* cap 2)))
     (let bytes (* cap (as i64 (sizeof T))))
     (if (== (. self cap) 0)
       (set (. self p) (as (ptr T) (sys.alloc bytes)))
       (set (. self p) (as (ptr T) (sys.grow (as (ptr u8) (. self p)) bytes))))
     (set (. self cap) cap)))
+  ;; why: the cap check stays in push so a full slot does not call reserve.
   (pub (fn push ((self (&mut (vec T))) (x T)) unit
-    (vec.reserve self 1)
+    (if (== (. self len) (. self cap)) (vec.reserve self 1))
     (ptr.write (ptr.add (. self p) (. self len)) x)
     (set (. self len) (+ (. self len) 1))))
   (inline (fn check ((self (& (vec T))) (i i64)) unit
@@ -96,22 +98,19 @@
   (pub (fn find <T> ((self (& (vec T))) (pred (clos ((& T)) bool))) (opt i64)
     (for i 0 (vec.len self) (if (call pred (vec.get self i)) (ret (opt.some i))))
     (opt.none)))
+  ;; why: merge reads self first, so the scratch buffer does not need a copy of the input.
   (pub (fn sort <T:Ord> ((self (&mut (vec T)))) unit
     (let n (vec.len self))
     (if (< n 2) (ret))
     (let mut scratch (vec.new <T>))
-    (let sp (. self p))
-    (set (. self len) 0)
     (vec.reserve (&mut scratch) n)
-    (for i 0 n (ptr.write (ptr.add (. scratch p) i) (ptr.read (ptr.add sp i))))
-    (set (. scratch len) n)
     (let mut w 1)
-    (let mut in_scratch true)
+    (let mut in_self true)
     (while (< w n)
-      (if in_scratch (merge <T> (&mut scratch) self w) (merge <T> self (&mut scratch) w))
-      (set in_scratch (not in_scratch))
+      (if in_self (merge <T> self (&mut scratch) w) (merge <T> (&mut scratch) self w))
+      (set in_self (not in_self))
       (set w (* w 2)))
-    (if in_scratch (swap_buf <T> self (&mut scratch))))))
+    (if (not in_self) (swap_buf <T> self (&mut scratch))))))
 
 ;; Bottom-up merge sort. `cmp` is negative when the first argument comes first; 0 keeps the left run.
 (fn swap_buf <T> ((a (&mut (vec T))) (b (&mut (vec T)))) unit
@@ -144,14 +143,22 @@
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b))) (set b (+ b 1)))
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a))) (set a (+ a 1))))
       (set out (+ out 1)))
-    (while (< a mid)
-      (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a)))
-      (set a (+ a 1))
-      (set out (+ out 1)))
-    (while (< b end)
-      (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b)))
-      (set b (+ b 1))
-      (set out (+ out 1)))
+    (if (>= (- mid a) 32)
+      (do
+        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp a)) (as u64 (* (- mid a) (as i64 (sizeof T)))))
+        (set out (+ out (- mid a))))
+      (while (< a mid)
+        (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a)))
+        (set a (+ a 1))
+        (set out (+ out 1))))
+    (if (>= (- end b) 32)
+      (do
+        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp b)) (as u64 (* (- end b) (as i64 (sizeof T)))))
+        (set out (+ out (- end b))))
+      (while (< b end)
+        (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b)))
+        (set b (+ b 1))
+        (set out (+ out 1))))
     (set i (+ i (* width 2))))
   (set (. dst len) n))
 

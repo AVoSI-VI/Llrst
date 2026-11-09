@@ -1,14 +1,19 @@
 ;; More vec methods. vec.llr keeps sort; this file is a second impl.
+(use std.sys)
+
 (impl vec <T>
   (pub (fn clone <T:Clone> ((self (& (vec T)))) (vec T)
     (let mut o (vec.new <T>))
+    (vec.reserve (&mut o) (vec.len self))
     (for i 0 (vec.len self) (vec.push (&mut o) (Clone.clone (vec.get self i))))
     o))
   (pub (fn extend <T:Clone> ((self (&mut (vec T))) (src (& (vec T)))) unit
+    (vec.reserve self (vec.len src))
     (for i 0 (vec.len src) (vec.push self (Clone.clone (vec.get src i))))))
   (pub (fn filled <T:Clone> ((n i64) (x (& T))) (vec T)
     (if (< n 0) (panic "vec.arg"))
     (let mut o (vec.new <T>))
+    (if (> n 0) (vec.reserve (&mut o) n))
     (for _i 0 n (vec.push (&mut o) (Clone.clone x)))
     o))
   (pub (fn resize <T:Clone> ((self (&mut (vec T))) (n i64) (x (& T))) unit
@@ -49,33 +54,30 @@
     (let mut best 0)
     (for i 1 (vec.len self) (if (> (Ord.cmp (vec.get self i) (vec.get self best)) 0) (set best i)))
     (opt.some (vec.get self best))))
+  ;; why: the first merge reads self, so scratch starts empty.
   (pub (fn sort_by <T> ((self (&mut (vec T))) (cmp (clos ((& T) (& T)) i64))) unit
     (let n (vec.len self))
     (if (< n 2) (ret))
     (let mut scratch (vec.new <T>))
-    (let sp (. self p))
-    (set (. self len) 0)
     (vec.reserve (&mut scratch) n)
-    (for i 0 n (ptr.write (ptr.add (. scratch p) i) (ptr.read (ptr.add sp i))))
-    (set (. scratch len) n)
     (let mut w 1)
-    (let mut in_scratch true)
+    (let mut in_self true)
     (let mut c cmp)
     (while (< w n)
-      (if in_scratch
-        (do
-          (set (. scratch len) 0)
-          (set (. self len) 0)
-          (set c (merge_by <T> (. scratch p) (. self p) n w c))
-          (set (. self len) n))
+      (if in_self
         (do
           (set (. self len) 0)
           (set (. scratch len) 0)
           (set c (merge_by <T> (. self p) (. scratch p) n w c))
-          (set (. scratch len) n)))
-      (set in_scratch (not in_scratch))
+          (set (. scratch len) n))
+        (do
+          (set (. scratch len) 0)
+          (set (. self len) 0)
+          (set c (merge_by <T> (. scratch p) (. self p) n w c))
+          (set (. self len) n)))
+      (set in_self (not in_self))
       (set w (* w 2)))
-    (if in_scratch (swap_buf <T> self (&mut scratch)))))
+    (if (not in_self) (swap_buf <T> self (&mut scratch)))))
   (pub (fn retain <T> ((self (&mut (vec T))) (pred (clos ((& T)) bool))) unit
     (let n (. self len))
     (let p (. self p))
@@ -89,6 +91,7 @@
     (for i 0 (vec.len self) (call f (vec.get self i)))))
   (pub (fn map <U> ((self (& (vec T))) (f (clos ((& T)) U))) (vec U)
     (let mut o (vec.new <U>))
+    (vec.reserve (&mut o) (vec.len self))
     (for i 0 (vec.len self) (vec.push (&mut o) (call f (vec.get self i))))
     o))
   (pub (fn filter <T:Clone> ((self (& (vec T))) (pred (clos ((& T)) bool))) (vec T)
@@ -123,14 +126,22 @@
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b))) (set b (+ b 1)))
         (do (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a))) (set a (+ a 1))))
       (set out (+ out 1)))
-    (while (< a mid)
-      (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a)))
-      (set a (+ a 1))
-      (set out (+ out 1)))
-    (while (< b end)
-      (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b)))
-      (set b (+ b 1))
-      (set out (+ out 1)))
+    (if (>= (- mid a) 32)
+      (do
+        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp a)) (as u64 (* (- mid a) (as i64 (sizeof T)))))
+        (set out (+ out (- mid a))))
+      (while (< a mid)
+        (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a)))
+        (set a (+ a 1))
+        (set out (+ out 1))))
+    (if (>= (- end b) 32)
+      (do
+        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp b)) (as u64 (* (- end b) (as i64 (sizeof T)))))
+        (set out (+ out (- end b))))
+      (while (< b end)
+        (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b)))
+        (set b (+ b 1))
+        (set out (+ out 1))))
     (set i (+ i (* width 2))))
   cmp)
 

@@ -146,15 +146,25 @@ suspects table has no unmeasured rows.
 Guided by `sort`, `string-build`, `map-ops`, `alloc_churn`, `binary-trees`,
 `json-parse`. Candidate items, kept only where the bench moves:
 
-- [ ] `std/alloc.llr`: size-class the free list or make `find` skip too-small blocks
+- [x] `std/alloc.llr`: size-class the free list or make `find` skip too-small blocks
   faster; keep the 2 GiB cap and header format unless a bench justifies changing
-  them.
-- [ ] `vec.sort`: reuse or avoid the scratch allocation (`HANDOFF.md` perf note).
-- [ ] `vec`: growth policy and `push` inlining; `reserve` before known-size builds
-  in `str` and `json` paths.
-- [ ] `map`: hash quality and resize policy on the insert/lookup bench.
-- [ ] `str`: `push_byte` growth batching; remove clone-then-copy pairs the canon
+  them. Size-class heads live in one directory block. Native `sys.alloc` stays
+  libc, so this does not move the Linux lines; `alloc_churn` moved from the vec
+  growth change.
+- [x] `vec.sort`: reuse or avoid the scratch allocation (`HANDOFF.md` perf note).
+  The scratch buffer is still allocated; the input is no longer copied into it
+  before the first merge. A run longer than 32 slots is one `memmove`.
+- [x] `vec`: growth policy and `push` inlining; `reserve` before known-size builds
+  in `str` and `json` paths. A single push still starts at 8 and doubles. A
+  reserve of a known length allocates that many slots. `push` checks capacity
+  before calling `reserve`.
+- [x] `map`: hash quality and resize policy on the insert/lookup bench. The i64
+  hash was already uniform on the bench keys, so it stayed. Heads grow by 4x at
+  the same load cap, and `put` hashes once unless a rehash moves the bucket.
+- [x] `str`: `push_byte` growth batching; remove clone-then-copy pairs the canon
   files (`docs/canon/strings.md`, `collections.md`) already mark as non-canon.
+  One byte grows by 32. `from_int` writes digits into the result. `from` and
+  `cstr` copy once. Plain JSON strings are one slice.
 
 Exit: each landed item shows its bench line improving in the same commit's baseline
 update; no micro bench regresses past the regression gate.

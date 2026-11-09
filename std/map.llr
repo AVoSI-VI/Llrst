@@ -10,19 +10,26 @@
   V>
   (pub (fn new () (map K V)
     (let mut m (map (vec.new <i64>) (vec.new < (entry K V) >) 0))
+    (vec.reserve (&mut (. m heads)) 16)
     (for i 0 16 (vec.push (&mut (. m heads)) (neg 1)))
     m))
   (pub (fn len ((self (& (map K V)))) i64 (. self len)))
   (fn bucket <K:Hash> ((self (& (map K V))) (k (& K))) i64
     (% (Hash.hash k) (vec.len (& (. self heads)))))
   ;; Entry index for k, or -1. Dead entries stay in the chain until compact.
-  (fn find <K:Hash:Eq> ((self (& (map K V))) (k (& K))) i64
-    (let mut i (@ (vec.get (& (. self heads)) (map.bucket self k))))
+  ;; why: the chain walk uses the entry pointer so each step is not a vec.get.
+  (fn find_in <K:Hash:Eq> ((self (& (map K V))) (b i64) (k (& K))) i64
+    (let mut i (ptr.read (ptr.add (. (. self heads) p) b)))
+    (let ents (. (. self ents) p))
     (while (>= i 0)
-      (let e (vec.get (& (. self ents)) i))
+      (let at i)
+      (let e (& (@ (ptr.add ents at))))
+      (let nxt (. e next))
       (if (and (. e alive) (Eq.eq (& (. e k)) k)) (ret i))
-      (set i (. e next)))
+      (set i nxt))
     (neg 1))
+  (fn find <K:Hash:Eq> ((self (& (map K V))) (k (& K))) i64
+    (map.find_in self (map.bucket self k) k))
   (pub (fn has <K:Hash:Eq> ((self (& (map K V))) (k (& K))) bool (>= (map.find self k) 0)))
   (pub (fn get <K:Hash:Eq> ((self (& (map K V))) (k (& K))) (opt (& V))
     (let i (map.find self k))
@@ -36,6 +43,7 @@
   (fn relink <K:Hash> ((self (&mut (map K V)))) unit
     (let n (vec.len (& (. self heads))))
     (let mut heads (vec.new <i64>))
+    (vec.reserve (&mut heads) n)
     (for i 0 n (vec.push (&mut heads) (neg 1)))
     (for i 0 (vec.len (& (. self ents)))
       (let e (vec.get_mut (&mut (. self ents)) i))
@@ -43,9 +51,11 @@
       (set (. e next) (@ (vec.get (& heads) b)))
       (vec.set (&mut heads) b i))
     (set (. self heads) heads))
+  ;; why: quadrupling cuts the number of full relinks versus doubling at the same load cap.
   (fn rehash <K:Hash> ((self (&mut (map K V)))) unit
-    (let n (* 2 (vec.len (& (. self heads)))))
+    (let n (* 4 (vec.len (& (. self heads)))))
     (let mut heads (vec.new <i64>))
+    (vec.reserve (&mut heads) n)
     (for i 0 n (vec.push (&mut heads) (neg 1)))
     (set (. self heads) heads)
     (map.relink self))
@@ -56,6 +66,7 @@
     (while (and (> n 16) (<= (* (. self len) 8) n)) (set n (/ n 2)))
     (if (== n have) (ret))
     (let mut heads (vec.new <i64>))
+    (vec.reserve (&mut heads) n)
     (for i 0 n (vec.push (&mut heads) (neg 1)))
     (set (. self heads) heads)
     (map.relink self))
@@ -64,6 +75,7 @@
     (if (<= (vec.len (& (. self ents))) (* 2 (. self len))) (ret))
     (let mut old (vec.take (&mut (. self ents))))
     (let mut fresh (vec.new < (entry K V) >))
+    (vec.reserve (&mut fresh) (. self len))
     (while (not (vec.is_empty (& old)))
       (match (vec.pop (&mut old))
         ((opt.some e) (if (. e alive) (vec.push (&mut fresh) e) (drop e)))
@@ -71,15 +83,17 @@
     (set (. self ents) fresh)
     (map.relink self))
   (pub (fn put <K:Hash:Eq> ((self (&mut (map K V))) (k K) (v V)) unit
-    (let i (map.find self (& k)))
+    (let mut b (map.bucket self (& k)))
+    (let i (map.find_in self b (& k)))
     (if (>= i 0) (do (set (. (vec.get_mut (&mut (. self ents)) i) v) v) (ret)))
-    (if (> (vec.len (& (. self ents))) (* 2 (. self len))) (map.compact self))
-    (if (> (. self len) (* 2 (vec.len (& (. self heads))))) (map.rehash self))
-    (let b (map.bucket self (& k)))
-    (let head (@ (vec.get (& (. self heads)) b)))
+    (let mut moved false)
+    (if (> (vec.len (& (. self ents))) (* 2 (. self len))) (do (map.compact self) (set moved true)))
+    (if (> (. self len) (* 2 (vec.len (& (. self heads))))) (do (map.rehash self) (set moved true)))
+    (if moved (set b (map.bucket self (& k))))
+    (let head (ptr.read (ptr.add (. (. self heads) p) b)))
     (let idx (vec.len (& (. self ents))))
     (vec.push (&mut (. self ents)) (entry k v head true))
-    (vec.set (&mut (. self heads)) b idx)
+    (ptr.write (ptr.add (. (. self heads) p) b) idx)
     (set (. self len) (+ (. self len) 1))))
   (pub (fn del <K:Hash:Eq> ((self (&mut (map K V))) (k (& K))) bool
     (let i (map.find self k))
@@ -92,6 +106,7 @@
   ;; Live keys, cloned and sorted. clone and cmp are named functions; there is no trait.
   (pub (fn keys <K:Clone:Ord> ((self (& (map K V)))) (vec K)
     (let mut out (vec.new <K>))
+    (vec.reserve (&mut out) (. self len))
     (for i 0 (vec.len (& (. self ents)))
       (let e (vec.get (& (. self ents)) i))
       (if (. e alive) (vec.push (&mut out) (Clone.clone (& (. e k))))))

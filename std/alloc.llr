@@ -1,18 +1,27 @@
 ;; Free-list allocator. The heap header is four i64s: base, brk, end, free.
+;; why: one list makes find walk every free block; free holds a directory of size-class heads.
 (use std.sys)
 
 (pub (fn malloc ((h (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
   (if (too_big n) (ret (ptr.null <u8>)))
   (let need (align16 (if (== n 0u64) 1u64 n)))
-  (let hit (find h need))
+  (let c (class_of (as i64 need)))
+  (let got (if (< c 13) (class_size c) (as i64 need)))
+  (let d (ensure h grow))
+  (if (== d 0) (ret (malloc_legacy h need grow)))
+  (let hit (take d c got))
   (if (!= hit 0) (ret (from (+ hit 16))))
-  (bump h need grow)))
+  (bump h (as u64 got) grow)))
 
 (pub (fn free ((h (ptr u8)) (p (ptr u8))) unit
   (if (ptr.eq p (ptr.null <u8>)) (ret))
   (let blk (as i64 (- (as i64 (as u64 p)) 16)))
-  (wr_at blk 8 (rd h 24))
-  (wr h 24 blk)))
+  (let d (rd h 24))
+  (if (not (is_dir d))
+    (do (wr_at blk 8 d) (wr h 24 blk) (ret)))
+  (let c (class_of (rd_at blk 0)))
+  (wr_at blk 8 (head d c))
+  (set_head d c blk)))
 
 (pub (fn realloc ((h (ptr u8)) (p (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
   (if (ptr.eq p (ptr.null <u8>)) (ret (malloc h n grow)))
@@ -40,19 +49,82 @@
 
 (fn wr_at ((a i64) (off i64) (n i64)) unit (ptr.write (as (ptr i64) (ptr.add (from a) off)) n))
 
-(fn find ((h (ptr u8)) (n u64)) i64
+;; 0..7 are exact 16-byte steps through 128. Then 256, 512, 1024, 2048, 4096, and a large list.
+(fn class_of ((n i64)) i64
+  (if (<= n 128) (ret (/ (- n 16) 16)))
+  (if (<= n 256) (ret 8))
+  (if (<= n 512) (ret 9))
+  (if (<= n 1024) (ret 10))
+  (if (<= n 2048) (ret 11))
+  (if (<= n 4096) (ret 12))
+  13)
+
+(fn class_size ((c i64)) i64
+  (if (< c 8) (ret (* (+ c 1) 16)))
+  (if (== c 8) (ret 256))
+  (if (== c 9) (ret 512))
+  (if (== c 10) (ret 1024))
+  (if (== c 11) (ret 2048))
+  4096)
+
+(fn is_dir ((d i64)) bool (and (!= d 0) (== (rd_at d 0) 0)))
+
+(fn head ((d i64) (c i64)) i64 (rd_at d (+ 16 (* c 8))))
+
+(fn set_head ((d i64) (c i64) (v i64)) unit (wr_at d (+ 16 (* c 8)) v))
+
+;; A directory is one block whose payload is 14 free-list heads. Size 0 keeps it off the user lists.
+(fn ensure ((h (ptr u8)) (grow (fn (i32) i32))) i64
+  (let d (rd h 24))
+  (if (is_dir d) (ret d))
+  (if (!= d 0) (ret 0))
+  (let p (bump h 128u64 grow))
+  (if (ptr.eq p (ptr.null <u8>)) (ret 0))
+  (let at (as i64 (- (as i64 (as u64 p)) 16)))
+  (wr_at at 0 0)
+  (for i 0 14 (wr_at at (+ 16 (* i 8)) 0))
+  (wr h 24 at)
+  at)
+
+(fn pop ((d i64) (c i64)) i64
+  (let hit (head d c))
+  (if (== hit 0) (ret 0))
+  (set_head d c (rd_at hit 8))
+  hit)
+
+(fn unlink_at ((d i64) (prev i64) (cur i64) (c i64)) i64
+  (let nxt (rd_at cur 8))
+  (if (== prev 0) (set_head d c nxt) (wr_at prev 8 nxt))
+  cur)
+
+(fn take ((d i64) (c i64) (n i64)) i64
+  (if (< c 13) (ret (pop d c)))
   (let mut prev 0)
-  (let mut cur (rd h 24))
+  (let mut cur (head d 13))
   (while (!= cur 0)
-    (if (>= (rd_at cur 0) (as i64 n)) (ret (unlink h prev cur)))
+    (if (>= (rd_at cur 0) n) (ret (unlink_at d prev cur 13)))
     (set prev cur)
     (set cur (rd_at cur 8)))
   0)
 
-(fn unlink ((h (ptr u8)) (prev i64) (cur i64)) i64
+(fn find_legacy ((h (ptr u8)) (n u64)) i64
+  (let mut prev 0)
+  (let mut cur (rd h 24))
+  (while (!= cur 0)
+    (if (>= (rd_at cur 0) (as i64 n)) (ret (unlink_legacy h prev cur)))
+    (set prev cur)
+    (set cur (rd_at cur 8)))
+  0)
+
+(fn unlink_legacy ((h (ptr u8)) (prev i64) (cur i64)) i64
   (let nxt (rd_at cur 8))
   (if (== prev 0) (wr h 24 nxt) (wr_at prev 8 nxt))
   cur)
+
+(fn malloc_legacy ((h (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
+  (let hit (find_legacy h n))
+  (if (!= hit 0) (ret (from (+ hit 16))))
+  (bump h n grow))
 
 (fn bump ((h (ptr u8)) (n u64) (grow (fn (i32) i32))) (ptr u8)
   (let need (+ (as i64 n) 16))
@@ -95,5 +167,13 @@
   (let t (realloc mem (ptr.null <u8>) 8u64 no_grow))
   (assert (not (ptr.eq t (ptr.null <u8>))))
   (assert (ptr.eq (malloc mem 9000000000u64 no_grow) (ptr.null <u8>)))
+  (let a (malloc mem 16u64 no_grow))
+  (let b (malloc mem 64u64 no_grow))
+  (free mem a)
+  (let c (malloc mem 64u64 no_grow))
+  (assert (not (ptr.eq c a)))
+  (assert (not (ptr.eq c b)))
+  (let d (malloc mem 16u64 no_grow))
+  (assert (ptr.eq d a))
   (free mem (ptr.null <u8>))
   (sys.free mem))

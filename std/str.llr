@@ -4,6 +4,14 @@
 
 (pub (struct str (pub (p (ptr u8))) (pub (len i64)) (cap i64)))
 
+;; Decimal width of a positive i64. 10^18 is the last power that fits.
+(fn width_pos ((v i64)) i64
+  (if (>= v 1000000000000000000) (ret 19))
+  (let mut w 1)
+  (let mut p 10)
+  (while (<= p v) (set w (+ w 1)) (set p (* p 10)))
+  w)
+
 (impl str
   (pub (fn new () str (str (ptr.null <u8>) 0 0)))
   (fn drop ((self (&mut str))) unit (if (> (. self cap) 0) (sys.free (. self p))))
@@ -11,10 +19,11 @@
   (pub (inline (fn at ((self (& str)) (i i64)) u8
      (if (or (< i 0) (>= i (. self len))) (panic (& (str.oob (. self len) i))))
      (ptr.read (ptr.add (. self p) i)))))
+  ;; why: one pushed byte grows by 32; a known reserve allocates that many bytes.
   (pub (fn reserve ((self (&mut str)) (extra i64)) unit
     (let need (+ (. self len) extra))
     (if (<= need (. self cap)) (ret))
-    (let mut cap (if (< (. self cap) 16) 16 (* (. self cap) 2)))
+    (let mut cap (if (> (. self cap) 0) (* (. self cap) 2) (if (and (<= extra 1) (< need 32)) 32 need)))
     (while (< cap need) (set cap (* cap 2)))
     (if (== (. self cap) 0)
       (do
@@ -23,8 +32,9 @@
         (set (. self p) q))
       (set (. self p) (sys.grow (. self p) cap)))
     (set (. self cap) cap)))
+  ;; why: the cap check stays here so a free byte does not call reserve.
   (pub (fn push_byte ((self (&mut str)) (b u8)) unit
-    (str.reserve self 1)
+    (if (== (. self len) (. self cap)) (str.reserve self 32))
     (ptr.write (ptr.add (. self p) (. self len)) b)
     (set (. self len) (+ (. self len) 1))))
   (pub (fn push ((self (&mut str)) (t (& str))) unit
@@ -33,7 +43,14 @@
     (str.reserve self n)
     (sys.memcpy (ptr.add (. self p) (. self len)) (. t p) (as u64 n))
     (set (. self len) (+ (. self len) n))))
-  (pub (fn from ((t (& str))) str (let mut s (str.new)) (str.push (&mut s) t) s))
+  (pub (fn from ((t (& str))) str
+    (let mut s (str.new))
+    (let n (. t len))
+    (if (== n 0) (ret s))
+    (str.reserve (&mut s) n)
+    (sys.memcpy (. s p) (. t p) (as u64 n))
+    (set (. s len) n)
+    s))
   (pub (fn clone ((self (& str))) str (str.from self)))
   (pub (fn cat ((a (& str)) (b (& str))) str
     (let mut s (str.new))
@@ -111,16 +128,20 @@
     (while (and (< lo hi) (str.is_space (str.at self (- hi 1)))) (set hi (- hi 1)))
     (str.slice self lo hi)))
   (pub (fn from_int ((n i64)) str
-    (let mut s (str.new))
-    (if (== n 0) (do (str.push_byte (&mut s) 48u8) (ret s)))
+    (if (== n 0) (ret (str.from "0")))
     (if (== n (shl 1 63)) (ret (str.from "-9223372036854775808")))
     (let neg (< n 0))
     (let mut v (if neg (neg n) n))
-    (let mut digits (vec.new <u8>))
-    (while (> v 0) (vec.push (&mut digits) (as u8 (+ 48 (% v 10)))) (set v (/ v 10)))
-    (if neg (str.push_byte (&mut s) 45u8))
-    (let mut i (- (vec.len (& digits)) 1))
-    (while (>= i 0) (str.push_byte (&mut s) (@ (vec.get (& digits) i))) (set i (- i 1)))
+    (let width (+ (width_pos v) (if neg 1 0)))
+    (let mut s (str.new))
+    (str.reserve (&mut s) width)
+    (set (. s len) width)
+    (let mut i (- width 1))
+    (while (> v 0)
+      (ptr.write (ptr.add (. s p) i) (as u8 (+ 48 (% v 10))))
+      (set v (/ v 10))
+      (set i (- i 1)))
+    (if neg (ptr.write (. s p) 45u8))
     s))
   (pub (fn to_int ((self (& str))) (opt i64)
     (let n (. self len))
@@ -159,7 +180,12 @@
     c))
   (pub (fn join ((parts (& (vec str))) (sep (& str))) str
     (let mut out (str.new))
-    (for i 0 (vec.len parts)
+    (let m (vec.len parts))
+    (let mut total 0)
+    (for i 0 m (set total (+ total (str.len (vec.get parts i)))))
+    (if (> m 1) (set total (+ total (* (str.len sep) (- m 1)))))
+    (if (> total 0) (str.reserve (&mut out) total))
+    (for i 0 m
       (if (> i 0) (str.push (&mut out) sep))
       (str.push (&mut out) (vec.get parts i)))
     out))
@@ -171,13 +197,16 @@
     out))
   (pub (fn repeat ((self (& str)) (n i64)) str
     (let mut out (str.new))
+    (if (and (> n 0) (> (. self len) 0)) (str.reserve (&mut out) (* (. self len) n)))
     (for i 0 n (str.push (&mut out) self))
     out))
   ;; NUL-terminated copy for C calls. Caller drops it.
   (pub (fn cstr ((self (& str))) str
-    (let mut s (str.from self))
-    (str.push_byte (&mut s) 0u8)
-    (set (. s len) (- (. s len) 1))
+    (let mut s (str.new))
+    (str.reserve (&mut s) (+ (. self len) 1))
+    (if (> (. self len) 0) (sys.memcpy (. s p) (. self p) (as u64 (. self len))))
+    (ptr.write (ptr.add (. s p) (. self len)) 0u8)
+    (set (. s len) (. self len))
     s))
   ;; Builds an owned str from C memory of known length.
   (pub (fn from_raw ((p (ptr u8)) (n i64)) str
@@ -225,6 +254,9 @@
   (assert_eq (& (str.from_int 1234)) "1234")
   (assert_eq (& (str.from_int (neg 5))) "-5")
   (assert_eq (& (str.from_int 0)) "0")
+  (assert_eq (& (str.from_int 10)) "10")
+  (assert_eq (& (str.from_int 100000)) "100000")
+  (assert_eq (& (str.from_int (shl 1 63))) "-9223372036854775808")
   (match (str.to_int "-42") ((opt.some v) (assert_eq v (neg 42))) ((opt.none) (assert false)))
   (match (str.to_int "x") ((opt.some _) (assert false)) ((opt.none) (assert true))))
 

@@ -1,7 +1,9 @@
 ;; Cursor over a byte string. Parsers share peek, names, and hex digits.
 (pub (struct cur (pub (s (& str))) (pub (i i64))))
 
-(pub (fn peek ((c (& cur))) u8 (if (>= (. c i) (str.len (. c s))) 0u8 (str.at (. c s) (. c i)))))
+(pub (fn peek ((c (& cur))) u8
+  (if (>= (. c i) (str.len (. c s))) (ret 0u8))
+  (ptr.read (ptr.add (. (. c s) p) (. c i)))))
 
 (pub (fn at ((c (& cur))) i64 (. c i)))
 

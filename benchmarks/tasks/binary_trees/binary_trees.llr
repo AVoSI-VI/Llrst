@@ -11,6 +11,7 @@
   (let mut kids (vec.new <tree>))
   (if (> d 0)
     (do
+      (vec.reserve (&mut kids) 2)
       (vec.push (&mut kids) (make (- d 1)))
       (vec.push (&mut kids) (make (- d 1)))))
   (tree kids))

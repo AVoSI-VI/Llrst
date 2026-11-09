@@ -18,6 +18,7 @@
 
 (fn main () unit
   (let mut vals (vec.new <i64>))
+  (vec.reserve (&mut vals) n)
   (let mut x 1)
   (let mut i 0)
   (while (< i n)
