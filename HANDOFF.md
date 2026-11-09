@@ -26,9 +26,11 @@ boxes as you go and add a dated line to the **Progress log** at the bottom.
   one so it can be reused, else add new code. Do not widen the language only for `self/`.
 - Every std function has a `(test ...)` form in its file; every error code has a
   `tests/err` case and a row in `docs/spec/errors.md`; every tool has a `docs/tools` page.
-- Before committing: `llr-fmt <changed .llr>`, `llr-fmt --lint std/*.llr tools/*.llr`,
-  `tests/run.sh` (and `tests/run.ps1` when the change touches Windows). Each phase is a
-  separate commit with a one-line message; the suite is green at the end of every phase.
+- Before committing: `llr-fmt <changed .llr>`, `llr-fmt --lint std/*.llr tools/*.llr`.
+  Each phase is a separate commit with a one-line message. A phase is done only when
+  `tests/run.sh` fails=0 under stage 0 (`cargo build --release`, then `tests/run.sh`) and
+  under stage 2 (`scripts/self.sh`: `self|stage2=equal`, then the suite with `llrs2`).
+  When the change touches Windows, the same bar is `tests/run.ps1` and `scripts/self.ps1`.
 - No prose in diagnostics or tool output; one record per line, `|` separated.
 - Stage 0 `llrc` (Rust) is the reference. A `self/` change that alters `check` stderr or
   `emit-mir` output must keep `tests/check.sh` and `tests/mir.sh` byte-equal, or change
@@ -459,6 +461,8 @@ tests/self.sh [STAGE]                         # diff STAGE (default llr-check) a
 scripts/check-lines.sh                        # W at 500 lines, fail at 1000
 ```
 
+A phase is not done until both suites above are green: stage 0 (`tests/run.sh` against
+`target/release/llrc`) and stage 2 (`scripts/self.sh`, the suite under `llrs2`).
 A sandbox may redirect `target/`; `cargo metadata --format-version 1` prints `target_directory`.
 The installed `llrc` reads its executable path from `llr_exe_path`, not `argv[0]`, and
 accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works for `llr-test`.
@@ -466,3 +470,5 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 ## Progress log
 
 - 2026-11-08: Phases 8-15 moved to `history/phases-8-15.md`. The log through 2026-11-07 moved to `history/progress.md`. Llrst is 0.8.0. `tests/run.sh` fails=0 under stage 0. A Unix link pulls `llr_reload.o` when any `llr_reload_*` symbol is referenced. `tests/err/match_miss.err` is UTF-8.
+- 2026-11-08: `scripts/self.sh` reaches `stage2=equal` and `tests/run.sh` is fails=0 under both `llrs0` and `llrs2`. SysV stack arguments were stored above the frame (`isa_x64.pass_mem`); the displacement is negative on both ABIs. `cg_bits.scan` keeps seventeen significand digits and moves the exponent for the rest, so `9223372036854775808.0` is 2^63 instead of 0 and `str.from_f64` stops taking the `put_big` path. `lit.parse_dec` accumulates the negated magnitude, so `-9223372036854775808` parses. A call result holds its arguments' loans only when the destination type carries a reference (`holders.dest_ref`), as stage 0 does. `check_match` resolves the scrutinee's inner type through `shallow` and `zonk_ty` before coverage, so a generic call returning `(& (opt T))` is matched as an enum.
+- 2026-11-08: A phase is done only when `tests/run.sh` fails=0 under stage 0 and under stage 2 (`scripts/self.sh`). On Windows the same bar is `tests/run.ps1` and `scripts/self.ps1`.

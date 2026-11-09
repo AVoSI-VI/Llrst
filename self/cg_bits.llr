@@ -71,10 +71,15 @@
     (if (or (== c 101u8) (== c 69u8))
       (ret (pack sig (+ exp (read_exp s i)) sign mant bias (sign_at mant))))
     (if (or (< c 48u8) (> c 57u8)) (ret (pack sig exp sign mant bias (sign_at mant))))
-    (set sig (+ (* sig 10) (- (as i64 c) 48)))
-    (if dot (set exp (- exp 1)))
+    (digit (&mut sig) (&mut exp) (- (as i64 c) 48) dot)
     (set i (+ i 1)))
   (pack sig exp sign mant bias (sign_at mant)))
+
+;; Seventeen significant digits round-trip a double; later ones only move the point.
+(fn digit ((sig (&mut i64)) (exp (&mut i64)) (d i64) (dot bool)) unit
+  (if (< (@ sig) 10000000000000000)
+    (do (set (@ sig) (+ (* (@ sig) 10) d)) (if dot (set (@ exp) (- (@ exp) 1))))
+    (if (not dot) (set (@ exp) (+ (@ exp) 1)))))
 
 (fn sign_at ((mant i64)) i64 (if (== mant 52) 63 31))
 
@@ -110,6 +115,9 @@
   (assert_eq (f64_bits "1.0") 4607182418800017408)
   (assert_eq (f64_bits "0.5") 4602678819172646912)
   (assert_eq (f64_bits "2") 4611686018427387904)
+  (assert_eq (f64_bits "9223372036854775808") 4890909195324358656)
+  (assert_eq (f64_bits "9000000000000000000") 4890691058569617664)
+  (assert_eq (f64_bits "-1.5") -4613937818241073152)
   (assert_eq (f32_bits "1") 1065353216))
 
 (test bits_end

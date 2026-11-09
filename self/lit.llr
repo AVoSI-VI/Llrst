@@ -9,10 +9,26 @@
   (if (and (>= c 65u8) (<= c 70u8)) (ret (+ (- (as i64 c) 65) 10)))
   (neg 1))
 
+;; The negated magnitude, so i64 MIN fits. 1 means the digits overflow i64.
 (fn parse_dec ((s (& str)) (lo i64) (hi i64)) i64
   (let mut n 0)
-  (for i lo hi (set n (+ (* n 10) (- (as i64 (str.at s i)) 48))))
+  (for i lo hi
+    (let d (- (as i64 (str.at s i)) 48))
+    (if (< n (/ (+ (shl 1 63) d) 10)) (ret 1))
+    (set n (- (* n 10) d)))
   n)
+
+(fn int_val ((body (& str)) (rad i64) (neg bool)) (opt i64)
+  (if (> rad 0)
+    (do
+      (let v (parse_rad body 2 (str.len body) rad))
+      (if (< v 0) (ret (opt.none)))
+      (ret (opt.some (if neg (neg v) v)))))
+  (let m (parse_dec body 0 (str.len body)))
+  (if (> m 0) (ret (opt.none)))
+  (if neg (ret (opt.some m)))
+  (if (== m (shl 1 63)) (ret (opt.none)))
+  (opt.some (neg m)))
 
 (fn split_suf ((s (& str))) i64
   (let mut i 1)
@@ -59,13 +75,25 @@
   (let suf (str.slice s at (str.len s)))
   (let body (strip_us s (if neg 1 0) at))
   (let rad (radix_of (& body)))
-  (let float (and (== rad 0) (or (str.has (& body) ".") (or (has_exp (& body)) (str.starts (& suf) "f")))))
+  (let float
+    (and (== rad 0) (or (str.has (& body) ".") (or (has_exp (& body)) (str.starts (& suf) "f")))))
   (if float (ret (num true true 0 suf (float_show (& body) neg))))
-  (let mut v
-    (if (> rad 0) (parse_rad (& body) 2 (str.len (& body)) rad) (parse_dec (& body) 0 (str.len (& body)))))
-  (if (< v 0) (ret (num false false 0 (str.new) (str.new))))
-  (if neg (set v (neg v)))
-  (num true false v suf (str.new))))
+  (match (int_val (& body) rad neg)
+    ((opt.some v) (num true false v suf (str.new)))
+    ((opt.none) (num false false 0 (str.new) (str.new))))))
+
+(test lit_int_edges
+  (let lo (parse_num "-9223372036854775808"))
+  (assert (. lo ok))
+  (assert_eq (. lo val) (shl 1 63))
+  (let hi (parse_num "9223372036854775807"))
+  (assert (. hi ok))
+  (assert_eq (. hi val) 9223372036854775807)
+  (assert (not (. (parse_num "9223372036854775808") ok)))
+  (assert (not (. (parse_num "99999999999999999999") ok)))
+  (assert_eq (. (parse_num "-0x10") val) (neg 16))
+  (assert_eq (. (parse_num "42u8") val) 42)
+  (assert_eq (& (. (parse_num "42u8") suffix)) "u8"))
 
 (fn trim_zeros ((s (& str))) str
   (let mut hi (str.len s))
@@ -80,17 +108,14 @@
   (str.push (&mut s) t)
   s)
 
-(fn trim_float ((s (& str))) str
-  (if (str.has s ".") (trim_zeros s) (str.clone s)))
+(fn trim_float ((s (& str))) str (if (str.has s ".") (trim_zeros s) (str.clone s)))
 
 (fn float_show ((body (& str)) (neg bool)) str
   (if (has_exp body) (ret (sign_show (& (trim_float (& (expand_exp body)))) neg)))
   (sign_show (& (trim_zeros body)) neg))
 
 (fn exp_at ((s (& str))) i64
-  (for i 0 (str.len s)
-    (let c (str.at s i))
-    (if (or (== c 101u8) (== c 69u8)) (ret i)))
+  (for i 0 (str.len s) (let c (str.at s i)) (if (or (== c 101u8) (== c 69u8)) (ret i)))
   (neg 1))
 
 (fn read_signed ((s (& str)) (i i64)) i64
@@ -99,14 +124,10 @@
   (if (and (< j (str.len s)) (== (str.at s j) 43u8)) (set j (+ j 1)))
   (if (and (< j (str.len s)) (== (str.at s j) 45u8)) (do (set neg true) (set j (+ j 1))))
   (let mut n 0)
-  (while (< j (str.len s))
-    (do (set n (+ (* n 10) (- (as i64 (str.at s j)) 48))) (set j (+ j 1))))
+  (while (< j (str.len s)) (do (set n (+ (* n 10) (- (as i64 (str.at s j)) 48))) (set j (+ j 1))))
   (if neg (neg n) n))
 
-(fn zeros ((n i64)) str
-  (let mut s (str.new))
-  (for _i 0 n (str.push_byte (&mut s) 48u8))
-  s)
+(fn zeros ((n i64)) str (let mut s (str.new)) (for _i 0 n (str.push_byte (&mut s) 48u8)) s)
 
 (fn expand_exp ((body (& str))) str
   (let at (exp_at body))
@@ -189,9 +210,7 @@
   (set (. i i) (+ (. i i) 1))
   (let mut cp 0)
   (while (and (< (. i i) (str.len src)) (!= (str.at src (. i i)) 125u8))
-    (do
-      (set cp (+ (* cp 16) (hex_dig (str.at src (. i i)))))
-      (set (. i i) (+ (. i i) 1))))
+    (do (set cp (+ (* cp 16) (hex_dig (str.at src (. i i))))) (set (. i i) (+ (. i i) 1))))
   (if (< (. i i) (str.len src)) (set (. i i) (+ (. i i) 1)))
   (let _ok (str.push_utf8 o cp)))
 

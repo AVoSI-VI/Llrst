@@ -279,7 +279,7 @@
 (pub (fn pass_mem ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (frame i64) (a (& cg_isa.arg)) (slot i64)) unit
   (if (>= (. a reg) 0) (ret))
   (let raw (- frame (- (. a off) 8)))
-  (let disp (if (. s win) (neg raw) raw))
+  (let disp (neg raw))
   (if (. a xmm) (ret (pass_xmm b s slot disp)))
   (ld b s 8 cg_isa.acc cg_isa.fp slot)
   (st b s 8 cg_isa.acc cg_isa.fp disp)))

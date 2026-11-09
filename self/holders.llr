@@ -290,12 +290,21 @@
   (if (== (vec.len (& (. t dpk))) 0) (holders_note.clear_notes flds (. t dest)))
   (let els (loans.eligible p t b))
   (let mut g (vec.new <i64>))
-  (for i 0 (vec.len (& els)) (flow_arg b (& pre) nloan t (@ (vec.get (& els) i)) (&mut g)))
+  (if (dest_ref p b t)
+    (for i 0 (vec.len (& els)) (flow_arg (& pre) nloan t (@ (vec.get (& els) i)) (&mut g))))
   (add_all st nloan (& g) (. t dest))
   (sink_args p b ls (& pre) st t))
 
-(fn flow_arg ((b (& mir.body)) (st (& (vec u64))) (nloan i64) (t (& mir.term)) (i i64) (g (&mut (vec i64)))) unit
-  (if (< i (vec.len (& (. t args)))) (flow_op b st nloan (vec.get (& (. t args)) i) (. t dest) g)))
+;; A call result holds its arguments' loans only when the destination can carry a reference.
+(fn dest_ref ((p (& prog.prog)) (b (& mir.body)) (t (& mir.term))) bool
+  (if (ty.has_ref (& (. (vec.get (& (. b locs)) (. t dest)) ty))) (ret true))
+  (let pl (mir.place (. t dest) (vec.clone (& (. t dpk))) (vec.clone (& (. t dpi)))))
+  (ty.has_ref (& (mir.place_ty p (& (. b locs)) (& pl)))))
+
+(fn flow_arg ((st (& (vec u64))) (nloan i64) (t (& mir.term)) (i i64) (g (&mut (vec i64)))) unit
+  (if (>= i (vec.len (& (. t args)))) (ret))
+  (let o (vec.get (& (. t args)) i))
+  (if (!= (. o kind) 2u8) (append_pairs st nloan (. o local) g)))
 
 (fn sink_args ((p (& prog.prog))
    (b (& mir.body))
