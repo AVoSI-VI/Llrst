@@ -417,6 +417,9 @@
   (if (. s rv) (ret (isa_rv_frame.copy (&mut (. c r)) n)))
   (if (. s a64) (isa_a64_frame.copy (&mut (. c a)) n) (isa_x64.copy (&mut (. c x)) s n))))
 
+(pub (fn trace_mark ((c (&mut code)) (s (& isa)) (disp i64) (name i64)) unit
+  (isa_x64.trace_mark (&mut (. c x)) s disp name)))
+
 (pub (fn trace_push ((c (&mut code)) (s (& isa)) (disp i64) (name i64) (sym i64)) unit
   (if (. s rv) (ret (isa_rv_frame.trace_push (&mut (. c r)) disp name sym)))
   (if (. s a64)

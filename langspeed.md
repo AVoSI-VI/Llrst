@@ -26,10 +26,10 @@ Stage2/stage0 is the codegen gap. The multiple versus C or Rust is stage 0.
 | floats on SysV | `docs/spec/types.md:126`: SysV has no callee-saved XMM, so floats stay in memory | float locals spill on x86-64 even in stage 2's register path | Promoted for `mandelbrot` only. Stage 2 is 203/73 ms (2.8x) there, against 1.15x on integer `fib`. `nbody` (1.25x) and `spectral-norm` (290/215, 1.35x) do not add a float penalty on top of the integer gap. Stage 0 `nbody` is 570 ms against about 10-20 ms for C and Rust, so the bodies are slow before spills. |
 | allocator | `std/alloc.llr`: free-list `find` is a first-fit linear scan; every block pays a 16-byte header and 16-byte alignment | allocation-heavy code degrades as the free list grows; small allocations carry header overhead | Promoted as a stage 0 cost. `binary-trees` 199 vs C 19, `string-build` 708 vs Rust 28 (25x), `map-ops` 976 vs Rust 166 (5.9x). Stage 2 is 1.25x, 1.29x, and 0.95x on those runs. Micro `alloc_churn` is 1.31x. |
 | `vec.sort` allocates a scratch buffer per call | `HANDOFF.md` perf notes | one allocation plus a full copy per sort | Promoted, not the whole gap. `sort` stage 0 is 445 vs Rust 48 (9.3x) and vs C 157 (2.8x). Stage 2 is 641 (1.44x). Micro `sort` is 1.42x. One scratch buffer cannot explain 9x versus Rust. |
-| bounds and check traffic | `std/vec.llr:30`: `vec.get` is inline but runs `vec.check` per access; div lowers through `sys.checked_div` paths (`self/lower_div.llr`) | per-access branch in inner loops; division-heavy code pays a call | Killed as the main cost. `fib` does no indexing and no division and is already about 20x C. `sieve` is 25x C with a 1.13x stage gap. `fannkuch` is 547 vs C 14 (39x) and 1.08x stage 2, so index checks stay plausible there and are not separated from call overhead. |
+| bounds and check traffic | `std/vec.llr`: `vec.get` and `vec.set` are inline but run `vec.check` per access; div lowers through `sys.checked_div` (`self/lower_div.llr`) | per-access branch in inner loops; division-heavy code pays a call | Not the original 20x. After the trace calls were removed, it is the remaining sieve and nbody gap to Node: every index is still checked, and `aval`'s integer `/` is still a call. |
 | string building | `std/str.llr`: `push`/`clone` copy through the allocator; no small-string or reserve-first fast path is visible | repeated realloc and copy when building strings byte by byte | Promoted. Worst cross-language gaps after the parser. `string-build` stage 0 is 708 vs C 45 (16x) and Rust 28 (25x). `json-parse` is 3667 vs C 72 (51x) and Rust 57 (64x). Stage 2 is 1.29x and 1.19x on those runs. Micro `string_build` is 1.29x. |
 | drop glue and cloning | `self/cg_drop.llr`, ownership in `self/holders.llr`/`loans.llr`; canon code clones to satisfy the borrow checker | copies and drop calls where a move or borrow would do | Killed as its own row. `json-parse` and `map-ops` are slow, and nothing in this set measures drop glue apart from string building and the map. The extra of `json-parse` over `string-build` matches parser work. |
-| compiler throughput | `HANDOFF.md` bench log: `llrs0` builds `self/llrs.llr` in 19.0s, `llrs1/llrs0=1.14` (the self-hosted compiler is ~14% slower than what stage 0 produces) | every `scripts/self.sh` run and every edit-check cycle; front end (`load`, `collect`, `resolve`, `check`, borrow) plus unoptimized stage 2 codegen multiply each other | Promoted. On the checked-in run `llrc` builds `self/llrs.llr` in 4.5s, `llrs0` in 21.3s (4.7x), `llrs1` in 26.0s (`llrs1/llrs0`=1.22). `check` of `std/http.llr` is 46ms vs 378ms (8.2x). The Windows 19.0s / 1.14 figure is the same shape on another machine. |
+| compiler throughput | `HANDOFF.md` bench log: `llrs0` builds `self/llrs.llr` in 19.0s, `llrs1/llrs0=1.14` (the self-hosted compiler is ~14% slower than what stage 0 produces) | every `scripts/self.sh` run and every edit-check cycle; front end (`load`, `collect`, `resolve`, `check`, borrow) plus unoptimized stage 2 codegen multiply each other | Phase 4 cut the borrow fixpoint. Phase 5 removed the pthread trace from every call, so the self-build dropped with it: `llrs0` 12.0s to 4.2s, `llrs1` 13.8s to 5.9s. `llrs1/llrs0` is 1.40, up from 1.15, because Cranelift pulls ahead once both compilers stop paying for the trace. |
 | bench clock granularity | `std/time.llr`: `time.mono_ns` | micro benches under ~20 ms rounds are noise | Fixed in Phase 0. `time.mono_ns` is one C function on POSIX and Windows, a wasm wrapper, and `std/time.llr`. `llr-bench` times with that clock and stops a round at 200 ms or 1048576 calls. Not a language-speed item. |
 
 ## The benchmarks directory
@@ -285,17 +285,50 @@ still the largest phase (7.4s of the 12.0s `llrs0` build). `scripts/self.sh
 
 ### Phase 5: close the cross-language gap, then lock it in
 
-- [ ] Full `benchmarks/run.sh` on the finished tree. Remaining gaps to Rust/C/Nim
+- [x] Full `benchmarks/run.sh` on the finished tree. Remaining gaps to Rust/C/Nim
   are listed by task with the known cause or `unknown` next to each; `unknown` is
   an acceptable final state, an unlisted gap is not.
-- [ ] Update `baseline.txt`, the suspects table verdicts, and `HANDOFF.md` (perf
+- [x] Update `baseline.txt`, the suspects table verdicts, and `HANDOFF.md` (perf
   notes and bench log).
-- [ ] Note in `benchmarks/README.md` how a future perf commit runs `--check`, so
+- [x] Note in `benchmarks/README.md` how a future perf commit runs `--check`, so
   the harness survives this plan.
 
-Exit: Llrst (stage 2) beats Python and Node on every task, and each remaining gap
-to Rust, C, and Nim is either under 2x or explained in one line. `tests/run.sh`
-fails=0 under stage 0 and stage 2, `stage2=equal`, check/mir byte-equal.
+What landed, x86-64 SysV only. The prologue no longer calls `llr_trace_push` /
+`llr_trace_pop` (`pthread_once` plus two TLS calls on every function entry).
+Stage 0 records each function's address span and the walker names the caller
+from the return address. Stage 2 stores `0x4C4C5254` at `fp-16` and the name at
+`fp-8`; inline frames still push on the panic path. `vec.set` is `(inline ...)`,
+same as `vec.get`. JSON `true` and `false` are slices of the source, same as
+plain strings and numbers. Other targets keep the pthread (or Windows TLS) calls.
+
+Median of five, stage 2, milliseconds, from `benchmarks/baseline.txt`
+(2026-11-09). A gap over 2x to Rust, C, or Nim is one line. `unknown` is not
+needed.
+
+| task | stage 2 | node | python | C | Rust | Nim | cause where the gap is over 2x, or where Node or Python wins |
+|------|---------|------|--------|---|------|-----|--------------------------------------------------------------|
+| fib | 133 | 138 | 1163 | 21 | 32 | 22 | C, Rust, and Nim rewrite the pure recursion. Llrst emits one call per frame. |
+| sieve | 90 | 49 | 499 | 20 | 19 | 20 | Every mark is a bounds-checked byte store. The check is not removed. |
+| sort | 199 | 433 | 366 | 105 | 27 | 157 | Rust's sort is specialized. Llrst is a stable mergesort with a scratch buffer (1.9x C, 1.3x Nim). |
+| string_build | 113 | 139 | 367 | 36 | 26 | 39 | Each append grows an owned `str`. There is no small-string path. |
+| map_ops | 157 | 296 | 362 | 44 | 66 | 125 | Chained map, one hash per put (1.3x Nim). C and Rust use a tighter table. |
+| json_parse | 896 | 307 | 379 | 54 | 42 | 522 | The task builds the text with `str.push` and parses an owned DOM, one vec per object. Node and Python call a native parser. Nim's std parser is 1.7x. |
+| nbody | 113 | 38 | 310 | 13 | 12 | 14 | `at` and `put` stay calls because they call `vec.get` / `vec.set`, and each index is checked. |
+| mandelbrot | 61 | 41 | 634 | 22 | 25 | 22 | `pixel` is one call per point. |
+| spectral_norm | 53 | 35 | 585 | 7 | 7 | 13 | `aval`'s integer `/` lowers to `sys.checked_div`, a call in the inner loop. |
+| fannkuch | 81 | 33 | 210 | 11 | 11 | 11 | `flips` clones the permutation on every call, and the swaps are bounds-checked. |
+| binary_trees | 52 | 39 | 194 | 17 | 23 | 20 | Each node is a two-slot vec allocation, not a raw pair of pointers. |
+
+Stage 2 beats Python on every task except `json_parse` (896 vs 379). It beats
+Node on `fib`, `sort`, `string_build`, and `map_ops`. It does not beat Node on
+`sieve`, `json_parse`, `nbody`, `mandelbrot`, `spectral_norm`, `fannkuch`, or
+`binary_trees`. Raising the free-function inline limit inlined `aval` and made
+stage 0 `spectral_norm` slower, so the limit stayed 0. `tests/run.sh` fails=0
+under stage 0 and under stage 2. `scripts/self.sh --stage` is `stage2=equal`.
+`tests/check.sh` and `tests/mir.sh` fails=0.
+
+Exit: not met. The Node and Python bar above is the part that is still open.
+Every Rust, C, and Nim gap is under 2x or named in the table.
 
 ## Non-goals
 

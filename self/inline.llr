@@ -33,9 +33,7 @@
     (set n (+ n c)))
   n)
 
-(fn and_n ((k i64)) i64
-  (if (<= k 1) (ret 1))
-  (- k 1))
+(fn and_n ((k i64)) i64 (if (<= k 1) (ret 1)) (- k 1))
 
 (fn nodes_expr ((e (& expr))) i64
   (if (== (. e kind) 12u8) (ret 1000000))

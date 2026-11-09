@@ -115,6 +115,8 @@
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
+  (if (and (not a64) (and (not win) (not rv)))
+    (let _ (data_sym (&mut g) "llr_frame_walk" elf.global)))
   g))
 
 (fn host_name ((name (& str)) (darwin bool)) str

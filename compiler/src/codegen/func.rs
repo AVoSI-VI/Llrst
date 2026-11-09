@@ -1,7 +1,7 @@
 //! Translation of one MIR body to Cranelift IR.
 use super::layout::clif_type;
 use super::Codegen;
-use crate::diag::{Diag, PResult, Span};
+use crate::diag::{PResult, Span};
 use crate::mir::*;
 use crate::ty::{IntTy, Ty};
 use cranelift_codegen::ir::condcodes::IntCC;
@@ -64,9 +64,7 @@ pub fn compile(cg: &mut Codegen, body: &mut Body, id: FuncId) -> PResult<()> {
         let FnCx { b, .. } = cx;
         b.finalize(cfg);
     }
-    cg.module
-        .define_function(id, &mut ctx)
-        .map_err(|e| Diag::error(body.span, "codegen.define").kv("fn", body.name.clone()).kv("got", format!("{:?}", e)))?;
+    super::trace::define(cg, id, &mut ctx, &body.name, body.span)?;
     Ok(())
 }
 
@@ -162,11 +160,8 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     fn push_trace(&mut self) {
-        let bytes = self.cg.ptr_ty.bytes() as u32;
-        let slot = super::trace::alloc_slot(&mut self.b, bytes);
-        self.trace = Some(slot);
         let name = self.body.name.clone();
-        super::trace::link(self.cg, &mut self.b, slot, &name);
+        self.trace = super::trace::prologue(self.cg, &mut self.b, &name);
     }
 
     // ----- addresses, loads, stores -----

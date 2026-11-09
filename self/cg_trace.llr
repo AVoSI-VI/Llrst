@@ -19,6 +19,7 @@
 
 (pub (fn pop ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx))) unit
   (if (not (. fx do_trace)) (ret))
+  (if (cg_frame.fast g) (ret))
   (pop_at g fx (. fx trace))))
 
 (pub (fn pop_inline ((g (&mut cg_mod.cg)) (fx (&mut cg_frame.fncx)) (slot i64)) unit

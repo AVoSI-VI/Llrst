@@ -317,24 +317,7 @@ int32_t llr_run(const char *file, const char *args, uint64_t n, const char *in, 
     return code;
 }
 
-void llr_panic_frames(void) {
-    struct llr_frame *f = trace_head();
-    int n = 0;
-    while (f != 0 && n < 32) {
-        const char *name = f->name;
-        if (name != 0 && !skip_frame(name)) {
-            unsigned long len = 0;
-            while (name[len] != 0) {
-                len++;
-            }
-            write(2, "P|", 2);
-            write(2, name, len);
-            write(2, "\n", 1);
-        }
-        f = f->prev;
-        n++;
-    }
-}
+#include "llr_walk.c"
 
 #ifdef __APPLE__
 #include <errno.h>

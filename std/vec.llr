@@ -15,7 +15,8 @@
   (pub (fn reserve ((self (&mut (vec T))) (extra i64)) unit
     (let need (+ (. self len) extra))
     (if (<= need (. self cap)) (ret))
-    (let mut cap (if (> (. self cap) 0) (* (. self cap) 2) (if (and (<= extra 1) (< need 8)) 8 need)))
+    (let mut cap
+      (if (> (. self cap) 0) (* (. self cap) 2) (if (and (<= extra 1) (< need 8)) 8 need)))
     (while (< cap need) (set cap (* cap 2)))
     (let bytes (* cap (as i64 (sizeof T))))
     (if (== (. self cap) 0)
@@ -36,10 +37,10 @@
   (pub (fn last ((self (& (vec T)))) (opt (& T))
     (if (== (. self len) 0) (ret (opt.none)))
     (opt.some (vec.get self (- (. self len) 1)))))
-  (pub (fn set ((self (&mut (vec T))) (i i64) (x T)) unit
-    (vec.check self i)
-    (drop (ptr.read (ptr.add (. self p) i)))
-    (ptr.write (ptr.add (. self p) i) x)))
+  (pub (inline (fn set ((self (&mut (vec T))) (i i64) (x T)) unit
+     (vec.check self i)
+     (drop (ptr.read (ptr.add (. self p) i)))
+     (ptr.write (ptr.add (. self p) i) x))))
   (pub (fn pop ((self (&mut (vec T)))) (opt T)
     (if (== (. self len) 0) (ret (opt.none)))
     (set (. self len) (- (. self len) 1))
@@ -145,7 +146,9 @@
       (set out (+ out 1)))
     (if (>= (- mid a) 32)
       (do
-        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp a)) (as u64 (* (- mid a) (as i64 (sizeof T)))))
+        (sys.memmove (as (ptr u8) (ptr.add dp out))
+          (as (ptr u8) (ptr.add sp a))
+          (as u64 (* (- mid a) (as i64 (sizeof T)))))
         (set out (+ out (- mid a))))
       (while (< a mid)
         (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp a)))
@@ -153,7 +156,9 @@
         (set out (+ out 1))))
     (if (>= (- end b) 32)
       (do
-        (sys.memmove (as (ptr u8) (ptr.add dp out)) (as (ptr u8) (ptr.add sp b)) (as u64 (* (- end b) (as i64 (sizeof T)))))
+        (sys.memmove (as (ptr u8) (ptr.add dp out))
+          (as (ptr u8) (ptr.add sp b))
+          (as u64 (* (- end b) (as i64 (sizeof T)))))
         (set out (+ out (- end b))))
       (while (< b end)
         (ptr.write (ptr.add dp out) (ptr.read (ptr.add sp b)))

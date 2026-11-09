@@ -300,6 +300,13 @@
   (while (>= (- n i) 8) (do (copy_off b s 8 i) (set i (+ i 8))))
   (while (< i n) (do (copy_off b s 1 i) (set i (+ i 1))))))
 
+;; why: 0x4C4C5254 at disp and the name at disp+8. The walker reads fp-16 and fp-8.
+(pub (fn trace_mark ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (disp i64) (name i64)) unit
+  (sym_addr b s cg_isa.acc name)
+  (st b s 8 cg_isa.acc cg_isa.fp (+ disp 8))
+  (mov_ri b s 8 cg_isa.acc 1280070228)
+  (st b s 8 cg_isa.acc cg_isa.fp disp)))
+
 (pub (fn trace_push ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (disp i64) (name i64) (sym i64)) unit
   (sym_addr b s cg_isa.dst name)
   (st b s 8 cg_isa.dst cg_isa.fp (+ disp 8))

@@ -97,37 +97,49 @@
   (cg_frame.set_field fx local i false)
   (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) skip))
 
+(fn saved_arg ((g (& cg_mod.cg))) i64 (if (cg_frame.fast g) (neg 24) (neg 8)))
+
+(fn box_spill ((g (& cg_mod.cg))) i64 (if (cg_frame.fast g) (neg 32) (neg 16)))
+
 (pub (fn glue ((g (&mut cg_mod.cg)) (p (& prog.prog)) (t (& ty.sty)) (sym i64)) unit
   (let mut b (cg_isa.new_code))
   (let disp (frame_open g (&mut b)))
-  (cg_trace.bpush g (&mut b) disp (& (frame_name p t)))
-  (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (let nm (frame_name p t))
+  (if (cg_frame.fast g)
+    (do (let ns (cg_mod.cstr_sym g (& nm))) (cg_isa.trace_mark (&mut b) (& (. g isa)) (neg 16) ns))
+    (cg_trace.bpush g (&mut b) disp (& nm)))
+  (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
   (if (== (. t kind) 15u8)
     (glue_box g p (&mut b))
     (if (== (. t kind) 10u8)
       (glue_clos (&mut b) (& (. g isa)) (cg_isa.arg_i 0))
       (if (== (. t kind) 8u8) (glue_adt g p (&mut b) t) ())))
-  (cg_trace.bpop g (&mut b) disp)
+  (if (not (cg_frame.fast g)) (cg_trace.bpop g (&mut b) disp))
   (cg_isa.epilogue (&mut b) (& (. g isa)))
   (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
   (cg_mod.append_fn g sym (& b))))
 
 (fn frame_open ((g (& cg_mod.cg)) (b (&mut cg_isa.code))) i64
   (cg_isa.prologue b (& (. g isa)))
+  (if (cg_frame.fast g)
+    (do
+      (cg_isa.sub_ri b (& (. g isa)) 8 cg_isa.sp 32)
+      (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (saved_arg g) (cg_isa.arg_i 0))
+      (ret (neg 16))))
   (let disp (if (. g win) (neg 48) (neg 32)))
   (cg_isa.sub_ri b (& (. g isa)) 8 cg_isa.sp (if (. g win) 80 32))
-  (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (neg 8) (cg_isa.arg_i 0))
+  (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (saved_arg g) (cg_isa.arg_i 0))
   disp)
 
 (fn glue_box ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code))) unit
   (let arg (cg_isa.arg_i 0))
   (cg_frame.bload b (& (. g isa)) 8 cg_isa.acc arg 0)
-  (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (neg 16) cg_isa.acc)
+  (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (box_spill g) cg_isa.acc)
   (cg_frame.bload b (& (. g isa)) 8 cg_isa.acc arg 8)
   (cg_frame.bload b (& (. g isa)) 8 cg_isa.dst cg_isa.acc 0)
-  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (neg 16))
+  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (box_spill g))
   (cg_isa.call_r b (& (. g isa)) cg_isa.dst)
-  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (neg 16))
+  (cg_frame.bload b (& (. g isa)) 8 arg cg_isa.fp (box_spill g))
   (let free (cg_mod.extern_sym g p (prog.std_fn p "sys" "free")))
   (cg_isa.call_sym b (& (. g isa)) free))
 
@@ -172,7 +184,7 @@
 
 (fn call_meth ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (id i64) (args (& (vec ty.sty)))) unit
   (let sym (cg_mod.func_sym g p id (clone_tys args)))
-  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
   (cg_isa.call_sym b (& (. g isa)) sym))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
@@ -185,14 +197,14 @@
 
 (fn drop_off ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (t (& ty.sty)) (off i64)) unit
   (let sym (cg_mod.drop_sym g t))
-  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
   (cg_isa.add_ri b (& (. g isa)) 8 (cg_isa.arg_i 0) off)
   (cg_isa.call_sym b (& (. g isa)) sym))
 
 (fn glue_enum ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (t (& ty.sty)) (d (& prog.def))) unit
   (let l (cg_lay.of (&mut (. g lays)) p t))
   (let done (cg_isa.label b (& (. g isa))))
-  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (neg 8))
+  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
   (cg_frame.bload b (& (. g isa)) 4 cg_isa.acc (cg_isa.arg_i 0) 0)
   (for i 0 (vec.len (& (. d svars))) (enum_arm g p b t d (& l) i done))
   (cg_isa.bind b (& (. g isa)) done))

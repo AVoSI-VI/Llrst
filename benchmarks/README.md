@@ -41,6 +41,20 @@ No extra dependencies, no SIMD, no threads. Each language uses its usual library
 
 Stage 0 is `target/release/llrc`. `LLRC` is not read, because that variable is often the installed stage 2 compiler. `LLRC0` overrides stage 0. `LLRS2` overrides stage 2.
 
-## First baseline
+## After a perf change
 
-Linux x86-64, Intel Core Ultra 5 125H, 2026-11-08. Median of five runs, milliseconds, from `baseline.txt`. Stage 2 over stage 0 is 1.15x on `fib`, 1.13x on `sieve`, 1.25x on `nbody`, and 2.8x on `mandelbrot`. Stage 0 against C on that run is 21x on `fib`, 25x on `sieve`, 16x on `string-build`, and 51x on `json-parse`. Short C and Rust times move between runs, so a ratio against a 10 ms program is coarser than the Llrst milliseconds. `llrc` builds `self/llrs.llr` in 4.5s; `llrs0` takes 21.3s; `llrs1` takes 26.0s. Ratios are also in `HANDOFF.md`.
+On the machine named in `baseline.txt`:
+
+```
+benchmarks/run.sh --check
+```
+
+That is the gate for a commit that touches `self/cg_*.llr`, `self/isa_*.llr`, `self/inline.llr`, `compiler/src/codegen/`, `compiler/src/mir/`, or a hot `std/` file. It exits 1 when a Llrst line (`bench|stage0`, `bench|stage2`, `cross|...|llr-stage0`, `cross|...|llr-stage2`, or `compile|`) is more than 30% slower than `baseline.txt`. Other languages are printed and never fail the run. On a different machine the same comparison is printed and the exit status stays 0.
+
+When the change is meant to move a number, run `benchmarks/run.sh --update-baseline` in that same commit and name the lines that moved. `--check` alone does not rewrite the file.
+
+## Current baseline
+
+Linux x86-64, Intel Core Ultra 5 125H, 2026-11-09, median of five, in `baseline.txt`. Stage 2 beats Python on every task except `json_parse`, and beats Node on `fib`, `sort`, `string_build`, and `map_ops`. The other Node gaps, and every Rust, C, and Nim gap over 2x, are one line each in `langspeed.md` Phase 5. `llrc` builds `self/llrs.llr` in 3.0s; `llrs0` takes 4.2s; `llrs1` takes 5.9s.
+
+The first baseline (2026-11-08) had stage 2 at 1.15x stage 0 on `fib` and 2.8x on `mandelbrot`, and stage 0 at 21x C on `fib` and 51x C on `json-parse`. Those rows are the history, not the gate.

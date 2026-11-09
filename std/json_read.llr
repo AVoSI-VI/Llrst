@@ -62,10 +62,7 @@
     (set (@ i) (+ (@ i) 1)))
   (if (>= (@ i) n) (ret (res.err (err))))
   (if (== (ptr.read (ptr.add p (@ i))) 34u8)
-    (do
-      (let out (str.slice s start (@ i)))
-      (set (@ i) (+ (@ i) 1))
-      (ret (res.ok out))))
+    (do (let out (str.slice s start (@ i))) (set (@ i) (+ (@ i) 1)) (ret (res.ok out))))
   (set (@ i) start)
   (let mut out (str.new))
   (loop
@@ -103,13 +100,20 @@
 
 (fn leaf ((k u8) (text str)) jval (jval k text (vec.new <jval>)))
 
+;; why: true, false, and null are slices of the source, same as numbers and plain strings.
+(fn take_word ((s (& str)) (i (&mut i64)) (n i64)) (res str str)
+  (if (> (+ (@ i) n) (str.len s)) (ret (res.err (err))))
+  (let start (@ i))
+  (set (@ i) (+ (@ i) n))
+  (res.ok (str.slice s start (@ i))))
+
 (fn parse_val ((s (& str)) (i (&mut i64))) (res jval str)
   (skip s i)
   (if (>= (@ i) (str.len s)) (ret (res.err (err))))
   (let b (str.at s (@ i)))
   (if (== b 110u8) (do (set (@ i) (+ (@ i) 4)) (ret (res.ok (leaf 0u8 (str.new))))))
-  (if (== b 116u8) (do (set (@ i) (+ (@ i) 4)) (ret (res.ok (leaf 1u8 (str.from "true"))))))
-  (if (== b 102u8) (do (set (@ i) (+ (@ i) 5)) (ret (res.ok (leaf 1u8 (str.from "false"))))))
+  (if (== b 116u8) (ret (res.ok (leaf 1u8 (try (take_word s i 4))))))
+  (if (== b 102u8) (ret (res.ok (leaf 1u8 (try (take_word s i 5))))))
   (if (== b 34u8) (ret (res.ok (leaf 3u8 (try (parse_str s i))))))
   (if (or (== b 45u8) (and (>= b 48u8) (<= b 57u8)))
     (ret (res.ok (leaf 2u8 (try (parse_num s i))))))

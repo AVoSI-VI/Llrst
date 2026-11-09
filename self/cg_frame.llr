@@ -246,9 +246,14 @@
 (fn host_isa ((g (& cg_mod.cg))) cg_isa.isa
   (cg_isa.isa (. (. g isa) a64) (. (. g isa) win) (. (. g isa) rv)))
 
+(pub (fn fast ((g (& cg_mod.cg))) bool
+  (not (or (. (. g isa) a64) (or (. (. g isa) win) (. (. g isa) rv))))))
+
 (pub (fn open ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body)) (out_bytes i64) (trace bool)) fncx
   (let mut fx (blank b (host_isa g)))
   (let mut cur 0)
+  ;; why: the panic walker reads the name at fp-8 and the mark at fp-16.
+  (if trace (do (set (. fx do_trace) true) (set (. fx trace) (alloc (&mut cur) 16 8))))
   (if (cg_lay.is_agg (& (. (vec.get (& (. b locs)) 0) ty)))
     (do (set (. fx has_sret) true) (set (. fx sret) (alloc (&mut cur) 8 8))))
   (let pl (cg_slot.build p b (& (. fx isa))))
@@ -257,7 +262,6 @@
   (for i 0 (. pl nfpr)
     (do (vec.push (&mut (. fx floc)) (neg 1)) (vec.push (&mut (. fx keep)) true)))
   (for i 0 (vec.len (& (. b locs))) (lay_one g p (&mut fx) (&mut cur) b (& pl) i))
-  (if trace (do (set (. fx do_trace) true) (set (. fx trace) (alloc (&mut cur) 16 8))))
   (alloc_traces (&mut fx) (&mut cur) b)
   (spill_room (&mut fx) (&mut cur))
   (set (. fx scratch) (neg cur))
@@ -435,6 +439,8 @@
   (while (< i n) (do (vec.push (&mut (. fx toff)) (alloc cur 16 8)) (set i (+ i 1)))))
 
 (fn emit_trace ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (name (& str))) unit
+  (let ns (cg_mod.cstr_sym g name))
+  (if (fast g) (ret (cg_isa.trace_mark (&mut (. fx buf)) (& (. fx isa)) (. fx trace) ns)))
   (emit_at g fx (. fx trace) name))
 
 (fn emit_at ((g (&mut cg_mod.cg)) (fx (&mut fncx)) (disp i64) (name (& str))) unit

@@ -49,6 +49,8 @@ pub struct Codegen<'a> {
     pub trace_push: FuncId,
     pub trace_pop: FuncId,
     pub name_syms: usize,
+    /// `(function, name bytes, code length)` for the x86-64 SysV panic walk.
+    pub spans: Vec<(FuncId, DataId, u32)>,
     pub call_conv: CallConv,
     pub ptr_ty: types::Type,
     pub frontend: TargetFrontendConfig,
@@ -139,6 +141,7 @@ impl<'a> Codegen<'a> {
             trace_push,
             trace_pop,
             name_syms: 0,
+            spans: Vec::new(),
             call_conv,
             ptr_ty,
             frontend,
@@ -392,7 +395,8 @@ impl<'a> Codegen<'a> {
         self.module.declare_function(&format!("llr_test_{}", i), Linkage::Local, &sig).unwrap()
     }
 
-    pub fn emit_object(self) -> PResult<Vec<u8>> {
+    pub fn emit_object(mut self) -> PResult<Vec<u8>> {
+        trace::emit_spans(&mut self);
         let product = self.module.finish();
         product.emit().map_err(|e| Diag::error(Span::default(), "codegen.emit").kv("got", e.to_string()))
     }

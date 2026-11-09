@@ -1,9 +1,80 @@
-//! Panic frames. Each thread has its own list, updated by `llr_trace_push`.
+//! Panic frames. Inline frames call `llr_trace_push`. On x86-64 SysV the
+//! prologue does not: the walker maps a return address through `llr_fnspans`.
 use super::Codegen;
+use crate::diag::{Diag, PResult, Span};
 use crate::mir::{Body, Stmt};
 use cranelift_codegen::ir::{InstBuilder, StackSlot, StackSlotData, StackSlotKind};
+use cranelift_codegen::Context;
 use cranelift_frontend::FunctionBuilder;
-use cranelift_module::Module;
+use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+
+/// Linux x86-64. Other targets keep the prologue call so their walker stays valid.
+pub fn fast(cg: &Codegen) -> bool {
+    if cg.darwin || cg.call_conv != cranelift_codegen::isa::CallConv::SystemV {
+        return false;
+    }
+    matches!(cg.module.isa().triple().architecture, target_lexicon::Architecture::X86_64)
+}
+
+/// `None` when the prologue frame is a return-address span instead of a call.
+pub fn prologue(cg: &mut Codegen, b: &mut FunctionBuilder, name: &str) -> Option<StackSlot> {
+    if fast(cg) {
+        return None;
+    }
+    let slot = alloc_slot(b, cg.ptr_ty.bytes() as u32);
+    link(cg, b, slot, name);
+    Some(slot)
+}
+
+pub fn define(cg: &mut Codegen, id: FuncId, ctx: &mut Context, name: &str, span: Span) -> PResult<()> {
+    cg.module
+        .define_function(id, ctx)
+        .map_err(|e| Diag::error(span, "codegen.define").kv("fn", name).kv("got", format!("{:?}", e)))?;
+    if !fast(cg) {
+        return Ok(());
+    }
+    let Some(code) = ctx.compiled_code() else { return Ok(()) };
+    let len = code.buffer.data().len() as u32;
+    if len == 0 {
+        return Ok(());
+    }
+    let nid = cg.cstr_data(name.as_bytes());
+    cg.spans.push((id, nid, len));
+    Ok(())
+}
+
+pub fn emit_spans(cg: &mut Codegen) {
+    if !fast(cg) {
+        return;
+    }
+    let rows: Vec<(FuncId, cranelift_module::DataId, u32)> = cg.spans.clone();
+    let n = rows.len();
+    let id = cg.module.declare_data("llr_fnspans", Linkage::Export, false, false).unwrap();
+    let mut d = DataDescription::new();
+    let mut buf = vec![0u8; if n == 0 { 8 } else { n * 24 }];
+    for (i, (_, _, len)) in rows.iter().enumerate() {
+        let at = i * 24 + 8;
+        let bytes = if cg.big_endian { len.to_be_bytes() } else { len.to_le_bytes() };
+        buf[at..at + 4].copy_from_slice(&bytes);
+    }
+    d.define(buf.into_boxed_slice());
+    d.set_align(8);
+    for (i, (fid, nid, _)) in rows.iter().enumerate() {
+        let at = (i * 24) as u32;
+        let fr = cg.module.declare_func_in_data(*fid, &mut d);
+        d.write_function_addr(at, fr);
+        let gv = cg.module.declare_data_in_data(*nid, &mut d);
+        d.write_data_addr(at + 16, gv, 0);
+    }
+    cg.module.define_data(id, &d).unwrap();
+    let nid = cg.module.declare_data("llr_fnspans_n", Linkage::Export, false, false).unwrap();
+    let mut nd = DataDescription::new();
+    let count = n as u32;
+    let bytes = if cg.big_endian { count.to_be_bytes() } else { count.to_le_bytes() };
+    nd.define(bytes.to_vec().into_boxed_slice());
+    nd.set_align(4);
+    cg.module.define_data(nid, &nd).unwrap();
+}
 
 pub fn alloc_slot(b: &mut FunctionBuilder, ptr_bytes: u32) -> StackSlot {
     b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, ptr_bytes * 2, 3))

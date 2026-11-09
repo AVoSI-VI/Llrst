@@ -1,7 +1,7 @@
 //! Drop glue: per-type functions that run the user `drop` then drop fields/payload.
 use super::func::mf;
 use super::Codegen;
-use crate::diag::{Diag, PResult, Span};
+use crate::diag::{PResult, Span};
 use crate::mir::{drop_method, needs_drop};
 use crate::resolve::DefKind;
 use crate::ty::Ty;
@@ -16,14 +16,17 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
     let mut ctx = cg.module.make_context();
     ctx.func.signature = cg.module.declarations().get_function_decl(id).signature.clone();
     let mut fbc = FunctionBuilderContext::new();
+    let quick = super::trace::fast(cg);
     {
         let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
         let entry = b.create_block();
         b.append_block_params_for_function_params(entry);
         b.switch_to_block(entry);
         let addr = b.block_params(entry)[0];
-        let slot = super::trace::alloc_slot(&mut b, cg.ptr_ty.bytes() as u32);
-        super::trace::link(cg, &mut b, slot, &name);
+        let slot = if quick { None } else { Some(super::trace::alloc_slot(&mut b, cg.ptr_ty.bytes() as u32)) };
+        if let Some(slot) = slot {
+            super::trace::link(cg, &mut b, slot, &name);
+        }
         let leave = b.create_block();
         if matches!(t, Ty::Clos(..)) {
             drop_clos(cg, &mut b, addr);
@@ -37,15 +40,15 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
             b.ins().jump(leave, &[]);
         }
         b.switch_to_block(leave);
-        super::trace::unlink(cg, &mut b, slot);
+        if let Some(slot) = slot {
+            super::trace::unlink(cg, &mut b, slot);
+        }
         b.ins().return_(&[]);
         b.seal_all_blocks();
         let cfg = cg.frontend;
         b.finalize(cfg);
     }
-    cg.module
-        .define_function(id, &mut ctx)
-        .map_err(|e| Diag::error(Span::default(), "codegen.define").kv("fn", format!("drop {}", t)).kv("got", e.to_string()))
+    super::trace::define(cg, id, &mut ctx, &name, Span::default())
 }
 
 fn drop_box(cg: &mut Codegen, b: &mut FunctionBuilder, addr: cranelift_codegen::ir::Value) {
