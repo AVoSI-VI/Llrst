@@ -187,6 +187,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                     };
                 }
                 Proj::Downcast(v) => variant = Some(*v),
+                Proj::Index(_) => panic!("index place is lowered in phase A1"),
                 Proj::Field(i) => {
                     let lay = self.cg.layouts.of(&ty);
                     let off = match variant {

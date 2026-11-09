@@ -25,6 +25,7 @@ fn place(p: &Place) -> String {
             Proj::Field(i) => s = format!("{}.{}", s, i),
             Proj::Deref => s = format!("(*{})", s),
             Proj::Downcast(v) => s = format!("({} as v{})", s, v),
+            Proj::Index(i) => s = format!("{}[_{}]", s, i),
         }
     }
     s

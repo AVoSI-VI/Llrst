@@ -166,6 +166,7 @@ pub fn subst_self(t: &Ty, self_ty: &Ty) -> Ty {
         Ty::SelfTy => self_ty.clone(),
         Ty::Ref { mutable, lt, inner } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(subst_self(inner, self_ty)) },
         Ty::Ptr(inner) => Ty::Ptr(Box::new(subst_self(inner, self_ty))),
+        Ty::Arr(t, n) => Ty::Arr(Box::new(subst_self(t, self_ty)), *n),
         Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(|x| subst_self(x, self_ty)).collect()),
         Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|p| subst_self(p, self_ty)).collect(), Box::new(subst_self(r, self_ty))),
         Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|p| subst_self(p, self_ty)).collect(), Box::new(subst_self(r, self_ty))),
@@ -178,6 +179,7 @@ pub fn self_by_value(t: &Ty) -> bool {
         Ty::SelfTy => true,
         Ty::Ref { .. } | Ty::Ptr(_) => false,
         Ty::Adt(_, a) => a.iter().any(self_by_value),
+        Ty::Arr(t, _) => self_by_value(t),
         Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().any(self_by_value) || self_by_value(r),
         _ => false,
     }
@@ -253,6 +255,7 @@ fn ground_int(ty: &Ty) -> Ty {
         Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(ground_int).collect()),
         Ty::Ref { mutable, lt, inner } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(ground_int(inner)) },
         Ty::Ptr(inner) => Ty::Ptr(Box::new(ground_int(inner))),
+        Ty::Arr(t, n) => Ty::Arr(Box::new(ground_int(t)), *n),
         other => other.clone(),
     }
 }

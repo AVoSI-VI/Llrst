@@ -37,6 +37,13 @@ pub enum Builtin {
     Argv,
     Arch,
     Drop,
+    /// Dispatch keys. `check_arr` desugars these and never leaves a `Callee::Builtin`.
+    ArrOf,
+    ArrFilled,
+    ArrLen,
+    ArrGet,
+    ArrGetMut,
+    ArrSet,
     /// Bitwise copy of a value regardless of type; std internals only.
     Forget,
 }
@@ -54,6 +61,12 @@ impl Builtin {
             "sys.argc" => Builtin::Argc,
             "sys.argv" => Builtin::Argv,
             "sys.arch" => Builtin::Arch,
+            "arr.of" => Builtin::ArrOf,
+            "arr.filled" => Builtin::ArrFilled,
+            "arr.len" => Builtin::ArrLen,
+            "arr.get" => Builtin::ArrGet,
+            "arr.get_mut" => Builtin::ArrGetMut,
+            "arr.set" => Builtin::ArrSet,
             _ => return None,
         })
     }
@@ -149,13 +162,18 @@ pub enum ExprKind {
     DynPack { data: Box<Expr>, trait_id: DefId, self_ty: Ty },
     /// Owned value moved onto the heap as `(box (dyn Trait))`.
     BoxPack { data: Box<Expr>, trait_id: DefId, self_ty: Ty },
+    /// Element place. `idx` is a local. A place when `base` is a place.
+    Index { base: Box<Expr>, idx: Box<Expr> },
+    /// `(arr T N)` value. Empty means every element is still uninitialized bytes;
+    /// the assignment itself initializes the local.
+    Arr(Vec<Expr>),
 }
 
 impl Expr {
     pub fn is_place(&self) -> bool {
         match &self.kind {
             ExprKind::Local(_) | ExprKind::Deref(_) => true,
-            ExprKind::Field { base, .. } => base.is_place(),
+            ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => base.is_place(),
             _ => false,
         }
     }

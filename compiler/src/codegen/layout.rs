@@ -58,6 +58,10 @@ impl<'a> Layouts<'a> {
             Ty::Clos(..) => Layout { size: PTR_BYTES * 3, align: PTR_BYTES, fields: vec![0, PTR_BYTES, PTR_BYTES * 2], variants: Vec::new() },
             Ty::Dyn { .. } | Ty::BoxDyn { .. } => Layout { size: PTR_BYTES * 2, align: PTR_BYTES, fields: vec![0, PTR_BYTES], variants: Vec::new() },
             Ty::SelfTy => panic!("layout of Self"),
+            Ty::Arr(elem, n) => {
+                let e = self.of(elem);
+                Layout { size: e.size * (*n as u32), align: e.align, fields: Vec::new(), variants: Vec::new() }
+            }
             Ty::Adt(d, args) => match &self.prog.def(*d).kind {
                 DefKind::Struct(s) => {
                     let tys: Vec<Ty> = s.fields.iter().map(|f| f.1.subst(args)).collect();

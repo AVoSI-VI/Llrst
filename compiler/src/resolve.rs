@@ -353,6 +353,12 @@ fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Op
     let (generics, bounds) = crate::traitres::fn_generics(prog, mi, outer, &f.generics, f.span)?;
     let params = f.params.iter().map(|p| Ok((p.name.clone(), resolve_ty(prog, mi, &generics, &p.ty)?))).collect::<PResult<Vec<_>>>()?;
     let ret = resolve_ty(prog, mi, &generics, &f.ret)?;
+    if f.is_extern {
+        for ((_, ty), p) in params.iter().zip(&f.params) {
+            crate::arrty::extern_arr(prog, ty, p.ty.span())?;
+        }
+        crate::arrty::extern_arr(prog, &ret, f.ret.span())?;
+    }
     Ok(FnDef {
         generics,
         lifetimes: f.generics.lifetimes.clone(),
@@ -419,6 +425,7 @@ fn resolve_ty_body(prog: &Program, module: u32, generics: &[String], t: &TyExpr)
             Ty::Adt(d, Vec::new())
         }
         TyExpr::App(n, args, sp) if n == "box" => return crate::traitres::box_ty(prog, module, args, *sp),
+        TyExpr::App(n, args, sp) if n == "arr" => return crate::arrty::resolve_arr(prog, module, generics, args, *sp),
         TyExpr::App(n, args, sp) => {
             let d = prog.lookup_type(module, n).ok_or_else(|| Diag::error(*sp, "name.not_type").kv("name", n.clone()))?;
             if !prog.visible(module, d) {

@@ -70,10 +70,20 @@ impl BitSet {
 
 fn operand_access(op: &Operand, span: Span, out: &mut Vec<Access>) {
     match op {
-        Operand::Copy(p) => out.push(Access { place: p.clone(), kind: AccessKind::Read, span }),
-        Operand::Move(p) => out.push(Access { place: p.clone(), kind: AccessKind::Move, span }),
+        Operand::Copy(p) => push_place(p, AccessKind::Read, span, out),
+        Operand::Move(p) => push_place(p, AccessKind::Move, span, out),
         Operand::Const(..) => {}
     }
+}
+
+/// A read of each index local, then the place access. Liveness and init see the index.
+fn push_place(place: &Place, kind: AccessKind, span: Span, out: &mut Vec<Access>) {
+    for p in &place.proj {
+        if let Proj::Index(l) = p {
+            out.push(Access { place: Place::local(*l), kind: AccessKind::Read, span });
+        }
+    }
+    out.push(Access { place: place.clone(), kind, span });
 }
 
 /// Accesses performed by a statement, in evaluation order (reads before the write).
@@ -87,19 +97,19 @@ pub fn stmt_accesses(s: &Stmt, span: Span) -> Vec<Access> {
                 }
                 Rvalue::Ref { mutable, place, .. } | Rvalue::BoxBorrow { mutable, place } => {
                     let kind = if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
-                    out.push(Access { place: place.clone(), kind, span });
+                    push_place(place, kind, span, &mut out);
                 }
                 Rvalue::Bin(_, a, b) | Rvalue::PtrAdd(a, b, _) | Rvalue::PtrEq(a, b) => {
                     operand_access(a, span, &mut out);
                     operand_access(b, span, &mut out);
                 }
                 Rvalue::Struct(_, ops) | Rvalue::Variant(_, _, ops) | Rvalue::Closure { caps: ops, .. } => ops.iter().for_each(|o| operand_access(o, span, &mut out)),
-                Rvalue::Discr(p) => out.push(Access { place: p.clone(), kind: AccessKind::Read, span }),
+                Rvalue::Discr(p) => push_place(p, AccessKind::Read, span, &mut out),
                 Rvalue::PtrNull | Rvalue::Argc | Rvalue::Argv | Rvalue::Sizeof(_) | Rvalue::Vtable(..) | Rvalue::Static(_) => {}
             }
-            out.push(Access { place: dest.clone(), kind: AccessKind::Write, span });
+            push_place(dest, AccessKind::Write, span, &mut out);
         }
-        Stmt::Drop(p) => out.push(Access { place: p.clone(), kind: AccessKind::Drop, span }),
+        Stmt::Drop(p) => push_place(p, AccessKind::Drop, span, &mut out),
         Stmt::Forget(l) => out.push(Access { place: Place::local(*l), kind: AccessKind::Move, span }),
         Stmt::StorageDead(l) => out.push(Access { place: Place::local(*l), kind: AccessKind::StorageDead, span }),
         Stmt::Nop | Stmt::InlineLoans { .. } | Stmt::TracePush { .. } | Stmt::TracePop { .. } => {}
@@ -116,7 +126,7 @@ pub fn term_accesses(t: &Term, span: Span) -> Vec<Access> {
                 operand_access(op, span, &mut out);
             }
             args.iter().for_each(|a| operand_access(a, span, &mut out));
-            out.push(Access { place: dest.clone(), kind: AccessKind::Write, span });
+            push_place(dest, AccessKind::Write, span, &mut out);
         }
         Term::Return => out.push(Access { place: Place::local(0), kind: AccessKind::Read, span }),
         Term::Goto(_) | Term::Unreachable | Term::None => {}
@@ -131,7 +141,15 @@ pub fn overlaps(a: &Place, b: &Place) -> bool {
     }
     let pa: Vec<&Proj> = a.proj.iter().filter(|p| !matches!(p, Proj::Downcast(_))).collect();
     let pb: Vec<&Proj> = b.proj.iter().filter(|p| !matches!(p, Proj::Downcast(_))).collect();
-    pa.iter().zip(&pb).all(|(x, y)| x == y)
+    pa.iter().zip(&pb).all(|(x, y)| same_proj(x, y))
+}
+
+/// Any two index projections alias. Field tails still distinguish `a[i].0` from `a[j].1`.
+fn same_proj(a: &Proj, b: &Proj) -> bool {
+    match (a, b) {
+        (Proj::Index(_), Proj::Index(_)) => true,
+        _ => a == b,
+    }
 }
 
 pub use holders::compute as compute_holders;

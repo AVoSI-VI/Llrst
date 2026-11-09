@@ -1,5 +1,6 @@
 //! llrc: the Llrst bootstrap compiler.
 #![allow(dead_code)]
+mod arrty;
 mod ast;
 mod borrow;
 mod check;

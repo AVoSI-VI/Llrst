@@ -65,6 +65,7 @@ TYPE := i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64 | f32 | f64 | bool | unit | 
       | (clos (TYPE...) TYPE)                ; owned closure; not a function pointer
       | (& (dyn TRAIT)) | (&mut (dyn TRAIT))     ; fat pointer: data, then vtable
       | (box (dyn TRAIT))                      ; owned heap value plus vtable; not copy
+      | (arr TYPE N)                         ; N is a decimal integer ≥ 1, no suffix, no _
       | T                                    ; generic parameter in scope
 ```
 
@@ -102,6 +103,13 @@ EXPR :=
   (sizeof TYPE)                              ; u64, std internals only
   (call EXPR EXPR...)                        ; call a (fn ...) or a (clos ...)
   (clos ((NAME TYPE)*) TYPE BODY...)         ; closure; captures whole bindings; body cannot contain a closure
+  (arr.of EXPR EXPR...)                      ; (arr T N) from N ≥ 1 elements; T from the expected type or the first element
+  (arr.filled EXPR)                          ; every element a copy of EXPR; the type comes from the expected type
+  (arr.filled <(arr TYPE N)> EXPR)           ; same, type given explicitly
+  (arr.len EXPR)                             ; i64 N, known at compile time; the argument is still evaluated
+  (arr.get EXPR EXPR)                        ; (& T), panics out of range like vec.get
+  (arr.get_mut EXPR EXPR)                    ; (&mut T)
+  (arr.set EXPR EXPR EXPR)                   ; unit; drops the old element
 
 PLACE := NAME | (. PLACE NAME) | (@ EXPR)
 PAT   := _ | NAME | LIT | (or PAT PAT...) | (ENUM.VARIANT PAT...) | (ENUM.VARIANT) | (TYPE PAT...)

@@ -1,0 +1,7 @@
+(fn z () unit (let a (arr i64 0) (arr.of 1)) (drop a))
+
+(fn x () unit (let a (arr i64 x) (arr.of 1)) (drop a))
+
+(fn u () unit (let a (arr i64 4u8) (arr.of 1)) (drop a))
+
+(fn main () unit (z) (x) (u))

@@ -1,0 +1,5 @@
+(fn main () unit
+  (let a (arr i64 1) (arr.of 0))
+  (let mut i i64)
+  (let p (arr.get (& a) i))
+  (drop p))

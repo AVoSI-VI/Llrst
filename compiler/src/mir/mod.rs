@@ -4,6 +4,7 @@ pub mod lint;
 pub(crate) mod speed;
 pub mod lower;
 mod lower_cf;
+mod lower_place;
 mod lower_call;
 mod lower_clos;
 mod lower_div;
@@ -31,6 +32,8 @@ pub enum Proj {
     Field(u32),
     Deref,
     Downcast(u32),
+    /// Element `local` of an array. Any two indexes alias; the local is a read.
+    Index(LocalIdx),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -53,6 +56,10 @@ impl Place {
     }
     pub fn downcast(mut self, v: u32) -> Place {
         self.proj.push(Proj::Downcast(v));
+        self
+    }
+    pub fn index(mut self, i: LocalIdx) -> Place {
+        self.proj.push(Proj::Index(i));
         self
     }
     pub fn is_local(&self) -> bool {
@@ -228,6 +235,12 @@ pub fn place_ty(prog: &Program, body: &Body, p: &Place) -> Ty {
                 };
             }
             Proj::Downcast(v) => variant = Some(*v),
+            Proj::Index(_) => {
+                t = match t {
+                    Ty::Arr(elem, _) => *elem,
+                    other => panic!("index of {}", other),
+                };
+            }
             Proj::Field(i) => {
                 let Ty::Adt(d, args) = &t else { panic!("field of {}", t) };
                 let ft = match (&prog.def(*d).kind, variant) {
@@ -252,6 +265,7 @@ pub fn is_copy(prog: &Program, t: &Ty) -> bool {
 pub fn needs_drop(prog: &Program, t: &Ty) -> bool {
     match t {
         Ty::Clos(..) | Ty::BoxDyn { .. } => true,
+        Ty::Arr(t, _) => needs_drop(prog, t),
         Ty::Adt(d, args) => {
             if prog.methods.get(d).map_or(false, |m| m.contains_key("drop")) {
                 return true;

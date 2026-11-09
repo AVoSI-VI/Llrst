@@ -258,6 +258,9 @@ impl<'a> Checker<'a> {
                 (Vec::new(), self.ref_str())
             }
             Builtin::Drop => unreachable!(),
+            Builtin::ArrOf | Builtin::ArrFilled | Builtin::ArrLen | Builtin::ArrGet | Builtin::ArrGetMut | Builtin::ArrSet => {
+                return self.check_arr(b, targs, args, want, sp);
+            }
         };
         Ok(mk(ExprKind::Call { callee: Callee::Builtin(b), args: out }, ty, sp))
     }

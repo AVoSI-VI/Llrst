@@ -7,8 +7,8 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 1. Every value has exactly one owner (a local, a field, or a vec element).
 2. Passing or assigning a non-`copy` value moves it. The source is unusable afterwards.
 3. `copy` types: primitives (including `bool` and `unit`), shared references `(& T)`, raw
-   pointers `(ptr T)`, `(fn ...)`, and a shared trait object `(& (dyn Trait))`. Structs,
-   `(clos ...)`, and `(box (dyn Trait))` are never copy.
+   pointers `(ptr T)`, `(fn ...)`, a shared trait object `(& (dyn Trait))`, and `(arr T N)`
+   when `T` is `copy`. Structs, `(clos ...)`, and `(box (dyn Trait))` are never copy.
 4. When an owner goes out of scope and still holds the value, `drop` runs. `str`, `vec`,
    and `map` free their heap memory. A closure drops each capture and frees its environment.
    `(box (dyn Trait))` drops the heap value through the vtable and then frees it.
@@ -35,6 +35,8 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 8. Storing a reference into a container through `(&mut c)` (for example `vec.push`) makes
    the container a holder: the referent stays borrowed while `c` is live. Declare such a
    container after its referents so it is dropped first; otherwise `borrow.escape`.
+9. A loan of `a[i]` conflicts with every access to `a[j]` and to `a`. `a[i].0` stays
+   disjoint from `a[j].1`.
 
 ## Lifetimes across functions
 

@@ -394,7 +394,7 @@ impl<'a> Checker<'a> {
                     }
                     return Ok(());
                 }
-                ExprKind::Field { base, .. } => cur = base,
+                ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => cur = base,
                 ExprKind::Deref(inner) => match self.shallow(&inner.ty) {
                     Ty::Ref { mutable: true, .. } | Ty::Ptr(_) => return Ok(()),
                     _ => return Err(Diag::error(e.span, "mut.required").kv("through", "&")),

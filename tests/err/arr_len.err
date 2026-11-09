@@ -1,0 +1,3 @@
+E|tests/err/arr_len.llr|1|31|1|type.arr_len|got=0
+E|tests/err/arr_len.llr|3|31|1|type.arr_len|got=x
+E|tests/err/arr_len.llr|5|31|3|type.arr_len|got=4u8

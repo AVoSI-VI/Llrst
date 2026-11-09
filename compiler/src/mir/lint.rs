@@ -220,6 +220,15 @@ fn warn_unused(diags: &Diags, body: &Body) {
 
 fn mark_place(read: &mut [bool], p: &Place) {
     read[p.local as usize] = true;
+    mark_index(read, p);
+}
+
+fn mark_index(read: &mut [bool], p: &Place) {
+    for pr in &p.proj {
+        if let Proj::Index(i) = pr {
+            read[*i as usize] = true;
+        }
+    }
 }
 
 fn mark_op(read: &mut [bool], op: &Operand) {
@@ -229,6 +238,11 @@ fn mark_op(read: &mut [bool], op: &Operand) {
 }
 
 fn mark_stmt(read: &mut [bool], s: &Stmt) {
+    match s {
+        Stmt::Drop(p) => mark_index(read, p),
+        Stmt::Assign(dest, _) => mark_index(read, dest),
+        _ => {}
+    }
     let Stmt::Assign(_, rv) = s else { return };
     match rv {
         Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::BNot(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {

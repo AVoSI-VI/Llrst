@@ -48,6 +48,21 @@
 
 A predicate that captures a binding is `(clos ...)`, passed to `vec.any`, `vec.find`, `vec.each`, `vec.map`, `vec.filter`, or `vec.retain`. It is not a `(fn ...)`.
 
+## arr
+
+`(arr T N)` is `N` elements of `T` inline. No `Eq`, `Clone`, or `Show`: compare and copy by element.
+
+| task | form |
+|------|------|
+| create | `(arr.of x y z)`, or `(let a (arr T N) (arr.of ...))` when the element type should be stated |
+| fill | `(arr.filled x)` when the expected type is `(arr T N)` and `T` is `copy`, or `(arr.filled <(arr T N)> x)` |
+| length | `(arr.len (& a))` |
+| read | `(arr.get (& a) i)` returns `(& T)`, panics oob |
+| read mutable | `(arr.get_mut (&mut a) i)` returns `(&mut T)` |
+| overwrite | `(arr.set (&mut a) i x)` drops old |
+| pointer for an extern | `(as (ptr T) (& a))` |
+| iterate | `(for i 0 (arr.len (& a)) (let x (arr.get (& a) i)) ...)` |
+
 ## map
 
 Keys are any `K: Hash: Eq`. Str and `i64` implement those traits.

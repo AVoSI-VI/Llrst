@@ -1,0 +1,5 @@
+(fn first () (& i64)
+  (let a (arr i64 1) (arr.of 7))
+  (arr.get (& a) 0))
+
+(fn main () unit (drop (first)))

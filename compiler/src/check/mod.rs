@@ -1,5 +1,6 @@
 //! Type checker. Checks one function instance at a time against concrete type args and
 //! produces THIR. Generic bodies are checked per instantiation.
+mod arr;
 mod assert;
 mod call;
 mod clos;
@@ -128,6 +129,7 @@ impl<'a> Checker<'a> {
         match self.shallow(t) {
             Ty::Ref { mutable, lt, inner } => Ty::Ref { mutable, lt, inner: Box::new(self.zonk_ty(&inner)) },
             Ty::Ptr(i) => Ty::Ptr(Box::new(self.zonk_ty(&i))),
+            Ty::Arr(t, n) => Ty::Arr(Box::new(self.zonk_ty(&t)), n),
             Ty::Adt(d, a) => Ty::Adt(d, a.iter().map(|x| self.zonk_ty(x)).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|x| self.zonk_ty(x)).collect(), Box::new(self.zonk_ty(&r))),
             Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|x| self.zonk_ty(x)).collect(), Box::new(self.zonk_ty(&r))),
@@ -166,6 +168,7 @@ impl<'a> Checker<'a> {
             }
             (Ty::Ref { mutable: ma, inner: ia, .. }, Ty::Ref { mutable: mb, inner: ib, .. }) => ma == mb && self.unify(ia, ib),
             (Ty::Ptr(x), Ty::Ptr(y)) => self.unify(x, y),
+            (Ty::Arr(a, na), Ty::Arr(b, nb)) => na == nb && self.unify(a, b),
             (Ty::Adt(d1, a1), Ty::Adt(d2, a2)) => d1 == d2 && a1.len() == a2.len() && a1.iter().zip(a2).all(|(x, y)| self.unify(x, y)),
             (Ty::Fn(p1, r1), Ty::Fn(p2, r2)) | (Ty::Clos(p1, r1), Ty::Clos(p2, r2)) => p1.len() == p2.len() && p1.iter().zip(p2).all(|(x, y)| self.unify(x, y)) && self.unify(r1, r2),
             _ => a == b,
@@ -365,6 +368,8 @@ pub(crate) fn loop_breaks(e: &Expr, depth: u32) -> bool {
         ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => {
             args.iter().any(|x| loop_breaks(x, depth))
         }
+        ExprKind::Index { base, idx } => loop_breaks(base, depth) || loop_breaks(idx, depth),
+        ExprKind::Arr(xs) => xs.iter().any(|x| loop_breaks(x, depth)),
         ExprKind::Ref { place: x, .. }
         | ExprKind::Deref(x)
         | ExprKind::Field { base: x, .. }

@@ -1,0 +1,1 @@
+E|tests/err/arr_infer.llr|1|25|14|type.infer|fix=(let NAME (arr T N) ...)

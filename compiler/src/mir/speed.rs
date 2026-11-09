@@ -390,7 +390,7 @@ fn kill_rv(rv: &Rvalue, st: &mut Live) {
 /// A move that clears the whole-local drop flag, matching `codegen/func.rs`.
 fn kill_op(op: &Operand, st: &mut Live) {
     let Operand::Move(p) = op else { return };
-    if p.has_deref() || p.lone_field().is_some() {
+    if p.has_deref() || p.lone_field().is_some() || p.proj.iter().any(|x| matches!(x, Proj::Index(_))) {
         return;
     }
     st.clear(p.local);

@@ -1,0 +1,3 @@
+(fn main () unit
+  (let a (arr str 2) (arr.filled (str.from "x")))
+  (drop a))

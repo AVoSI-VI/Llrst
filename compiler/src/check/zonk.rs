@@ -91,6 +91,8 @@ fn zonk_expr(c: &mut Checker, e: Expr) -> PResult<Expr> {
         ExprKind::Ref { mutable, place } => ExprKind::Ref { mutable, place: bx(c, place)? },
         ExprKind::Deref(x) => ExprKind::Deref(bx(c, x)?),
         ExprKind::Field { base, idx } => ExprKind::Field { base: bx(c, base)?, idx },
+        ExprKind::Index { base, idx } => ExprKind::Index { base: bx(c, base)?, idx: bx(c, idx)? },
+        ExprKind::Arr(xs) => ExprKind::Arr(xs.into_iter().map(|x| zonk_expr(c, x)).collect::<PResult<_>>()?),
         ExprKind::Cast(x) => ExprKind::Cast(bx(c, x)?),
         ExprKind::Bin { op, l, r } => ExprKind::Bin { op, l: bx(c, l)?, r: bx(c, r)? },
         ExprKind::Neg(x) => ExprKind::Neg(bx(c, x)?),

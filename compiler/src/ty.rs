@@ -56,6 +56,8 @@ pub enum Ty {
     Never,
     Ref { mutable: bool, lt: Option<String>, inner: Box<Ty> },
     Ptr(Box<Ty>),
+    /// Fixed array. `N` is the element count, at least 1.
+    Arr(Box<Ty>, u64),
     /// Struct or enum instance.
     Adt(DefId, Vec<Ty>),
     Fn(Vec<Ty>, Box<Ty>),
@@ -81,6 +83,7 @@ impl Ty {
             Ty::Dyn { mutable, .. } => !mutable,
             Ty::Ref { mutable, .. } => !mutable,
             Ty::Adt(d, _) => adt_is_copy(*d),
+            Ty::Arr(t, _) => t.is_copy(adt_is_copy),
             Ty::Param(..) | Ty::Infer(..) => false,
         }
     }
@@ -100,6 +103,7 @@ impl Ty {
         match self {
             Ty::Ref { .. } => true,
             Ty::Adt(_, args) => args.iter().any(|a| a.has_ref()),
+            Ty::Arr(t, _) => t.has_ref(),
             Ty::Clos(..) => true,
             Ty::Fn(..) | Ty::Ptr(_) => false,
             _ => false,
@@ -109,6 +113,7 @@ impl Ty {
         match self {
             Ty::Infer(..) => true,
             Ty::Ref { inner, .. } | Ty::Ptr(inner) => inner.has_infer(),
+            Ty::Arr(t, _) => t.has_infer(),
             Ty::Adt(_, args) => args.iter().any(|a| a.has_infer()),
             Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().any(|a| a.has_infer()) || r.has_infer(),
             _ => false,
@@ -118,6 +123,7 @@ impl Ty {
         match self {
             Ty::Param(..) => true,
             Ty::Ref { inner, .. } | Ty::Ptr(inner) => inner.has_param(),
+            Ty::Arr(t, _) => t.has_param(),
             Ty::Adt(_, args) => args.iter().any(|a| a.has_param()),
             Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().any(|a| a.has_param()) || r.has_param(),
             _ => false,
@@ -129,6 +135,7 @@ impl Ty {
             Ty::Param(i, _) => args.get(*i as usize).cloned().unwrap_or_else(|| self.clone()),
             Ty::Ref { mutable, lt, inner } => Ty::Ref { mutable: *mutable, lt: lt.clone(), inner: Box::new(inner.subst(args)) },
             Ty::Ptr(inner) => Ty::Ptr(Box::new(inner.subst(args))),
+            Ty::Arr(t, n) => Ty::Arr(Box::new(t.subst(args)), *n),
             Ty::Adt(d, a) => Ty::Adt(*d, a.iter().map(|t| t.subst(args)).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
             Ty::Clos(ps, r) => Ty::Clos(ps.iter().map(|t| t.subst(args)).collect(), Box::new(r.subst(args))),
@@ -153,6 +160,7 @@ impl Ty {
             }
             Ty::Adt(_, a) => a.iter().for_each(|t| t.lifetimes(out)),
             Ty::Ptr(i) => i.lifetimes(out),
+            Ty::Arr(t, _) => t.lifetimes(out),
             Ty::Fn(ps, r) | Ty::Clos(ps, r) => {
                 ps.iter().for_each(|t| t.lifetimes(out));
                 r.lifetimes(out);
@@ -184,6 +192,7 @@ impl<'a> TyPrinter<'a> {
                 }
             }
             Ty::Ptr(i) => format!("(ptr {})", self.show(i)),
+            Ty::Arr(t, n) => format!("(arr {} {})", self.show(t), n),
             Ty::Adt(d, args) => {
                 let n = (self.names)(*d);
                 if args.is_empty() {

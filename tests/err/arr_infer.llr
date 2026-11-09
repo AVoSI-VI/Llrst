@@ -1,0 +1,1 @@
+(fn main () unit (let a (arr.filled 0)) (drop a))

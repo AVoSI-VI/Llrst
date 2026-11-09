@@ -50,6 +50,7 @@ Design goal: minimal distinct tokens, each short, each one BPE token where possi
 | `dyn` | trait object |
 | `ptr` | raw pointer type |
 | `never` | type with no value |
+| `arr` | fixed array `(arr T N)`; also `arr.of` `arr.filled` `arr.len` `arr.get` `arr.get_mut` `arr.set` |
 
 ## Sigils
 

@@ -42,6 +42,15 @@ Passed by pointer at the ABI level; semantically moved by value.
 ```
 Layout: `u32` tag then payload union, aligned to max payload alignment.
 
+## Fixed arrays
+
+`(arr T N)` holds `N` elements of `T`. `N` is a decimal integer ≥ 1 with no suffix and no `_`.
+Size is `N * size(T)`, alignment is `align(T)`, and element `k` is at byte `k * size(T)`.
+The array is `copy` when `T` is `copy`. It is an aggregate: passed by pointer and returned
+through the hidden return slot, the same path as a struct. Drop runs `T`'s drop once per
+element. An array in an `extern` signature is `type.extern_ty`. Creation, indexing, and
+the pointer cast for an extern are in [collections.md](../canon/collections.md).
+
 ## Generics
 
 ```
@@ -58,6 +67,7 @@ explicitly: `(vec.new <str>)`.
 | type | role |
 |------|------|
 | `(vec T)` | growable array `{ptr len cap}` |
+| `(arr T N)` | fixed array of `N` elements; see Fixed arrays |
 | `(opt T)` | `(opt.some x)` or `(opt.none)` |
 | `(res T E)` | `(res.ok x)` or `(res.err e)` |
 | `(map K V)` | hash map. Key operations take `<K:Hash:Eq>` from `std/cmp.llr` |
@@ -117,7 +127,7 @@ float-to-int saturates and int-to-float rounds.
 
 `(box i64)` is `trait.object|why=dyn`. `(& b)` and `(&mut b)` on a box are `(& (dyn Eq))` and `(&mut (dyn Eq))`, unless the expected type is a reference to the box itself (as in `vec.get`). A method call on either reborrow passes that fat pointer, so `(&mut Self)` methods mutate the heap value. A trait defined in another module is `module.Trait`: `(box (dyn id.Id))`, `(impl id.Id ty ...)`, and `id.Id.method`. There are no trait default methods. A callback the framework would have defaulted is a `(clos ...)` field on a struct, and that struct is what gets boxed.
 
-`drop` and `copy` stay compiler-known. `copy` is primitives (including `bool` and `unit`), shared refs, raw pointers, `(fn ...)`, and a shared trait object. `(box (dyn Trait))` is not `copy`.
+`drop` and `copy` stay compiler-known. `copy` is primitives (including `bool` and `unit`), shared refs, raw pointers, `(fn ...)`, a shared trait object, and `(arr T N)` when `T` is `copy`. `(box (dyn Trait))` is not `copy`.
 
 ## Memory and the host
 

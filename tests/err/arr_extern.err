@@ -1,0 +1,1 @@
+E|tests/err/arr_extern.llr|1|17|11|type.extern_ty|ty=(arr i64 4)
