@@ -8,6 +8,7 @@
 (use std.sha)
 (use std.str)
 (use std.sys)
+
 (pub (struct req
   (pub (method str))
   (pub (path str))
@@ -23,22 +24,22 @@
   (str.push (&mut m) got)
   m)
 
-(fn eshort ((want i64) (got i64)) str
+(pub (fn eshort ((want i64) (got i64)) str
   (let mut m (str.from "http.short|want="))
   (str.push (&mut m) (& (str.from_int want)))
   (str.push (&mut m) "|got=")
   (str.push (&mut m) (& (str.from_int got)))
-  m)
+  m))
 
-(fn hname ((line (& str))) str
+(pub (fn hname ((line (& str))) str
   (match (str.find line ":")
     ((opt.some i) (str.lower (& (str.trim (& (str.slice line 0 i))))))
-    ((opt.none) (str.new))))
+    ((opt.none) (str.new)))))
 
-(fn hval ((line (& str))) str
+(pub (fn hval ((line (& str))) str
   (match (str.find line ":")
     ((opt.some i) (str.trim (& (str.slice line (+ i 1) (str.len line)))))
-    ((opt.none) (str.new))))
+    ((opt.none) (str.new)))))
 
 (pub (fn header ((hs (& (vec str))) (name (& str))) (opt str)
   (let want (str.lower name))
@@ -365,14 +366,26 @@
   (clear_buf s fd)
   (bump s))
 
-(pub (fn serve_wait ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64) (wait i32) (tick (clos () bool))) (res i64 str)
+(pub (fn serve_wait ((fd i64)
+   (root (& str))
+   (routes (& (vec route)))
+   (stop_after i64)
+   (wait i32)
+   (tick (clos () bool))) (res i64 str)
   (let mut s (svc (str.from root) (as (ptr u8) routes) (vec.new <conn>) 0 stop_after))
   (let sp (as (ptr svc) (&mut s)))
-  (let ran (net.poll_serve_wait fd -1 wait (clos ((fd i64) (data (& str))) bool (on_http fd data (as (ptr u8) sp))) tick))
+  (let ran
+    (net.poll_serve_wait fd
+      -1
+      wait
+      (clos ((fd i64) (data (& str))) bool (on_http fd data (as (ptr u8) sp)))
+      tick))
   (if (res.is_err (& ran)) (ret (res.err (res.unwrap_err ran))))
   (res.ok (. (@ sp) done))))
+
 (pub (fn serve ((fd i64) (root (& str)) (routes (& (vec route))) (stop_after i64)) (res i64 str)
   (serve_wait fd root routes stop_after -1i32 (clos () bool true))))
+
 (fn health ((_ (& req)) (_ (ptr u8))) resp (respond 200 "ok" "text/plain" "ok"))
 
 (fn file_client ((port i64)) i32
@@ -435,43 +448,6 @@
   (vec.push (&mut routes) (route (str.from "GET") (str.from "/health") health))
   (let n (res.unwrap (serve l "/tmp" (& routes) 3072)))
   (assert_eq n 3072)
-  (net.close l)
-  (wait_child pid))
-
-(fn masked_hello () str
-  (let mut s (str.new))
-  (str.push_byte (&mut s) 129u8)
-  (str.push_byte (&mut s) 133u8)
-  (str.push_byte (&mut s) 1u8)
-  (str.push_byte (&mut s) 2u8)
-  (str.push_byte (&mut s) 3u8)
-  (str.push_byte (&mut s) 4u8)
-  (str.push_byte (&mut s) 105u8)
-  (str.push_byte (&mut s) 103u8)
-  (str.push_byte (&mut s) 111u8)
-  (str.push_byte (&mut s) 104u8)
-  (str.push_byte (&mut s) 110u8)
-  s)
-
-(fn ws_client ((port i64)) i32
-  (let c (res.unwrap (net.connect "127.0.0.1" port)))
-  (res.unwrap (net.send c
-     "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
-  (let resp (res.unwrap (net.recv c 256)))
-  (if (not (str.has (& resp) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")) (ret 1))
-  (res.unwrap (net.send c (& (masked_hello))))
-  (let echo (res.unwrap (net.recv c 32)))
-  (net.close c)
-  (if (str.has (& echo) "hello") (ret 0))
-  (ret 1))
-
-(test http_ws
-  (let l (res.unwrap (net.listen 0)))
-  (let port (res.unwrap (net.local_port l)))
-  (let pid (sys.llr_call_child ws_client port))
-  (let mut routes (vec.new <route>))
-  (let n (res.unwrap (serve l "/tmp" (& routes) 1)))
-  (assert_eq n 1)
   (net.close l)
   (wait_child pid))
 

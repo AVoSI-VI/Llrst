@@ -139,8 +139,7 @@
   (str.push (&mut s) (& (str.from_int (if on 1 0))))
   s)
 
-(fn clock_num ((s (& str))) i64
-  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+(fn clock_num ((s (& str))) i64 (opt.or (str.to_int s) 0))
 
 (fn clock_read ((self (&mut clock)) (text (& str))) unit
   (let ps (str.split text 124u8))

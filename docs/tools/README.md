@@ -21,6 +21,8 @@ sessions, and the Llrst reimplementation of each. All tools print one record per
 | | git read | status, diff, and log; no commit | [llr-git](llr-git.md) |
 | | std docs | regenerate signature tables | [llr-doc](llr-doc.md) |
 | | check | every `llrc check` diagnostic, through a front end | [llr-check](llr-check.md) |
+| | bench | time `(bench NAME ...)` forms | [llr-bench](llr-bench.md) |
+| | language server | diagnostics and go to definition over stdio | [llr-lsp](llr-lsp.md) |
 | | HTTP server | files and exact routes on one poll loop | [llr-http](llr-http.md) |
 | | UI server | serve, run, dump, shot, or pack a UI | [llr-ui](llr-ui.md) |
 

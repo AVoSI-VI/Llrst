@@ -76,6 +76,9 @@
   (pub (path str))
   (pub (clos (vec clbody)))))
 
+(pub (fn empty_body () body
+  (body (str.new) 0 (vec.new <thir.loc>) (vec.new <blk>) (str.new) (vec.new <clbody>))))
+
 (pub (fn ploc ((l i64)) place (place l (vec.new <u8>) (vec.new <i64>))))
 
 (pub (fn pclone ((p (& place))) place
@@ -219,9 +222,15 @@
   (if (== (. t kind) 3u8) (vec.push (&mut o) (. t bb)))
   o))
 
+(pub (fn block_succs ((b (& body))) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 (vec.len (& (. b blocks)))
+    (vec.push (&mut o) (succs (& (. (vec.get (& (. b blocks)) i) term)))))
+  o))
+
 (pub (fn can_move_field ((p (& prog.prog)) (locs (& (vec thir.loc))) (pl (& place))) bool
   (if (< (lone_field pl) 0) (ret false))
   (let t (& (. (vec.get locs (. pl local)) ty)))
   (if (!= (. t kind) 8u8) (ret false))
-  (if (>= (prog.meth_id p (. t id) "drop") 0) (ret false))
+  (if (prog.has_drop p (. t id)) (ret false))
   (== (. (vec.get (& (. p defs)) (. t id)) kind) 0u8)))

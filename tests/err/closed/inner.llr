@@ -1,0 +1,3 @@
+(pub (fn answer () i64 (hidden)))
+
+(fn hidden () i64 1)

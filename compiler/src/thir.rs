@@ -76,11 +76,15 @@ pub enum Pat {
     Bind(LocalId),
     Lit(Lit),
     Variant { idx: u32, subs: Vec<Pat> },
+    Or(Vec<Pat>),
+    /// Positional fields of the scrutinee struct.
+    Struct(Vec<Pat>),
 }
 
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
+    pub guard: Option<Expr>,
     pub body: Expr,
     pub span: Span,
 }
@@ -114,9 +118,11 @@ pub enum ExprKind {
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },
     While { cond: Box<Expr>, body: Box<Expr> },
     Loop(Box<Expr>),
-    For { local: LocalId, lo: Box<Expr>, hi: Box<Expr>, body: Box<Expr> },
-    Break,
-    Continue,
+    /// `step` is absent for the default `+1` range. Present steps are evaluated once.
+    For { local: LocalId, lo: Box<Expr>, hi: Box<Expr>, step: Option<Box<Expr>>, body: Box<Expr> },
+    /// How many enclosing loops to skip. `0` is the innermost.
+    Break(u32),
+    Continue(u32),
     Return(Option<Box<Expr>>),
     /// `by_ref` is Some(mutable) when the scrutinee was a reference to an enum.
     Match { scrut: Box<Expr>, arms: Vec<Arm>, by_ref: Option<bool> },
@@ -127,6 +133,7 @@ pub enum ExprKind {
     Bin { op: BinOp, l: Box<Expr>, r: Box<Expr> },
     Neg(Box<Expr>),
     WNeg(Box<Expr>),
+    BNot(Box<Expr>),
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -134,8 +141,8 @@ pub enum ExprKind {
     Struct { def: DefId, fields: Vec<Expr> },
     Variant { def: DefId, idx: u32, fields: Vec<Expr> },
     FnRef(DefId),
-    /// `(try e)`: `is_res` selects res vs opt.
-    Try { expr: Box<Expr>, is_res: bool },
+    /// `(try e)`: `is_res` selects res vs opt. `from` converts a `res` error.
+    Try { expr: Box<Expr>, is_res: bool, from: Option<(DefId, Vec<Ty>)> },
     /// Owned closure. `caps` are the enclosing bindings, copied or moved into the env.
     Closure { caps: Vec<Expr>, inner: ClosBody },
     /// `&T` stored as a fat pointer for `trait_id`.

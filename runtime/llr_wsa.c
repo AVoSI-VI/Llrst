@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stdint.h>
+#include <string.h>
 
 typedef char llr_wsa_poll_size[(sizeof(WSAPOLLFD) == 16) ? 1 : -1];
 
@@ -151,6 +152,120 @@ short llr_wsa_to_events(short events) {
         out = (short)(out | POLLOUT);
     }
     return out;
+}
+
+typedef int(WSAAPI *wsa_sendto_fn)(SOCKET, const char *, int, int, const struct sockaddr *, int);
+typedef int(WSAAPI *wsa_recvfrom_fn)(SOCKET, char *, int, int, struct sockaddr *, int *);
+typedef int(WSAAPI *wsa_setopt_fn)(SOCKET, int, int, const char *, int);
+typedef int(WSAAPI *wsa_gai_fn)(const char *, const char *, const struct addrinfo *, struct addrinfo **);
+typedef void(WSAAPI *wsa_free_fn)(struct addrinfo *);
+typedef const char *(WSAAPI *wsa_ntop_fn)(int, const void *, char *, size_t);
+
+static wsa_sendto_fn p_sendto;
+static wsa_recvfrom_fn p_recvfrom;
+static wsa_setopt_fn p_setopt;
+static wsa_gai_fn p_gai;
+static wsa_free_fn p_free;
+static wsa_ntop_fn p_ntop;
+
+static int more(void) {
+    if (load() != 0) {
+        return -1;
+    }
+    if (p_sendto == NULL) {
+        p_sendto = (wsa_sendto_fn)GetProcAddress(dll, "sendto");
+    }
+    if (p_recvfrom == NULL) {
+        p_recvfrom = (wsa_recvfrom_fn)GetProcAddress(dll, "recvfrom");
+    }
+    if (p_setopt == NULL) {
+        p_setopt = (wsa_setopt_fn)GetProcAddress(dll, "setsockopt");
+    }
+    if (p_gai == NULL) {
+        p_gai = (wsa_gai_fn)GetProcAddress(dll, "getaddrinfo");
+    }
+    if (p_free == NULL) {
+        p_free = (wsa_free_fn)GetProcAddress(dll, "freeaddrinfo");
+    }
+    if (p_ntop == NULL) {
+        p_ntop = (wsa_ntop_fn)GetProcAddress(dll, "inet_ntop");
+    }
+    if (p_ntop == NULL) {
+        p_ntop = (wsa_ntop_fn)GetProcAddress(dll, "InetNtopA");
+    }
+    return 0;
+}
+
+int llr_wsa_sendto(uint64_t sock, const void *buf, int n, const void *addr, int len) {
+    if (more() != 0 || p_sendto == NULL) {
+        return -1;
+    }
+    return p_sendto((SOCKET)sock, (const char *)buf, n, 0, (const struct sockaddr *)addr, len);
+}
+
+int llr_wsa_recvfrom(uint64_t sock, void *buf, int n, void *addr, int *len) {
+    if (more() != 0 || p_recvfrom == NULL) {
+        return -1;
+    }
+    return p_recvfrom((SOCKET)sock, (char *)buf, n, 0, (struct sockaddr *)addr, len);
+}
+
+int llr_wsa_setsockopt(uint64_t sock, int level, int opt, const void *val, int len) {
+    if (more() != 0 || p_setopt == NULL) {
+        return -1;
+    }
+    return p_setopt((SOCKET)sock, level, opt, (const char *)val, len);
+}
+
+int llr_wsa_resolve(const char *host, char *buf, uint64_t cap, int64_t *out_n) {
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    struct addrinfo *p;
+    char *w;
+    uint64_t left;
+    int64_t n = 0;
+    if (out_n != NULL) {
+        *out_n = 0;
+    }
+    if (more() != 0 || p_gai == NULL || p_free == NULL || p_ntop == NULL || host == NULL || buf == NULL) {
+        return -1;
+    }
+    memset(&hints, 0, sizeof hints);
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    if (p_gai(host, NULL, &hints, &res) != 0) {
+        return -1;
+    }
+    w = buf;
+    left = cap;
+    for (p = res; p != NULL; p = p->ai_next) {
+        char ip[64];
+        void *src = NULL;
+        size_t k;
+        if (p->ai_family == AF_INET) {
+            src = &((struct sockaddr_in *)p->ai_addr)->sin_addr;
+        } else if (p->ai_family == AF_INET6) {
+            src = &((struct sockaddr_in6 *)p->ai_addr)->sin6_addr;
+        } else {
+            continue;
+        }
+        if (p_ntop(p->ai_family, src, ip, sizeof ip) == NULL) {
+            continue;
+        }
+        k = strlen(ip) + 1;
+        if (k > left) {
+            break;
+        }
+        memcpy(w, ip, k);
+        w += k;
+        left -= k;
+        n++;
+    }
+    p_free(res);
+    if (out_n != NULL) {
+        *out_n = n;
+    }
+    return n == 0 ? -1 : 0;
 }
 
 short llr_wsa_from_events(short events) {

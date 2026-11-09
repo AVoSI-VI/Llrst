@@ -2,13 +2,17 @@
 (use proj.a64_buf)
 (use proj.cg_bits)
 (use proj.cg_isa)
+(use proj.cg_line)
 (use proj.cg_lay)
 (use proj.coff)
 (use proj.elf)
+(use proj.elf_out)
 (use proj.macho)
 (use proj.prog)
 (use proj.ty)
+(use proj.rv_buf)
 (use proj.x64_buf)
+(use std.map)
 (use std.str)
 
 (pub (struct cg
@@ -27,20 +31,28 @@
   (pub (fargs (vec (vec ty.sty))))
   (pub (fsym (vec i64)))
   (pub (fdone (vec bool)))
+  (pub (fmap (map i64 (vec i64))))
   (pub (eid (vec i64)))
   (pub (esym (vec i64)))
   (pub (skey (vec str)))
   (pub (ssym (vec i64)))
+  (pub (smap (map str i64)))
   (pub (dty (vec ty.sty)))
   (pub (dsym (vec i64)))
   (pub (ddone (vec bool)))
+  (pub (dmap (map i64 (vec i64))))
   (pub (vkey (vec str)))
   (pub (vsym (vec i64)))
+  (pub (vmap (map str i64)))
   (pub (pend (vec i64)))
-  (pub (pargs (vec (vec ty.sty))))
   (pub (dpend (vec i64)))
   (pub (tpush i64))
-  (pub (tpop i64))))
+  (pub (tpop i64))
+  (pub (cseen (vec str)))
+  (pub (debug bool))
+  (pub (dfiles (vec str)))
+  (pub (dstack (vec (vec cg_line.row))))
+  (pub (drows (vec cg_line.row)))))
 
 (fn push_zeros ((v (&mut (vec u8))) (n i64)) unit (for i 0 n (vec.push v 0u8)))
 
@@ -54,40 +66,52 @@
   (push_zeros (&mut (. (. g obj) data)) 8)
   (elf.add_sym (&mut (. g obj)) name bind elf.st_object elf.sec_data at 8))
 
+(fn fresh ((checked bool) (s cg_isa.isa) (darwin bool) (win bool) (be bool)) cg
+  (cg (elf.new)
+    (cg_lay.new)
+    checked
+    darwin
+    win
+    be
+    s
+    (neg 1)
+    0
+    0
+    0
+    (vec.new <i64>)
+    (vec.new < (vec ty.sty) >)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (map.new <i64 (vec i64) >)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (map.new <str i64>)
+    (vec.new <ty.sty>)
+    (vec.new <i64>)
+    (vec.new <bool>)
+    (map.new <i64 (vec i64) >)
+    (vec.new <str>)
+    (vec.new <i64>)
+    (map.new <str i64>)
+    (vec.new <i64>)
+    (vec.new <i64>)
+    (neg 1)
+    (neg 1)
+    (vec.new <str>)
+    false
+    (vec.new <str>)
+    (vec.new < (vec cg_line.row) >)
+    (vec.new <cg_line.row>)))
+
 (pub (fn new ((checked bool) (s cg_isa.isa) (darwin bool) (be bool)) cg
   (let a64 (. s a64))
+  (let rv (. s rv))
   (let win (. s win))
-  (let mut g
-    (cg (elf.new)
-      (cg_lay.new)
-      checked
-      darwin
-      win
-      be
-      s
-      (neg 1)
-      0
-      0
-      0
-      (vec.new <i64>)
-      (vec.new < (vec ty.sty) >)
-      (vec.new <i64>)
-      (vec.new <bool>)
-      (vec.new <i64>)
-      (vec.new <i64>)
-      (vec.new <str>)
-      (vec.new <i64>)
-      (vec.new <ty.sty>)
-      (vec.new <i64>)
-      (vec.new <bool>)
-      (vec.new <str>)
-      (vec.new <i64>)
-      (vec.new <i64>)
-      (vec.new < (vec ty.sty) >)
-      (vec.new <i64>)
-      (neg 1)
-      (neg 1)))
+  (let mut g (fresh checked s darwin win be))
   (if a64 (set (. (. g obj) machine) elf.mach_a64))
+  (if rv (set (. (. g obj) machine) elf.mach_rv))
   (set (. g argc) (data_sym (&mut g) "llr_argc" elf.local))
   (set (. g argv) (data_sym (&mut g) "llr_argv" elf.local))
   (set (. g trace) (data_sym (&mut g) "llr_trace" elf.global))
@@ -125,6 +149,23 @@
     (set i (- i 1)))
   s)
 
+(fn saw ((g (& cg)) (s (& str))) bool
+  (let mut i 0)
+  (while (< i (vec.len (& (. g cseen))))
+    (if (str.eq (vec.get (& (. g cseen)) i) s) (ret true))
+    (set i (+ i 1)))
+  false)
+
+(pub (fn uniq ((g (&mut cg)) (base (& str))) str
+  (if (not (saw g base)) (do (vec.push (&mut (. g cseen)) (str.clone base)) (ret (str.clone base))))
+  (let mut n 2)
+  (loop
+    (let mut s (str.clone base))
+    (str.push_byte (&mut s) 95u8)
+    (str.push (&mut s) (& (str.from_int n)))
+    (if (not (saw g (& s))) (do (vec.push (&mut (. g cseen)) (str.clone (& s))) (ret s)))
+    (set n (+ n 1)))))
+
 (pub (fn mangle ((path (& str)) (args (& (vec ty.sty)))) str
   (let mut s (str.from "llr_"))
   (for i 0 (str.len path) (let c (str.at path i)) (str.push_byte (&mut s) (if (== c 46u8) 95u8 c)))
@@ -144,11 +185,37 @@
   (for i 0 (vec.len a) (if (not (ty.eq (vec.get a i) (vec.get b i))) (ret false)))
   true)
 
-(fn find_fn ((g (& cg)) (id i64) (args (& (vec ty.sty)))) i64
-  (for i 0 (vec.len (& (. g fid)))
-    (if (and (== (@ (vec.get (& (. g fid)) i)) id) (args_eq (vec.get (& (. g fargs)) i) args))
-      (ret i)))
+(fn push_ix ((slot (opt (&mut (vec i64)))) (at i64)) unit
+  (match slot ((opt.some xs) (vec.push xs at)) ((opt.none) ())))
+
+(fn note_i ((tab (&mut (map i64 (vec i64)))) (key i64) (at i64)) unit
+  (if (map.has tab (& key)) (ret (push_ix (map.get_mut tab (& key)) at)))
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) at)
+  (map.put tab key v))
+
+(fn hash_args ((ts (& (vec ty.sty)))) i64
+  (let mut h 2166136261)
+  (for i 0 (vec.len ts) (set h (mix h (ty.hash (vec.get ts i)))))
+  h)
+
+(fn inst_key ((id i64) (args (& (vec ty.sty)))) i64 (mix id (hash_args args)))
+
+(fn find_at ((fid (& (vec i64)))
+   (fargs (& (vec (vec ty.sty))))
+   (id i64)
+   (args (& (vec ty.sty)))
+   (xs (& (vec i64)))) i64
+  (for i 0 (vec.len xs)
+    (let at (@ (vec.get xs i)))
+    (if (and (== (@ (vec.get fid at)) id) (args_eq (vec.get fargs at) args)) (ret at)))
   (neg 1))
+
+(fn find_fn ((g (& cg)) (id i64) (args (& (vec ty.sty)))) i64
+  (let key (inst_key id args))
+  (match (map.get (& (. g fmap)) (& key))
+    ((opt.none) (neg 1))
+    ((opt.some xs) (find_at (& (. g fid)) (& (. g fargs)) id args xs))))
 
 (fn decl_fn ((g (&mut cg)) (name (& str))) i64
   (elf.add_sym (&mut (. g obj)) name elf.local elf.st_func elf.sec_text 0 0))
@@ -159,19 +226,15 @@
   (let d (vec.get (& (. p defs)) id))
   (if (. d extern) (ret (extern_sym g p id)))
   (let sym (decl_fn g (& (sym_name p id (& args)))))
+  (let at (vec.len (& (. g fid))))
   (vec.push (&mut (. g fid)) id)
   (vec.push (&mut (. g fargs)) args)
   (vec.push (&mut (. g fsym)) sym)
   (vec.push (&mut (. g fdone)) false)
-  (vec.push (&mut (. g pend)) id)
-  (vec.push (&mut (. g pargs))
-    (clone_tys (vec.get (& (. g fargs)) (- (vec.len (& (. g fargs))) 1))))
+  (let key (inst_key id (vec.get (& (. g fargs)) at)))
+  (note_i (&mut (. g fmap)) key at)
+  (vec.push (&mut (. g pend)) at)
   sym))
-
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
 
 (pub (fn extern_sym ((g (&mut cg)) (p (& prog.prog)) (id i64)) i64
   (for i 0 (vec.len (& (. g eid)))
@@ -189,13 +252,9 @@
   (vec.push (&mut (. g esym)) sym)
   sym))
 
-(pub (fn mark_done ((g (&mut cg)) (id i64) (args (& (vec ty.sty)))) unit
-  (let hit (find_fn g id args))
-  (if (>= hit 0) (vec.set (&mut (. g fdone)) hit true))))
+(pub (fn mark_done ((g (&mut cg)) (i i64)) unit (vec.set (&mut (. g fdone)) i true)))
 
-(pub (fn is_done ((g (& cg)) (id i64) (args (& (vec ty.sty)))) bool
-  (let hit (find_fn g id args))
-  (and (>= hit 0) (@ (vec.get (& (. g fdone)) hit)))))
+(pub (fn is_done ((g (& cg)) (i i64)) bool (@ (vec.get (& (. g fdone)) i))))
 
 (pub (fn done_ids ((g (& cg))) (vec i64)
   (let mut o (vec.new <i64>))
@@ -204,8 +263,7 @@
   o))
 
 (fn find_str ((g (& cg)) (s (& str))) i64
-  (for i 0 (vec.len (& (. g skey))) (if (str.eq (vec.get (& (. g skey)) i) s) (ret i)))
-  (neg 1))
+  (match (map.get (& (. g smap)) s) ((opt.some i) (@ i)) ((opt.none) (neg 1))))
 
 (fn ro_bytes ((g (&mut cg)) (bytes (& (vec u8))) (align i64)) i64
   (pad (&mut (. (. g obj) rodata)) align)
@@ -246,6 +304,7 @@
   (let sym (ro_sym g (& ns) rat 24))
   (vec.push (&mut (. g skey)) (str.clone s))
   (vec.push (&mut (. g ssym)) sym)
+  (map.put (&mut (. g smap)) (str.clone s) n)
   sym))
 
 (fn put_u64 ((v (&mut (vec u8))) (at i64) (n i64) (be bool)) unit
@@ -263,8 +322,11 @@
   (let mut name (str.from "llr_k"))
   (str.push (&mut name) (& (str.from_int (vec.len (& (. g vkey))))))
   (let sym (ro_sym g (& name) at (vec.len (& bytes))))
+  (let n (vec.len (& (. g vkey))))
+  (let owned (str.clone (& key)))
   (vec.push (&mut (. g vkey)) key)
   (vec.push (&mut (. g vsym)) sym)
+  (map.put (&mut (. g vmap)) owned n)
   sym))
 
 (fn key_of ((ck i64) (v i64) (text (& str))) str
@@ -275,14 +337,22 @@
   (str.push (&mut s) text)
   s)
 
-(fn find_key ((g (& cg)) (k (& str))) i64
-  (for i 0 (vec.len (& (. g vkey)))
-    (if (str.eq (vec.get (& (. g vkey)) i) k) (ret (@ (vec.get (& (. g vsym)) i)))))
+(fn find_vt ((g (& cg)) (k (& str))) i64
+  (match (map.get (& (. g vmap)) k)
+    ((opt.some i) (@ (vec.get (& (. g vsym)) (@ i))))
+    ((opt.none) (neg 1))))
+
+(fn find_key ((g (& cg)) (k (& str))) i64 (find_vt g k))
+
+(fn find_dty ((dty (& (vec ty.sty))) (t (& ty.sty)) (xs (& (vec i64)))) i64
+  (for i 0 (vec.len xs) (let at (@ (vec.get xs i))) (if (ty.eq (vec.get dty at) t) (ret at)))
   (neg 1))
 
 (fn find_drop ((g (& cg)) (t (& ty.sty))) i64
-  (for i 0 (vec.len (& (. g dty))) (if (ty.eq (vec.get (& (. g dty)) i) t) (ret i)))
-  (neg 1))
+  (let key (ty.hash t))
+  (match (map.get (& (. g dmap)) (& key))
+    ((opt.none) (neg 1))
+    ((opt.some xs) (find_dty (& (. g dty)) t xs))))
 
 (pub (fn drop_sym ((g (&mut cg)) (t (& ty.sty))) i64
   (let hit (find_drop g t))
@@ -290,37 +360,40 @@
   (let mut name (str.from "llr_drop_"))
   (str.push (&mut name) (& (hex8 (hash_str 2166136261 (& (ty.show t))))))
   (let sym (decl_fn g (& name)))
+  (let at (vec.len (& (. g dty))))
   (vec.push (&mut (. g dty)) (ty.clone t))
   (vec.push (&mut (. g dsym)) sym)
   (vec.push (&mut (. g ddone)) false)
-  (vec.push (&mut (. g dpend)) (- (vec.len (& (. g dty))) 1))
+  (note_i (&mut (. g dmap)) (ty.hash t) at)
+  (vec.push (&mut (. g dpend)) at)
   sym))
 
 (pub (fn drop_pending ((g (& cg)) (i i64)) bool (not (@ (vec.get (& (. g ddone)) i)))))
 
 (pub (fn mark_drop ((g (&mut cg)) (i i64)) unit (vec.set (&mut (. g ddone)) i true)))
 
-(fn find_vt ((g (& cg)) (k (& str))) i64
-  (for i 0 (vec.len (& (. g vkey)))
-    (if (str.eq (vec.get (& (. g vkey)) i) k) (ret (@ (vec.get (& (. g vsym)) i)))))
-  (neg 1))
-
 (pub (fn vt_get ((g (& cg)) (k (& str))) i64 (find_vt g k)))
 
 (pub (fn vt_put ((g (&mut cg)) (k str) (sym i64)) unit
+  (let n (vec.len (& (. g vkey))))
+  (let owned (str.clone (& k)))
   (vec.push (&mut (. g vkey)) k)
-  (vec.push (&mut (. g vsym)) sym)))
+  (vec.push (&mut (. g vsym)) sym)
+  (map.put (&mut (. g vmap)) owned n)))
 
 (pub (fn ro_sym_at ((g (&mut cg)) (name (& str)) (bytes (& (vec u8))) (align i64)) i64
   (let at (ro_bytes g bytes align))
   (ro_sym g name at (vec.len bytes))))
 
-(pub (fn ptr_kind ((g (& cg))) i64 (if (. (. g isa) a64) elf.a64_abs elf.abs64)))
+(pub (fn ptr_kind ((g (& cg))) i64
+  (if (. (. g isa) a64) (ret elf.a64_abs))
+  (if (. (. g isa) rv) (ret elf.rv64))
+  elf.abs64))
 
 (fn append_x ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (let b (& (. c x)))
   (let base (vec.len (& (. (. g obj) text))))
-  (for i 0 (x64_buf.len b) (vec.push (&mut (. (. g obj) text)) (x64_buf.at b i)))
+  (elf_out.copy (&mut (. (. g obj) text)) (x64_buf.bytes b))
   (for i 0 (vec.len (& (. b rels)))
     (let r (vec.get (& (. b rels)) i))
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
@@ -329,13 +402,42 @@
 (fn append_a ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
   (let b (& (. c a)))
   (let base (vec.len (& (. (. g obj) text))))
-  (for i 0 (a64_buf.len b) (vec.push (&mut (. (. g obj) text)) (a64_buf.at b i)))
+  (elf_out.copy (&mut (. (. g obj) text)) (a64_buf.bytes b))
   (for i 0 (vec.len (& (. b rels)))
     (let r (vec.get (& (. b rels)) i))
     (elf.add_enc (&mut (. g obj)) elf.sec_text (+ base (. r at)) (. r kind) (. r sym)))
   (elf.set_sym (&mut (. g obj)) sym base (a64_buf.len b)))
 
+(pub (fn needs ((g (& cg))) (vec str)
+  (let mut o (vec.new <str>))
+  (let syms (& (. (. g obj) syms)))
+  (for i 0 (vec.len syms)
+    (let s (vec.get syms i))
+    (if (and (== (. s sec) elf.sec_undef) (> (str.len (& (. s name))) 0))
+      (vec.push (&mut o) (str.clone (& (. s name))))))
+  o))
+
+(fn place_lo ((g (&mut cg)) (at i64)) unit
+  (let au (- at 4))
+  (let mut name (str.from ".L"))
+  (str.push (&mut name) (& (str.from_int au)))
+  (let s (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_none elf.sec_text au 0))
+  (elf.add_rel (&mut (. g obj)) elf.sec_text at elf.rv_lo s 0))
+
+(fn append_r ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (let b (& (. c r)))
+  (let base (vec.len (& (. (. g obj) text))))
+  (elf_out.copy (&mut (. (. g obj) text)) (rv_buf.bytes b))
+  (for i 0 (vec.len (& (. b rels)))
+    (let r (vec.get (& (. b rels)) i))
+    (let at (+ base (. r at)))
+    (if (== (. r kind) rv_buf.pcrel_lo)
+      (place_lo g at)
+      (elf.add_enc (&mut (. g obj)) elf.sec_text at (. r kind) (. r sym))))
+  (elf.set_sym (&mut (. g obj)) sym base (rv_buf.len b)))
+
 (pub (fn append_fn ((g (&mut cg)) (sym i64) (c (& cg_isa.code))) unit
+  (if (. (. g isa) rv) (ret (append_r g sym c)))
   (if (. (. g isa) a64) (ret (append_a g sym c)))
   (append_x g sym c)))
 
@@ -352,7 +454,15 @@
   (set (. g tpop) (undef g "llr_trace_pop"))
   (. g tpop)))
 
+(pub (fn set_debug ((g (&mut cg)) (on bool)) unit (set (. g debug) on)))
+
+(fn line_kind ((g (& cg))) i64
+  (if (== (. (. g obj) machine) elf.mach_a64) (ret elf.a64_abs))
+  (if (== (. (. g obj) machine) elf.mach_rv) (ret elf.rv64))
+  elf.abs64)
+
 (pub (fn finish ((g (& cg))) str
-  (if (. g win) (ret (coff.bytes (& (. g obj)))))
-  (if (and (. g darwin) (. (. g isa) a64)) (ret (macho.bytes (& (. g obj)))))
-  (elf.bytes (& (. g obj)))))
+  (let p (cg_line.encode (& (. g dfiles)) (& (. g drows)) (line_kind g) (& (. (. g obj) syms))))
+  (if (. g win) (ret (coff.bytes_line (& (. g obj)) (& (. p coff)))))
+  (if (. g darwin) (ret (macho.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))
+  (elf.bytes_line (& (. g obj)) (& (. p bytes)) (& (. p rels)))))

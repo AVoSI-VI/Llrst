@@ -4,6 +4,7 @@
 (use proj.x64_abi)
 (use proj.x64_buf)
 (use proj.x64_int)
+(use proj.x64_sse)
 (use std.vec)
 
 (fn cc_of ((s (& cg_isa.isa))) i64 (if (. s win) x64_abi.win64 x64_abi.sysv))
@@ -18,14 +19,39 @@
   (if (== r cg_isa.sp) (ret x64_buf.rsp))
   (if (== r cg_isa.ret_i) (ret x64_buf.rax))
   (if (and (>= r 16) (< r 32)) (ret (x64_abi.gpr (cc_of s) (- r 16))))
+  (if (and (>= r 48) (< r 64)) (ret (saved_x s (- r 48))))
   x64_buf.rax))
+
+(fn saved_x ((s (& cg_isa.isa)) (n i64)) i64 (if (. s win) (saved_win n) (saved_sysv n)))
+
+(fn saved_sysv ((n i64)) i64
+  (if (== n 0) (ret x64_buf.rbx))
+  (if (== n 1) (ret x64_buf.r12))
+  (if (== n 2) (ret x64_buf.r13))
+  (if (== n 3) (ret x64_buf.r14))
+  x64_buf.r15)
+
+(fn saved_win ((n i64)) i64
+  (if (== n 0) (ret x64_buf.rbx))
+  (if (== n 1) (ret x64_buf.rsi))
+  (if (== n 2) (ret x64_buf.rdi))
+  (if (== n 3) (ret x64_buf.r12))
+  (if (== n 4) (ret x64_buf.r13))
+  (if (== n 5) (ret x64_buf.r14))
+  x64_buf.r15)
 
 (pub (fn xmm ((r i64)) i64
   (if (== r cg_isa.fp0) (ret 0))
   (if (== r cg_isa.fp1) (ret 1))
   (if (== r cg_isa.ret_f) (ret 0))
+  (if (and (>= r 64) (< r 80)) (ret (+ 6 (- r 64))))
   (if (>= r 32) (ret (- r 32)))
   0))
+
+(pub (fn xmm_slot ((b (&mut x64_buf.buf)) (n i64) (disp i64) (load bool)) unit
+  (let xm (+ 6 n))
+  (let m (mem x64_buf.rbp disp))
+  (if load (x64_sse.movups_load b xm (& m)) (x64_sse.movups_store b (& m) xm))))
 
 (fn xcc ((c i64)) i64
   (if (== c cg_isa.eq) (ret x64_buf.e))
@@ -95,6 +121,12 @@
 
 (pub (fn setcc ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (cc i64) (dst i64)) unit
   (x64_int.setcc b (xcc cc) (gpr s dst))))
+
+(pub (fn ord_mask ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (ne bool) (dst i64) (tmp i64)) unit
+  (let d (gpr s dst))
+  (let t (gpr s tmp))
+  (x64_int.setcc b (if ne x64_buf.p x64_buf.np) t)
+  (if ne (x64_int.or_rr b 1 d t) (x64_int.and_rr b 1 d t))))
 
 (pub (fn add_rr ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (dst i64) (src i64)) unit
   (x64_int.add_rr b w (gpr s dst) (gpr s src))))
@@ -247,7 +279,7 @@
 (pub (fn pass_mem ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (frame i64) (a (& cg_isa.arg)) (slot i64)) unit
   (if (>= (. a reg) 0) (ret))
   (let raw (- frame (- (. a off) 8)))
-  (let disp (if (. s win) (neg raw) raw))
+  (let disp (neg raw))
   (if (. a xmm) (ret (pass_xmm b s slot disp)))
   (ld b s 8 cg_isa.acc cg_isa.fp slot)
   (st b s 8 cg_isa.acc cg_isa.fp disp)))

@@ -1,0 +1,147 @@
+;; A (pub (use ...)) shares the module's names. A clash is name.dup.
+(use std.str)
+(use proj.diag)
+(use proj.prog)
+
+(pub (fn check ((p (&mut prog.prog))) unit
+  (let n (vec.len (& (. p mods))))
+  (for mi 0 n (one p mi))))
+
+(fn one ((p (&mut prog.prog)) (mi i64)) unit
+  (let mut names (vec.new <str>))
+  (let mut ids (vec.new <i64>))
+  (copy_items p mi (&mut names) (&mut ids))
+  (let uses (use_len p mi))
+  (for i 0 uses (if (is_pub p mi i) (take_pub p mi i (&mut names) (&mut ids)))))
+
+(fn take_pub ((p (&mut prog.prog))
+   (mi i64)
+   (ui i64)
+   (names (&mut (vec str)))
+   (ids (&mut (vec i64)))) unit
+  (let target (use_target p mi ui))
+  (let mut got (vec.new <str>))
+  (let mut gids (vec.new <i64>))
+  (let mut seen (vec.new <i64>))
+  (pub_of p target (&mut seen) (&mut got) (&mut gids))
+  (sort_pair (&mut got) (&mut gids))
+  (for k 0 (vec.len (& got))
+    (claim p mi ui names ids (vec.get (& got) k) (@ (vec.get (& gids) k)))))
+
+(fn claim ((p (&mut prog.prog))
+   (mi i64)
+   (ui i64)
+   (names (&mut (vec str)))
+   (ids (&mut (vec i64)))
+   (name (& str))
+   (id i64)) unit
+  (let at (find names name))
+  (if (< at 0)
+    (do (vec.push names (str.clone name)) (vec.push ids id))
+    (if (!= (@ (vec.get ids at)) id) (note_dup p mi ui name))))
+
+(fn pub_of ((p (& prog.prog))
+   (module i64)
+   (seen (&mut (vec i64)))
+   (names (&mut (vec str)))
+   (ids (&mut (vec i64)))) unit
+  (if (seen_has seen module) (ret))
+  (vec.push seen module)
+  (let mut ln (vec.new <str>))
+  (let mut li (vec.new <i64>))
+  (copy_items p module (&mut ln) (&mut li))
+  (let mut blocked (vec.new <str>))
+  (for i 0 (vec.len (& ln)) (block_one p (& ln) (& li) i (&mut blocked) names ids))
+  (let mut kids (vec.new <i64>))
+  (copy_pubs p module (&mut kids))
+  (for i 0 (vec.len (& kids)) (add_child p (@ (vec.get (& kids) i)) seen names ids (& blocked))))
+
+(fn block_one ((p (& prog.prog))
+   (ln (& (vec str)))
+   (li (& (vec i64)))
+   (i i64)
+   (blocked (&mut (vec str)))
+   (names (&mut (vec str)))
+   (ids (&mut (vec i64)))) unit
+  (let nm (str.clone (vec.get ln i)))
+  (vec.push blocked (str.clone (& nm)))
+  (if (and (def_pub p (@ (vec.get li i))) (< (find names (& nm)) 0))
+    (do (vec.push names nm) (vec.push ids (@ (vec.get li i))))))
+
+(fn add_child ((p (& prog.prog))
+   (module i64)
+   (seen (&mut (vec i64)))
+   (names (&mut (vec str)))
+   (ids (&mut (vec i64)))
+   (blocked (& (vec str)))) unit
+  (let mut cn (vec.new <str>))
+  (let mut ci (vec.new <i64>))
+  (pub_of p module seen (&mut cn) (&mut ci))
+  (for i 0 (vec.len (& cn))
+    (let nm (str.clone (vec.get (& cn) i)))
+    (if (and (< (find blocked (& nm)) 0) (< (find names (& nm)) 0))
+      (do (vec.push names nm) (vec.push ids (@ (vec.get (& ci) i)))))))
+
+(fn copy_items ((p (& prog.prog)) (module i64) (names (&mut (vec str))) (ids (&mut (vec i64)))) unit
+  (let m (vec.get (& (. p mods)) module))
+  (for i 0 (vec.len (& (. m names)))
+    (do
+      (vec.push names (str.clone (vec.get (& (. m names)) i)))
+      (vec.push ids (@ (vec.get (& (. m ids)) i))))))
+
+(fn copy_pubs ((p (& prog.prog)) (module i64) (mods (&mut (vec i64)))) unit
+  (let m (vec.get (& (. p mods)) module))
+  (for i 0 (vec.len (& (. m uals)))
+    (if (and (< i (vec.len (& (. m upub)))) (@ (vec.get (& (. m upub)) i)))
+      (vec.push mods (@ (vec.get (& (. m umod)) i))))))
+
+(fn use_len ((p (& prog.prog)) (module i64)) i64
+  (vec.len (& (. (vec.get (& (. p mods)) module) uals))))
+
+(fn is_pub ((p (& prog.prog)) (module i64) (i i64)) bool
+  (let m (vec.get (& (. p mods)) module))
+  (and (< i (vec.len (& (. m upub)))) (@ (vec.get (& (. m upub)) i))))
+
+(fn use_target ((p (& prog.prog)) (module i64) (i i64)) i64
+  (@ (vec.get (& (. (vec.get (& (. p mods)) module) umod)) i)))
+
+(fn def_pub ((p (& prog.prog)) (id i64)) bool (. (vec.get (& (. p defs)) id) is_pub))
+
+(fn find ((names (& (vec str))) (name (& str))) i64
+  (for i 0 (vec.len names) (if (str.eq (vec.get names i) name) (ret i)))
+  (neg 1))
+
+(fn seen_has ((seen (&mut (vec i64))) (module i64)) bool
+  (for i 0 (vec.len seen) (if (== (@ (vec.get seen i)) module) (ret true)))
+  false)
+
+(fn note_dup ((p (&mut prog.prog)) (mi i64) (ui i64) (name (& str))) unit
+  (let line (@ (vec.get (& (. (vec.get (& (. p mods)) mi) uline)) ui)))
+  (let col (@ (vec.get (& (. (vec.get (& (. p mods)) mi) ucol)) ui)))
+  (let len (@ (vec.get (& (. (vec.get (& (. p mods)) mi) ulen)) ui)))
+  (let file (str.clone (& (. (vec.get (& (. p mods)) mi) file))))
+  (let mut d (diag.make true file line col len (str.from "name.dup")))
+  (diag.add (&mut d) "name" (str.clone name))
+  (vec.push (&mut (. p notes)) d))
+
+(fn sort_pair ((names (&mut (vec str))) (ids (&mut (vec i64)))) unit
+  (for i 1 (vec.len names) (sort_at names ids i)))
+
+(fn sort_at ((names (&mut (vec str))) (ids (&mut (vec i64))) (i i64)) unit
+  (let mut j i)
+  (while (and (> j 0) (< (str.cmp (vec.get names j) (vec.get names (- j 1))) 0))
+    (do (swap names ids j) (set j (- j 1)))))
+
+(fn at_i ((v (& (vec i64))) (i i64)) i64 (@ (vec.get v i)))
+
+(fn at_s ((v (& (vec str))) (i i64)) str (str.clone (vec.get v i)))
+
+(fn swap ((names (&mut (vec str))) (ids (&mut (vec i64))) (j i64)) unit
+  (let ns (at_s names j))
+  (let id (at_i ids j))
+  (let ps (at_s names (- j 1)))
+  (let pid (at_i ids (- j 1)))
+  (vec.set names j ps)
+  (vec.set ids j pid)
+  (vec.set names (- j 1) ns)
+  (vec.set ids (- j 1) id))

@@ -131,7 +131,32 @@
   (if (str.eq (& (. t text)) "box") (ret (box_of p m t)))
   (let args (try (map_res p m gens (& (. t args)))))
   (let base (try (named p m gens t (vec.len (& args)))))
+  (if (not (any_param (& args))) (try (ground_bounds p m t (. base id) (& args))))
   (res.ok (ty.adt (. base id) args)))
+
+(fn any_param ((xs (& (vec ty.sty)))) bool
+  (for i 0 (vec.len xs) (if (param_in (vec.get xs i)) (ret true)))
+  false)
+
+(fn param_in ((t (& ty.sty))) bool
+  (if (== (. t kind) 13u8) (ret true))
+  (for i 0 (vec.len (& (. t args))) (if (param_in (vec.get (& (. t args)) i)) (ret true)))
+  false)
+
+(fn ground_bounds ((p (& prog.prog)) (m i64) (at (& ty)) (id i64) (args (& (vec ty.sty)))) (res unit str)
+  (let d (vec.get (& (. p defs)) id))
+  (for i 0 (vec.len (& (. d bounds)))
+    (let row (vec.get (& (. d bounds)) i))
+    (if (< i (vec.len args))
+      (for j 0 (vec.len row)
+        (let tr (@ (vec.get row j)))
+        (if (< (prog.impl_of p tr (vec.get args i)) 0)
+          (do
+            (let mut g (span_dg p m at (str.from "trait.missing")))
+            (diag.add (&mut g) "trait" (prog.type_name p tr))
+            (diag.add (&mut g) "ty" (ty.show (vec.get args i)))
+            (ret (res.err (diag.render (& g)))))))))
+  (res.ok ()))
 
 (fn resolve_ref ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
   (let inner (vec.get (& (. t args)) 0))

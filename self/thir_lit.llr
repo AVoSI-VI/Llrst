@@ -4,7 +4,7 @@
 (use proj.lit)
 (use proj.prog)
 (use proj.thir)
-(use proj.thir_pat)
+(use proj.thir_priv)
 (use proj.ty)
 
 (fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
@@ -83,14 +83,14 @@
   x)
 
 (fn const_ex ((p (& prog.prog)) (c (& thir.ck)) (e (& expr)) (id i64)) (res thir.ex str)
-  (if (not (prog.visible p (. c module) id)) (ret (res.err (thir_pat.priv_code p id))))
+  (if (not (prog.visible p (. c module) id)) (ret (res.err (thir_priv.priv_code p id))))
   (let t (ty.clone (& (. (vec.get (& (. p defs)) id) ret))))
   (let mut x (at c e 2u8 t))
   (set (. x id) id)
   (res.ok x))
 
 (fn fn_ex ((p (& prog.prog)) (c (& thir.ck)) (e (& expr)) (id i64)) (res thir.ex str)
-  (if (not (prog.visible p (. c module) id)) (ret (res.err (thir_pat.priv_code p id))))
+  (if (not (prog.visible p (. c module) id)) (ret (res.err (thir_priv.priv_code p id))))
   (let d (vec.get (& (. p defs)) id))
   (if (> (vec.len (& (. d gens))) 0) (ret (res.err (str.from "type.generic_fn_value"))))
   (let mut args (vec.new <ty.sty>))

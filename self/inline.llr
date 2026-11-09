@@ -1,47 +1,84 @@
 ;; Substitute an inline function unless it is already on the stack.
+;; A checked body is kept once per function and type-argument list.
 (use proj.diag)
 (use proj.loans)
 (use proj.lower)
+(use proj.lower_clos)
+(use proj.lower_scope)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
+(use std.map)
+(use std.str)
 
-(pub (fn try_inline ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (args (vec mir.op)) (dest mir.place)) bool
+(pub (struct icache (tab (map str thir.ex))))
+
+(pub (fn empty () icache (icache (map.new))))
+
+(pub (fn take ((ic (&mut icache))) icache (mem.replace ic (empty))))
+
+(pub (fn put ((ic (&mut icache)) (v icache)) unit (drop (mem.replace ic v))))
+
+(pub (fn wants ((p (& prog.prog)) (w (& lower.low)) (e (& thir.ex))) bool
   (if (!= (. e id) 0) (ret false))
   (let d (vec.get (& (. p defs)) (. e id2)))
-  (if (not (. d inline)) (ret false))
-  (if (on_stack w (. e id2)) (ret false))
-  (vec.push (&mut (. w stack)) (. e id2))
-  (let mut sink (vec.new <diag.dg>))
-  (let body (thir.check_fn p (. e id2) (ty.clone_tys (& (. e tys))) (&mut sink)))
-  (match body
-    ((res.err _)
-      (do
-        (diag.append (&mut (. w diags)) (& sink))
-        (let _ (vec.pop (&mut (. w stack))))
-        (ret false)))
-    ((res.ok b) (subst p w b args dest (. e id2) (ty.clone_tys (& (. e tys))))))
-  (let _ (vec.pop (&mut (. w stack))))
-  true))
+  (and (. d inline) (not (on_stack w (. e id2))))))
 
-(fn next_slot ((w (& lower.low))) i64
-  (let mut n 0)
-  (for bi 0 (vec.len (& (. w blocks)))
-    (let blk (vec.get (& (. w blocks)) bi))
-    (for k 0 (vec.len (& (. blk stmts)))
-      (let s (vec.get (& (. blk stmts)) k))
-      (if (and (== (. s kind) 6u8) (>= (. s local) n)) (set n (+ (. s local) 1)))))
-  n)
+(fn ikey ((p (& prog.prog)) (id i64) (tys (& (vec ty.sty)))) str
+  (let mut s (prog.fn_path p id))
+  (str.push_byte (&mut s) 124u8)
+  (for i 0 (vec.len tys)
+    (if (> i 0) (str.push_byte (&mut s) 124u8))
+    (str.push (&mut s) (& (ty.show (vec.get tys i)))))
+  s)
 
-(fn open_trace ((p (& prog.prog)) (w (&mut lower.low)) (fid i64)) i64
-  (let slot (next_slot w))
-  (lower.push w (mir.strace slot (prog.fn_path p fid)))
-  slot)
+(fn recall ((c (& icache)) (key (& str))) (opt thir.ex)
+  (match (map.get (& (. c tab)) key)
+    ((opt.none) (opt.none))
+    ((opt.some ex) (opt.some (lower_clos.clone_ex ex)))))
+
+(fn keep_body ((c (&mut icache)) (key (& str)) (b (& thir.ex))) unit
+  (map.put (&mut (. c tab)) (str.clone key) (lower_clos.clone_ex b)))
 
 (fn on_stack ((w (& lower.low)) (id i64)) bool
   (for i 0 (vec.len (& (. w stack))) (if (== (@ (vec.get (& (. w stack)) i)) id) (ret true)))
   false)
+
+(pub (fn try_inline ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (args (vec mir.op)) (dest mir.place)) bool
+  (if (not (wants p w e)) (ret false))
+  (vec.push (&mut (. w stack)) (. e id2))
+  (let key (ikey p (. e id2) (& (. e tys))))
+  (let hit (recall (& (. w ic)) (& key)))
+  (match hit
+    ((opt.some b) (subst p w b args dest (. e id2) (ty.clone_tys (& (. e tys)))))
+    ((opt.none)
+      (if (not (miss p w e (& key) args dest))
+        (do (let _ (vec.pop (&mut (. w stack)))) (ret false)))))
+  (let _ (vec.pop (&mut (. w stack))))
+  true))
+
+(fn miss ((p (& prog.prog))
+   (w (&mut lower.low))
+   (e (& thir.ex))
+   (key (& str))
+   (args (vec mir.op))
+   (dest mir.place)) bool
+  (let mut sink (vec.new <diag.dg>))
+  (let fid (. e id2))
+  (match (thir.check_fn p fid (ty.clone_tys (& (. e tys))) (&mut sink))
+    ((res.err _) (do (diag.append (&mut (. w diags)) (& sink)) false))
+    ((res.ok b)
+      (do
+        (keep_body (&mut (. w ic)) key (& b))
+        (subst p w b args dest fid (ty.clone_tys (& (. e tys))))
+        true))))
+
+(fn open_trace ((p (& prog.prog)) (w (&mut lower.low)) (fid i64)) i64
+  (let slot (. w tslot))
+  (set (. w tslot) (+ slot 1))
+  (lower.push w (mir.strace slot (prog.fn_path p fid)))
+  slot)
 
 (fn subst ((p (& prog.prog))
    (w (&mut lower.low))
@@ -58,7 +95,7 @@
   (let sdest (mir.pclone (& (. w idest))))
   (let exit (lower.new_block w))
   (let depth (vec.len (& (. w dmarks))))
-  (lower.push_scope w)
+  (lower_scope.push_scope w)
   (install w (& body))
   (bind p w (& body) args)
   (keep p w (& body))
@@ -68,7 +105,7 @@
   (set (. w idest) (mir.pclone (& dest)))
   (let slot (open_trace p w fid))
   (lower.expr_into p w (& body) (mir.pclone (& dest)))
-  (lower.pop_scope p w)
+  (lower_scope.pop_scope p w)
   (let mut g (mir.tnone))
   (set (. g kind) 0u8)
   (set (. g bb) exit)

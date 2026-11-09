@@ -90,9 +90,12 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
             }
             bound.insert(name.clone());
         }
-        A::For { name, lo, hi, body } => {
+        A::For { name, lo, hi, step, body } => {
             walk(ck, bound, lo, out, seen);
             walk(ck, bound, hi, out, seen);
+            if let Some(step) = step {
+                walk(ck, bound, step, out, seen);
+            }
             let mut inner = bound.clone();
             inner.insert(name.clone());
             walk_seq(ck, &mut inner, body, out, seen);
@@ -102,6 +105,9 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
             for a in arms {
                 let mut inner = bound.clone();
                 bind_pat(&mut inner, &a.pat);
+                if let Some(g) = &a.guard {
+                    walk(ck, &mut inner, g, out, seen);
+                }
                 walk(ck, &mut inner, &a.body, out, seen);
             }
         }
@@ -116,7 +122,8 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
             walk(ck, bound, place, out, seen);
             walk(ck, bound, value, out, seen);
         }
-        A::Do(xs) | A::Loop(xs) => walk_seq(ck, bound, xs, out, seen),
+        A::Do(xs) => walk_seq(ck, bound, xs, out, seen),
+        A::Loop { body, .. } => walk_seq(ck, bound, body, out, seen),
         A::If { cond, then, els } => {
             walk(ck, bound, cond, out, seen);
             walk(ck, bound, then, out, seen);
@@ -133,17 +140,22 @@ fn walk(ck: &Checker, bound: &mut HashSet<String>, e: &ast::Expr, out: &mut Vec<
                 walk(ck, bound, x, out, seen);
             }
         }
-        A::Ref { place, .. } | A::Deref(place) | A::Not(place) | A::Neg(place) | A::WNeg(place) | A::Field { base: place, .. } | A::Cast { expr: place, .. }
+        A::Ref { place, .. } | A::Deref(place) | A::Not(place) | A::Neg(place) | A::WNeg(place) | A::BNot(place) | A::Field { base: place, .. } | A::Cast { expr: place, .. }
         | A::Try(place) | A::Panic(place) | A::Assert(place) | A::Drop(place) => walk(ck, bound, place, out, seen),
-        A::Bin { l, r, .. } | A::And(l, r) | A::Or(l, r) | A::AssertEq(l, r) => {
+        A::Bin { l, r, .. } | A::And(l, r) | A::Or(l, r) | A::AssertEq(l, r) | A::AssertNe(l, r) => {
             walk(ck, bound, l, out, seen);
             walk(ck, bound, r, out, seen);
+        }
+        A::AssertNear(g, w, eps) => {
+            walk(ck, bound, g, out, seen);
+            walk(ck, bound, w, out, seen);
+            walk(ck, bound, eps, out, seen);
         }
         A::CallPtr { callee, args } => {
             walk(ck, bound, callee, out, seen);
             walk_seq(ck, bound, args, out, seen);
         }
-        A::Lit(_) | A::Break | A::Continue | A::Sizeof(_) => {}
+        A::Lit(_) | A::Break(_) | A::Continue(_) | A::Sizeof(_) => {}
     }
 }
 
@@ -152,7 +164,9 @@ fn bind_pat(bound: &mut HashSet<String>, p: &ast::Pat) {
         ast::Pat::Bind(n, _) => {
             bound.insert(n.clone());
         }
-        ast::Pat::Variant { subs, .. } => subs.iter().for_each(|s| bind_pat(bound, s)),
+        ast::Pat::Variant { subs, .. } | ast::Pat::Struct { subs, .. } | ast::Pat::Or { subs, .. } => {
+            subs.iter().for_each(|s| bind_pat(bound, s));
+        }
         ast::Pat::Wild(_) | ast::Pat::Lit(_, _) => {}
     }
 }
@@ -167,10 +181,13 @@ fn remap_expr(e: &mut Expr, start: u32) {
                 remap_expr(x, start);
             }
         }
-        ExprKind::For { local, lo, hi, body } => {
+        ExprKind::For { local, lo, hi, step, body } => {
             sub(local);
             remap_expr(lo, start);
             remap_expr(hi, start);
+            if let Some(s) = step {
+                remap_expr(s, start);
+            }
             remap_expr(body, start);
         }
         ExprKind::Assign { place, value } => {
@@ -199,11 +216,14 @@ fn remap_expr(e: &mut Expr, start: u32) {
             remap_expr(scrut, start);
             for a in arms {
                 remap_pat(&mut a.pat, start);
+                if let Some(g) = &mut a.guard {
+                    remap_expr(g, start);
+                }
                 remap_expr(&mut a.body, start);
             }
         }
         ExprKind::Ref { place, .. } | ExprKind::Deref(place) | ExprKind::Field { base: place, .. } | ExprKind::Cast(place) | ExprKind::Neg(place)
-        | ExprKind::WNeg(place) | ExprKind::Not(place) => remap_expr(place, start),
+        | ExprKind::WNeg(place) | ExprKind::BNot(place) | ExprKind::Not(place) => remap_expr(place, start),
         ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => {
             remap_expr(l, start);
             remap_expr(r, start);
@@ -218,14 +238,14 @@ fn remap_expr(e: &mut Expr, start: u32) {
         ExprKind::Try { expr, .. } => remap_expr(expr, start),
         ExprKind::DynPack { data, .. } | ExprKind::BoxPack { data, .. } => remap_expr(data, start),
         ExprKind::Closure { .. } => {}
-        ExprKind::Lit(_) | ExprKind::Const(_) | ExprKind::Break | ExprKind::Continue | ExprKind::FnRef(_) => {}
+        ExprKind::Lit(_) | ExprKind::Const(_) | ExprKind::Break(_) | ExprKind::Continue(_) | ExprKind::FnRef(_) => {}
     }
 }
 
 fn remap_pat(p: &mut Pat, start: u32) {
     match p {
         Pat::Bind(l) => l.0 -= start,
-        Pat::Variant { subs, .. } => subs.iter_mut().for_each(|s| remap_pat(s, start)),
+        Pat::Variant { subs, .. } | Pat::Struct(subs) | Pat::Or(subs) => subs.iter_mut().for_each(|s| remap_pat(s, start)),
         Pat::Wild | Pat::Lit(_) => {}
     }
 }

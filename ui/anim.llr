@@ -1,4 +1,5 @@
 ;; Controller, implicit target, and the track a ticker stores.
+(use std.math)
 (use ui.blend)
 (use ui.curve)
 (use ui.tween)
@@ -214,15 +215,13 @@
   (set (. tr cur) (mix (& (. tr from)) (& (. tr to)) t))
   live))
 
-(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
-
 (test anim_drive
   (let mut c (ctrl.make 100))
   (ctrl.forward (&mut c))
   (assert (ctrl.running (& c)))
   (assert_eq (ctrl.status (& c)) forward)
   (assert (ctrl.advance (&mut c) 50))
-  (assert_eq (milli (ctrl.value (& c))) 500)
+  (assert_eq (math.milli (ctrl.value (& c))) 500)
   (assert (not (ctrl.advance (&mut c) 50)))
   (assert_eq (ctrl.status (& c)) completed)
   (assert (not (ctrl.running (& c))))
@@ -262,6 +261,6 @@
   (set (. a l) 4.0f32)
   (assert (track_sync (&mut tr) (& a)))
   (assert (track_show (&mut tr) true 50))
-  (assert_eq (milli (. (. tr cur) l)) 1000)
+  (assert_eq (math.milli (. (. tr cur) l)) 1000)
   (assert (not (track_show (&mut tr) false 100)))
-  (assert_eq (milli (. (. tr cur) l)) 4000))
+  (assert_eq (math.milli (. (. tr cur) l)) 4000))

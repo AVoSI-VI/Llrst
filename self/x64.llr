@@ -3,21 +3,14 @@
 (use proj.x64_buf)
 (use proj.x64_int)
 (use proj.x64_sse)
+(use std.fmt)
 (use std.str)
 (use std.vec)
 
-(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
-
-(fn hex_byte ((s (&mut str)) (x u8)) unit
-  (str.push_byte s (nib (shr x 4u8)))
-  (str.push_byte s (nib (band x 15u8))))
-
-(fn hex ((b (& x64_buf.buf))) str
+(fn eq ((b (& x64_buf.buf)) (want (& str))) unit
   (let mut s (str.new))
-  (for i 0 (x64_buf.len b) (hex_byte (&mut s) (x64_buf.at b i)))
-  s)
-
-(fn eq ((b (& x64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+  (for i 0 (x64_buf.len b) (str.push (&mut s) (& (fmt.hex (as i64 (x64_buf.at b i)) 2))))
+  (assert_eq (& s) want))
 
 (fn rel_at ((b (& x64_buf.buf)) (i i64)) i64 (. (vec.get (& (. b rels)) i) at))
 

@@ -12,18 +12,18 @@
   (let mut seen (vec.new <bool>))
   (for i 0 n (vec.push (&mut seen) false))
   (vec.set (&mut seen) 0 true)
-  (reach b (&mut seen) 0)
+  (let ss (mir.block_succs b))
+  (reach (& ss) (&mut seen) 0)
   (for i 0 n (if (not (@ (vec.get (& seen) i))) (warn_blk out b i))))
 
-(fn reach ((b (& mir.body)) (seen (&mut (vec bool))) (bb i64)) unit
-  (let blk (vec.get (& (. b blocks)) bb))
-  (let ss (mir.succs (& (. blk term))))
-  (for i 0 (vec.len (& ss)) (step b seen (@ (vec.get (& ss) i)))))
+(fn reach ((ss (& (vec (vec i64)))) (seen (&mut (vec bool))) (bb i64)) unit
+  (let row (vec.get ss bb))
+  (for i 0 (vec.len row) (step ss seen (@ (vec.get row i)))))
 
-(fn step ((b (& mir.body)) (seen (&mut (vec bool))) (s i64)) unit
+(fn step ((ss (& (vec (vec i64)))) (seen (&mut (vec bool))) (s i64)) unit
   (if (@ (vec.get seen s)) (ret))
   (vec.set seen s true)
-  (reach b seen s))
+  (reach ss seen s))
 
 (fn warn_blk ((out (&mut (vec diag.dg))) (b (& mir.body)) (i i64)) unit
   (let blk (vec.get (& (. b blocks)) i))
@@ -94,18 +94,79 @@
   (if (> (str.len k) 0) (diag.add (&mut d) k v))
   (vec.push out d))
 
+;; fns[def id]; uses[module][alias] when a name in that module starts with "alias.".
+(struct marks (fns (vec bool)) (uses (vec (vec bool))))
+
 (pub (fn items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (test bool)) unit
+  (let mut mk (new_marks p))
+  (scan_marks p (&mut mk) test)
   (for mi 0 (vec.len (& (. p mods)))
-    (if (not (. (vec.get (& (. p mods)) mi) is_std)) (mod_items p out mi test)))
-  (for i 0 (vec.len (& (. p defs))) (fn_item p out i test))))
+    (if (not (. (vec.get (& (. p mods)) mi) is_std)) (mod_items p (& mk) out mi)))
+  (for i 0 (vec.len (& (. p defs))) (fn_item p (& mk) out i))))
 
 (pub (fn generics ((p (& prog.prog)) (out (&mut (vec diag.dg))) (done (& (vec i64)))) unit
   (for i 0 (vec.len (& (. p defs))) (gen_item p out i done))))
 
-(fn mod_items ((p (& prog.prog)) (out (&mut (vec diag.dg))) (mi i64) (test bool)) unit
+(fn new_marks ((p (& prog.prog))) marks
+  (let mut fns (vec.new <bool>))
+  (for i 0 (vec.len (& (. p defs))) (vec.push (&mut fns) false))
+  (let mut uses (vec.new < (vec bool) >))
+  (for mi 0 (vec.len (& (. p mods)))
+    (vec.push (&mut uses) (use_row (vec.len (& (. (vec.get (& (. p mods)) mi) uals))))))
+  (marks fns uses))
+
+(fn use_row ((n i64)) (vec bool)
+  (let mut row (vec.new <bool>))
+  (for k 0 n (vec.push (&mut row) false))
+  row)
+
+(fn scan_marks ((p (& prog.prog)) (mk (&mut marks)) (test bool)) unit
+  (for i 0 (vec.len (& (. p defs)))
+    (let d (vec.get (& (. p defs)) i))
+    (scan_list p mk (. d module) (& (. d body))))
+  (if test (scan_tests p mk)))
+
+(fn scan_tests ((p (& prog.prog)) (mk (&mut marks))) unit
+  (for i 0 (vec.len (& (. p tests)))
+    (let t (vec.get (& (. p tests)) i))
+    (scan_list p mk (. t mod) (& (. t body)))))
+
+(fn scan_list ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (xs (& (vec expr)))) unit
+  (for i 0 (vec.len xs) (scan_expr p mk mi (vec.get xs i))))
+
+(fn scan_expr ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (e (& expr))) unit
+  (scan_node p mk mi e)
+  (scan_list p mk mi (& (. e kids))))
+
+(fn scan_node ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (e (& expr))) unit
+  (if (or (== (. e kind) 1u8) (== (. e kind) 23u8)) (mark_name p mk mi (& (. e text)))))
+
+(fn mark_name ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (text (& str))) unit
+  (let r (prog.lookup_fn p mi text))
+  (if (>= r 0) (vec.set (&mut (. mk fns)) r true))
+  (mark_aliases p mk mi text))
+
+(fn mark_aliases ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (text (& str))) unit
+  (let n (vec.len (& (. (vec.get (& (. p mods)) mi) uals))))
+  (for k 0 n (mark_alias p mk mi text k)))
+
+(fn mark_alias ((p (& prog.prog)) (mk (&mut marks)) (mi i64) (text (& str)) (k i64)) unit
+  (let hit (alias_dot text (vec.get (& (. (vec.get (& (. p mods)) mi) uals)) k)))
+  (if hit (vec.set (vec.get_mut (&mut (. mk uses)) mi) k true)))
+
+(fn alias_dot ((name (& str)) (alias (& str))) bool
+  (let n (str.len alias))
+  (if (not (str.starts name alias)) (ret false))
+  (if (<= (str.len name) n) (ret false))
+  (== (str.at name n) 46u8))
+
+(fn pub_use ((m (& prog.modu)) (i i64)) bool
+  (and (< i (vec.len (& (. m upub)))) (@ (vec.get (& (. m upub)) i))))
+
+(fn mod_items ((p (& prog.prog)) (mk (& marks)) (out (&mut (vec diag.dg))) (mi i64)) unit
   (let m (vec.get (& (. p mods)) mi))
   (for i 0 (vec.len (& (. m uals)))
-    (if (not (use_seen p mi (vec.get (& (. m uals)) i) test))
+    (if (and (not (pub_use m i)) (not (@ (vec.get (vec.get (& (. mk uses)) mi) i))))
       (push_w out
         (& (. m file))
         (at (& (. m uline)) i)
@@ -117,39 +178,11 @@
 
 (fn at ((v (& (vec i64))) (i i64)) i64 (if (< i (vec.len v)) (@ (vec.get v i)) 0))
 
-(fn use_seen ((p (& prog.prog)) (mi i64) (alias (& str)) (test bool)) bool
-  (for i 0 (vec.len (& (. p defs)))
-    (let d (vec.get (& (. p defs)) i))
-    (if (and (== (. d module) mi) (mentions (& (. d body)) alias)) (ret true)))
-  (if test (ret (test_mentions p mi alias)))
-  false)
-
-(fn test_mentions ((p (& prog.prog)) (mi i64) (alias (& str))) bool
-  (for i 0 (vec.len (& (. p tests)))
-    (let t (vec.get (& (. p tests)) i))
-    (if (and (== (. t mod) mi) (mentions (& (. t body)) alias)) (ret true)))
-  false)
-
-(fn mentions ((xs (& (vec expr))) (alias (& str))) bool
-  (for i 0 (vec.len xs) (if (mentions_e (vec.get xs i) alias) (ret true)))
-  false)
-
-(fn mentions_e ((e (& expr)) (alias (& str))) bool
-  (if (and (or (== (. e kind) 1u8) (== (. e kind) 23u8)) (has_alias (& (. e text)) alias))
-    (ret true))
-  (for i 0 (vec.len (& (. e kids))) (if (mentions_e (vec.get (& (. e kids)) i) alias) (ret true)))
-  false)
-
-(fn has_alias ((name (& str)) (alias (& str))) bool
-  (let mut pre (str.clone alias))
-  (str.push_byte (&mut pre) 46u8)
-  (str.starts name (& pre)))
-
-(fn fn_item ((p (& prog.prog)) (out (&mut (vec diag.dg))) (i i64) (test bool)) unit
+(fn fn_item ((p (& prog.prog)) (mk (& marks)) (out (&mut (vec diag.dg))) (i i64)) unit
   (let d (vec.get (& (. p defs)) i))
   (if (. (vec.get (& (. p mods)) (. d module)) is_std) (ret))
   (if (!= (. d kind) 2u8) (ret))
-  (if (or (. d is_pub) (or (. d extern) (called p i test))) (ret))
+  (if (or (. d is_pub) (or (. d extern) (@ (vec.get (& (. mk fns)) i)))) (ret))
   (if (and (str.eq (& (. d name)) "main") (== (. d module) (. p main))) (ret))
   (let m (vec.get (& (. p mods)) (. d module)))
   (push_w out
@@ -160,29 +193,6 @@
     "fn.unused"
     "name"
     (str.clone (& (. d name)))))
-
-(fn called ((p (& prog.prog)) (id i64) (test bool)) bool
-  (for i 0 (vec.len (& (. p defs)))
-    (let d (vec.get (& (. p defs)) i))
-    (if (refs p (. d module) (& (. d body)) id) (ret true)))
-  (if test (ret (test_refs p id)))
-  false)
-
-(fn test_refs ((p (& prog.prog)) (id i64)) bool
-  (for i 0 (vec.len (& (. p tests)))
-    (let t (vec.get (& (. p tests)) i))
-    (if (refs p (. t mod) (& (. t body)) id) (ret true)))
-  false)
-
-(fn refs ((p (& prog.prog)) (mi i64) (xs (& (vec expr))) (id i64)) bool
-  (for i 0 (vec.len xs) (if (refs_e p mi (vec.get xs i) id) (ret true)))
-  false)
-
-(fn refs_e ((p (& prog.prog)) (mi i64) (e (& expr)) (id i64)) bool
-  (if (and (or (== (. e kind) 1u8) (== (. e kind) 23u8)) (== (prog.lookup_fn p mi (& (. e text))) id))
-    (ret true))
-  (for i 0 (vec.len (& (. e kids))) (if (refs_e p mi (vec.get (& (. e kids)) i) id) (ret true)))
-  false)
 
 (struct bind (name str) (line i64) (col i64) (len i64) (used bool))
 
@@ -211,7 +221,7 @@
   (while (> (vec.len scope) keep) (warn_pop out path scope)))
 
 (fn warn_pop ((out (&mut (vec diag.dg))) (path (& str)) (scope (&mut (vec bind)))) unit
-  (let b (match (vec.pop scope) ((opt.some v) v) ((opt.none) (bind (str.new) 0 0 0 false))))
+  (let b (opt.or (vec.pop scope) (bind (str.new) 0 0 0 false)))
   (if (and (not (. b used)) (not (str.starts (& (. b name)) "_")))
     (push_w out path (. b line) (. b col) (. b len) "name.unused" "name" (str.clone (& (. b name))))))
 
@@ -259,15 +269,21 @@
   (walk_from out path e 1 scope))
 
 (fn walk_for ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
+  (let end (if (. e mut) 3 2))
   (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
   (if (> (vec.len (& (. e kids))) 1) (walk_expr out path (vec.get (& (. e kids)) 1) scope))
-  (walk_from out path e 2 scope))
+  (if (and (. e mut) (> (vec.len (& (. e kids))) 2)) (walk_expr out path (vec.get (& (. e kids)) 2) scope))
+  (walk_from out path e end scope))
 
 (fn walk_match ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (scope (&mut (vec bind)))) unit
   (if (> (vec.len (& (. e kids))) 0) (walk_expr out path (vec.get (& (. e kids)) 0) scope))
-  (let mut i 2)
-  (while (< i (vec.len (& (. e kids))))
-    (do (walk_expr out path (vec.get (& (. e kids)) i) scope) (set i (+ i 2)))))
+  (let mut i 1)
+  (while (< (+ i 2) (vec.len (& (. e kids))))
+    (do
+      (if (!= (. (vec.get (& (. e kids)) (+ i 1)) kind) 35u8)
+        (walk_expr out path (vec.get (& (. e kids)) (+ i 1)) scope))
+      (walk_expr out path (vec.get (& (. e kids)) (+ i 2)) scope)
+      (set i (+ i 3)))))
 
 (fn walk_kids ((out (&mut (vec diag.dg))) (path (& str)) (e (& expr)) (from i64) (scope (&mut (vec bind)))) unit
   (for i from (vec.len (& (. e kids))) (walk_expr out path (vec.get (& (. e kids)) i) scope)))

@@ -1,0 +1,108 @@
+;; Generic trait impl lookup. A duplicate is the same trait and the same head type.
+(use std.str)
+(use std.vec)
+(use proj.prog)
+(use proj.ty)
+
+(fn exact ((p (& prog.prog)) (tr i64) (t (& ty.sty))) i64
+  (for i 0 (vec.len (& (. p ims)))
+    (let im (vec.get (& (. p ims)) i))
+    (if (and (== (. im tr) tr) (ty.eq (& (. im ty)) t)) (ret i)))
+  (neg 1))
+
+(fn head_eq ((a (& ty.sty)) (b (& ty.sty))) bool
+  (if (and (== (. a kind) 8u8) (== (. b kind) 8u8)) (ret (== (. a id) (. b id))))
+  (ty.eq a b))
+
+(pub (fn head ((p (& prog.prog)) (tr i64) (t (& ty.sty))) bool
+  (for i 0 (vec.len (& (. p ims)))
+    (let im (vec.get (& (. p ims)) i))
+    (if (and (== (. im tr) tr) (head_eq (& (. im ty)) t)) (ret true)))
+  false))
+
+(fn gen_n ((p (& prog.prog)) (im (& prog.impr))) i64
+  (if (== (vec.len (& (. im ids))) 0) (ret 0))
+  (vec.len (& (. (vec.get (& (. p defs)) (@ (vec.get (& (. im ids)) 0))) gens))))
+
+(fn fill_n ((n i64)) (vec ty.sty)
+  (let mut o (vec.new <ty.sty>))
+  (for _i 0 n (vec.push (&mut o) (ty.unit)))
+  o)
+
+(fn fill_b ((n i64)) (vec bool)
+  (let mut o (vec.new <bool>))
+  (for _i 0 n (vec.push (&mut o) false))
+  o)
+
+(fn bind_ty ((pat (& ty.sty)) (got (& ty.sty)) (sub (&mut (vec ty.sty))) (set (&mut (vec bool)))) bool
+  (if (== (. pat kind) 13u8)
+    (do
+      (let i (. pat id))
+      (if (or (< i 0) (>= i (vec.len set))) (ret false))
+      (if (@ (vec.get set i)) (ret (ty.eq (vec.get sub i) got)))
+      (vec.set sub i (ty.clone got))
+      (vec.set set i true)
+      (ret true)))
+  (if (and (== (. pat kind) 8u8) (== (. got kind) 8u8))
+    (do
+      (if (!= (. pat id) (. got id)) (ret false))
+      (if (!= (vec.len (& (. pat args))) (vec.len (& (. got args)))) (ret false))
+      (for i 0 (vec.len (& (. pat args)))
+        (if (not (bind_ty (vec.get (& (. pat args)) i) (vec.get (& (. got args)) i) sub set)) (ret false)))
+      (ret true)))
+  (if (and (== (. pat kind) 6u8) (== (. got kind) 6u8))
+    (ret (and (== (. pat flag) (. got flag)) (bind_ty (vec.get (& (. pat args)) 0) (vec.get (& (. got args)) 0) sub set))))
+  (ty.eq pat got))
+
+(fn all_set ((set (& (vec bool)))) bool
+  (for i 0 (vec.len set) (if (not (@ (vec.get set i))) (ret false)))
+  true)
+
+(fn bounds_ok ((p (& prog.prog)) (ii i64) (sub (& (vec ty.sty)))) bool
+  (let ids (& (. (vec.get (& (. p ims)) ii) ids)))
+  (if (== (vec.len ids) 0) (ret true))
+  (let d (vec.get (& (. p defs)) (@ (vec.get ids 0))))
+  (for i 0 (vec.len (& (. d bounds)))
+    (let row (vec.get (& (. d bounds)) i))
+    (if (>= i (vec.len sub)) (ret (== (vec.len row) 0)))
+    (for j 0 (vec.len row)
+      (if (< (of p (@ (vec.get row j)) (vec.get sub i)) 0) (ret false))))
+  true)
+
+(fn match_at ((p (& prog.prog)) (tr i64) (t (& ty.sty)) (out (&mut (vec ty.sty)))) i64
+  (for i 0 (vec.len (& (. p ims)))
+    (let im (vec.get (& (. p ims)) i))
+    (if (and (== (. im tr) tr) (head_eq (& (. im ty)) t))
+      (do
+        (let n (gen_n p im))
+        (let mut sub (fill_n n))
+        (let mut set (fill_b n))
+        (if (and (bind_ty (& (. im ty)) t (&mut sub) (&mut set)) (all_set (& set)))
+          (do
+            (vec.clear out)
+            (for k 0 n (vec.push out (ty.clone (vec.get (& sub) k))))
+            (ret i))))))
+  (neg 1))
+
+(fn ground ((t (& ty.sty))) ty.sty
+  (if (and (== (. t kind) 14u8) (. t flag)) (ret (ty.int 3)))
+  (if (== (vec.len (& (. t args))) 0) (ret (ty.clone t)))
+  (let mut args (vec.new <ty.sty>))
+  (for i 0 (vec.len (& (. t args))) (vec.push (&mut args) (ground (vec.get (& (. t args)) i))))
+  (ty.mk (. t kind) (. t id) (. t flag) (str.clone (& (. t text))) args))
+
+(pub (fn of ((p (& prog.prog)) (tr i64) (t (& ty.sty))) i64
+  (let t (ground t))
+  (let hit (exact p tr (& t)))
+  (if (>= hit 0) (ret hit))
+  (let mut sub (vec.new <ty.sty>))
+  (let ii (match_at p tr (& t) (&mut sub)))
+  (if (or (< ii 0) (not (bounds_ok p ii (& sub)))) (ret (neg 1)))
+  ii))
+
+(pub (fn subst ((p (& prog.prog)) (tr i64) (t (& ty.sty))) (vec ty.sty)
+  (let t (ground t))
+  (if (>= (exact p tr (& t)) 0) (ret (vec.new <ty.sty>)))
+  (let mut sub (vec.new <ty.sty>))
+  (let _i (match_at p tr (& t) (&mut sub)))
+  sub))

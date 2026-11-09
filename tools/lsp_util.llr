@@ -1,0 +1,82 @@
+;; Path, word, and header helpers for llr-lsp.
+(fn hex_nib ((b u8)) i64
+  (if (and (>= b 48u8) (<= b 57u8)) (ret (- (as i64 b) 48)))
+  (if (and (>= b 97u8) (<= b 102u8)) (ret (+ (- (as i64 b) 97) 10)))
+  (if (and (>= b 65u8) (<= b 70u8)) (ret (+ (- (as i64 b) 65) 10)))
+  (neg 1))
+
+(fn pct ((s (& str)) (i (&mut i64))) u8
+  (let b (str.at s (@ i)))
+  (if (or (!= b 37u8) (>= (+ (@ i) 2) (str.len s))) (do (set (@ i) (+ (@ i) 1)) (ret b)))
+  (let hi (hex_nib (str.at s (+ (@ i) 1))))
+  (let lo (hex_nib (str.at s (+ (@ i) 2))))
+  (if (or (< hi 0) (< lo 0)) (do (set (@ i) (+ (@ i) 1)) (ret b)))
+  (set (@ i) (+ (@ i) 3))
+  (as u8 (+ (* hi 16) lo)))
+
+(fn decode ((s (& str))) str
+  (let mut o (str.new))
+  (let mut i 0)
+  (while (< i (str.len s)) (str.push_byte (&mut o) (pct s (&mut i))))
+  o)
+
+(fn drive_path ((p (& str))) bool
+  (and (>= (str.len p) 3)
+    (and (== (str.at p 0) 47u8) (and (str.is_alpha (str.at p 1)) (== (str.at p 2) 58u8)))))
+
+(pub (fn uri_path ((u (& str))) str
+  (if (not (str.starts u "file://")) (ret (str.clone u)))
+  (let raw (decode (& (str.slice u 7 (str.len u)))))
+  (if (drive_path (& raw)) (ret (str.slice (& raw) 1 (str.len (& raw)))))
+  raw))
+
+(pub (fn path_uri ((p (& str))) str
+  (let n (str.replace_byte p 92u8 47u8))
+  (let mut s (str.from "file://"))
+  (if (not (str.starts (& n) "/")) (str.push_byte (&mut s) 47u8))
+  (for i 0 (str.len (& n))
+    (let b (str.at (& n) i))
+    (if (== b 32u8) (str.push (&mut s) "%20") (str.push_byte (&mut s) b)))
+  s))
+
+(fn clean_p ((p (& str))) str
+  (let n (str.replace_byte p 92u8 47u8))
+  (if (str.starts (& n) "./") (str.slice (& n) 2 (str.len (& n))) n))
+
+(pub (fn same_file ((a (& str)) (b (& str))) bool
+  (let na (clean_p a))
+  (let nb (clean_p b))
+  (if (str.eq (& na) (& nb)) (ret true))
+  (let mut suf (str.from "/"))
+  (str.push (&mut suf) (& nb))
+  (if (str.ends (& na) (& suf)) (ret true))
+  (let mut pre (str.from "/"))
+  (str.push (&mut pre) (& na))
+  (str.ends (& nb) (& pre))))
+
+(fn is_word ((b u8)) bool (or (str.is_alnum b) (== b 95u8)))
+
+(pub (fn word_at ((text (& str)) (line i64) (ch i64)) str
+  (let lines (str.lines text))
+  (if (or (< line 0) (>= line (vec.len (& lines)))) (ret (str.new)))
+  (let s (vec.get (& lines) line))
+  (let mut at ch)
+  (if (or (< at 0) (> at (str.len s))) (ret (str.new)))
+  (if (== at (str.len s)) (set at (- at 1)))
+  (if (< at 0) (ret (str.new)))
+  (if (not (is_word (str.at s at))) (if (> at 0) (set at (- at 1)) (ret (str.new))))
+  (if (not (is_word (str.at s at))) (ret (str.new)))
+  (let mut lo at)
+  (while (and (> lo 0) (is_word (str.at s (- lo 1)))) (set lo (- lo 1)))
+  (let mut hi at)
+  (while (and (< (+ hi 1) (str.len s)) (is_word (str.at s (+ hi 1)))) (set hi (+ hi 1)))
+  (str.slice s lo (+ hi 1))))
+
+(pub (fn header_len ((h (& str))) i64
+  (let lines (str.split h 10u8))
+  (for i 0 (vec.len (& lines))
+    (let t (str.trim (vec.get (& lines) i)))
+    (let low (str.lower (& t)))
+    (if (str.starts (& low) "content-length:")
+      (ret (opt.or (str.to_int (& (str.trim (& (str.slice (& t) 15 (str.len (& t))))))) (neg 1)))))
+  (neg 1)))

@@ -1,0 +1,4 @@
+(fn main () unit
+  (match (opt.some 1)
+    ((or (opt.some x) (opt.none)) x)
+    (_ 0)))

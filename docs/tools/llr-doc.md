@@ -3,15 +3,16 @@
 Regenerate a `docs/std` page from the public signatures in a `.llr` file.
 
 ```
-llr-doc FILE.llr... [--out DIR]
+llr-doc FILE.llr... [--out DIR] [--private]
 ```
 
 | flag | default | meaning |
 |------|---------|---------|
 | `FILE.llr` | | one or more modules |
 | `--out` | stdout | write `DIR/NAME.md` for each file |
+| `--private` | off | also print items that are not `pub` |
 
-Private items are skipped. A public field is printed as `(pub (name type))`. A method is `TYPE.name`; a free function is `module.name`. The module name is the file stem. The heading package is the parent directory, so `ui/widget.llr` is `ui.widget`.
+The default page lists `pub` items. `--private` also lists private functions, externs, structs, enums, constants, traits, and impl methods, in the same tables. A public field is printed as `(pub (name type))`. A method is `TYPE.name`; a free function is `module.name`. The module name is the file stem. The heading package is the parent directory, so `ui/widget.llr` is `ui.widget`.
 
 When `DIR/NAME.md` already exists, the text before the first `## ` is kept. A new page uses the file's first comment as the summary.
 

@@ -1,5 +1,5 @@
 ;; Host link. Unix is cc, clang --target, xcrun for Apple, or the NDK for Android.
-;; Windows probes clang, gcc, cc, then cl.
+;; Windows probes clang, gcc, cc, then cl. LLRST_CC skips that probe.
 (use std.fs)
 (use std.os)
 (use std.path)
@@ -27,29 +27,30 @@
 
 (fn push_cand ((o (&mut (vec str))) (p str)) unit (if (> (str.len (& p)) 0) (vec.push o p)))
 
-(pub (fn runtime ((name (& str))) str
+(fn runtime_dirs () (vec str)
   (let mut c (vec.new <str>))
   (match (os.env "LLRST_RUNTIME")
-    ((opt.some d) (push_cand (&mut c) (path.join (& (slash (& d))) name)))
+    ((opt.some d) (push_cand (&mut c) (str.replace_byte (& d) 92u8 47u8)))
     ((opt.none) ()))
   (match (os.env "LLRST_STD")
-    ((opt.some d) (push_cand (&mut c) (path.join (& (path.dir (& (slash (& d))))) name)))
+    ((opt.some d) (push_cand (&mut c) (path.dir (& (str.replace_byte (& d) 92u8 47u8)))))
     ((opt.none) ()))
   (let dir (load.exe_dir))
   (if (> (str.len (& dir)) 0)
     (do
-      (push_cand (&mut c) (path.join (& (path.join (& dir) "../share/llrst")) name))
-      (push_cand (&mut c) (path.join (& (path.join (& dir) "../../runtime")) name))))
-  (push_cand (&mut c) (path.join "runtime" name))
-  (first (& c))))
+      (push_cand (&mut c) (path.join (& dir) "../share/llrst"))
+      (push_cand (&mut c) (path.join (& dir) "../../runtime"))))
+  (push_cand (&mut c) (str.from "runtime"))
+  c)
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
+(fn runtime_in ((dirs (& (vec str))) (name (& str))) str
+  (for i 0 (vec.len dirs) (let p (path.join (vec.get dirs i) name)) (if (exists (& p)) (ret p)))
+  (str.new))
+
+(pub (fn runtime ((name (& str))) str (runtime_in (& (runtime_dirs)) name)))
 
 (pub (fn obj_path ((out (& str)) (win bool)) str
-  (let o (slash out))
+  (let o (str.replace_byte out 92u8 47u8))
   (let ext (if win ".obj" ".o"))
   (path.join (& (path.dir (& o))) (& (str.cat (& (path.stem (& o))) ext)))))
 
@@ -68,30 +69,30 @@
 
 (fn q ((s (& str))) str (if (== sys.os_id 2) (link_win.dq s) (sh s)))
 
-(fn add_obj ((cmd (&mut str)) (name (& str))) unit
-  (let shim (runtime name))
+(fn add_obj ((cmd (&mut str)) (dirs (& (vec str))) (name (& str))) unit
+  (let shim (runtime_in dirs name))
   (if (> (str.len (& shim)) 0) (do (str.push cmd " ") (str.push cmd (& (q (& shim)))))))
 
-(fn add_stat ((cmd (&mut str)) (target (& str))) unit
-  (add_obj cmd (& (link_mob.stat_obj target)))
-  (add_obj cmd (& (link_mob.now_obj target))))
+(fn add_stat ((cmd (&mut str)) (dirs (& (vec str))) (target (& str))) unit
+  (add_obj cmd dirs (& (link_mob.stat_obj target)))
+  (add_obj cmd dirs (& (link_mob.now_obj target))))
 
-(fn clang_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+(fn clang_cmd ((dirs (& (vec str))) (obj (& str)) (out (& str)) (target (& str))) str
   (let mut cmd (str.from "clang --target="))
   (str.push (&mut cmd) target)
   (str.push (&mut cmd) " ")
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd) target)
+  (add_stat (&mut cmd) dirs target)
   cmd)
 
-(fn host_cc ((obj (& str)) (out (& str)) (shared bool)) str
+(fn host_cc ((dirs (& (vec str))) (obj (& str)) (out (& str)) (shared bool)) str
   (let mut cmd (str.from "cc "))
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd) "")
+  (add_stat (&mut cmd) dirs "")
   (str.push (&mut cmd) (& (link_so.tail shared (host_darwin))))
   cmd)
 
@@ -117,7 +118,9 @@
   (path.join (& bin) "bin/aarch64-linux-android21-clang"))
 
 (fn ndk_root () str
-  (match (os.env "ANDROID_NDK") ((opt.some d) (slash (& d))) ((opt.none) (str.new))))
+  (match (os.env "ANDROID_NDK")
+    ((opt.some d) (str.replace_byte (& d) 92u8 47u8))
+    ((opt.none) (str.new))))
 
 (fn ndk_clang () str
   (let root (ndk_root))
@@ -129,37 +132,37 @@
   (if (> (str.len (& alt)) 0) (push_cand (&mut c) (ndk_bin (& root) (& alt))))
   (first (& c)))
 
-(fn and_cmd ((cc (& str)) (obj (& str)) (out (& str)) (target (& str))) str
+(fn and_cmd ((dirs (& (vec str))) (cc (& str)) (obj (& str)) (out (& str)) (target (& str))) str
   (let mut cmd (q cc))
   (str.push (&mut cmd) " -shared ")
   (str.push (&mut cmd) (& (q obj)))
   (str.push (&mut cmd) " -o ")
   (str.push (&mut cmd) (& (q out)))
-  (add_stat (&mut cmd) target)
+  (add_stat (&mut cmd) dirs target)
   cmd)
 
-(fn android_cmd ((obj (& str)) (out (& str))) str
+(fn android_cmd ((dirs (& (vec str))) (obj (& str)) (out (& str))) str
   (let cc (ndk_clang))
   (if (== (str.len (& cc)) 0) (ret (str.new)))
-  (and_cmd (& cc) obj out "aarch64-linux-android"))
+  (and_cmd dirs (& cc) obj out "aarch64-linux-android"))
 
-(fn apple_cmd ((obj (& str)) (out (& str)) (target (& str))) str
+(fn apple_cmd ((dirs (& (vec str))) (obj (& str)) (out (& str)) (target (& str))) str
   (let ios (link_mac.ios target))
   (let sdk (link_mac.sdk_path ios (link_mac.sim target)))
   (if (== (str.len (& sdk)) 0) (ret (str.new)))
   (let mut cmd (link_mac.cmd obj out target (& sdk)))
-  (add_stat (&mut cmd) target)
+  (add_stat (&mut cmd) dirs target)
   cmd)
 
-(fn cc_cmd ((obj (& str)) (out (& str)) (target (& str)) (shared bool)) str
-  (if (link_mac.apple target) (ret (apple_cmd obj out target)))
-  (if (str.has target "android") (ret (android_cmd obj out)))
+(fn cc_cmd ((dirs (& (vec str))) (obj (& str)) (out (& str)) (target (& str)) (shared bool)) str
+  (if (link_mac.apple target) (ret (apple_cmd dirs obj out target)))
+  (if (str.has target "android") (ret (android_cmd dirs obj out)))
   (if (> (str.len target) 0)
     (do
-      (let mut cmd (clang_cmd obj out target))
+      (let mut cmd (clang_cmd dirs obj out target))
       (str.push (&mut cmd) (& (link_so.gnu_extra shared)))
       (ret cmd)))
-  (host_cc obj out shared))
+  (host_cc dirs obj out shared))
 
 (fn miss_got ((t (& str))) str
   (if (str.has t "android") (ret (str.from "ANDROID_NDK missing")))
@@ -174,28 +177,34 @@
 (fn rm ((obj (& str))) unit (if (fs.exists obj) (let _ (fs.remove obj))))
 
 (fn fail ((main (& str)) (cmd (& str)) (got (& str))) str
-  (let mut d (diag.make true (slash main) 1 1 0 (str.from "link.failed")))
+  (let mut d (diag.make true (str.replace_byte main 92u8 47u8) 1 1 0 (str.from "link.failed")))
   (diag.add (&mut d) "cmd" (str.clone cmd))
   (diag.add (&mut d) "got" (str.clone got))
   (diag.render (& d)))
 
-(fn have_one ((base (& str)) (ext (& str))) bool
-  (let p (runtime (& (str.cat base ext))))
-  (> (str.len (& p)) 0))
+(struct wins (wsa str) (win str) (sock str) (proc str) (now str))
 
-(fn have ((ext (& str))) bool
-  (and (have_one "llr_wsa" ext)
-    (and (have_one "llr_win" ext) (and (have_one "llr_win_sock" ext) (have_one "llr_win_proc" ext)))))
+(fn win_of ((dirs (& (vec str))) (ext (& str))) wins
+  (wins (runtime_in dirs (& (str.cat "llr_wsa" ext)))
+    (runtime_in dirs (& (str.cat "llr_win" ext)))
+    (runtime_in dirs (& (str.cat "llr_win_sock" ext)))
+    (runtime_in dirs (& (str.cat "llr_win_proc" ext)))
+    (runtime_in dirs (& (str.cat "llr_now" ext)))))
+
+(fn win_ok ((w (& wins))) bool
+  (and (> (str.len (& (. w wsa))) 0)
+    (and (> (str.len (& (. w win))) 0)
+      (and (> (str.len (& (. w sock))) 0) (> (str.len (& (. w proc))) 0)))))
 
 (fn push_q ((cmd (&mut str)) (p (& str))) unit (str.push cmd " ") (str.push cmd (& (q p))))
 
-(fn wants_ui ((bytes (& str))) bool (str.has bytes "llr_ui_open"))
+(fn wants_ui ((needs (& (vec str)))) bool (vec.has needs "llr_ui_open"))
 
-(fn wants_web ((bytes (& str))) bool (str.has bytes "llr_web_present"))
+(fn wants_web ((needs (& (vec str)))) bool (vec.has needs "llr_web_present"))
 
-(fn add_web ((cmd (&mut str)) (ext (& str))) str
+(fn add_web ((cmd (&mut str)) (dirs (& (vec str))) (ext (& str))) str
   (let name (str.cat "llr_ui_web" ext))
-  (if (not (add_named cmd (& name))) (ret (str.from "llr_ui_web.o missing")))
+  (if (not (add_named cmd dirs (& name))) (ret (str.from "llr_ui_web.o missing")))
   (str.new))
 
 (fn target_dar ((t (& str))) bool
@@ -208,46 +217,46 @@
   (str.from "llr_ui_x11"))
 
 (fn ui_libs ((win bool) (dar bool)) str
-  (if win (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32 -lole32 -loleaut32 -luiautomationcore")))
+  (if win
+    (ret (str.from "-luser32 -lgdi32 -limm32 -lshell32 -lole32 -loleaut32 -luiautomationcore")))
   (if dar (ret (str.from "-framework Cocoa")))
   (str.from "-lX11"))
 
-(fn add_named ((cmd (&mut str)) (name (& str))) bool
-  (let p (runtime name))
+(fn add_named ((cmd (&mut str)) (dirs (& (vec str))) (name (& str))) bool
+  (let p (runtime_in dirs name))
   (if (== (str.len (& p)) 0) (ret false))
   (push_q cmd (& p))
   true)
 
-(fn add_ui ((cmd (&mut str)) (win bool) (dar bool) (ext (& str))) str
+(fn add_ui ((cmd (&mut str)) (dirs (& (vec str))) (win bool) (dar bool) (ext (& str))) str
   (let stem (ui_stem win dar))
   (let a (str.cat (& stem) ext))
   (let b (str.cat (& (str.cat (& stem) "_in")) ext))
   (let c (str.cat (& (str.cat (& stem) "_a11y")) ext))
-  (if (not (add_named cmd (& a))) (ret (str.from "llr_ui_*.o missing")))
-  (if (not (add_named cmd (& b))) (ret (str.from "llr_ui_*.o missing")))
-  (if (or win dar)
-    (if (not (add_named cmd (& c))) (ret (str.from "llr_ui_*_a11y.o missing"))))
+  (if (not (add_named cmd dirs (& a))) (ret (str.from "llr_ui_*.o missing")))
+  (if (not (add_named cmd dirs (& b))) (ret (str.from "llr_ui_*.o missing")))
+  (if (or win dar) (if (not (add_named cmd dirs (& c))) (ret (str.from "llr_ui_*_a11y.o missing"))))
   (str.push cmd " ")
   (str.push cmd (& (ui_libs win dar)))
   (str.new))
 
-(fn add_names ((cmd (&mut str)) (names (& (vec str)))) str
+(fn add_names ((cmd (&mut str)) (dirs (& (vec str))) (names (& (vec str)))) str
   (for i 0 (vec.len names)
     (let name (str.clone (vec.get names i)))
-    (if (not (add_named cmd (& name))) (ret (str.cat (& name) " missing"))))
+    (if (not (add_named cmd dirs (& name))) (ret (str.cat (& name) " missing"))))
   (str.new))
 
-(fn add_android ((cmd (&mut str)) (ui bool)) str
+(fn add_android ((cmd (&mut str)) (dirs (& (vec str))) (ui bool)) str
   (let names (link_mob.android_objs ui))
-  (let err (add_names cmd (& names)))
+  (let err (add_names cmd dirs (& names)))
   (if (> (str.len (& err)) 0) (ret err))
   (str.push cmd " ")
   (str.push cmd (& (link_mob.android_libs)))
   (str.new))
 
-(fn add_ios ((cmd (&mut str)) (sim bool) (ui bool)) str
+(fn add_ios ((cmd (&mut str)) (dirs (& (vec str))) (sim bool) (ui bool)) str
   (let names (link_mob.ios_objs sim ui))
-  (let err (add_names cmd (& names)))
+  (let err (add_names cmd dirs (& names)))
   (if (> (str.len (& err)) 0) (ret err))
   (str.push cmd " ")
   (str.push cmd (& (link_mob.ios_libs)))
@@ -259,163 +268,211 @@
   (str.push (&mut c) (& (q obj)))
   (os.shell (& c)))
 
-(fn attach ((cmd (&mut str)) (bytes (& str)) (target (& str))) str
-  (let ui (wants_ui bytes))
-  (if (str.has target "android") (ret (add_android cmd ui)))
-  (if (link_mac.ios target) (ret (add_ios cmd (link_mac.sim target) ui)))
-  (if ui (ret (add_ui cmd false (target_dar target) ".o")))
+(fn attach ((cmd (&mut str)) (dirs (& (vec str))) (needs (& (vec str))) (target (& str))) str
+  (let ui (wants_ui needs))
+  (if (str.has target "android") (ret (add_android cmd dirs ui)))
+  (if (link_mac.ios target) (ret (add_ios cmd dirs (link_mac.sim target) ui)))
+  (if ui (ret (add_ui cmd dirs false (target_dar target) ".o")))
   (str.new))
 
-(fn gnu_cmd ((cc (& str)) (obj (& str)) (exe (& str))) str
+(fn gnu_cmd ((cc (& str)) (obj (& str)) (exe (& str)) (w (& wins))) str
   (let mut cmd (str.clone cc))
   (push_q (&mut cmd) obj)
   (str.push (&mut cmd) " -o")
   (push_q (&mut cmd) exe)
-  (let wsa (runtime "llr_wsa.o"))
-  (let win (runtime "llr_win.o"))
-  (let sock (runtime "llr_win_sock.o"))
-  (let proc (runtime "llr_win_proc.o"))
-  (push_q (&mut cmd) (& wsa))
-  (push_q (&mut cmd) (& win))
-  (push_q (&mut cmd) (& sock))
-  (push_q (&mut cmd) (& proc))
+  (push_q (&mut cmd) (& (. w wsa)))
+  (push_q (&mut cmd) (& (. w win)))
+  (push_q (&mut cmd) (& (. w sock)))
+  (push_q (&mut cmd) (& (. w proc)))
   (str.push (&mut cmd) " -lws2_32 -Wl,--stack,8388608")
   cmd)
 
-(fn via_gnu ((cc (& str)) (bytes (& str)) (out (& str)) (main (& str)) (shared bool)) str
+(fn bail ((obj (& str)) (err (& str)) (main (& str)) (cmd (& str))) str
+  (if (== (str.len err) 0) (ret (str.new)))
+  (rm obj)
+  (fail main cmd err))
+
+(fn add_need ((cmd (&mut str)) (dirs (& (vec str))) (name (& str))) str
+  (if (add_named cmd dirs name) (ret (str.new)))
+  (str.cat name " missing"))
+
+(fn add_if ((cmd (&mut str)) (dirs (& (vec str))) (needs (& (vec str))) (sym (& str)) (file (& str))) str
+  (if (not (vec.has needs sym)) (ret (str.new)))
+  (add_need cmd dirs file))
+
+(fn wants_reload ((needs (& (vec str)))) bool
+  (vec.any needs (clos ((n (& str))) bool (str.starts n "llr_reload_"))))
+
+(fn add_pair ((cmd (&mut str)) (dirs (& (vec str))) (needs (& (vec str))) (ext (& str))) str
+  (let reload (str.cat "llr_reload" ext))
+  (let err (if (wants_reload needs) (add_need cmd dirs (& reload)) (str.new)))
+  (if (> (str.len (& err)) 0) (ret err))
+  (let dl (str.cat "llr_dl" ext))
+  (add_if cmd dirs needs "llr_dlopen" (& dl)))
+
+(fn via_gnu ((cc (& str))
+   (bytes (& str))
+   (out (& str))
+   (main (& str))
+   (shared bool)
+   (w (& wins))
+   (dirs (& (vec str)))
+   (needs (& (vec str)))) str
   (let obj (obj_path out false))
   (let exe (link_win.exe_of out))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let mut cmd (gnu_cmd cc (& obj) (& exe)))
+  (let mut cmd (gnu_cmd cc (& obj) (& exe) w))
   (str.push (&mut cmd) (& (link_so.gnu_extra shared)))
-  (if (wants_ui bytes)
-    (do
-      (let err (add_ui (&mut cmd) true false ".o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main cc (& err)))))))
-  (if (wants_web bytes)
-    (do
-      (let err (add_web (&mut cmd) ".o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main cc (& err)))))))
-  (if (want_sym bytes "llr_reload_prev")
-    (do
-      (let err (add_need (&mut cmd) "llr_reload.o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main cc (& err)))))))
-  (if (want_sym bytes "llr_dlopen")
-    (do
-      (let err (add_need (&mut cmd) "llr_dl.o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main cc (& err)))))))
+  (let ui (if (wants_ui needs) (add_ui (&mut cmd) dirs true false ".o") (str.new)))
+  (let bad (bail (& obj) (& ui) main cc))
+  (if (> (str.len (& bad)) 0) (ret bad))
+  (let web (if (wants_web needs) (add_web (&mut cmd) dirs ".o") (str.new)))
+  (let badw (bail (& obj) (& web) main cc))
+  (if (> (str.len (& badw)) 0) (ret badw))
+  (let extra (add_pair (&mut cmd) dirs needs ".o"))
+  (let bade (bail (& obj) (& extra) main cc))
+  (if (> (str.len (& bade)) 0) (ret bade))
   (let code (os.shell (& cmd)))
   (rm (& obj))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
 
-(fn via_cl ((bytes (& str)) (out (& str)) (main (& str)) (shared bool)) str
+(fn cl_ui ((dirs (& (vec str)))
+   (needs (& (vec str)))
+   (a (&mut str))
+   (b (&mut str))
+   (c (&mut str))
+   (web (&mut str))) str
+  (if (wants_ui needs)
+    (do
+      (set (@ a) (runtime_in dirs "llr_ui_win.obj"))
+      (set (@ b) (runtime_in dirs "llr_ui_win_in.obj"))
+      (set (@ c) (runtime_in dirs "llr_ui_win_a11y.obj"))
+      (if (or (== (str.len a) 0) (or (== (str.len b) 0) (== (str.len c) 0)))
+        (ret (str.from "llr_ui_*.o missing")))))
+  (if (wants_web needs)
+    (do
+      (set (@ web) (runtime_in dirs "llr_ui_web.obj"))
+      (if (== (str.len web) 0) (ret (str.from "llr_ui_web.o missing")))))
+  (str.new))
+
+(fn via_cl ((bytes (& str))
+   (out (& str))
+   (main (& str))
+   (shared bool)
+   (w (& wins))
+   (pre (& str))
+   (dirs (& (vec str)))
+   (needs (& (vec str)))) str
   (let obj (obj_path out true))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let wsa (runtime "llr_wsa.obj"))
-  (let shim (runtime "llr_win.obj"))
-  (let sock (runtime "llr_win_sock.obj"))
-  (let proc (runtime "llr_win_proc.obj"))
-  (let now (runtime "llr_now.obj"))
-  (if (or (== (str.len (& wsa)) 0)
-     (or (== (str.len (& shim)) 0)
-       (or (== (str.len (& sock)) 0) (or (== (str.len (& proc)) 0) (== (str.len (& now)) 0)))))
+  (if (or (not (win_ok w)) (== (str.len (& (. w now))) 0))
     (do (rm (& obj)) (ret (fail main "cl" "llr_win.obj missing"))))
   (let mut ua (str.new))
   (let mut ub (str.new))
   (let mut uc (str.new))
   (let mut web (str.new))
-  (if (wants_ui bytes)
-    (do
-      (set ua (runtime "llr_ui_win.obj"))
-      (set ub (runtime "llr_ui_win_in.obj"))
-      (set uc (runtime "llr_ui_win_a11y.obj"))
-      (if (or (== (str.len (& ua)) 0) (or (== (str.len (& ub)) 0) (== (str.len (& uc)) 0)))
-        (do (rm (& obj)) (ret (fail main "cl" "llr_ui_*.o missing"))))))
-  (if (wants_web bytes)
-    (do
-      (set web (runtime "llr_ui_web.obj"))
-      (if (== (str.len (& web)) 0) (do (rm (& obj)) (ret (fail main "cl" "llr_ui_web.o missing"))))))
+  (let ui (cl_ui dirs needs (&mut ua) (&mut ub) (&mut uc) (&mut web)))
+  (if (> (str.len (& ui)) 0) (do (rm (& obj)) (ret (fail main "cl" (& ui)))))
   (let mut more (str.new))
-  (if (want_sym bytes "llr_reload_prev")
-    (do
-      (let p (runtime "llr_reload.obj"))
-      (if (== (str.len (& p)) 0) (do (rm (& obj)) (ret (fail main "cl" "llr_reload.obj missing"))))
-      (str.push (&mut more) " ")
-      (str.push (&mut more) (& (link_win.dq (& p))))))
-  (if (want_sym bytes "llr_dlopen")
-    (do
-      (let p (runtime "llr_dl.obj"))
-      (if (== (str.len (& p)) 0) (do (rm (& obj)) (ret (fail main "cl" "llr_dl.obj missing"))))
-      (str.push (&mut more) " ")
-      (str.push (&mut more) (& (link_win.dq (& p))))))
+  (let extra (add_pair (&mut more) dirs needs ".obj"))
+  (if (> (str.len (& extra)) 0) (do (rm (& obj)) (ret (fail main "cl" (& extra)))))
   (let err
     (link_win.link (& obj)
       out
-      (& wsa)
-      (& shim)
-      (& sock)
-      (& proc)
-      (& now)
+      (& (. w wsa))
+      (& (. w win))
+      (& (. w sock))
+      (& (. w proc))
+      (& (. w now))
       (& ua)
       (& ub)
       (& uc)
       (& web)
       (& more)
       main
-      shared))
+      shared
+      pre))
   (rm (& obj))
   err)
 
 (fn is_win ((t (& str))) bool (if (> (str.len t) 0) (ret (str.has t "windows"))) (== sys.os_id 2))
 
-(fn via_win ((bytes (& str)) (out (& str)) (main (& str)) (shared bool)) str
-  (let tool (link_win.pick (have ".o") (have ".obj")))
-  (if (== (str.len (& tool)) 0) (ret (fail main "clang, gcc, or cl" "missing")))
-  (if (str.eq (& tool) "cl") (ret (via_cl bytes out main shared)))
-  (via_gnu (& tool) bytes out main shared))
+(fn via_named ((tool (& str))
+   (bytes (& str))
+   (out (& str))
+   (main (& str))
+   (shared bool)
+   (dirs (& (vec str)))
+   (needs (& (vec str)))) str
+  (if (str.eq tool "cl")
+    (do
+      (let pre (link_win.cl_prefix))
+      (if (str.eq (& pre) "missing") (ret (fail main "cl" "cl missing")))
+      (let w (win_of dirs ".obj"))
+      (ret (via_cl bytes out main shared (& w) (& pre) dirs needs))))
+  (let w (win_of dirs ".o"))
+  (via_gnu tool bytes out main shared (& w) dirs needs))
 
-(fn want_sym ((bytes (& str)) (name (& str))) bool (str.has bytes name))
+(fn via_win ((bytes (& str))
+   (out (& str))
+   (main (& str))
+   (shared bool)
+   (dirs (& (vec str)))
+   (needs (& (vec str)))) str
+  (let over (link_win.cc_override))
+  (if (> (str.len (& over)) 0) (ret (via_named (& over) bytes out main shared dirs needs)))
+  (let gnu (win_of dirs ".o"))
+  (let msvc (win_of dirs ".obj"))
+  (let picked (link_win.pick (win_ok (& gnu)) (win_ok (& msvc))))
+  (if (== (str.len (& (. picked name))) 0) (ret (fail main "clang, gcc, or cl" "missing")))
+  (if (str.eq (& (. picked name)) "cl")
+    (ret (via_cl bytes out main shared (& msvc) (& (. picked prefix)) dirs needs)))
+  (via_gnu (& (. picked name)) bytes out main shared (& gnu) dirs needs))
 
-(fn add_need ((cmd (&mut str)) (name (& str))) str
-  (if (add_named cmd name) (ret (str.new)))
-  (str.cat name " missing"))
-
-(fn unix_link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str)) (shared bool)) str
+(fn unix_link ((bytes (& str))
+   (out (& str))
+   (target (& str))
+   (main (& str))
+   (shared bool)
+   (dirs (& (vec str)))
+   (needs (& (vec str)))) str
   (let obj (obj_path out false))
   (match (fs.write (& obj) bytes) ((res.err e) (ret (fail main "fs.write" (& e)))) ((res.ok _) ()))
-  (let mut cmd (cc_cmd (& obj) out target shared))
+  (let mut cmd (cc_cmd dirs (& obj) out target shared))
   (if (== (str.len (& cmd)) 0)
     (do (rm (& obj)) (ret (fail main (& (miss_cmd target)) (& (miss_got target))))))
   (let renamed (rename_main (& obj) target))
   (if (!= renamed 0) (do (rm (& obj)) (ret (fail main "llvm-objcopy" (& (str.from_int renamed))))))
-  (let err (attach (&mut cmd) bytes target))
+  (let err (attach (&mut cmd) dirs needs target))
   (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))
-  (if (wants_web bytes)
+  (if (wants_web needs)
     (do
-      (let err (add_web (&mut cmd) ".o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))))
-  (if (want_sym bytes "llr_reload_prev")
-    (do
-      (let err (add_need (&mut cmd) "llr_reload.o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))))
-  (if (want_sym bytes "llr_dlopen")
-    (do
-      (let err (add_need (&mut cmd) "llr_dl.o"))
-      (if (> (str.len (& err)) 0) (do (rm (& obj)) (ret (fail main "cc" (& err)))))
-      (str.push (&mut cmd) (& (link_so.dl_flag (host_darwin) true)))))
+      (let web (add_web (&mut cmd) dirs ".o"))
+      (if (> (str.len (& web)) 0) (do (rm (& obj)) (ret (fail main "cc" (& web)))))))
+  (let extra (add_pair (&mut cmd) dirs needs ".o"))
+  (if (> (str.len (& extra)) 0) (do (rm (& obj)) (ret (fail main "cc" (& extra)))))
+  (if (vec.has needs "llr_dlopen") (str.push (&mut cmd) (& (link_so.dl_flag (host_darwin) true))))
   (let code (os.shell (& cmd)))
   (rm (& obj))
   (if (== code 0) (str.new) (fail main (& cmd) (& (str.from_int code)))))
 
-(pub (fn link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str)) (shared bool)) str
-  (if (is_win target) (ret (via_win bytes out main shared)))
-  (unix_link bytes out target main shared)))
+(pub (fn link ((bytes (& str)) (out (& str)) (target (& str)) (main (& str)) (shared bool) (needs (& (vec str)))) str
+  (let dirs (runtime_dirs))
+  (if (is_win target) (ret (via_win bytes out main shared (& dirs) needs)))
+  (unix_link bytes out target main shared (& dirs) needs)))
 
 (test wants_ui_name
-  (assert (wants_ui "xxllr_ui_openyy"))
-  (assert (not (wants_ui "llr_stat")))
-  (assert (wants_web "llr_web_present"))
-  (assert (not (wants_web "llr_ui_open"))))
+  (let mut n (vec.new <str>))
+  (vec.push (&mut n) (str.from "llr_ui_open"))
+  (assert (wants_ui (& n)))
+  (assert (not (wants_web (& n))))
+  (vec.push (&mut n) (str.from "llr_web_present"))
+  (assert (wants_web (& n)))
+  (assert (not (wants_ui (& (vec.new <str>)))))
+  (let mut r (vec.new <str>))
+  (vec.push (&mut r) (str.from "llr_reload_set_bad"))
+  (assert (wants_reload (& r)))
+  (assert (not (wants_reload (& (vec.new <str>))))))
 
 (test mach_a64
   (assert_eq (mach_a64 "arm64") true)
@@ -424,7 +481,8 @@
   (assert_eq (mach_a64 "Darwin") false))
 
 (test and_shared
-  (let c (and_cmd "ndk-clang" "a.o" "a.so" "aarch64-linux-android"))
+  (let dirs (runtime_dirs))
+  (let c (and_cmd (& dirs) "ndk-clang" "a.o" "a.so" "aarch64-linux-android"))
   (assert (str.has (& c) "ndk-clang"))
   (assert (str.has (& c) "-shared"))
   (assert (str.has (& c) "a.o"))

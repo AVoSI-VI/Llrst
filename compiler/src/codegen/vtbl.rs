@@ -3,7 +3,7 @@ use super::func::{mf, FnCx, Val};
 use super::Codegen;
 use crate::diag::PResult;
 use crate::mir::{Operand, Place};
-use crate::traitres::{abi_sig, impl_of};
+use crate::traitres::{abi_sig, impl_of, impl_subst};
 use crate::ty::{DefId, Ty};
 use cranelift_codegen::ir::{InstBuilder, Value};
 use cranelift_module::{DataDescription, DataId, Linkage, Module};
@@ -16,8 +16,9 @@ impl<'a> Codegen<'a> {
             return *id;
         }
         let methods = impl_of(self.prog, tr, ty).expect("vtable").clone();
+        let args = impl_subst(self.prog, tr, ty);
         let mut fns = vec![self.drop_glue(ty)];
-        fns.extend(methods.iter().map(|d| self.func_id(&(*d, Vec::new()))));
+        fns.extend(methods.iter().map(|d| self.func_id(&(*d, args.clone()))));
         let mut h = DefaultHasher::new();
         tr.hash(&mut h);
         ty.hash(&mut h);

@@ -14,7 +14,7 @@
 (pub (fn emit_main ((g (&mut cg_mod.cg)) (entry i64)) unit
   (let sym (elf.add_sym (&mut (. g obj)) "main" elf.global elf.st_func elf.sec_text 0 0))
   (let mut b (cg_isa.new_code))
-  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win) (. (. g isa) rv)))
   (cg_isa.prologue (&mut b) (& hw))
   (if (. g win) (cg_isa.sub_ri (&mut b) (& hw) 8 cg_isa.sp 32))
   (cg_isa.widen (&mut b) (& hw) cg_isa.acc (cg_isa.arg_i 0) 8 4 true)
@@ -31,7 +31,7 @@
 (pub (fn emit_tests ((g (&mut cg_mod.cg)) (names (& (vec str))) (fns (& (vec i64))) (run i64) (done i64)) i64
   (let sym (elf.add_sym (&mut (. g obj)) "llr_test_entry" elf.local elf.st_func elf.sec_text 0 0))
   (let mut b (cg_isa.new_code))
-  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win) (. (. g isa) rv)))
   (cg_isa.prologue (&mut b) (& hw))
   (cg_isa.sub_ri (&mut b) (& hw) 8 cg_isa.sp (if (. g win) 48 16))
   (cg_isa.zero (&mut b) (& hw) cg_isa.acc)
@@ -46,7 +46,7 @@
   sym))
 
 (fn one_test ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (name (& str)) (fnsym i64) (run i64)) unit
-  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win)))
+  (let hw (cg_isa.isa (. (. g isa) a64) (. (. g isa) win) (. (. g isa) rv)))
   (cg_isa.sym_addr b (& hw) (cg_isa.arg_i 0) (cg_mod.str_sym g name))
   (cg_isa.sym_addr b (& hw) (cg_isa.arg_i 1) fnsym)
   (cg_isa.call_sym b (& hw) run)

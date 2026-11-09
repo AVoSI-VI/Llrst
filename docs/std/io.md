@@ -14,7 +14,10 @@ Source: `std/io.llr`. Import with `(use std.io)` for module functions; types and
 | `io.eputs` | `((s (& str)))` | `unit` |
 | `io.read_fd` | `((fd i32))` | `str` |
 | `io.stdin` | `()` | `str` |
+| `io.read_line` | `((fd i32))` | `(opt str)` |
+| `io.lines` | `((fd i32))` | `(vec str)` |
+| `io.read_exact` | `((fd i32) (n i64))` | `str` |
 
 ## Tests
 
-`io_streams`
+`io_streams`, `io_lines`, `io_exact`

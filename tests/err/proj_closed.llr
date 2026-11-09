@@ -1,0 +1,3 @@
+(use proj.closed.api)
+
+(fn main () unit (api.hidden))

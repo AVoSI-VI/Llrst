@@ -1,0 +1,127 @@
+;; Wall clock, monotonic clock, sleep, and UTC calendar dates.
+(use std.sys)
+
+(pub (struct date
+  (pub (year i64))
+  (pub (month i64))
+  (pub (day i64))
+  (pub (hour i64))
+  (pub (min i64))
+  (pub (sec i64))
+  (pub (ms i64))))
+
+(pub (fn now_ms () i64 (sys.llr_now_ms)))
+
+(pub (fn mono_ms () i64 (sys.llr_mono_ms)))
+
+(pub (fn sleep_ms ((ms i64)) unit (sys.llr_sleep_ms ms)))
+
+;; Howard Hinnant's civil_from_days. days is the count since 1970-01-01.
+(fn ymd ((days i64)) date
+  (let z (+ days 719468))
+  (let era (if (>= z 0) (/ z 146097) (/ (- z 146096) 146097)))
+  (let doe (- z (* era 146097)))
+  (let yoe (/ (- (+ (- doe (/ doe 1460)) (/ doe 36524)) (/ doe 146096)) 365))
+  (let mut y (+ yoe (* era 400)))
+  (let doy (- doe (- (+ (* 365 yoe) (/ yoe 4)) (/ yoe 100))))
+  (let mp (/ (+ (* 5 doy) 2) 153))
+  (let d (+ (- doy (/ (+ (* 153 mp) 2) 5)) 1))
+  (let m (if (< mp 10) (+ mp 3) (- mp 9)))
+  (if (<= m 2) (set y (+ y 1)))
+  (date y m d 0 0 0 0))
+
+(pub (fn utc ((ms i64)) date
+  (let day 86400000)
+  (let mut days (/ ms day))
+  (let mut tod (% ms day))
+  (if (< tod 0) (do (set days (- days 1)) (set tod (+ tod day))))
+  (let mut d (ymd days))
+  (set (. d hour) (/ tod 3600000))
+  (set (. d min) (/ (% tod 3600000) 60000))
+  (set (. d sec) (/ (% tod 60000) 1000))
+  (set (. d ms) (% tod 1000))
+  d))
+
+(fn pad ((n i64) (w i64)) str
+  (let s (str.from_int n))
+  (let mut o (str.new))
+  (for i 0 (- w (str.len (& s))) (str.push_byte (&mut o) 48u8))
+  (str.push (&mut o) (& s))
+  o)
+
+(pub (fn iso8601 ((d (& date))) str
+  (let mut s (pad (. d year) 4))
+  (str.push_byte (&mut s) 45u8)
+  (str.push (&mut s) (& (pad (. d month) 2)))
+  (str.push_byte (&mut s) 45u8)
+  (str.push (&mut s) (& (pad (. d day) 2)))
+  (str.push_byte (&mut s) 84u8)
+  (str.push (&mut s) (& (pad (. d hour) 2)))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (pad (. d min) 2)))
+  (str.push_byte (&mut s) 58u8)
+  (str.push (&mut s) (& (pad (. d sec) 2)))
+  (str.push_byte (&mut s) 46u8)
+  (str.push (&mut s) (& (pad (. d ms) 3)))
+  (str.push_byte (&mut s) 90u8)
+  s))
+
+(fn digs ((s (& str)) (i i64) (n i64)) (opt i64)
+  (let mut v 0)
+  (for k 0 n
+    (let b (str.at s (+ i k)))
+    (if (or (< b 48u8) (> b 57u8)) (ret (opt.none)))
+    (set v (+ (* v 10) (as i64 (- b 48u8)))))
+  (opt.some v))
+
+(fn mark ((s (& str)) (i i64) (b u8)) bool (== (str.at s i) b))
+
+(pub (fn parse_iso ((s (& str))) (opt date)
+  (if (!= (str.len s) 24) (ret (opt.none)))
+  (if (not (and (mark s 4 45u8) (mark s 7 45u8))) (ret (opt.none)))
+  (if (not (and (mark s 10 84u8) (mark s 13 58u8))) (ret (opt.none)))
+  (if (not (and (mark s 16 58u8) (mark s 19 46u8))) (ret (opt.none)))
+  (if (not (mark s 23 90u8)) (ret (opt.none)))
+  (let y (match (digs s 0 4) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let mo (match (digs s 5 2) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let d (match (digs s 8 2) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let h (match (digs s 11 2) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let mi (match (digs s 14 2) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let se (match (digs s 17 2) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (let ms (match (digs s 20 3) ((opt.some n) n) ((opt.none) (ret (opt.none)))))
+  (opt.some (date y mo d h mi se ms))))
+
+(test time_epoch
+  (let d (utc 0))
+  (assert_eq (. d year) 1970)
+  (assert_eq (. d month) 1)
+  (assert_eq (. d day) 1)
+  (assert_eq (. d hour) 0)
+  (assert_eq (& (iso8601 (& d))) "1970-01-01T00:00:00.000Z")
+  (let back (utc (neg 1)))
+  (assert_eq (& (iso8601 (& back))) "1969-12-31T23:59:59.999Z")
+  (match (parse_iso "1970-01-02T03:04:05.006Z")
+    ((opt.some p)
+      (do
+        (assert_eq (. p year) 1970)
+        (assert_eq (. p month) 1)
+        (assert_eq (. p day) 2)
+        (assert_eq (. p hour) 3)
+        (assert_eq (. p min) 4)
+        (assert_eq (. p sec) 5)
+        (assert_eq (. p ms) 6)))
+    ((opt.none) (assert false)))
+  (match (parse_iso "nope") ((opt.some _) (assert false)) ((opt.none) (assert true))))
+
+(test time_clock
+  (let wall (now_ms))
+  (assert (> wall 1700000000000))
+  (assert (< wall 2200000000000))
+  (let t0 (mono_ms))
+  (sleep_ms 1)
+  (let t1 (mono_ms))
+  (assert (>= t1 t0))
+  (assert (< (- t1 t0) 5000))
+  (if false (drop (pad 1 2)))
+  (if false (drop (digs "1" 0 1)))
+  (if false (drop (ymd 0))))

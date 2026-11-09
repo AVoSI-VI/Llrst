@@ -96,6 +96,7 @@
   (if (== (. r kind) 3u8) (ret (pre "neg " (op_txt (vec.get (& (. r ops)) 0)))))
   (if (== (. r kind) 4u8) (ret (pre "wneg " (op_txt (vec.get (& (. r ops)) 0)))))
   (if (== (. r kind) 5u8) (ret (pre "not " (op_txt (vec.get (& (. r ops)) 0)))))
+  (if (== (. r kind) 21u8) (ret (pre "bnot " (op_txt (vec.get (& (. r ops)) 0)))))
   (if (== (. r kind) 6u8) (ret (cast_txt r)))
   (if (== (. r kind) 7u8) (ret (agg_txt r "{" "}")))
   (if (== (. r kind) 8u8) (ret (var_txt r)))

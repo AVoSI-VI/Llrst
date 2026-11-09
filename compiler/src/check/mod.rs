@@ -1,10 +1,12 @@
 //! Type checker. Checks one function instance at a time against concrete type args and
 //! produces THIR. Generic bodies are checked per instantiation.
+mod assert;
 mod call;
 mod clos;
 mod expr;
 mod pat;
 mod traits;
+mod try_from;
 mod zonk;
 
 use crate::ast;
@@ -25,7 +27,8 @@ pub struct Checker<'a> {
     scopes: Vec<HashMap<String, LocalId>>,
     infer: Vec<Option<Ty>>,
     infer_int: Vec<bool>,
-    loop_depth: u32,
+    /// Innermost loop last. `None` is `while`, `for`, or an unlabeled `loop`.
+    loop_labels: Vec<Option<String>>,
     in_clos: bool,
     pub sm: &'a SourceMap,
 }
@@ -44,7 +47,7 @@ pub fn check_fn<'a>(prog: &'a Program, diags: &'a Diags, sm: &'a SourceMap, def:
         scopes: vec![HashMap::new()],
         infer: Vec::new(),
         infer_int: Vec::new(),
-        loop_depth: 0,
+        loop_labels: Vec::new(),
         in_clos: false,
         sm,
     };
@@ -71,7 +74,7 @@ pub fn check_test<'a>(prog: &'a Program, diags: &'a Diags, sm: &'a SourceMap, mo
         scopes: vec![HashMap::new()],
         infer: Vec::new(),
         infer_int: Vec::new(),
-        loop_depth: 0,
+        loop_labels: Vec::new(),
         in_clos: false,
         sm,
     };
@@ -209,13 +212,35 @@ impl<'a> Checker<'a> {
     }
 
     pub fn in_loop(&self) -> bool {
-        self.loop_depth > 0
+        !self.loop_labels.is_empty()
     }
-    pub fn enter_loop(&mut self) {
-        self.loop_depth += 1;
+    pub fn enter_loop(&mut self, label: Option<String>, sp: Span) -> PResult<()> {
+        if let Some(name) = &label {
+            if self.loop_labels.iter().any(|l| l.as_deref() == Some(name.as_str())) {
+                return Err(Diag::error(sp, "flow.label_dup").kv("name", name.clone()));
+            }
+        }
+        self.loop_labels.push(label);
+        Ok(())
     }
     pub fn exit_loop(&mut self) {
-        self.loop_depth -= 1;
+        self.loop_labels.pop();
+    }
+    /// `None` is the innermost loop. A name walks outward to `(loop NAME ...)`.
+    pub fn jump_up(&self, label: &Option<String>, sp: Span) -> PResult<u32> {
+        if self.loop_labels.is_empty() {
+            return Err(Diag::error(sp, "flow.brk_outside"));
+        }
+        match label {
+            None => Ok(0),
+            Some(name) => self
+                .loop_labels
+                .iter()
+                .rev()
+                .position(|l| l.as_deref() == Some(name.as_str()))
+                .map(|i| i as u32)
+                .ok_or_else(|| Diag::error(sp, "flow.label").kv("name", name.clone())),
+        }
     }
 
     // ----- bodies -----
@@ -313,4 +338,45 @@ pub fn is_stmt(e: &Expr) -> bool {
         e.kind,
         ExprKind::Let { .. } | ExprKind::Assign { .. } | ExprKind::While { .. } | ExprKind::For { .. }
     ) || (matches!(e.kind, ExprKind::Loop(_)) && !matches!(e.ty, Ty::Never))
+}
+
+/// True when a `brk` targets the loop `depth` levels out. `0` is the loop whose body this is.
+pub(crate) fn loop_breaks(e: &Expr, depth: u32) -> bool {
+    match &e.kind {
+        ExprKind::Break(up) => *up == depth,
+        ExprKind::While { cond, body } => loop_breaks(cond, depth) || loop_breaks(body, depth + 1),
+        ExprKind::Loop(body) => loop_breaks(body, depth + 1),
+        ExprKind::For { lo, hi, step, body, .. } => {
+            loop_breaks(lo, depth)
+                || loop_breaks(hi, depth)
+                || step.as_ref().is_some_and(|s| loop_breaks(s, depth))
+                || loop_breaks(body, depth + 1)
+        }
+        ExprKind::Block(items) => items.iter().any(|x| loop_breaks(x, depth)),
+        ExprKind::Let { init, .. } => init.as_ref().is_some_and(|x| loop_breaks(x, depth)),
+        ExprKind::Assign { place, value } => loop_breaks(place, depth) || loop_breaks(value, depth),
+        ExprKind::If { cond, then, els } => {
+            loop_breaks(cond, depth) || loop_breaks(then, depth) || els.as_ref().is_some_and(|x| loop_breaks(x, depth))
+        }
+        ExprKind::Match { scrut, arms, .. } => {
+            loop_breaks(scrut, depth)
+                || arms.iter().any(|a| a.guard.as_ref().is_some_and(|g| loop_breaks(g, depth)) || loop_breaks(&a.body, depth))
+        }
+        ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => {
+            args.iter().any(|x| loop_breaks(x, depth))
+        }
+        ExprKind::Ref { place: x, .. }
+        | ExprKind::Deref(x)
+        | ExprKind::Field { base: x, .. }
+        | ExprKind::Cast(x)
+        | ExprKind::Neg(x)
+        | ExprKind::WNeg(x)
+        | ExprKind::BNot(x)
+        | ExprKind::Not(x) => loop_breaks(x, depth),
+        ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => loop_breaks(l, depth) || loop_breaks(r, depth),
+        ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } | ExprKind::BoxPack { data: x, .. } | ExprKind::DynPack { data: x, .. } => {
+            loop_breaks(x, depth)
+        }
+        _ => false,
+    }
 }

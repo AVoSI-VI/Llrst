@@ -1,4 +1,5 @@
 ;; Semantics tree. Rects come from render objects after layout. An explicit node hides or parents its subtree.
+(use std.fmt)
 (use ui.anim)
 (use ui.blend)
 (use ui.ctx)
@@ -252,50 +253,39 @@
     (set n (+ n 1)))
   false)
 
-(fn emit_text ((es (& element.elems))
-   (rt (& render.rtree))
-   (id u32)
-   (parent i64)
-   (nodes (&mut (vec node)))) unit
+(fn emit_text ((es (& element.elems)) (rt (& render.rtree)) (id u32) (parent i64) (nodes (&mut (vec node)))) unit
   (let lab (text_of es rt id))
   (if (== (str.len (& lab)) 0) (ret))
   (if (same_label nodes parent (& lab)) (ret))
   (let r (box_of es rt id))
   (drop (push_node nodes parent role_text lab (str.new) 0 0 (& r) (opt.none <u32>) id)))
 
-(fn emit_image ((es (& element.elems))
-   (rt (& render.rtree))
-   (id u32)
-   (parent i64)
-   (nodes (&mut (vec node)))) unit
+(fn emit_image ((es (& element.elems)) (rt (& render.rtree)) (id u32) (parent i64) (nodes (&mut (vec node)))) unit
   (if (not (image_at es rt id)) (ret))
   (let r (box_of es rt id))
   (drop (push_node nodes parent role_image (str.new) (str.new) 0 0 (& r) (opt.none <u32>) id)))
 
-(fn emit_gesture ((es (& element.elems))
-   (rt (& render.rtree))
-   (id u32)
-   (parent i64)
-   (nodes (&mut (vec node)))) unit
+(fn emit_gesture ((es (& element.elems)) (rt (& render.rtree)) (id u32) (parent i64) (nodes (&mut (vec node)))) unit
   (if (or (>= parent 0) (not (gestured es rt id))) (ret))
   (let r (box_of es rt id))
-  (drop (push_node nodes parent role_button (str.new) (str.new) flag_focus act_tap (& r) (opt.some id) id)))
+  (drop (push_node nodes
+     parent
+     role_button
+     (str.new)
+     (str.new)
+     flag_focus
+     act_tap
+     (& r)
+     (opt.some id)
+     id)))
 
-(fn emit_default ((es (& element.elems))
-   (rt (& render.rtree))
-   (id u32)
-   (parent i64)
-   (nodes (&mut (vec node)))) unit
+(fn emit_default ((es (& element.elems)) (rt (& render.rtree)) (id u32) (parent i64) (nodes (&mut (vec node)))) unit
   (let ty (element.ty_at es id))
   (if (== ty widget.ty_text) (ret (emit_text es rt id parent nodes)))
   (if (== ty widget.ty_image) (ret (emit_image es rt id parent nodes)))
   (if (== ty widget.ty_gesture) (emit_gesture es rt id parent nodes)))
 
-(fn visit ((es (& element.elems))
-   (rt (& render.rtree))
-   (id u32)
-   (parent i64)
-   (nodes (&mut (vec node)))) unit
+(fn visit ((es (& element.elems)) (rt (& render.rtree)) (id u32) (parent i64) (nodes (&mut (vec node)))) unit
   (if (not (element.live_at es id)) (ret))
   (let a (ann_at es id))
   (if (. a on) (ret (emit_on es rt id parent (& a) nodes)))
@@ -314,8 +304,7 @@
   (let hide (. a hide))
   (let r (span es rt id))
   (let hit (find_hit es rt id))
-  (let nid
-    (push_node nodes parent (. a role) lab val (. a flags) (. a actions) (& r) hit id))
+  (let nid (push_node nodes parent (. a role) lab val (. a flags) (. a actions) (& r) hit id))
   (if hide (ret))
   (let ks (element.kids_at es id))
   (for i 0 (vec.len (& ks)) (visit es rt (@ (vec.get (& ks) i)) (as i64 nid) nodes)))
@@ -325,34 +314,17 @@
   (visit es rt root no_parent (&mut nodes))
   (tree nodes)))
 
-(fn fmt_f ((x f32)) str
-  (let mut n (as i64 (* (as f64 x) 1000.0)))
-  (let mut neg false)
-  (if (< n 0) (do (set neg true) (set n (neg n))))
-  (let ip (/ n 1000))
-  (let fp (% n 1000))
-  (let mut s (str.new))
-  (if neg (str.push_byte (&mut s) 45u8))
-  (str.push (&mut s) (& (str.from_int ip)))
-  (str.push_byte (&mut s) 46u8)
-  (if (< fp 100) (str.push_byte (&mut s) 48u8))
-  (if (< fp 10) (str.push_byte (&mut s) 48u8))
-  (str.push (&mut s) (& (str.from_int fp)))
-  s)
-
-(fn pipe ((s (&mut str)) (t (& str))) unit
-  (str.push_byte s 124u8)
-  (str.push s t))
+(fn pipe ((s (&mut str)) (t (& str))) unit (str.push_byte s 124u8) (str.push s t))
 
 (fn line_of ((n (& node))) str
   (let mut s (str.from "sem|"))
   (str.push (&mut s) (& (str.from_int (as i64 (. n id)))))
   (pipe (&mut s) (role_name (. n role)))
   (pipe (&mut s) (& (. n label)))
-  (pipe (&mut s) (& (fmt_f (. n x))))
-  (pipe (&mut s) (& (fmt_f (. n y))))
-  (pipe (&mut s) (& (fmt_f (. n w))))
-  (pipe (&mut s) (& (fmt_f (. n h))))
+  (pipe (&mut s) (& (fmt.float (as f64 (. n x)) 3)))
+  (pipe (&mut s) (& (fmt.float (as f64 (. n y)) 3)))
+  (pipe (&mut s) (& (fmt.float (as f64 (. n w)) 3)))
+  (pipe (&mut s) (& (fmt.float (as f64 (. n h)) 3)))
   s)
 
 (fn add_line ((s (&mut str)) (line str)) unit
@@ -367,9 +339,7 @@
 
 (pub (fn find ((t (& tree)) (id i64)) i64
   (let n (vec.len (& (. t nodes))))
-  (for i 0 n
-    (let cur (vec.get (& (. t nodes)) i))
-    (if (== (as i64 (. cur id)) id) (ret i)))
+  (for i 0 n (let cur (vec.get (& (. t nodes)) i)) (if (== (as i64 (. cur id)) id) (ret i)))
   (neg 1)))
 
 (fn put_u32 ((b (&mut (vec u8))) (n i64)) unit

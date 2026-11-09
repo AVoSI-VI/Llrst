@@ -52,7 +52,7 @@
 (fn opt_i ((c (& cli.cli)) (name (& str)) (cur i64)) i64
   (let s (cli.get c name))
   (if (== (str.len s) 0) (ret cur))
-  (match (str.to_int s) ((opt.some n) n) ((opt.none) cur)))
+  (opt.or (str.to_int s) cur))
 
 (fn apply ((self (&mut host_null)) (c (& cli.cli))) unit
   (let shot (cli.get c "shot"))

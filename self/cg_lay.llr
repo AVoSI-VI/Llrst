@@ -1,6 +1,7 @@
 ;; Sizes and field offsets. Aggregates match codegen/layout.rs.
 (use proj.prog)
 (use proj.ty)
+(use std.map)
 
 (pub (struct lay
   (pub (size i64))
@@ -8,11 +9,11 @@
   (pub (fields (vec i64)))
   (pub (vars (vec (vec i64))))))
 
-(pub (struct lays (keys (vec ty.sty)) (vals (vec lay))))
+(pub (struct lays (keys (vec ty.sty)) (vals (vec lay)) (lmap (map i64 (vec i64)))))
 
 (pub (struct seqr (pub (size i64)) (pub (align i64)) (pub (offs (vec i64)))))
 
-(pub (fn new () lays (lays (vec.new <ty.sty>) (vec.new <lay>))))
+(pub (fn new () lays (lays (vec.new <ty.sty>) (vec.new <lay>) (map.new <i64 (vec i64) >))))
 
 (pub (fn align_up ((x i64) (a i64)) i64 (if (<= a 1) (ret x)) (* (/ (+ x (- a 1)) a) a)))
 
@@ -43,30 +44,66 @@
 
 (fn empty ((n i64) (a i64)) lay (lay n a (vec.new <i64>) (vec.new < (vec i64) >)))
 
-(fn find ((ls (& lays)) (t (& ty.sty))) i64
-  (for i 0 (vec.len (& (. ls keys))) (if (ty.eq (vec.get (& (. ls keys)) i) t) (ret i)))
+(fn find_eq ((keys (& (vec ty.sty))) (t (& ty.sty)) (xs (& (vec i64)))) i64
+  (for i 0 (vec.len xs) (let at (@ (vec.get xs i))) (if (ty.eq (vec.get keys at) t) (ret at)))
   (neg 1))
 
-(pub (fn of ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
-  (let hit (find ls t))
-  (if (>= hit 0) (ret (clone_lay (vec.get (& (. ls vals)) hit))))
-  (let l (compute ls p t))
-  (vec.push (&mut (. ls keys)) (ty.clone t))
-  (vec.push (&mut (. ls vals)) (clone_lay (& l)))
-  l))
+(fn find ((ls (& lays)) (t (& ty.sty))) i64
+  (let key (ty.hash t))
+  (match (map.get (& (. ls lmap)) (& key))
+    ((opt.none) (neg 1))
+    ((opt.some xs) (find_eq (& (. ls keys)) t xs))))
 
-(pub (fn size ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) i64 (. (of ls p t) size)))
+(fn push_ix ((slot (opt (&mut (vec i64)))) (at i64)) unit
+  (match slot ((opt.some xs) (vec.push xs at)) ((opt.none) ())))
+
+(fn note ((ls (&mut lays)) (key i64) (at i64)) unit
+  (if (map.has (& (. ls lmap)) (& key)) (ret (push_ix (map.get_mut (&mut (. ls lmap)) (& key)) at)))
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) at)
+  (map.put (&mut (. ls lmap)) key v))
+
+(pub (fn of_idx ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) i64
+  (let hit (find ls t))
+  (if (>= hit 0) (ret hit))
+  (let l (compute ls p t))
+  (let at (vec.len (& (. ls keys))))
+  (let key (ty.hash t))
+  (vec.push (&mut (. ls keys)) (ty.clone t))
+  (vec.push (&mut (. ls vals)) l)
+  (note ls key at)
+  at))
+
+(pub (fn size_at ((ls (& lays)) (i i64)) i64 (. (vec.get (& (. ls vals)) i) size)))
+
+(pub (fn align_at ((ls (& lays)) (i i64)) i64 (. (vec.get (& (. ls vals)) i) align)))
+
+(pub (fn field_at ((ls (& lays)) (i i64) (n i64)) i64
+  (@ (vec.get (& (. (vec.get (& (. ls vals)) i) fields)) n))))
+
+(pub (fn var_at ((ls (& lays)) (i i64) (variant i64) (n i64)) i64
+  (@ (vec.get (vec.get (& (. (vec.get (& (. ls vals)) i) vars)) variant) n))))
+
+(pub (fn of ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
+  (let i (of_idx ls p t))
+  (clone_lay (vec.get (& (. ls vals)) i))))
+
+(pub (fn size ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) i64
+  (let i (of_idx ls p t))
+  (size_at ls i)))
 
 (pub (fn seq ((ls (&mut lays)) (p (& prog.prog)) (tys (& (vec ty.sty))) (start i64)) seqr
   (let mut off start)
   (let mut al 1)
   (let mut offs (vec.new <i64>))
   (for i 0 (vec.len tys)
-    (let l (of ls p (vec.get tys i)))
-    (set off (align_up off (. l align)))
+    (let ix (of_idx ls p (vec.get tys i)))
+    (let sz (size_at ls ix))
+    (let la (align_at ls ix))
+    (set off (align_up off la))
     (vec.push (&mut offs) off)
-    (set off (+ off (. l size)))
-    (if (> (. l align) al) (set al (. l align))))
+    (set off (+ off sz))
+    (if (> la al) (set al la)))
   (seqr (align_up off al) al offs)))
 
 (fn compute ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
@@ -123,8 +160,9 @@
   (for i 0 (vec.len (& (. d svars)))
     (let tys (field_tys d args i))
     (for j 0 (vec.len (& tys))
-      (let l (of ls p (vec.get (& tys) j)))
-      (if (> (. l align) al) (set al (. l align)))))
+      (let ix (of_idx ls p (vec.get (& tys) j)))
+      (let la (align_at ls ix))
+      (if (> la al) (set al la))))
   al)
 
 (fn field_tys ((d (& prog.def)) (args (& (vec ty.sty))) (variant i64)) (vec ty.sty)
@@ -143,14 +181,11 @@
   (for i 0 (vec.len (& (. v tys))) (vec.push (&mut o) (ty.subst (vec.get (& (. v tys)) i) args)))
   o)
 
-(fn clone_offs ((v (& (vec i64)))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_offs ((v (& (vec i64)))) (vec i64) (vec.clone v))
 
 (fn clone_vars ((v (& (vec (vec i64))))) (vec (vec i64))
   (let mut o (vec.new < (vec i64) >))
-  (for i 0 (vec.len v) (vec.push (&mut o) (clone_offs (vec.get v i))))
+  (for i 0 (vec.len v) (vec.push (&mut o) (vec.clone (vec.get v i))))
   o)
 
 (fn clone_lay ((l (& lay))) lay
@@ -200,4 +235,9 @@
   (let l (of (&mut ls) (& p) (& (ty.adt id (vec.new <ty.sty>)))))
   (assert_eq (. l size) 16)
   (assert_eq (. l align) 8)
-  (assert_eq (@ (vec.get (vec.get (& (. l vars)) 0) 0)) 8))
+  (assert_eq (@ (vec.get (vec.get (& (. l vars)) 0) 0)) 8)
+  (let again (of_idx (&mut ls) (& p) (& (ty.adt id (vec.new <ty.sty>)))))
+  (let third (of_idx (&mut ls) (& p) (& (ty.adt id (vec.new <ty.sty>)))))
+  (assert_eq again third)
+  (assert_eq (size_at (& ls) again) (. l size))
+  (assert_eq (var_at (& ls) again 0 0) 8))

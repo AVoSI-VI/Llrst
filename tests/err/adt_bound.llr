@@ -1,0 +1,5 @@
+(struct box2 <T:Eq> (n T))
+
+(struct nope (x i64))
+
+(fn main () unit (drop (box2 (nope 1))))

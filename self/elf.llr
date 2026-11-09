@@ -1,10 +1,11 @@
 ;; ELF64 relocatable writer: text, data, rodata, bss, symtab, strtab.
 ;; PC32, PLT32, and 64 are RELA. new inserts the null symbol, so the first
 ;; add_sym index is 1. Encoder disp32 slots are zeros, so PC32 and PLT32 addends are -4.
-;; e_machine is 62 or 183. AArch64 encoder kinds share numbers with x86-64, so the
-;; machine selects the relocation type and forces addend 0.
+;; e_machine is 62, 183, or 243. Encoder kinds share numbers, so the machine
+;; selects the relocation type. AArch64 and RISC-V addends stay 0.
 (use proj.a64_buf)
 (use proj.elf_out)
+(use proj.rv_buf)
 (use proj.x64_buf)
 (use proj.x64_int)
 (use std.fs)
@@ -22,6 +23,8 @@
 (pub (const sec_rodata i64 3))
 
 (pub (const sec_bss i64 4))
+
+(pub (const sec_line i64 5))
 
 (pub (const local i64 0))
 
@@ -42,6 +45,16 @@
 (pub (const mach_x64 i64 62))
 
 (pub (const mach_a64 i64 183))
+
+(pub (const mach_rv i64 243))
+
+(pub (const rv64 i64 2))
+
+(pub (const rv_call i64 19))
+
+(pub (const rv_hi i64 23))
+
+(pub (const rv_lo i64 24))
 
 (pub (const a64_abs i64 257))
 
@@ -95,15 +108,22 @@
   (if (== k a64_buf.abs64) (ret a64_abs))
   0)
 
+(fn enc_rv ((k i64)) i64
+  (if (== k rv_buf.callplt) (ret rv_call))
+  (if (== k rv_buf.pcrel_hi) (ret rv_hi))
+  (if (== k rv_buf.abs64) (ret rv64))
+  0)
+
 (pub (fn enc_kind ((k i64) (mach i64)) i64
   (if (== mach mach_a64) (ret (enc_a64 k)))
+  (if (== mach mach_rv) (ret (enc_rv k)))
   (if (== k x64_buf.abs64) (ret abs64))
   (if (== k x64_buf.pc32) (ret pc32))
   (if (== k x64_buf.plt32) (ret plt32))
   0))
 
 (pub (fn enc_addend ((k i64) (mach i64)) i64
-  (if (== mach mach_a64) (ret 0))
+  (if (or (== mach mach_a64) (== mach mach_rv)) (ret 0))
   (if (== k x64_buf.abs64) 0 (neg 4))))
 
 (pub (fn add_enc ((o (&mut obj)) (sec i64) (at i64) (kind i64) (sym i64)) unit
@@ -150,12 +170,22 @@
     (if (== (. r sec) sec) (emit_rel (&mut out) r map)))
   out)
 
+(fn rels_of_vec ((rels (& (vec rela))) (map (& (vec i64)))) (vec u8)
+  (let mut out (vec.new <u8>))
+  (for i 0 (vec.len rels) (emit_rel (&mut out) (vec.get rels i) map))
+  out)
+
 (fn clone_bytes ((src (& (vec u8)))) (vec u8)
-  (let mut d (vec.new <u8>))
-  (for i 0 (vec.len src) (vec.push (&mut d) (@ (vec.get src i))))
-  d)
+  (let mut o (vec.new <u8>))
+  (elf_out.copy (&mut o) src)
+  o)
 
 (pub (fn bytes ((o (& obj))) str
+  (let line (vec.new <u8>))
+  (let rel (vec.new <rela>))
+  (bytes_line o (& line) (& rel))))
+
+(pub (fn bytes_line ((o (& obj)) (line (& (vec u8))) (lrel (& (vec rela)))) str
   (let mut ord (vec.new <i64>))
   (let mut map (vec.new <i64>))
   (let info (order o (&mut ord) (&mut map)))
@@ -165,6 +195,7 @@
   (let rt (rels_of o sec_text (& map)))
   (let rd (rels_of o sec_data (& map)))
   (let rr (rels_of o sec_rodata (& map)))
+  (let rl (rels_of_vec lrel (& map)))
   (let p
     (elf_out.parts (clone_bytes (& (. o text)))
       (clone_bytes (& (. o data)))
@@ -176,7 +207,9 @@
       rd
       rr
       info
-      (. o machine)))
+      (. o machine)
+      (clone_bytes line)
+      rl))
   (elf_out.assemble (& p))))
 
 ;; Entered with rsp 8 mod 16. The call needs rsp 0 mod 16.
@@ -224,10 +257,8 @@
 
 (fn cstr_eq ((s (& str)) (at i64) (want (& str))) bool
   (let n (str.len want))
-  (if (> (+ at n) (str.len s)) (ret false))
-  (for i 0 n (if (!= (str.at s (+ at i)) (str.at want i)) (ret false)))
-  (if (>= (+ at n) (str.len s)) (ret false))
-  (== (str.at s (+ at n)) 0u8))
+  (if (>= (+ (+ at n) 1) (str.len s)) (ret false))
+  (and (str.eq (& (str.slice s at (+ at n))) want) (== (str.at s (+ at n)) 0u8)))
 
 (fn name_at ((img (& str)) (i i64)) i64
   (let shstr (sh_u64 img (u_at img 62 2) 24))

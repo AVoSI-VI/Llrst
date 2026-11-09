@@ -6,7 +6,7 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 
 ## Types
 
-- `(struct vec <T> (p (ptr T)) (len i64) (cap i64))`
+- `(struct vec <T> (pub (p (ptr T))) (pub (len i64)) (pub (cap i64)))`
 
 ## Functions
 
@@ -35,7 +35,6 @@ Source: `std/vec.llr`. Import with `(use std.vec)` for module functions; types a
 | `vec.any <T>` | `((self (& (vec T))) (pred (clos ((& T)) bool)))` | `bool` |
 | `vec.find <T>` | `((self (& (vec T))) (pred (clos ((& T)) bool)))` | `(opt i64)` |
 | `vec.sort <T:Ord>` | `((self (&mut (vec T))))` | `unit` |
-| `vec.clone_str` | `((v (& (vec str))))` | `(vec str)` |
 
 ## Tests
 

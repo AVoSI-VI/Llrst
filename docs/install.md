@@ -3,7 +3,7 @@
 Requirements: a Rust toolchain (`cargo`) for stage 0, and a C compiler used only as the linker.
 On Linux or macOS that compiler is `cc`. On Windows it is `cl`.
 Stage 0 is the Rust compiler. The installed `llrc` is stage-2 `llrs`, which emits x86-64
-ELF or COFF and aarch64 ELF or Mach-O.
+ELF, COFF, or Mach-O, aarch64 ELF or Mach-O, and riscv64 ELF.
 
 ```
 scripts/install.sh            # Linux or macOS, installs to ~/.local/{bin,share/llrst}
@@ -26,18 +26,19 @@ script then installs `llrs2` as `llrc`. It copies `std/`, `ui/`, `web/`, and `ex
 The installed compiler links those prebuilt objects. It does not compile the C files when
 the object is missing or older.
 
-`fs.mtime` and `fs.size` link `llr_stat`. `fs.now_ms` links `llr_now`. The C uses `st_mtime` and `st_size`, so the
+`fs.mtime` and `fs.size` link `llr_stat`. `time.now_ms` and `fs.now_ms` link `llr_now`. The C uses `st_mtime` and `st_size`, so the
 layout is whatever the host headers define. On a Mac, the same object translates Linux
 `open` flags, `sockaddr_in`, `EAGAIN`, and `RLIMIT_NOFILE`, and the compiler renames
 `open`, `fcntl`, `bind`, `connect`, `socket`, and `setrlimit` to the `llr_*` definitions
 in that object. A Darwin host link omits `-pie` because Apple clang rejects it. A non-empty
 Unix `--target` links with `clang --target=<triple>` and does not pass `-pie` or `-pthread`.
-An Apple triple uses `xcrun clang -target arm64-apple-macos` or `arm64-apple-ios` with
-`-isysroot` from `xcrun --sdk macosx --show-sdk-path` or `xcrun --sdk iphoneos --show-sdk-path`.
+An Apple triple uses `xcrun clang -target arm64-apple-macos`, `x86_64-apple-macos`, or
+`arm64-apple-ios` with `-isysroot` from `xcrun --sdk macosx --show-sdk-path` or
+`xcrun --sdk iphoneos --show-sdk-path`.
 An Android triple uses `$ANDROID_NDK`'s `aarch64-linux-android21-clang` with `-shared`.
-Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, `x86_64`
-without `apple`, and `aarch64` or `arm64`, including `apple-darwin`. `riscv64` and `s390x`
-stay on stage 0. `tests/run.sh` and
+Triples are listed in `docs/spec/targets.md`. `self/` accepts an empty triple, any
+`x86_64` triple including `apple-darwin`, `riscv64`, and `aarch64` or `arm64`, including
+`apple-darwin`. `s390x` stays on stage 0. `tests/run.sh` and
 `tests/run.ps1` check whichever `llrc` `LLRC` names; stage 0 is `target/release/llrc`. Both
 runners also call `tests/check`, `tests/mir`, `tests/self`, and `tests/cross` against that
 stage 0 binary. When `LLRC` is not stage 0, `tests/run.sh` runs `tests/cross.sh` again with
@@ -69,13 +70,15 @@ that never uses `ui` does not need that directory. The executable path comes fro
 Windows host: `scripts/install.ps1` builds stage 0, then `scripts/self.ps1` builds the three
 `llrs` stages, and installs `llrc.exe`. `.cargo/config.toml` raises the Windows main-thread
 stack so the stage-0 compiles fit. The installed compiler links with `cl` when the `.obj`
-shims are the ones on disk, and passes `/STACK:8388608`. `powershell -File tests\run.ps1`
+shims are the ones on disk, and passes `/STACK:8388608`. A Developer Prompt already has
+`cl` on `PATH`, so the link skips `vcvars64.bat`. `$LLRST_CC` set to `cl`, `clang`, `gcc`,
+or `cc` selects that driver and skips the other probes. `powershell -File tests\run.ps1`
 runs the golden suite. Output paths gain an `.exe` suffix. `/tmp` in programs maps to the
 Windows temp directory. `llrc run` passes the argument vector through `llr_exec`.
 
 ## Commands
 
-Flags may come before or after the subcommand. `version` prints `llrc|0.4.5`.
+Flags may come before or after the subcommand. `version` prints `llrc|0.8.0`.
 
 ```
 usage|llrc build FILE [-o OUT] [--target TRIPLE] [--std DIR] [--ui DIR] [--test] [--emit-obj] [--emit-dylib] [--checked] [--deny CODE]
@@ -90,5 +93,5 @@ usage|llrc version
 instead of a process `main`. `--checked` traps wrapping arithmetic,
 out-of-range shifts, and casts that do not fit. `--deny CODE` may be repeated; each named
 warning is printed as `E` and the process exits 1. `run FILE -- ARGS` passes `ARGS` to the
-program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps every local in a stack slot
-and does not run that optimizer.
+program. Stage 0 sets Cranelift `opt_level=speed`. `llrs` keeps an address-taken local in a
+stack slot and puts other scalar locals in callee-saved registers. It does not run that optimizer.

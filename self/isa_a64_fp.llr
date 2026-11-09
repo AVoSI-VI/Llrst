@@ -3,6 +3,7 @@
 (use proj.a64_fp)
 (use proj.cg_isa)
 (use proj.isa_a64)
+(use std.fmt)
 (use std.str)
 
 (fn f ((r i64)) i64 (isa_a64.fpr r))
@@ -49,18 +50,10 @@
 (pub (fn f2f ((b (&mut a64_buf.buf)) (to_single bool) (dst i64) (src i64)) unit
   (a64_fp.fcvt b to_single (f dst) (f src))))
 
-(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
-
-(fn hex_byte ((s (&mut str)) (x u8)) unit
-  (str.push_byte s (nib (shr x 4u8)))
-  (str.push_byte s (nib (band x 15u8))))
-
-(fn hex ((b (& a64_buf.buf))) str
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit
   (let mut s (str.new))
-  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
-  s)
-
-(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+  (for i 0 (a64_buf.len b) (str.push (&mut s) (& (fmt.hex (as i64 (a64_buf.at b i)) 2))))
+  (assert_eq (& s) want))
 
 (fn fresh () a64_buf.buf (a64_buf.new))
 

@@ -1,0 +1,4 @@
+(fn main () unit
+  (assert_eq (bnot 0) (neg 1))
+  (assert_eq (bnot 0u8) 255u8)
+  (assert_eq (bnot (bnot 5)) 5))

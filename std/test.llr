@@ -28,6 +28,39 @@
 (pub (fn eq_bool ((loc (& str)) (got bool) (want bool)) unit
   (if (!= got want) (fail_eq loc (if got "true" "false") (if want "true" "false")))))
 
+(fn show_f ((x f64)) str (str.from_f64 x 6))
+
+(fn fail_near ((loc (& str)) (got f64) (want f64) (eps f64)) never
+  (let mut m (str.from "assert_near|want="))
+  (str.push (&mut m) (& (show_f want)))
+  (str.push (&mut m) "|got=")
+  (str.push (&mut m) (& (show_f got)))
+  (str.push (&mut m) "|eps=")
+  (str.push (&mut m) (& (show_f eps)))
+  (fail loc (& m)))
+
+(fn fail_ne ((loc (& str)) (got (& str))) never
+  (let mut m (str.from "assert_ne|got="))
+  (str.push (&mut m) got)
+  (fail loc (& m)))
+
+(pub (fn eq_f64 ((loc (& str)) (got f64) (want f64) (eps f64)) unit
+  (let d (- got want))
+  (let a (if (< d 0.0) (neg d) d))
+  (if (> a eps) (fail_near loc got want eps))))
+
+(pub (fn ne_int ((loc (& str)) (got i64) (want i64)) unit
+  (if (== got want) (fail_ne loc (& (str.from_int got))))))
+
+(pub (fn ne_str ((loc (& str)) (got (& str)) (want (& str))) unit
+  (if (str.eq got want) (fail_ne loc got))))
+
+(pub (fn eq_by <T:Eq:Show> ((loc (& str)) (got (& T)) (want (& T))) unit
+  (if (not (Eq.eq got want)) (fail_eq loc (& (Show.show got)) (& (Show.show want))))))
+
+(pub (fn ne_by <T:Eq:Show> ((loc (& str)) (got (& T)) (want (& T))) unit
+  (if (Eq.eq got want) (fail_ne loc (& (Show.show got))))))
+
 ;; Windows cannot fork a Cranelift stack, so each test is a fresh process.
 (fn run_win ((name (& str)) (f (fn () unit))) i64
   (match (os.env "LLR_TEST_CHILD")
@@ -84,6 +117,9 @@
   (eq_int "t|1|1" 1 1)
   (eq_bool "t|1|1" true true)
   (eq_str "t|1|1" "a" "a")
+  (eq_f64 "t|1|1" 1.0 1.0 0.1)
+  (ne_int "t|1|1" 1 2)
+  (ne_str "t|1|1" "a" "b")
   (if false (fail "t|1|1" "x"))
   (if false (fail_eq "t|1|1" "a" "b"))
   (if false (run "nope" nop))

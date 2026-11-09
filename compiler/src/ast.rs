@@ -95,7 +95,8 @@ pub struct TraitDecl {
 #[derive(Clone, Debug)]
 pub struct TraitImpl {
     pub trait_name: String,
-    pub ty_name: String,
+    pub self_ty: TyExpr,
+    pub generics: Generics,
     pub methods: Vec<FnDecl>,
     pub span: Span,
 }
@@ -126,7 +127,7 @@ pub struct TestDecl {
 
 #[derive(Clone, Debug)]
 pub enum Item {
-    Use(Vec<String>, Span),
+    Use(Vec<String>, Span, bool),
     Mod(String, Span),
     Fn(FnDecl),
     Struct(StructDecl),
@@ -175,13 +176,17 @@ pub enum Pat {
     Bind(String, Span),
     Lit(Lit, Span),
     Variant { path: String, subs: Vec<Pat>, span: Span },
+    /// `(or PAT PAT...)`.
+    Or { subs: Vec<Pat>, span: Span },
+    /// Positional `(point x y)`.
+    Struct { path: String, subs: Vec<Pat>, span: Span },
 }
 
 impl Pat {
     pub fn span(&self) -> Span {
         match self {
             Pat::Wild(s) | Pat::Bind(_, s) | Pat::Lit(_, s) => *s,
-            Pat::Variant { span, .. } => *span,
+            Pat::Variant { span, .. } | Pat::Or { span, .. } | Pat::Struct { span, .. } => *span,
         }
     }
 }
@@ -189,6 +194,8 @@ impl Pat {
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
+    /// `(PAT (if EXPR) EXPR)`. Absent on a plain `(PAT EXPR)` arm.
+    pub guard: Option<Expr>,
     pub body: Expr,
 }
 
@@ -207,10 +214,12 @@ pub enum ExprKind {
     Do(Vec<Expr>),
     If { cond: Box<Expr>, then: Box<Expr>, els: Option<Box<Expr>> },
     While { cond: Box<Expr>, body: Vec<Expr> },
-    Loop(Vec<Expr>),
-    For { name: String, lo: Box<Expr>, hi: Box<Expr>, body: Vec<Expr> },
-    Break,
-    Continue,
+    /// `label` is set when a name follows `loop` and a body form follows that name.
+    Loop { label: Option<String>, body: Vec<Expr> },
+    /// `step` is the atom after `hi` when a body form follows it. Absent means `+1`.
+    For { name: String, lo: Box<Expr>, hi: Box<Expr>, step: Option<Box<Expr>>, body: Vec<Expr> },
+    Break(Option<String>),
+    Continue(Option<String>),
     Return(Option<Box<Expr>>),
     Match { scrut: Box<Expr>, arms: Vec<Arm> },
     Ref { mutable: bool, place: Box<Expr> },
@@ -224,12 +233,16 @@ pub enum ExprKind {
     Neg(Box<Expr>),
     /// Negation that always wraps.
     WNeg(Box<Expr>),
+    /// Bitwise complement of an integer.
+    BNot(Box<Expr>),
     Call { callee: String, targs: Vec<TyExpr>, args: Vec<Expr> },
     CallPtr { callee: Box<Expr>, args: Vec<Expr> },
     Try(Box<Expr>),
     Panic(Box<Expr>),
     Assert(Box<Expr>),
     AssertEq(Box<Expr>, Box<Expr>),
+    AssertNe(Box<Expr>, Box<Expr>),
+    AssertNear(Box<Expr>, Box<Expr>, Box<Expr>),
     Sizeof(TyExpr),
     Drop(Box<Expr>),
     Clos { params: Vec<Param>, ret: TyExpr, body: Vec<Expr> },

@@ -18,12 +18,7 @@
 (use ui.w_text)
 (use ui.widget)
 
-(pub (struct edit
-  (pub (text str))
-  (pub (at i64))
-  (pub (mark i64))
-  (pub (on bool))
-  (pub (send bool))))
+(pub (struct edit (pub (text str)) (pub (at i64)) (pub (mark i64)) (pub (on bool)) (pub (send bool))))
 
 (pub (fn edit_new () edit (edit (str.new) 0 0 false false)))
 
@@ -118,29 +113,37 @@
   (if (== (. e kind) state.in_paste) (do (put self (& (. e text))) (ret true)))
   (if (== (. e kind) state.in_key) (ret (on_key self e o)))
   (if (== (. e kind) state.in_focus) (do (set (. self on) true) (ret true)))
-  (if (and (== (. e kind) state.in_flush) (. self send)) (do (set (. self send) false) (submit self o) (ret true)))
+  (if (and (== (. e kind) state.in_flush) (. self send))
+    (do (set (. self send) false) (submit self o) (ret true)))
   (if (!= (. e kind) state.in_ptr) (ret false))
-  (if (== (. e code) event.down) (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) false) (ret true)))
-  (if (== (. e code) event.move) (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) true) (ret true)))
-  false)
-)
+  (if (== (. e code) event.down)
+    (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) false) (ret true)))
+  (if (== (. e code) event.move)
+    (do (hit_at self (. e x) (. e y) 16.0f32 (blend.color.rgba 0u8 0u8 0u8 255u8) true) (ret true)))
+  false))
+
 (fn sel ((p (& text.para)) (a i64) (b i64) (color blend.color)) (box (dyn widget.widget))
   (let ra (text.caret p a))
   (let rb (text.caret p b))
   (let x (if (< (. ra x) (. rb x)) (. ra x) (. rb x)))
   (let w (if (< (. ra x) (. rb x)) (- (. rb x) (. ra x)) (- (. ra x) (. rb x))))
-  (let box (w_box.sized w (. ra h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (let box
+    (w_box.sized w (. ra h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
   (w_stack.positioned x (. ra y) w (. ra h) box))
 
 (fn caret_w ((p (& text.para)) (at i64) (color blend.color)) (box (dyn widget.widget))
   (let r (text.caret p at))
-  (let box (w_box.sized 1.0f32 (. r h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (let box
+    (w_box.sized 1.0f32 (. r h) (w_box.container color 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
   (w_stack.positioned (. r x) (. r y) 1.0f32 (. r h) box))
 
 (fn face ((c (& ctx.ctx)) (self (& edit))) (box (dyn widget.widget))
   (let th (ctx.ctx.theme c))
   (let mut ks (vec.new < (box (dyn widget.widget)) >))
-  (vec.push (&mut ks) (w_box.sized 120.0f32 (. th body) (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (vec.push (&mut ks)
+    (w_box.sized 120.0f32
+      (. th body)
+      (w_box.container (theme.ink (& (. th surface))) 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
   (match (measure (& (. self text)) (. th body) (theme.ink (& (. th fg))))
     ((opt.some p)
       (do
@@ -168,8 +171,7 @@
   (str.push (&mut s) (& (. ed text)))
   s)
 
-(fn field_num ((s (& str))) i64
-  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+(fn field_num ((s (& str))) i64 (opt.or (str.to_int s) 0))
 
 (fn field_read ((self (&mut model)) (text (& str))) unit
   (match (str.find_byte text 10u8)
@@ -213,15 +215,15 @@
   (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (pub (fn field () (box (dyn widget.widget))
-  (state.stateful widget.ty_field (key.key.none) (model (edit_new))))
-)
+  (state.stateful widget.ty_field (key.key.none) (model (edit_new)))))
+
 (test field_edit
   (let mut ed (edit_new))
   (let mut o (state.out_new))
   (let e (state.ev_text state.in_text (str.from "ab")))
   (assert (on_input (&mut ed) (& e) (&mut o)))
   (assert (str.eq (& (. ed text)) "ab"))
-  (let back (state.ev  state.in_key 8 0 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 (str.new)))
+  (let back (state.ev state.in_key 8 0 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 0.0f32 (str.new)))
   (assert (on_input (&mut ed) (& back) (&mut o)))
   (assert (str.eq (& (. ed text)) "a"))
   (assert_eq (widget.widget.name (& (field))) "text_field"))

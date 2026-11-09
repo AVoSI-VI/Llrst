@@ -1,3 +1,4 @@
+(use std.fmt)
 (use std.str)
 (use ui.bitmap)
 (use ui.blend)
@@ -32,21 +33,6 @@
   (pub (draw_image bitmap.bitmap geom.rect i64))
   (pub (draw_glyphs (vec stamp)))))
 
-(fn fmt_f ((x f32)) str
-  (let mut n (as i64 (* (as f64 x) 1000.0)))
-  (let mut neg false)
-  (if (< n 0) (do (set neg true) (set n (neg n))))
-  (let ip (/ n 1000))
-  (let fp (% n 1000))
-  (let mut s (str.new))
-  (if neg (str.push_byte (&mut s) 45u8))
-  (str.push (&mut s) (& (str.from_int ip)))
-  (str.push_byte (&mut s) 46u8)
-  (if (< fp 100) (str.push_byte (&mut s) 48u8))
-  (if (< fp 10) (str.push_byte (&mut s) 48u8))
-  (str.push (&mut s) (& (str.from_int fp)))
-  s)
-
 (fn cat ((s str) (part (& str))) str
   (let mut o s)
   (str.push_byte (&mut o) 124u8)
@@ -59,8 +45,10 @@
     (& (str.from_int (as i64 (. c a))))))
 
 (fn rect_s ((name (& str)) (r (& geom.rect))) str
-  (cat (cat (cat (cat (str.from name) (& (fmt_f (. r x)))) (& (fmt_f (. r y)))) (& (fmt_f (. r w))))
-    (& (fmt_f (. r h)))))
+  (cat (cat (cat (cat (str.from name) (& (fmt.float (as f64 (. r x)) 3)))
+      (& (fmt.float (as f64 (. r y)) 3)))
+     (& (fmt.float (as f64 (. r w)) 3)))
+    (& (fmt.float (as f64 (. r h)) 3))))
 
 (fn fill_s ((f (& fill)) (n i64) (rule i64) (s str)) str
   (let base (cat (cat s (& (str.from_int n))) (& (str.from_int rule))))
@@ -69,16 +57,18 @@
     ((fill.linear p0 p1 c0 c1)
       (coli c1
         (coli c0
-          (cat (cat (cat (cat (cat base "linear") (& (fmt_f (. p0 x)))) (& (fmt_f (. p0 y))))
-             (& (fmt_f (. p1 x))))
-            (& (fmt_f (. p1 y)))))))
+          (cat (cat (cat (cat (cat base "linear") (& (fmt.float (as f64 (. p0 x)) 3)))
+              (& (fmt.float (as f64 (. p0 y)) 3)))
+             (& (fmt.float (as f64 (. p1 x)) 3)))
+            (& (fmt.float (as f64 (. p1 y)) 3))))))
     ((fill.image im mode)
       (cat (cat (cat (cat base "image") (& (str.from_int (. im w)))) (& (str.from_int (. im h))))
         (& (str.from_int (@ mode)))))))
 
 (fn stamp_s ((s str) (g (& stamp))) str
   (coli (& (. g color))
-    (cat (cat (cat (cat s (& (fmt_f (. g x)))) (& (fmt_f (. g y)))) (& (str.from_int (. g w))))
+    (cat (cat (cat (cat s (& (fmt.float (as f64 (. g x)) 3))) (& (fmt.float (as f64 (. g y)) 3)))
+       (& (str.from_int (. g w))))
       (& (str.from_int (. g h))))))
 
 (fn glyphs_s ((gs (& (vec stamp)))) str
@@ -90,9 +80,13 @@
   (match o
     ((op.save) (str.from "save"))
     ((op.restore) (str.from "restore"))
-    ((op.translate x y) (cat (cat (str.from "translate") (& (fmt_f (@ x)))) (& (fmt_f (@ y)))))
-    ((op.scale x y) (cat (cat (str.from "scale") (& (fmt_f (@ x)))) (& (fmt_f (@ y)))))
-    ((op.rotate r) (cat (str.from "rotate") (& (fmt_f (@ r)))))
+    ((op.translate x y)
+      (cat (cat (str.from "translate") (& (fmt.float (as f64 (@ x)) 3)))
+        (& (fmt.float (as f64 (@ y)) 3))))
+    ((op.scale x y)
+      (cat (cat (str.from "scale") (& (fmt.float (as f64 (@ x)) 3)))
+        (& (fmt.float (as f64 (@ y)) 3))))
+    ((op.rotate r) (cat (str.from "rotate") (& (fmt.float (as f64 (@ r)) 3))))
     ((op.clip_rect r) (rect_s "clip_rect" r))
     ((op.clip_path p) (cat (str.from "clip_path") (& (str.from_int (vec.len (& (. p pts)))))))
     ((op.fill_rect r c) (coli c (rect_s "fill_rect" r)))
@@ -100,7 +94,7 @@
     ((op.stroke_path p st c)
       (coli c
         (cat (cat (cat (cat (str.from "stroke_path") (& (str.from_int (vec.len (& (. p pts))))))
-            (& (fmt_f (. st w))))
+            (& (fmt.float (as f64 (. st w)) 3)))
            (& (str.from_int (. st cap))))
           (& (str.from_int (. st join))))))
     ((op.draw_image im r mode)
@@ -119,7 +113,7 @@
   (let g (op.draw_glyphs gst))
   (let gs (line (& g)))
   (assert_eq (& gs) "draw_glyphs|1|1.000|2.000|1|1|0|0|255|255")
-  (assert_eq (& (fmt_f -1.5f32)) "-1.500")
+  (assert_eq (& (fmt.float (as f64 -1.5f32) 3)) "-1.500")
   (let t (op.translate 1.0f32 2.0f32))
   (let ts (line (& t)))
   (assert_eq (& ts) "translate|1.000|2.000")

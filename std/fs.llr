@@ -1,7 +1,9 @@
 ;; Files and directories. Errors are pipe-form strings: "io.read|path=x".
 (use std.io)
+(use std.os)
 (use std.path)
 (use std.sys)
+(use std.time)
 
 (fn err ((code (& str)) (path (& str))) str
   (let mut m (str.from code))
@@ -34,6 +36,19 @@
   (sys.write_str fd data)
   (sys.close fd)
   (res.ok ())))
+
+(pub (fn copy ((from (& str)) (to (& str))) (res unit str)
+  (let data (try (read from)))
+  (write to (& data))))
+
+(pub (fn is_file ((path (& str))) bool (and (exists path) (not (is_dir path)))))
+
+(pub (fn temp_dir () str (str.from "/tmp")))
+
+(pub (fn abs ((path (& str))) (res str str)
+  (if (path.is_abs path) (ret (res.ok (path.clean path))))
+  (let c (try (os.cwd)))
+  (res.ok (path.clean (& (path.join (& c) path))))))
 
 (pub (fn exists ((path (& str))) bool
   (let c (str.cstr path))
@@ -81,7 +96,8 @@
   (res.ok out)))
 
 ;; mtime seconds and byte size come from runtime/llr_stat.c, which uses the host stat.
-(pub (fn now_ms () i64 (sys.llr_now_ms)))
+;; now_ms forwards to time.now_ms for one release.
+(pub (fn now_ms () i64 (time.now_ms)))
 
 (pub (fn mtime ((path (& str))) (res i64 str)
   (let c (str.cstr path))
@@ -179,6 +195,21 @@
   (assert (not (exists (& empty)))))
 
 (test fs_now (assert (>= (now_ms) 0)))
+
+(test fs_copy
+  (let src (str.from "/tmp/llr_fs_copy_src.txt"))
+  (let dst (str.from "/tmp/llr_fs_copy_dst.txt"))
+  (res.unwrap (write (& src) "xyz"))
+  (assert (is_file (& src)))
+  (assert (not (is_file "/tmp")))
+  (res.unwrap (copy (& src) (& dst)))
+  (assert_eq (& (res.unwrap (read (& dst)))) "xyz")
+  (assert_eq (& (temp_dir)) "/tmp")
+  (let full (res.unwrap (abs "llr_fs_rel")))
+  (assert (path.is_abs (& full)))
+  (assert (str.ends (& full) "llr_fs_rel"))
+  (res.unwrap (remove (& src)))
+  (res.unwrap (remove (& dst))))
 
 (test fs_read_grow
   (let p (str.from "/tmp/llr_fs_grow.txt"))

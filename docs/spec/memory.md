@@ -55,6 +55,13 @@ Rust rules, no annotations beyond `mut`, `&`, `&mut`, and rare `'a`.
 `(ptr T)` and `extern` are not checked. They exist so `std` can be written in Llrst.
 Programs outside `std` should not use them; `llr-fmt --lint` flags them.
 
+## Threads
+
+There is no `Send` trait and no `Sync` trait. `thread.spawn` and `chan.send` take
+ownership of the value. The checker does not record which thread runs a closure.
+Share a channel with `chan.clone`. `mutex.lock` lends `(&mut T)` only to a closure
+that returns `unit`, so the guard cannot outlive the lock.
+
 ## Error codes emitted by the checker
 
 | code | meaning |

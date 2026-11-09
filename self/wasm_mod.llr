@@ -122,8 +122,7 @@
 (pub (fn call_of ((g (& wm)) (ord i64)) i64 (+ (. g imp_n) ord)))
 
 (pub (fn find_name ((g (& wm)) (part (& str))) i64
-  (for i 0 (vec.len (& (. g names)))
-    (if (str.has (vec.get (& (. g names)) i) part) (ret i)))
+  (for i 0 (vec.len (& (. g names))) (if (str.has (vec.get (& (. g names)) i) part) (ret i)))
   (neg 1)))
 
 (fn align_data ((g (&mut wm)) (a i64)) unit
@@ -186,10 +185,7 @@
   (str.push (&mut s) text)
   s)
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (fn args_eq ((a (& (vec ty.sty))) (b (& (vec ty.sty)))) bool
   (if (!= (vec.len a) (vec.len b)) (ret false))
@@ -301,13 +297,14 @@
   (let at (append g (& raw) 8))
   (let drop (drop_sym g t))
   (put_i64 g at drop)
-  (for i 0 (vec.len ids) (vt_word g p ids at i))
+  (let args (prog.impl_subst p tr t))
+  (for i 0 (vec.len ids) (vt_word g p ids at i (& args)))
   (vec.push (&mut (. g vkey)) key)
   (vec.push (&mut (. g vaddr)) at)
   at))
 
-(fn vt_word ((g (&mut wm)) (p (& prog.prog)) (ids (& (vec i64))) (at i64) (i i64)) unit
-  (let ord (func_sym g p (@ (vec.get ids i)) (vec.new <ty.sty>)))
+(fn vt_word ((g (&mut wm)) (p (& prog.prog)) (ids (& (vec i64))) (at i64) (i i64) (args (& (vec ty.sty)))) unit
+  (let ord (func_sym g p (@ (vec.get ids i)) (ty.clone_tys args)))
   (put_i64 g (+ at (* (+ i 1) 8)) ord))
 
 (fn vt_key ((tr i64) (t (& ty.sty))) str

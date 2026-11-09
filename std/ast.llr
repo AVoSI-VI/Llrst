@@ -2,8 +2,10 @@
 ;; ty kind: 0 name, 1 app, 2 ref, 3 ptr, 4 fn, 5 clos.
 ;; expr kind: 0 lit, 1 name, 2 let, 3 set, 4 do, 5 if, 6 while, 7 loop, 8 for,
 ;;   9 brk, 10 cont, 11 ret, 12 match, 13 ref, 14 deref, 15 field, 16 cast, 17 bin,
+;;   loop text is the label (empty if none). for text is the index; mut means
+;;   kids[2] is the signed step. brk and cont text is the label (empty if none).
 ;;   18 and, 19 or, 20 not, 21 neg, 22 wneg, 23 call, 24 callptr, 25 try, 26 panic,
-;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop, 31 clos.
+;;   27 assert, 28 assert_eq, 29 sizeof, 30 drop, 31 clos, 35 absent match guard.
 ;; item kind: 0 use, 1 mod, 2 fn, 3 extern, 4 struct, 5 enum, 6 impl, 7 const, 8 test,
 ;;   9 trait, 10 trait impl. A trait impl keeps the self type on ret.
 (use std.ast_expr)
@@ -201,22 +203,32 @@
 
 (fn ty_name ((text str) (line i64) (col i64)) ty (ty 0u8 text (vec.new <ty>) line col 0))
 
+(fn method_head ((t (& tree)) (n i64)) bool
+  (if (!= (sexp.kind t n) 2u8) (ret false))
+  (let h (sexp.head t n))
+  (or (str.eq h "fn") (or (str.eq h "pub") (str.eq h "inline"))))
+
+(fn trait_self ((t (& tree)) (n i64)) bool
+  (if (== (sexp.kind t n) 0u8) (ret (not (str.starts (sexp.text t n) "<"))))
+  (not (method_head t n)))
+
 (fn parse_timpl ((t (& tree)) (ids (& (vec i64))) (n i64)) (res item str)
   (let line (sexp.line t n))
   (let col (sexp.col t n))
   (let mut it (blank_item 10u8 (str.clone (sexp.text t (@ (vec.get ids 1)))) false line col))
-  (set (. it ret) (ty_name (str.clone (sexp.text t (@ (vec.get ids 2)))) line col))
+  (set (. it ret) (try (ast_expr.parse_ty t (@ (vec.get ids 2)))))
+  (let mut gens (vec.new <str>))
+  (let at (try (take_gens t ids 3 (&mut gens))))
   (let mut fns (vec.new <item>))
-  (for i 3 (vec.len ids) (vec.push (&mut fns) (try (parse_item t (@ (vec.get ids i)) false))))
+  (for i at (vec.len ids) (vec.push (&mut fns) (try (parse_item t (@ (vec.get ids i)) false))))
+  (set (. it gens) gens)
   (set (. it fns) fns)
   (res.ok it))
 
 (fn parse_impl ((t (& tree)) (n i64)) (res item str)
   (let ids (ast_expr.forms t n))
   (if (< (vec.len (& ids)) 2) (ret (res.err (ast_expr.err_at t n "type" "eof"))))
-  (if (and (> (vec.len (& ids)) 2)
-     (and (== (sexp.kind t (@ (vec.get (& ids) 2))) 0u8)
-       (not (str.starts (sexp.text t (@ (vec.get (& ids) 2))) "<"))))
+  (if (and (> (vec.len (& ids)) 2) (trait_self t (@ (vec.get (& ids) 2))))
     (ret (parse_timpl t (& ids) n)))
   (let mut gens (vec.new <str>))
   (let at (try (take_gens t (& ids) 2 (&mut gens))))
@@ -323,7 +335,7 @@
   (if (str.eq h "const") (ret (parse_const t n is_pub)))
   (if (str.eq h "trait") (ret (parse_trait t n is_pub)))
   (if (and (str.eq h "impl") (not is_pub)) (ret (parse_impl t n)))
-  (if (and (str.eq h "use") (not is_pub)) (ret (parse_named t n 0u8 false)))
+  (if (str.eq h "use") (ret (parse_named t n 0u8 is_pub)))
   (if (and (str.eq h "mod") (not is_pub)) (ret (parse_named t n 1u8 false)))
   (if (and (str.eq h "test") (not is_pub)) (ret (parse_test t n)))
   (res.err (ast_expr.bad_head t n h)))
@@ -332,10 +344,11 @@
   (or (str.eq h "fn")
     (or (str.eq h "extern")
       (or (str.eq h "struct")
-        (or (str.eq h "enum") (or (str.eq h "const") (or (str.eq h "inline") (str.eq h "trait"))))))))
+        (or (str.eq h "enum")
+          (or (str.eq h "const") (or (str.eq h "inline") (or (str.eq h "trait") (str.eq h "use")))))))))
 
 (fn pub_bad ((t (& tree)) (n i64) (got (& str))) str
-  (let mut m (ast_expr.err_at t n "fn extern struct enum const inline trait" got))
+  (let mut m (ast_expr.err_at t n "fn extern struct enum const inline trait use" got))
   (str.push (&mut m) "|fix=(pub (fn ...)) per method")
   m)
 
@@ -409,6 +422,14 @@
   (assert_eq (. it kind) 3u8)
   (assert (> (. it len) 0)))
 
+(test ast_match_arm
+  (let src "(fn main () unit (match 1 (1 (if true) 2) (_ 3)))")
+  (let r (res.unwrap (parse_src src)))
+  (let e (vec.get (& (. (vec.get (& r) 0) body)) 0))
+  (assert_eq (. e kind) 12u8)
+  (assert_eq (vec.len (& (. e kids))) 7)
+  (assert_eq (. (vec.get (& (. e kids)) 5) kind) 35u8))
+
 (test ast_trait_impl
   (let src
     (str.from "(trait Eq (fn eq ((& Self) (& Self)) bool)) (impl Eq i64 (fn eq ((a (& i64)) (b (& i64))) bool true))"))
@@ -417,6 +438,13 @@
   (assert_eq (vec.len (& (. (vec.get (& r) 0) fns))) 1)
   (assert_eq (. (vec.get (& r) 1) kind) 10u8)
   (assert_eq (& (. (. (vec.get (& r) 1) ret) text)) "i64"))
+
+(test ast_pub_use
+  (let r (res.unwrap (parse_src "(pub (use proj.a.b))")))
+  (let it (vec.get (& r) 0))
+  (assert (. it is_pub))
+  (assert_eq (. it kind) 0u8)
+  (assert_eq (& (. it name)) "proj.a.b"))
 
 (test ast_bad
   (match (parse_src "(bogus)")

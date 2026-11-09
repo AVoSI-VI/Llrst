@@ -67,39 +67,44 @@ impl<'a> Checker<'a> {
             }
             A::While { cond, body } => {
                 let cond = self.check_bool(cond)?;
-                self.enter_loop();
+                self.enter_loop(None, sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 mk(ExprKind::While { cond: Box::new(cond), body: Box::new(body?) }, Ty::Unit, sp)
             }
-            A::Loop(body) => {
-                self.enter_loop();
+            A::Loop { label, body } => {
+                self.enter_loop(label.clone(), sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 let body = body?;
-                let ty = if has_break(&body) { Ty::Unit } else { Ty::Never };
+                let ty = if super::loop_breaks(&body, 0) { Ty::Unit } else { Ty::Never };
                 mk(ExprKind::Loop(Box::new(body)), ty, sp)
             }
-            A::For { name, lo, hi, body } => {
+            A::For { name, lo, hi, step, body } => {
                 let lo = self.check_expr(lo, None)?;
                 let hi = self.check_expr(hi, Some(&lo.ty.clone()))?;
+                let step = match step {
+                    Some(s) => Some(Box::new(self.check_expr(s, Some(&lo.ty.clone()))?)),
+                    None => None,
+                };
                 if !self.shallow(&lo.ty).is_int() {
                     return Err(Diag::error(lo.span, "type.not_numeric").kv("got", self.show(&lo.ty)));
                 }
                 self.expect(&hi, &lo.ty.clone())?;
+                if let Some(s) = &step {
+                    self.expect(s, &lo.ty.clone())?;
+                }
                 self.push_scope();
                 let local = self.declare(name, lo.ty.clone(), false, sp)?;
-                self.enter_loop();
+                self.enter_loop(None, sp)?;
                 let body = self.check_body(body, &Ty::Unit, sp);
                 self.exit_loop();
                 self.pop_scope();
-                mk(ExprKind::For { local, lo: Box::new(lo), hi: Box::new(hi), body: Box::new(body?) }, Ty::Unit, sp)
+                mk(ExprKind::For { local, lo: Box::new(lo), hi: Box::new(hi), step, body: Box::new(body?) }, Ty::Unit, sp)
             }
-            A::Break | A::Continue => {
-                if !self.in_loop() {
-                    return Err(Diag::error(sp, "flow.brk_outside"));
-                }
-                let k = if matches!(e.kind, A::Break) { ExprKind::Break } else { ExprKind::Continue };
+            A::Break(label) | A::Continue(label) => {
+                let up = self.jump_up(label, sp)?;
+                let k = if matches!(e.kind, A::Break(_)) { ExprKind::Break(up) } else { ExprKind::Continue(up) };
                 mk(k, Ty::Never, sp)
             }
             A::Return(v) => {
@@ -194,6 +199,14 @@ impl<'a> Checker<'a> {
                 let k = if matches!(e.kind, A::WNeg(_)) { ExprKind::WNeg(Box::new(x)) } else { ExprKind::Neg(Box::new(x)) };
                 mk(k, ty, sp)
             }
+            A::BNot(x) => {
+                let x = self.check_expr(x, want.filter(|t| t.is_int()))?;
+                if !self.shallow(&x.ty).is_int() {
+                    return Err(Diag::error(sp, "type.not_numeric").kv("op", "bnot").kv("got", self.show(&x.ty)));
+                }
+                let ty = x.ty.clone();
+                mk(ExprKind::BNot(Box::new(x)), ty, sp)
+            }
             A::Call { callee, targs, args } => self.check_call(callee, targs, args, want, sp)?,
             A::CallPtr { callee, args } => {
                 let callee = self.check_expr(callee, None)?;
@@ -223,7 +236,9 @@ impl<'a> Checker<'a> {
                 let not = mk(ExprKind::Not(Box::new(c)), Ty::Bool, sp);
                 mk(ExprKind::If { cond: Box::new(not), then: Box::new(call), els: None }, Ty::Unit, sp)
             }
-            A::AssertEq(l, r) => self.check_assert_eq(l, r, sp)?,
+            A::AssertEq(l, r) => self.check_assert_eq(l, r, sp, false)?,
+            A::AssertNe(l, r) => self.check_assert_eq(l, r, sp, true)?,
+            A::AssertNear(g, w, eps) => self.check_assert_near(g, w, eps, sp)?,
             A::Sizeof(t) => {
                 let t = self.resolve_ty(t)?;
                 mk(ExprKind::Call { callee: Callee::Sizeof(t), args: Vec::new() }, Ty::Int(IntTy::U64), sp)
@@ -409,28 +424,8 @@ impl<'a> Checker<'a> {
         Ok(mk(ExprKind::Bin { op, l: Box::new(l), r: Box::new(r) }, ty, sp))
     }
 
-    fn check_try(&mut self, x: &ast::Expr, sp: Span) -> PResult<Expr> {
-        let inner = self.check_expr(x, None)?;
-        let t = self.shallow(&inner.ty);
-        let res = self.prog.prelude_type("res");
-        let opt = self.prog.prelude_type("opt");
-        let ret = self.shallow(&self.ret.clone());
-        match (&t, &ret) {
-            (Ty::Adt(d, a), Ty::Adt(rd, ra)) if Some(*d) == res && rd == d => {
-                if !self.unify(&a[1], &ra[1]) {
-                    return Err(self.mismatch(sp, &ra[1], &a[1]));
-                }
-                Ok(mk(ExprKind::Try { expr: Box::new(inner), is_res: true }, a[0].clone(), sp))
-            }
-            (Ty::Adt(d, a), Ty::Adt(rd, _)) if Some(*d) == opt && rd == d => {
-                Ok(mk(ExprKind::Try { expr: Box::new(inner), is_res: false }, a[0].clone(), sp))
-            }
-            _ => Err(Diag::error(sp, "type.try").kv("got", self.show(&t)).kv("ret", self.show(&ret))),
-        }
-    }
-
     /// Checks a condition. A failure to be `bool` is `type.not_bool`, not `type.mismatch`.
-    fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
+    pub(crate) fn check_bool(&mut self, e: &ast::Expr) -> PResult<Expr> {
         match self.check_expr(e, Some(&Ty::Bool)) {
             Ok(v) => Ok(v),
             Err(d) if d.code == "type.mismatch" && d.span == e.span && d.kv.iter().any(|(k, v)| *k == "want" && v == "bool") => {
@@ -441,46 +436,5 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_assert_eq(&mut self, l: &ast::Expr, r: &ast::Expr, sp: Span) -> PResult<Expr> {
-        let l = self.check_expr(l, None)?;
-        let r = self.check_expr(r, Some(&l.ty.clone()))?;
-        self.expect(&r, &l.ty.clone())?;
-        let t = self.shallow(&l.ty);
-        let (name, conv): (&str, Option<Ty>) = match &t {
-            Ty::Ref { inner, .. } if self.zonk_ty(inner) == self.str_ty() => ("eq_str", None),
-            Ty::Bool => ("eq_bool", None),
-            Ty::Int(IntTy::I64) => ("eq_int", None),
-            Ty::Infer(_, true) => {
-                self.unify(&t, &Ty::Int(IntTy::I64));
-                ("eq_int", None)
-            }
-            Ty::Int(_) => ("eq_int", Some(Ty::Int(IntTy::I64))),
-            _ => return Err(Diag::error(sp, "type.assert_eq").kv("got", self.show(&t))),
-        };
-        let f = self.std_fn("test", name).ok_or_else(|| Diag::error(sp, "name.unknown").kv("name", format!("test.{}", name)))?;
-        let cast = |e: Expr| match &conv {
-            Some(t) => mk(ExprKind::Cast(Box::new(e)), t.clone(), sp),
-            None => e,
-        };
-        let loc = self.loc_lit(sp);
-        Ok(mk(ExprKind::Call { callee: Callee::Fn(f, Vec::new()), args: vec![loc, cast(l), cast(r)] }, Ty::Unit, sp))
-    }
 }
 
-/// True when a `brk` targets this loop body (not a nested loop).
-fn has_break(e: &Expr) -> bool {
-    match &e.kind {
-        ExprKind::Break => true,
-        ExprKind::While { .. } | ExprKind::Loop(_) | ExprKind::For { .. } => false,
-        ExprKind::Block(items) => items.iter().any(has_break),
-        ExprKind::Let { init, .. } => init.as_ref().map(|e| has_break(e)).unwrap_or(false),
-        ExprKind::Assign { place, value } => has_break(place) || has_break(value),
-        ExprKind::If { cond, then, els } => has_break(cond) || has_break(then) || els.as_ref().map_or(false, |e| has_break(e)),
-        ExprKind::Match { scrut, arms, .. } => has_break(scrut) || arms.iter().any(|a| has_break(&a.body)),
-        ExprKind::Call { args, .. } | ExprKind::Struct { fields: args, .. } | ExprKind::Variant { fields: args, .. } => args.iter().any(has_break),
-        ExprKind::Ref { place: x, .. } | ExprKind::Deref(x) | ExprKind::Field { base: x, .. } | ExprKind::Cast(x) | ExprKind::Neg(x) | ExprKind::WNeg(x) | ExprKind::Not(x) => has_break(x),
-        ExprKind::Bin { l, r, .. } | ExprKind::And(l, r) | ExprKind::Or(l, r) => has_break(l) || has_break(r),
-        ExprKind::Return(Some(x)) | ExprKind::Try { expr: x, .. } | ExprKind::BoxPack { data: x, .. } | ExprKind::DynPack { data: x, .. } => has_break(x),
-        _ => false,
-    }
-}

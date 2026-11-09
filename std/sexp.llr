@@ -1,4 +1,6 @@
 ;; S-expression reader and printer for tools (llr-fmt, linters). Keeps comments.
+(use std.scan)
+
 ;; Node kinds: 0 atom, 1 string, 2 list, 3 comment. Children of a list are the index
 ;; range [lo, hi) into `kids`, which stores node indexes in order.
 (struct node (kind u8) (text str) (lo i64) (hi i64) (line i64) (col i64) (byte i64) (end i64))
@@ -19,8 +21,7 @@
     (do (str.push (&mut m) "|") (str.push (&mut m) k) (str.push (&mut m) "=") (str.push (&mut m) v)))
   m)
 
-(fn peek ((r (& rd))) u8
-  (if (>= (. r i) (str.len (& (. r src)))) 0u8 (str.at (& (. r src)) (. r i))))
+(fn peek ((r (& rd))) u8 (scan.peek (& (cur (& (. r src)) (. r i)))))
 
 (fn adv ((r (&mut rd))) unit
   (if (== (peek r) 10u8)
@@ -57,6 +58,26 @@
   (adv r)
   true)
 
+(fn take_u ((r (&mut rd))) bool
+  (if (!= (peek r) 123u8) (ret false))
+  (adv r)
+  (let mut n 0)
+  (let mut v 0)
+  (while (is_hex (peek r))
+    (do
+      (set v (+ (* v 16) (hex_val (peek r))))
+      (set n (+ n 1))
+      (adv r)))
+  (if (or (== n 0) (or (> n 6) (!= (peek r) 125u8))) (ret false))
+  (adv r)
+  (if (or (> v 1114111) (and (>= v 55296) (<= v 57343))) (ret false))
+  true)
+
+(fn hex_val ((c u8)) i64
+  (if (and (>= c 48u8) (<= c 57u8)) (ret (- (as i64 c) 48)))
+  (if (and (>= c 97u8) (<= c 102u8)) (ret (+ (- (as i64 c) 97) 10)))
+  (+ (- (as i64 c) 65) 10))
+
 (fn do_escape ((r (&mut rd))) (res unit str)
   (let line (+ (. r line) 1))
   (let col (+ (. r col) 1))
@@ -68,6 +89,7 @@
   (adv r)
   (if (good_esc e) (ret (res.ok ())))
   (if (and (== e 120u8) (take_hex r)) (ret (res.ok ())))
+  (if (and (== e 117u8) (take_u r)) (ret (res.ok ())))
   (res.err (perr "lex.bad_escape" line col 2 "" "")))
 
 (fn read_str ((r (&mut rd)) (t (&mut tree)) (line i64) (col i64) (byte i64)) (res i64 str)

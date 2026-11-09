@@ -8,7 +8,7 @@ File extension: `.llr`. Encoding: UTF-8. Audience: models. One form per task.
 file    := form*
 form    := atom | string | '(' form* ')'
 atom    := [^()"\s;]+          ; identifiers, numbers, keywords, dotted names, 'a lifetimes
-string  := '"' ( [^"\\] | '\\' [nrt0"\\] | '\\x' hex hex )* '"'
+string  := '"' ( [^"\\] | '\\' [nrt0"\\] | '\\x' hex hex | '\\u{' hex+ '}' )* '"'
 comment := ';' .* eol
 ```
 
@@ -19,7 +19,8 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 
 ```
 (mod NAME)                                   ; declares this file is module NAME
-(use PATH)                                   ; import module; PATH = std.io | my.mod
+(use PATH)                                   ; std.NAME | proj.NAME | proj.a.b ; alias is the last segment
+(pub (use PATH))                             ; re-export the public items of PATH
 (fn NAME ARGS RET BODY...)                   ; function
 (fn NAME <T:Eq U> ARGS RET BODY...)          ; bound list after the colon; several params stay separate
 (inline (fn ...))                            ; substitute ret, loops, match, and owned params; a recursive call stays a call; a closure in the body is inline.reject|why=form|got=clos
@@ -32,15 +33,24 @@ no precedence, no commas, no semicolons, no blocks by indentation.
 (impl TYPE FN...)                            ; methods; called as TYPE.NAME
 (impl TYPE <T> FN...)
 (trait NAME (fn NAME (TYPE...) TYPE)...)     ; method params are types; first is (& Self) or (&mut Self)
-(impl TRAIT TYPE FN...)                      ; monomorphized impl; TYPE is a concrete name
-(const NAME TYPE EXPR)                       ; compile-time scalar or string literal
+(impl TRAIT TYPE FN...)                      ; TYPE is a name or a type form such as (vec T)
+(impl TRAIT TYPE <T:Eq> FN...)               ; generic impl; monomorphized per instance; trait.dup compares the head
+(const NAME TYPE EXPR)                       ; EXPR must be a literal; otherwise const.not_lit
 (test NAME BODY...)                          ; test body, run by llr-test
-(pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline (per method inside impl)
+(bench NAME BODY...)                         ; timed body; llr-bench rewrites it and runs it
+(pub FORM)                                   ; export; FORM is fn extern struct enum const trait inline use (per method inside impl)
 
 ARGS   := ( (NAME TYPE)* )
 FIELD  := (NAME TYPE) | (pub (NAME TYPE))   ; private unless pub
 VARIANT:= (NAME TYPE*) | (pub (NAME TYPE*))   ; private unless pub
 ```
+
+`(use proj.a.b)` loads `a/b.llr` from the directory of the file that holds `main`.
+Each further segment is another directory. The name in the importing file is the last
+segment. `(pub (use PATH))` re-exports that module's public items, so an importer
+calls them as `module.name`. A private item is not re-exported. A name already defined
+in the module, or two re-exports of different items, is `name.dup`. A public use is
+not `use.unused`.
 
 ## Types
 
@@ -69,13 +79,15 @@ EXPR :=
   (let mut NAME EXPR) | (let mut NAME TYPE EXPR)
   (let mut NAME TYPE)                        ; no initializer; a use before assignment is init.uninit
   (set PLACE EXPR)                           ; assignment
+  (set EXPR)                                 ; struct constructor; set is also a type
   (do EXPR...)                               ; sequence, value of last
   (if EXPR EXPR) | (if EXPR EXPR EXPR)       ; else branch optional (unit)
   (while EXPR BODY...)
-  (loop BODY...)                             ; exit with (brk)
-  (for NAME EXPR EXPR BODY...)               ; integer range [lo, hi)
-  (brk) | (cont) | (ret) | (ret EXPR)
-  (match EXPR ARM...)                        ; ARM := (PAT EXPR)
+  (loop BODY...) | (loop NAME BODY...)       ; NAME is a label when another form follows
+  (for NAME EXPR EXPR BODY...)               ; integer range [lo, hi), step +1
+  (for NAME EXPR EXPR ATOM BODY...)          ; ATOM is a signed step; the end stays exclusive
+  (brk) | (brk NAME) | (cont) | (cont NAME) | (ret) | (ret EXPR)
+  (match EXPR ARM...)                        ; ARM := (PAT EXPR) | (PAT (if EXPR) EXPR)
   (& PLACE) | (&mut PLACE) | (@ EXPR)        ; borrow, mutable borrow, deref
   (. EXPR NAME)                              ; field access
   (as TYPE EXPR)                             ; numeric cast
@@ -84,15 +96,15 @@ EXPR :=
   (neg EXPR) | (wneg EXPR)                   ; wneg always wraps
   (CALLEE EXPR...)                           ; call: fn, mod.fn, type.method, type (struct ctor), enum.variant
   (CALLEE <TYPE...> EXPR...)                 ; call with explicit type args
-  (try EXPR)                                 ; unwrap res/opt or return the err/none from the fn
+  (try EXPR)                                 ; unwrap res/opt; a res error converts through From
   (panic EXPR)                               ; print P|... and exit 101
-  (assert EXPR) | (assert_eq EXPR EXPR)      ; test asserts
+  (assert EXPR) | (assert_eq EXPR EXPR) | (assert_ne EXPR EXPR) | (assert_near EXPR EXPR EXPR)
   (sizeof TYPE)                              ; u64, std internals only
   (call EXPR EXPR...)                        ; call a (fn ...) or a (clos ...)
   (clos ((NAME TYPE)*) TYPE BODY...)         ; closure; captures whole bindings; body cannot contain a closure
 
 PLACE := NAME | (. PLACE NAME) | (@ EXPR)
-PAT   := _ | NAME | LIT | (ENUM.VARIANT PAT...) | (ENUM.VARIANT)
+PAT   := _ | NAME | LIT | (or PAT PAT...) | (ENUM.VARIANT PAT...) | (ENUM.VARIANT) | (TYPE PAT...)
 ```
 
 Literal suffixes select integer type: `7u8`, `7i32`, `7u64`. Unsuffixed defaults to `i64`,
@@ -101,11 +113,17 @@ or to the expected type when known. Floats: `1.0` default `f64`, `1.0f32`.
 A function body is a sequence; the last expression is the return value unless it is a
 statement form (`let`, `set`, `while`, `for`, `loop`), in which case the body returns unit.
 
+A `for` step is the atom after `hi` when a body form follows it: a literal or a name.
+It is evaluated once. A positive step continues while the index is `< hi`. A negative
+step continues while the index is `> hi`. A zero step runs no iterations. Omit the atom
+for step `+1`, which is `[lo, hi)`. `(while ...)` is unchanged. `(brk)` and `(cont)` with
+no name target the innermost `loop`, `while`, or `for`. A name targets `(loop NAME ...)`.
+
 Struct construction is positional: `(point 1 2)`. Enum construction: `(shape.circle 1.0)`,
 `(opt.none)`. Field read `(. p x)`. Field write `(set (. p x) 3)`.
 
 String literals have type `(& str)` and point to static data. Owned strings come from
-`str.from`, `str.cat`, etc.
+`str.from`, `str.cat`, etc. A string literal pattern matches through `str.eq`.
 
 ## Example
 

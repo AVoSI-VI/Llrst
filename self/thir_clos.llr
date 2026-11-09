@@ -191,10 +191,11 @@
    (bound (&mut (vec str)))
    (seen (&mut (vec str)))
    (out (&mut (vec str)))) unit
-  (walk_n c e 0 2 bound seen out)
+  (let end (if (. e mut) 3 2))
+  (walk_n c e 0 end bound seen out)
   (let mut inner (copy_names bound))
   (note_let (&mut inner) (& (. e text)))
-  (walk_n c e 2 (vec.len (& (. e kids))) (&mut inner) seen out))
+  (walk_n c e end (vec.len (& (. e kids))) (&mut inner) seen out))
 
 (fn walk_match ((c (& thir.ck))
    (e (& expr))
@@ -207,8 +208,10 @@
     (do
       (let mut inner (copy_names bound))
       (bind_pat (vec.get (& (. e kids)) i) (&mut inner))
-      (walk_n c e (+ i 1) (+ i 2) (&mut inner) seen out)
-      (set i (+ i 2)))))
+      (if (!= (. (vec.get (& (. e kids)) (+ i 1)) kind) 35u8)
+        (walk_one c (vec.get (& (. e kids)) (+ i 1)) (&mut inner) seen out))
+      (walk_one c (vec.get (& (. e kids)) (+ i 2)) (&mut inner) seen out)
+      (set i (+ i 3)))))
 
 (fn walk_inner ((c (& thir.ck))
    (e (& expr))
@@ -237,7 +240,7 @@
 
 (fn bind_pat ((e (& expr)) (bound (&mut (vec str)))) unit
   (if (== (. e kind) 1u8) (ret (note_let bound (& (. e text)))))
-  (if (== (. e kind) 23u8)
+  (if (or (== (. e kind) 19u8) (== (. e kind) 23u8))
     (for i 0 (vec.len (& (. e kids))) (bind_pat (vec.get (& (. e kids)) i) bound))))
 
 (fn note_let ((bound (&mut (vec str))) (name (& str))) unit (vec.push bound (str.clone name)))

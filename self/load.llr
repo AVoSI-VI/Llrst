@@ -10,26 +10,10 @@
 (use proj.prog)
 (use proj.src)
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
-
-(fn exe_buf () str
-  (let mut buf (str.new))
-  (let mut n 256)
-  (while (<= n 65536)
-    (do
-      (str.reserve (&mut buf) (- n (. buf len)))
-      (let got (sys.llr_exe_path (. buf p) (as u64 n)))
-      (if (> got 0) (do (set (. buf len) got) (ret buf)))
-      (set n (* n 2))))
-  (str.new))
-
 (pub (fn exe_dir () str
-  (let p (exe_buf))
+  (let p (os.exe_path))
   (if (== (str.len (& p)) 0) (ret (str.new)))
-  (path.dir (& (slash (& p))))))
+  (path.dir (& (str.replace_byte (& p) 92u8 47u8)))))
 
 (fn has_sys ((dir (& str))) bool (fs.exists (& (path.join dir "sys.llr"))))
 
@@ -44,7 +28,7 @@
   (str.new))
 
 (fn dir_miss ((file (& str)) (path (& str)) (fix (& str))) str
-  (let mut d (diag.make true (slash file) 1 1 0 (str.from "io.read")))
+  (let mut d (diag.make true (str.replace_byte file 92u8 47u8) 1 1 0 (str.from "io.read")))
   (diag.add (&mut d) "path" (str.from path))
   (diag.add (&mut d) "fix" (str.from fix))
   (diag.render (& d)))
@@ -68,8 +52,10 @@
   (str.new))
 
 (fn ui_dir ((over (& str))) str
-  (if (> (str.len over) 0) (ret (slash over)))
-  (match (os.env "LLRST_UI") ((opt.some s) (ret (slash (& s)))) ((opt.none) ()))
+  (if (> (str.len over) 0) (ret (str.replace_byte over 92u8 47u8)))
+  (match (os.env "LLRST_UI")
+    ((opt.some s) (ret (str.replace_byte (& s) 92u8 47u8)))
+    ((opt.none) ()))
   (ui_found))
 
 (fn plain_ui ((name (& str))) bool
@@ -84,7 +70,9 @@
   (res.err (std_miss file)))
 
 (fn std_dir ((file (& str))) (res str str)
-  (match (os.env "LLRST_STD") ((opt.some s) (res.ok (slash (& s)))) ((opt.none) (std_found file))))
+  (match (os.env "LLRST_STD")
+    ((opt.some s) (res.ok (str.replace_byte (& s) 92u8 47u8)))
+    ((opt.none) (std_found file))))
 
 (fn os_name ((target (& str))) str
   (if (str.has target "wasm32") (ret (str.from "sys_wasm.llr")))
@@ -124,17 +112,17 @@
 (fn load_one ((srcs (&mut (vec src.loaded))) (paths (&mut (vec str))) (modp str) (file str) (is_std bool)) (res i64 str)
   (if (>= (path_i paths (& modp)) 0) (ret (res.ok (path_i paths (& modp)))))
   (let items (try (read_items (& file))))
-  (res.ok (push_src srcs paths modp (slash (& file)) is_std items)))
+  (res.ok (push_src srcs paths modp (str.replace_byte (& file) 92u8 47u8) is_std items)))
 
 (fn rooted ((p (& str))) bool
   (if (str.starts p "/") (ret true))
   (and (> (str.len p) 2) (and (== (str.at p 1) 58u8) (== (str.at p 2) 47u8))))
 
 (fn abs_path ((p (& str))) (res str str)
-  (let s (slash p))
+  (let s (str.replace_byte p 92u8 47u8))
   (if (rooted (& s)) (ret (res.ok s)))
   (let c (try (os.cwd)))
-  (res.ok (path.join (& (slash (& c))) (& s))))
+  (res.ok (path.join (& (str.replace_byte (& c) 92u8 47u8)) (& s))))
 
 (fn same_std ((main (& str)) (std (& str)) (name (& str))) (res bool str)
   (let joined (try (abs_path (& (path.join std name)))))
@@ -190,13 +178,17 @@
     (set i (+ i 1)))
   (res.ok ()))
 
+(fn proj_file ((dir (& str)) (modp (& str))) str
+  (let rest (if (str.starts modp "proj.") (str.slice modp 5 (str.len modp)) (str.clone modp)))
+  (path.join dir (& (str_cat (& (str.replace_byte (& rest) 46u8 47u8)) ".llr"))))
+
 (fn load_proj ((srcs (&mut (vec src.loaded)))
    (paths (&mut (vec str)))
    (dir (& str))
    (modp (& str))
    (main (& str))) (res unit str)
   (if (>= (path_i paths modp) 0) (ret (res.ok ())))
-  (let file (path.join dir (& (str_cat (& (last_seg modp)) ".llr"))))
+  (let file (proj_file dir modp))
   (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
     ((res.ok _) (res.ok ()))
     ((res.err e)
@@ -209,24 +201,22 @@
    (main (& str))) (res unit str)
   (if (>= (path_i paths modp) 0) (ret (res.ok ())))
   (if (== (str.len ui) 0) (ret (res.err (ui_miss main))))
-  (let file (path.join ui (& (str_cat (& (last_seg modp)) ".llr"))))
+  (let file
+    (path.join ui
+      (& (str_cat (& (match (str.rfind_byte modp 46u8)
+           ((opt.some seg) (str.slice modp (+ seg 1) (str.len modp)))
+           ((opt.none) (str.clone modp))))
+         ".llr"))))
   (match (load_one srcs paths (str.clone modp) (str.clone (& file)) false)
     ((res.ok _) (res.ok ()))
     ((res.err e)
       (if (str.has (& e) "|io.read|") (res.err (proj_miss main (& file) modp)) (res.err e)))))
 
 (fn proj_miss ((main (& str)) (file (& str)) (modp (& str))) str
-  (let mut d (diag.make true (slash main) 1 1 0 (str.from "io.read")))
-  (diag.add (&mut d) "path" (slash file))
+  (let mut d (diag.make true (str.replace_byte main 92u8 47u8) 1 1 0 (str.from "io.read")))
+  (diag.add (&mut d) "path" (str.replace_byte file 92u8 47u8))
   (diag.add (&mut d) "use" (str.clone modp))
   (diag.render (& d)))
-
-(fn last_seg ((s (& str))) str
-  (let mut i (- (str.len s) 1))
-  (while (>= i 0)
-    (if (== (str.at s i) 46u8) (ret (str.slice s (+ i 1) (str.len s))))
-    (set i (- i 1)))
-  (str.clone s))
 
 (fn str_cat ((a (& str)) (b (& str))) str (let mut s (str.clone a)) (str.push (&mut s) b) s)
 
@@ -254,7 +244,8 @@
   (let mut line 1)
   (let mut col 1)
   (let mut len 0)
-  (let mut d (diag.make true (slash file) 1 1 0 (str.clone (vec.get (& parts) 0))))
+  (let mut d
+    (diag.make true (str.replace_byte file 92u8 47u8) 1 1 0 (str.clone (vec.get (& parts) 0))))
   (for i 1 (vec.len (& parts))
     (take_kv (&mut d) (&mut line) (&mut col) (&mut len) (vec.get (& parts) i)))
   (set (. d line) line)
@@ -274,11 +265,11 @@
   (str.from "x86_64"))
 
 (pub (fn load_at ((file (& str)) (dir (& str)) (ui (& str)) (target (& str))) (res prog.prog str)
-  (let root (if (> (str.len dir) 0) (slash dir) (try (std_dir file))))
+  (let root (if (> (str.len dir) 0) (str.replace_byte dir 92u8 47u8) (try (std_dir file))))
   (let uroot (ui_dir ui))
   (let mut srcs (vec.new <src.loaded>))
   (let mut paths (vec.new <str>))
-  (let mainp (slash file))
+  (let mainp (str.replace_byte file 92u8 47u8))
   (try (load_one (&mut srcs) (&mut paths) (str.from "main") (str.clone (& mainp)) false))
   (try (load_stds (&mut srcs) (&mut paths) (& mainp) (& root)))
   (try (append_os (&mut srcs) (& root) target))

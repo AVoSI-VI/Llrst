@@ -1,8 +1,11 @@
 ;; MQTT 3.1.1 remaining length and strings.
+(use std.bytes)
+
 (fn push16 ((out (&mut str)) (n i64)) unit
-  (let u (as u32 n))
-  (str.push_byte out (as u8 (shr u 8u32)))
-  (str.push_byte out (as u8 u)))
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) n 2)
+  (str.push_byte out (@ (vec.get (& v) 0)))
+  (str.push_byte out (@ (vec.get (& v) 1))))
 
 (pub (fn put_str ((out (&mut str)) (s (& str))) unit (push16 out (str.len s)) (str.push out s)))
 
@@ -28,7 +31,10 @@
     (set mul (* mul 128)))))
 
 (pub (fn u16 ((buf (& str)) (i i64)) i64
-  (+ (* (as i64 (str.at buf i)) 256) (as i64 (str.at buf (+ i 1))))))
+  (let mut v (vec.new <u8>))
+  (vec.push (&mut v) (str.at buf i))
+  (vec.push (&mut v) (str.at buf (+ i 1)))
+  (bytes.rd_be (& v) 0 2)))
 
 (pub (fn read_str ((buf (& str)) (i (&mut i64)) (end i64)) (res str str)
   (if (< (- end (@ i)) 2) (ret (res.err (str.from "mqtt.frame"))))

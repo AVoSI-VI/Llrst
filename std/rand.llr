@@ -1,0 +1,52 @@
+;; xorshift64* random numbers. A zero seed is replaced so the state never sticks.
+(use std.sys)
+
+(pub (struct rng (s u64)))
+
+(pub (fn seed ((s u64)) rng (if (== s 0u64) (rng 1u64) (rng s))))
+
+(pub (fn next ((r (&mut rng))) u64
+  (let mut x (. r s))
+  (set x (bxor x (shr x 12u64)))
+  (set x (bxor x (shl x 25u64)))
+  (set x (bxor x (shr x 27u64)))
+  (set (. r s) x)
+  (wmul x 2685821657736338717u64)))
+
+(pub (fn below ((r (&mut rng)) (n i64)) i64
+  (if (< n 1) (ret 0))
+  (let v (as i64 (% (next r) (as u64 n))))
+  (if (< v 0) (+ v n) v)))
+
+(pub (fn f64 ((r (&mut rng))) f64 (/ (as f64 (shr (next r) 11u64)) 9007199254740992.0)))
+
+(pub (fn shuffle <T> ((r (&mut rng)) (v (&mut (vec T)))) unit
+  (let mut i (vec.len v))
+  (while (> i 1) (do (set i (- i 1)) (vec.swap v i (below r (+ i 1)))))))
+
+(pub (fn entropy () rng
+  (let p (sys.malloc 8u64))
+  (let n (sys.llr_entropy p 8u64))
+  (let mut s 0u64)
+  (if (== n 8) (set s (ptr.read (as (ptr u64) p))) (set s (as u64 (sys.llr_mono_ms))))
+  (sys.free p)
+  (if (== s 0u64) (set s (bxor (as u64 (sys.llr_mono_ms)) 1u64)))
+  (seed s)))
+
+(test rand_seq
+  (let mut r (seed 1u64))
+  (assert_eq (next (&mut r)) 5180492295206395165u64)
+  (assert_eq (below (&mut r) 0) 0)
+  (let n (below (&mut r) 8))
+  (assert (and (>= n 0) (< n 8)))
+  (let x (f64 (&mut r)))
+  (assert (and (>= x 0.0) (< x 1.0)))
+  (let mut v (vec.new <i64>))
+  (vec.push (&mut v) 1)
+  (vec.push (&mut v) 2)
+  (vec.push (&mut v) 3)
+  (shuffle (&mut r) (&mut v))
+  (assert_eq (vec.len (& v)) 3)
+  (let e (entropy))
+  (assert (!= (. e s) 0u64))
+  (assert_eq (. (seed 0u64) s) 1u64))

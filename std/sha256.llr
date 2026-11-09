@@ -1,0 +1,128 @@
+;; SHA-256. The digest is 32 raw bytes.
+(use std.bytes)
+(use std.scan)
+
+(fn rotr ((x u32) (n u32)) u32 (bor (shr x n) (shl x (- 32u32 n))))
+
+(fn not32 ((x u32)) u32 (bxor x 4294967295u32))
+
+(fn k ((i i64)) u32
+  (let s "428a2f9871374491b5c0fbcfe9b5dba53956c25b59f111f1923f82a4ab1c5ed5d807aa9812835b01243185be550c7dc372be5d7480deb1fe9bdc06a7c19bf174e49b69c1efbe47860fc19dc6240ca1cc2de92c6f4a7484aa5cb0a9dc76f988da983e5152a831c66db00327c8bf597fc7c6e00bf3d5a7914706ca63511429296727b70a852e1b21384d2c6dfc53380d13650a7354766a0abb81c2c92e92722c85a2bfe8a1a81a664bc24b8b70c76c51a3d192e819d6990624f40e3585106aa07019a4c1161e376c082748774c34b0bcb5391c0cb34ed8aa4a5b9cca4f682e6ff3748f82ee78a5636f84c878148cc7020890befffaa4506cebbef9a3f7c67178f2")
+  (let at (* i 8))
+  (let mut v 0u32)
+  (for j 0 8
+    (let d (opt.unwrap (scan.hex_dig (str.at s (+ at j)))))
+    (set v (wadd (wmul v 16u32) (as u32 d))))
+  v)
+
+(fn bs0 ((x u32)) u32 (bxor (rotr x 2u32) (bxor (rotr x 13u32) (rotr x 22u32))))
+
+(fn bs1 ((x u32)) u32 (bxor (rotr x 6u32) (bxor (rotr x 11u32) (rotr x 25u32))))
+
+(fn ss0 ((x u32)) u32 (bxor (rotr x 7u32) (bxor (rotr x 18u32) (shr x 3u32))))
+
+(fn ss1 ((x u32)) u32 (bxor (rotr x 17u32) (bxor (rotr x 19u32) (shr x 10u32))))
+
+(fn ch ((x u32) (y u32) (z u32)) u32 (bxor (band x y) (band (not32 x) z)))
+
+(fn maj ((x u32) (y u32) (z u32)) u32 (bxor (band x y) (bxor (band x z) (band y z))))
+
+(fn init () (vec u32)
+  (let mut h (vec.new <u32>))
+  (vec.push (&mut h) 1779033703u32)
+  (vec.push (&mut h) 3144134277u32)
+  (vec.push (&mut h) 1013904242u32)
+  (vec.push (&mut h) 2773480762u32)
+  (vec.push (&mut h) 1359893119u32)
+  (vec.push (&mut h) 2600822924u32)
+  (vec.push (&mut h) 528734635u32)
+  (vec.push (&mut h) 1541459225u32)
+  h)
+
+(fn sched ((chunk (& str))) (vec u32)
+  (let raw (bytes.from_str chunk))
+  (let mut w (vec.new <u32>))
+  (for i 0 16 (vec.push (&mut w) (as u32 (bytes.rd_be (& raw) (* i 4) 4))))
+  (for i 16 64
+    (let n
+      (wadd (wadd (@ (vec.get (& w) (- i 16))) (ss0 (@ (vec.get (& w) (- i 15)))))
+        (wadd (@ (vec.get (& w) (- i 7))) (ss1 (@ (vec.get (& w) (- i 2)))))))
+    (vec.push (&mut w) n))
+  w)
+
+(fn word ((h (& (vec u32))) (i i64)) u32 (@ (vec.get h i)))
+
+(fn compress ((h (&mut (vec u32))) (w (& (vec u32)))) unit
+  (let mut a (word h 0))
+  (let mut b (word h 1))
+  (let mut c (word h 2))
+  (let mut d (word h 3))
+  (let mut e (word h 4))
+  (let mut f (word h 5))
+  (let mut g (word h 6))
+  (let mut hh (word h 7))
+  (for i 0 64
+    (let t1 (wadd (wadd (wadd (wadd hh (bs1 e)) (ch e f g)) (k i)) (@ (vec.get w i))))
+    (let t2 (wadd (bs0 a) (maj a b c)))
+    (set hh g)
+    (set g f)
+    (set f e)
+    (set e (wadd d t1))
+    (set d c)
+    (set c b)
+    (set b a)
+    (set a (wadd t1 t2)))
+  (vec.set h 0 (wadd (word h 0) a))
+  (vec.set h 1 (wadd (word h 1) b))
+  (vec.set h 2 (wadd (word h 2) c))
+  (vec.set h 3 (wadd (word h 3) d))
+  (vec.set h 4 (wadd (word h 4) e))
+  (vec.set h 5 (wadd (word h 5) f))
+  (vec.set h 6 (wadd (word h 6) g))
+  (vec.set h 7 (wadd (word h 7) hh)))
+
+(fn push32 ((out (&mut str)) (x u32)) unit
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) (as i64 x) 4)
+  (for i 0 4 (str.push_byte out (@ (vec.get (& v) i)))))
+
+(fn pad ((msg (& str))) str
+  (let bits (* (str.len msg) 8))
+  (let mut s (str.from msg))
+  (str.push_byte (&mut s) 128u8)
+  (while (!= (% (str.len (& s)) 64) 56) (str.push_byte (&mut s) 0u8))
+  (for i 0 4 (str.push_byte (&mut s) 0u8))
+  (push32 (&mut s) (as u32 bits))
+  s)
+
+(pub (fn sha256 ((msg (& str))) str
+  (let padded (pad msg))
+  (let mut h (init))
+  (let mut i 0)
+  (while (< i (str.len (& padded)))
+    (let chunk (str.slice (& padded) i (+ i 64)))
+    (compress (&mut h) (& (sched (& chunk))))
+    (set i (+ i 64)))
+  (let mut out (str.new))
+  (for j 0 8 (push32 (&mut out) (@ (vec.get (& h) j))))
+  out))
+
+(fn hexdig ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
+
+(fn hex ((s (& str))) str
+  (let mut o (str.new))
+  (for i 0 (str.len s)
+    (let b (str.at s i))
+    (str.push_byte (&mut o) (hexdig (shr b 4u8)))
+    (str.push_byte (&mut o) (hexdig (band b 15u8))))
+  o)
+
+(test sha256_empty
+  (assert_eq (& (hex (& (sha256 "")))) "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"))
+
+(test sha256_abc
+  (assert_eq (& (hex (& (sha256 "abc")))) "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+  (assert_eq (k 0) 1116352408u32)
+  (drop (rotr 1u32 1u32))
+  (drop (not32 0u32))
+  (if false (drop (hexdig 0u8))))

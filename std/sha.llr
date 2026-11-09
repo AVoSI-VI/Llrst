@@ -1,4 +1,5 @@
 ;; SHA-1 and base64 for the WebSocket handshake.
+(use std.bytes)
 (use std.str)
 
 (struct st (a u32) (b u32) (c u32) (d u32) (e u32))
@@ -20,11 +21,9 @@
   3395469782u32)
 
 (fn be32 ((p (& str)) (i i64)) u32
-  (let b0 (as u32 (str.at p i)))
-  (let b1 (as u32 (str.at p (+ i 1))))
-  (let b2 (as u32 (str.at p (+ i 2))))
-  (let b3 (as u32 (str.at p (+ i 3))))
-  (bor (shl b0 24u32) (bor (shl b1 16u32) (bor (shl b2 8u32) b3))))
+  (let mut v (vec.new <u8>))
+  (for k 0 4 (vec.push (&mut v) (str.at p (+ i k))))
+  (as u32 (bytes.rd_be (& v) 0 4)))
 
 (fn schedule ((chunk (& str))) (vec u32)
   (let mut w (vec.new <u32>))
@@ -52,10 +51,9 @@
     (+ (. h e) (. s e))))
 
 (fn push32 ((out (&mut str)) (x u32)) unit
-  (str.push_byte out (as u8 (shr x 24u32)))
-  (str.push_byte out (as u8 (band (shr x 16u32) 255u32)))
-  (str.push_byte out (as u8 (band (shr x 8u32) 255u32)))
-  (str.push_byte out (as u8 (band x 255u32))))
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) (as i64 x) 4)
+  (for i 0 4 (str.push_byte out (@ (vec.get (& v) i)))))
 
 (fn pad ((msg (& str))) str
   (let bits (* (str.len msg) 8))
@@ -93,6 +91,37 @@
   (str.push_byte out (b64d (bor (shl (band a 3u8) 4u8) (shr b 4u8))))
   (str.push_byte out (b64d (bor (shl (band b 15u8) 2u8) (shr c 6u8))))
   (str.push_byte out (b64d (band c 63u8))))
+
+(fn b64v ((c u8)) i64
+  (if (and (>= c 65u8) (<= c 90u8)) (ret (as i64 (- c 65u8))))
+  (if (and (>= c 97u8) (<= c 122u8)) (ret (+ 26 (as i64 (- c 97u8)))))
+  (if (and (>= c 48u8) (<= c 57u8)) (ret (+ 52 (as i64 (- c 48u8)))))
+  (if (== c 43u8) (ret 62))
+  (if (== c 47u8) (ret 63))
+  (neg 1))
+
+(pub (fn b64_decode ((msg (& str))) (opt str)
+  (let n (str.len msg))
+  (if (or (== n 0) (!= (% n 4) 0)) (ret (if (== n 0) (opt.some (str.new)) (opt.none))))
+  (let mut out (str.new))
+  (let mut i 0)
+  (while (< i n)
+    (let a (b64v (str.at msg i)))
+    (let b (b64v (str.at msg (+ i 1))))
+    (if (or (< a 0) (< b 0)) (ret (opt.none)))
+    (str.push_byte (&mut out) (as u8 (bor (shl a 2) (shr b 4))))
+    (if (!= (str.at msg (+ i 2)) 61u8)
+      (do
+        (let c (b64v (str.at msg (+ i 2))))
+        (if (< c 0) (ret (opt.none)))
+        (str.push_byte (&mut out) (as u8 (bor (shl (band b 15) 4) (shr c 2))))
+        (if (!= (str.at msg (+ i 3)) 61u8)
+          (do
+            (let d (b64v (str.at msg (+ i 3))))
+            (if (< d 0) (ret (opt.none)))
+            (str.push_byte (&mut out) (as u8 (bor (shl (band c 3) 6) d)))))))
+    (set i (+ i 4)))
+  (opt.some out)))
 
 (pub (fn b64 ((msg (& str))) str
   (let mut out (str.new))
@@ -133,6 +162,12 @@
   (let mut m (str.from "dGhlIHNhbXBsZSBub25jZQ=="))
   (str.push (&mut m) "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
   (assert_eq (& (b64 (& (sha1 (& m))))) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
+
+(test sha_b64
+  (match (b64_decode (& (b64 "hi"))) ((opt.some s) (assert_eq (& s) "hi")) ((opt.none) (assert false)))
+  (match (b64_decode "!!!!") ((opt.some _) (assert false)) ((opt.none) (assert true)))
+  (match (b64_decode "") ((opt.some s) (assert_eq (& s) "")) ((opt.none) (assert false)))
+  (drop (b64v 65u8)))
 
 (test sha_parts
   (assert_eq (rotl 1u32 1u32) 2u32)

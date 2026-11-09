@@ -1,0 +1,123 @@
+;; A mutex whose guard cannot escape, and a channel over a condition variable.
+;; mutex.lock returns unit, so the `&mut` cannot be stored. There is no Send trait.
+(use std.sys)
+(use std.thread)
+
+(pub (struct mutex <T> (gate (ptr u8)) (val T)))
+
+(struct state <T> (gate (ptr u8)) (cv (ptr u8)) (q (deque T)) (closed i64) (refs i64))
+
+(pub (struct chan <T> (inner (ptr (state T)))))
+
+(fn gate () (ptr u8) (let p (sys.alloc 128)) (sys.pthread_mutex_init p (ptr.null <u8>)) p)
+
+(fn cond () (ptr u8) (let p (sys.alloc 128)) (sys.pthread_cond_init p (ptr.null <u8>)) p)
+
+(impl mutex <T>
+  (pub (fn new ((v T)) (mutex T) (mutex (gate) v)))
+  (pub (fn lock ((self (&mut (mutex T))) (body (clos ((&mut T)) unit))) unit
+    (sys.pthread_mutex_lock (. self gate))
+    (call body (&mut (. self val)))
+    (sys.pthread_mutex_unlock (. self gate))
+    ()))
+  (fn drop ((self (&mut (mutex T)))) unit
+    (if (ptr.eq (. self gate) (ptr.null <u8>)) (ret))
+    (sys.pthread_mutex_destroy (. self gate))
+    (sys.free (. self gate))
+    (set (. self gate) (ptr.null <u8>))))
+
+(fn hold <T> ((inn (ptr (state T)))) unit (sys.pthread_mutex_lock (. (@ inn) gate)) ())
+
+(fn drop_hold <T> ((inn (ptr (state T)))) unit (sys.pthread_mutex_unlock (. (@ inn) gate)) ())
+
+(fn wake <T> ((inn (ptr (state T)))) unit (sys.pthread_cond_broadcast (. (@ inn) cv)) ())
+
+(fn destroy <T> ((inn (ptr (state T)))) unit
+  (let st (ptr.read inn))
+  (sys.pthread_mutex_destroy (. st gate))
+  (sys.pthread_cond_destroy (. st cv))
+  (sys.free (. st gate))
+  (sys.free (. st cv))
+  (drop st)
+  (sys.free (as (ptr u8) inn)))
+
+(impl chan <T>
+  (pub (fn new () (chan T)
+    (let inn (as (ptr (state T)) (sys.alloc (as i64 (sizeof (state T))))))
+    (ptr.write inn (state (gate) (cond) (deque.new <T>) 0 1))
+    (chan inn)))
+  (pub (fn clone ((self (& (chan T)))) (chan T)
+    (let inn (. self inner))
+    (hold inn)
+    (set (. (@ inn) refs) (+ (. (@ inn) refs) 1))
+    (drop_hold inn)
+    (chan inn)))
+  (pub (fn send ((self (& (chan T))) (v T)) bool
+    (let inn (. self inner))
+    (hold inn)
+    (if (!= (. (@ inn) closed) 0) (do (drop_hold inn) (drop v) (ret false)))
+    (deque.push_back (&mut (. (@ inn) q)) v)
+    (wake inn)
+    (drop_hold inn)
+    true))
+  (fn take ((inn (ptr (state T)))) (opt T)
+    (if (== (deque.len (& (. (@ inn) q))) 0) (ret (opt.none)))
+    (deque.pop_front (&mut (. (@ inn) q))))
+  (pub (fn recv ((self (& (chan T)))) (opt T)
+    (let inn (. self inner))
+    (hold inn)
+    (while (and (== (deque.len (& (. (@ inn) q))) 0) (== (. (@ inn) closed) 0))
+      (sys.pthread_cond_wait (. (@ inn) cv) (. (@ inn) gate))
+      ())
+    (let v (chan.take inn))
+    (drop_hold inn)
+    v))
+  (pub (fn try_recv ((self (& (chan T)))) (opt T)
+    (let inn (. self inner))
+    (hold inn)
+    (let v (chan.take inn))
+    (drop_hold inn)
+    v))
+  (pub (fn close ((self (& (chan T)))) unit
+    (let inn (. self inner))
+    (hold inn)
+    (set (. (@ inn) closed) 1)
+    (wake inn)
+    (drop_hold inn)))
+  (fn drop ((self (&mut (chan T)))) unit
+    (let inn (. self inner))
+    (if (ptr.eq inn (ptr.null < (state T) >)) (ret))
+    (hold inn)
+    (set (. (@ inn) refs) (- (. (@ inn) refs) 1))
+    (let last (== (. (@ inn) refs) 0))
+    (drop_hold inn)
+    (if last (destroy inn))
+    (set (. self inner) (ptr.null < (state T) >))))
+
+(test sync_mutex
+  (let mut m (mutex.new 0))
+  (mutex.lock (&mut m) (clos ((p (&mut i64))) unit (set (@ p) 7)))
+  (mutex.lock (&mut m) (clos ((p (&mut i64))) unit (assert_eq (@ p) 7)))
+  (let mut s (mutex.new (str.from "ab")))
+  (mutex.lock (&mut s) (clos ((p (&mut str))) unit (str.push p "c")))
+  (mutex.lock (&mut s) (clos ((p (&mut str))) unit (assert_eq (& (@ p)) "abc"))))
+
+(test sync_chan
+  (let c (chan.new <i64>))
+  (assert (chan.send (& c) 1))
+  (assert (chan.send (& c) 2))
+  (match (chan.try_recv (& c)) ((opt.some n) (assert_eq n 1)) ((opt.none) (assert false)))
+  (chan.close (& c))
+  (match (chan.try_recv (& c)) ((opt.some n) (assert_eq n 2)) ((opt.none) (assert false)))
+  (match (chan.try_recv (& c)) ((opt.none) (assert true)) ((opt.some _) (assert false)))
+  (assert (not (chan.send (& c) 3)))
+  (let d (chan.clone (& c)))
+  (drop d)
+  (match (chan.recv (& c)) ((opt.none) (assert true)) ((opt.some _) (assert false))))
+
+(test sync_chan_thread
+  (let c (chan.new <i64>))
+  (let d (chan.clone (& c)))
+  (let mut h (thread.spawn (clos () i64 (if (chan.send (& d) 5) 1 0))))
+  (match (chan.recv (& c)) ((opt.some n) (assert_eq n 5)) ((opt.none) (assert false)))
+  (assert_eq (thread.join h) 1))

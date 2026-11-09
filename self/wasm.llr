@@ -1,27 +1,13 @@
 ;; Wasm binary pieces: LEB128, sections, and a byte buffer.
+(use std.bytes)
 (use std.str)
 (use std.vec)
 
 (pub (fn byte ((b (&mut (vec u8))) (n i64)) unit (vec.push b (as u8 (band n 255)))))
 
-(pub (fn uleb ((b (&mut (vec u8))) (n i64)) unit
-  (let mut v n)
-  (loop
-    (let mut c (band v 127))
-    (set v (shr v 7))
-    (if (!= v 0) (set c (bor c 128)))
-    (byte b c)
-    (if (== v 0) (ret)))))
+(pub (fn uleb ((b (&mut (vec u8))) (n i64)) unit (bytes.uvar b n)))
 
-(pub (fn sleb ((b (&mut (vec u8))) (n i64)) unit
-  (let mut v n)
-  (loop
-    (let c (band v 127))
-    (set v (shr v 7))
-    (let sign (!= (band c 64) 0))
-    (let done (or (and (== v 0) (not sign)) (and (== v (neg 1)) sign)))
-    (byte b (if done c (bor c 128)))
-    (if done (ret)))))
+(pub (fn sleb ((b (&mut (vec u8))) (n i64)) unit (bytes.svar b n)))
 
 (pub (fn bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit
   (for i 0 (vec.len src) (vec.push b (@ (vec.get src i))))))

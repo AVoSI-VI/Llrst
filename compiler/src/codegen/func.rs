@@ -419,6 +419,10 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let (x, _) = self.scalar(a);
                 Val::Scalar(self.b.ins().bxor_imm_s(x, 1))
             }
+            Rvalue::BNot(a) => {
+                let (x, _) = self.scalar(a);
+                Val::Scalar(self.b.ins().bnot(x))
+            }
             Rvalue::Cast(a, to) => {
                 let (x, from) = self.scalar(a);
                 Val::Scalar(self.cast(x, &from, to, span))

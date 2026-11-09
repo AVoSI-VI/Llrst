@@ -258,7 +258,12 @@
   (let _ out)
   (as i64 (fail_i "llr_stat_size"))))
 
-(pub (fn llr_now_ms () i64 0))
+(fn clock_ms ((id i32)) i64
+  (let mut ts 0)
+  (if (!= (clock_time_get id 0 (low (as (ptr u8) (&mut ts)))) 0i32) (ret (neg 1)))
+  (/ ts 1000000))
+
+(pub (fn llr_now_ms () i64 (clock_ms 0i32)))
 
 (pub (fn unlink ((path (ptr u8))) i32 (let _ path) (fail_i "unlink")))
 
@@ -389,3 +394,69 @@
   (fail_i "llr_exec")))
 
 (pub (fn llr_exe_path ((buf (ptr u8)) (n u64)) i64 (let _ buf) (let _ n) (neg 1)))
+
+(pub (fn llr_mono_ms () i64 (clock_ms 1i32)))
+
+(pub (fn llr_sleep_ms ((ms i64)) unit
+  (let t0 (llr_mono_ms))
+  (if (< t0 0) (ret))
+  (while (< (- (llr_mono_ms) t0) ms) ())))
+
+(pub (fn llr_entropy ((buf (ptr u8)) (n u64)) i64
+  (if (!= (random_get (low buf) (as i32 n)) 0i32) (ret (neg 1)))
+  (as i64 n)))
+
+(pub (fn llr_set_env ((name (ptr u8)) (value (ptr u8))) i32 (let _ name) (let _ value) (neg 1)))
+
+(pub (fn llr_pid () i64 0))
+
+(pub (fn llr_io_get () (ptr u8) (ptr.null <u8>)))
+
+(pub (fn llr_io_set ((p (ptr u8))) unit (let _ p)))
+
+(pub (fn llr_run ((file (ptr u8))
+   (args (ptr u8))
+   (n u64)
+   (in (ptr u8))
+   (in_n u64)
+   (out (ptr u8))
+   (out_n (ptr u64))
+   (err (ptr u8))
+   (err_n (ptr u64))) i32
+  (let _ file)
+  (let _ args)
+  (let _ n)
+  (let _ in)
+  (let _ in_n)
+  (let _ out)
+  (let _ out_n)
+  (let _ err)
+  (let _ err_n)
+  (neg 1)))
+
+(pub (fn llr_sendto ((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (len u32)) i64
+  (let _ fd)
+  (let _ buf)
+  (let _ n)
+  (let _ addr)
+  (let _ len)
+  (bad "llr_sendto")
+  (neg 1)))
+
+(pub (fn llr_recvfrom ((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (alen (ptr u32))) i64
+  (let _ fd)
+  (let _ buf)
+  (let _ n)
+  (let _ addr)
+  (let _ alen)
+  (bad "llr_recvfrom")
+  (neg 1)))
+
+(pub (fn llr_set_timeout ((fd i32) (ms i64)) i32 (let _ fd) (let _ ms) (fail_i "llr_set_timeout")))
+
+(pub (fn llr_resolve ((host (ptr u8)) (buf (ptr u8)) (cap u64) (out_n (ptr i64))) i32
+  (let _ host)
+  (let _ buf)
+  (let _ cap)
+  (let _ out_n)
+  (fail_i "llr_resolve")))

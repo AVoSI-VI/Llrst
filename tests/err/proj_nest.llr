@@ -1,0 +1,3 @@
+(use proj.no.file)
+
+(fn main () unit ())

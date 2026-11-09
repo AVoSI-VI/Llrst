@@ -73,6 +73,7 @@
   (if (== k 2u8) (ret (eval_bin g p fx locs r)))
   (if (or (== k 3u8) (== k 4u8)) (ret (eval_neg g p fx locs r)))
   (if (== k 5u8) (ret (eval_not g p fx locs r)))
+  (if (== k 21u8) (ret (eval_bnot g p fx locs r)))
   (if (== k 6u8) (ret (eval_cast g p fx locs r)))
   (if (== k 9u8) (ret (eval_discr g p fx locs r)))
   (if (== k 10u8)
@@ -170,7 +171,10 @@
   (if (== op 2) (ret (cg_isa.fmul (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp1)))
   (if (== op 3) (ret (cg_isa.fdiv (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp1)))
   (cg_isa.fcmp (&mut (. fx buf)) (& (. fx isa)) single cg_isa.fp0 cg_isa.fp1)
-  (cg_isa.setcc (&mut (. fx buf)) (& (. fx isa)) (fcc op) cg_isa.acc))
+  (cg_isa.setcc (&mut (. fx buf)) (& (. fx isa)) (fcc op) cg_isa.acc)
+  (if (or (== op 5) (or (== op 7) (== op 8)))
+    (cg_isa.ord_mask (&mut (. fx buf)) (& (. fx isa)) false cg_isa.acc cg_isa.tmp))
+  (if (== op 6) (cg_isa.ord_mask (&mut (. fx buf)) (& (. fx isa)) true cg_isa.acc cg_isa.tmp)))
 
 (fn fcc ((op i64)) i64
   (if (== op 5) (ret cg_isa.eq))
@@ -189,6 +193,15 @@
   (if (cg_lay.is_float (& t))
     (cg_ovf.fneg fx (& t))
     (cg_ovf.neg g p fx (& t) (and (. g checked) (== (. r kind) 3u8))))
+  t)
+
+(fn eval_bnot ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))) ty.sty
+  (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (cg_isa.not (&mut (. fx buf)) (& (. fx isa)) (cg_lay.width (& t)) cg_isa.acc)
   t)
 
 (fn eval_not ((g (&mut cg_mod.cg))

@@ -6,16 +6,16 @@
 (use proj.thir)
 (use proj.thir_call)
 (use proj.thir_expr)
-(use proj.thir_pat)
+(use proj.thir_priv)
 (use proj.ty)
 
 (pub (fn call_trait ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (name (& str))) (res thir.ex str)
-  (let dot (thir_call.last_dot name))
+  (let dot (opt.or (str.rfind_byte name 46u8) (neg 1)))
   (let trn (str.slice name 0 dot))
   (let method (str.slice name (+ dot 1) (str.len name)))
   (let tr (prog.lookup_trait p (. c module) (& trn)))
   (if (< tr 0) (ret (res.err (str.from "name.unknown"))))
-  (if (not (prog.visible p (. c module) tr)) (ret (res.err (thir_pat.priv_code p tr))))
+  (if (not (prog.visible p (. c module) tr)) (ret (res.err (thir_priv.priv_code p tr))))
   (trait_call p c e tr (& method))))
 
 (fn trait_call ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (tr i64) (method (& str))) (res thir.ex str)
@@ -32,8 +32,8 @@
   (if (< ii 0)
     (ret (res.err (thir.kv2 "trait.missing" "trait" (str.clone (& (. d name))) "ty" (thir.nshow p (& self_ty))))))
   (let f (@ (vec.get (& (. (vec.get (& (. p ims)) ii) ids)) slot)))
-  (let empty (vec.new <ty.sty>))
-  (thir_call.check_fn_call p c e f (& empty) false (& (ty.unit))))
+  (let args (prog.impl_subst p tr (& self_ty)))
+  (thir_call.check_fn_call p c e f (& args) false (& (ty.unit))))
 
 (fn sig_i ((d (& prog.def)) (name (& str))) i64
   (for i 0 (vec.len (& (. d sigs)))

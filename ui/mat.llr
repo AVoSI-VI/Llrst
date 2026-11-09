@@ -34,21 +34,19 @@
        (* (- (* (. self c) (. self f)) (* (. self d) (. self e))) inv)
        (* (- (* (. self b) (. self e)) (* (. self a) (. self f))) inv))))))
 
-(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
-
 (fn near ((g f32) (w f32)) bool (< (math.abs32 (- g w)) 0.001f32))
 
 (test mat_apply
   (let m (mat.translate 2.0f32 3.0f32))
   (let p (geom.pt 1.0f32 1.0f32))
   (let q (mat.apply (& m) (& p)))
-  (assert_eq (milli (. q x)) 3000)
-  (assert_eq (milli (. q y)) 4000)
+  (assert_eq (math.milli (. q x)) 3000)
+  (assert_eq (math.milli (. q y)) 4000)
   (let s (mat.scale 2.0f32 3.0f32))
   (let t (mat.mul (& m) (& s)))
   (let r (mat.apply (& t) (& p)))
-  (assert_eq (milli (. r x)) 4000)
-  (assert_eq (milli (. r y)) 6000)
+  (assert_eq (math.milli (. r x)) 4000)
+  (assert_eq (math.milli (. r y)) 6000)
   (let back (mat.invert (& m)))
   (match back
     ((opt.some inv)

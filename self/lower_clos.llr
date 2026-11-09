@@ -16,7 +16,7 @@
   (let name (clos_name w idx))
   (let ex (fn_ex e))
   (let mut sink (vec.new <diag.dg>))
-  (let mut nested (lower.lower_fn p ex name (&mut sink)))
+  (let mut nested (lower.lower_fn p ex name (&mut sink) (&mut (. w ic))))
   (diag.append (&mut (. w diags)) (& sink))
   (strip (&mut nested) (vec.len (& (. e tys))))
   (let caps (clone_tys (& (. e tys))))
@@ -45,10 +45,7 @@
   (for i 0 (- n 1) (vec.push (&mut o) (ty.clone (vec.get (& (. (. e ty) args)) i))))
   o)
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 
 (fn fn_ex ((e (& thir.ex))) thir.ex
   (let mut b (clone_ex (vec.get (& (. e kids)) 0)))
@@ -72,10 +69,7 @@
 (fn strip ((b (&mut mir.body)) (n i64)) unit
   (for i 0 (vec.len (& (. b blocks))) (strip_blk (vec.get_mut (&mut (. b blocks)) i) n)))
 
-(fn clone_i64s ((v (& (vec i64)))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
-  o)
+(fn clone_i64s ((v (& (vec i64)))) (vec i64) (vec.clone v))
 
 (fn clone_loc ((l (& thir.loc))) thir.loc
   (let mut n
@@ -83,10 +77,9 @@
   (set (. n len) (. l len))
   n)
 
-(fn clone_locs ((v (& (vec thir.loc)))) (vec thir.loc)
-  (let mut o (vec.new <thir.loc>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (clone_loc (vec.get v i))))
-  o)
+(impl Clone thir.loc (fn clone ((l (& thir.loc))) thir.loc (clone_loc l)))
+
+(fn clone_locs ((v (& (vec thir.loc)))) (vec thir.loc) (vec.clone v))
 
 (fn clone_pat ((p (& thir.pat))) thir.pat
   (let mut n (thir.pat_new (. p kind) (. p id) (str.clone (& (. p text))) (. p line) (. p col)))
@@ -94,7 +87,7 @@
     (vec.push (&mut (. n subs)) (clone_pat (vec.get (& (. p subs)) i))))
   n)
 
-(fn clone_ex ((e (& thir.ex))) thir.ex
+(pub (fn clone_ex ((e (& thir.ex))) thir.ex
   (let mut n (thir.ex_new (. e kind) (ty.clone (& (. e ty))) (. e line) (. e col) (. e file)))
   (set (. n flag) (. e flag))
   (set (. n flag2) (. e flag2))
@@ -110,4 +103,4 @@
     (vec.push (&mut (. n locs)) (clone_loc (vec.get (& (. e locs)) i))))
   (for i 0 (vec.len (& (. e kids)))
     (vec.push (&mut (. n kids)) (clone_ex (vec.get (& (. e kids)) i))))
-  n)
+  n))

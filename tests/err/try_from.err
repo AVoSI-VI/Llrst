@@ -1,0 +1,2 @@
+E|tests/err/try_from.llr|8|10|12|type.mismatch|want=app|got=i64
+E|tests/err/try_from.llr|16|10|11|type.mismatch|want=bare|got=str

@@ -86,8 +86,7 @@
     (if (== (. r sec) sec) (put_rel (&mut b) r)))
   b)
 
-(fn put_bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit
-  (for i 0 (vec.len src) (vec.push b (@ (vec.get src i)))))
+(fn put_bytes ((b (&mut (vec u8))) (src (& (vec u8)))) unit (elf_out.copy b src))
 
 (fn pad4 ((b (&mut (vec u8)))) unit (while (!= (% (vec.len b) 4) 0) (vec.push b 0u8)))
 
@@ -109,6 +108,8 @@
    (raw_at i64)
    (rel_at i64)
    (nrel i64)
+   (line_at i64)
+   (nline i64)
    (flags i64)) unit
   (sec_name b name)
   (elf_out.push_n b vsize 4)
@@ -116,17 +117,14 @@
   (elf_out.push_n b raw 4)
   (elf_out.push_n b raw_at 4)
   (elf_out.push_n b rel_at 4)
-  (elf_out.push_n b 0 4)
+  (elf_out.push_n b line_at 4)
   (elf_out.push_n b nrel 2)
-  (elf_out.push_n b 0 2)
+  (elf_out.push_n b nline 2)
   (elf_out.push_n b flags 4))
 
 (fn nrel ((rels (& (vec u8)))) i64 (/ (vec.len rels) 10))
 
-(fn to_str ((b (& (vec u8)))) str
-  (let mut s (str.new))
-  (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
-  s)
+(fn to_str ((b (& (vec u8)))) str (str.from_bytes b))
 
 (fn emit_raw ((b (&mut (vec u8)))
    (text (& (vec u8)))
@@ -135,6 +133,7 @@
    (rd (& (vec u8)))
    (ro (& (vec u8)))
    (rr (& (vec u8)))
+   (lines (& (vec u8)))
    (syms (& (vec u8)))
    (strs (& (vec u8)))) unit
   (chunk b text)
@@ -143,11 +142,16 @@
   (chunk b rd)
   (chunk b ro)
   (chunk b rr)
+  (chunk b lines)
   (chunk b syms)
   (elf_out.push_n b (+ 4 (vec.len strs)) 4)
   (put_bytes b strs))
 
 (pub (fn bytes ((o (& elf.obj))) str
+  (let lines (vec.new <u8>))
+  (bytes_line o (& lines))))
+
+(pub (fn bytes_line ((o (& elf.obj)) (lines (& (vec u8)))) str
   (let mut strs (vec.new <u8>))
   (let mut syms (vec.new <u8>))
   (emit_syms o (&mut syms) (&mut strs))
@@ -161,6 +165,7 @@
   (let rd_at (mark (&mut cur) (vec.len (& rd))))
   (let ro_at (mark (&mut cur) (vec.len (& (. o rodata)))))
   (let rr_at (mark (&mut cur) (vec.len (& rr))))
+  (let ln_at (mark (&mut cur) (vec.len lines)))
   (let sym_at (mark (&mut cur) (vec.len (& syms))))
   (let mut b (vec.new <u8>))
   (file_hdr (&mut b) (/ (vec.len (& syms)) 18) sym_at)
@@ -171,6 +176,8 @@
     text_at
     rt_at
     (nrel (& rt))
+    ln_at
+    (/ (vec.len lines) 6)
     scn_text)
   (sec_hdr (&mut b)
     ".data"
@@ -179,6 +186,8 @@
     data_at
     rd_at
     (nrel (& rd))
+    0
+    0
     scn_data)
   (sec_hdr (&mut b)
     ".rdata"
@@ -187,8 +196,10 @@
     ro_at
     rr_at
     (nrel (& rr))
+    0
+    0
     scn_rdata)
-  (sec_hdr (&mut b) ".bss" (. o bss) 0 0 0 0 scn_bss)
+  (sec_hdr (&mut b) ".bss" (. o bss) 0 0 0 0 0 0 scn_bss)
   (emit_raw (&mut b)
     (& (. o text))
     (& rt)
@@ -196,6 +207,7 @@
     (& rd)
     (& (. o rodata))
     (& rr)
+    lines
     (& syms)
     (& strs))
   (to_str (& b))))
@@ -278,7 +290,8 @@
   (let out (str.from "target/coff_main"))
   (let exe (str.from "target\\coff_main.exe"))
   (rm (& exe))
-  (let err (link.link (& (hello)) (& out) "windows" "target/coff_main" false))
+  (let needs (vec.new <str>))
+  (let err (link.link (& (hello)) (& out) "windows" "target/coff_main" false (& needs)))
   (if (!= (str.len (& err)) 0) (assert_eq (& err) ""))
   (let ran (os.capture (& exe)))
   (rm (& exe))

@@ -8,6 +8,7 @@ Source: `std/path.llr`. Import with `(use std.path)` for module functions; types
 
 | name | params | returns |
 |------|--------|---------|
+| `path.sep` | `()` | `str` |
 | `path.join` | `((a (& str)) (b (& str)))` | `str` |
 | `path.base` | `((p (& str)))` | `str` |
 | `path.dir` | `((p (& str)))` | `str` |

@@ -6,7 +6,7 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 
 ## Types
 
-- `(struct cmd (pub (out str)) (pub (code i64)))`
+- `(struct cmd (pub (out str)) (pub (code i64)) (pub (err str)))`
 
 ## Functions
 
@@ -14,6 +14,9 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 |------|--------|---------|
 | `os.args` | `()` | `(vec str)` |
 | `os.arg` | `((i i64))` | `(opt str)` |
+| `os.set_env` | `((name (& str)) (value (& str)))` | `bool` |
+| `os.home` | `()` | `(opt str)` |
+| `os.pid` | `()` | `i64` |
 | `os.env` | `((name (& str)))` | `(opt str)` |
 | `os.exit` | `((code i64))` | `never` |
 | `os.cwd` | `()` | `(res str str)` |
@@ -22,8 +25,9 @@ Source: `std/os.llr`. Import with `(use std.os)` for module functions; types and
 | `os.arch` | `()` | `(& str)` |
 | `os.is_tty` | `((fd i64))` | `bool` |
 | `os.exec` | `((file (& str)) (args (& (vec str))))` | `i64` |
+| `os.run` | `((file (& str)) (args (& (vec str))) (stdin (& str)))` | `(res cmd str)` |
 | `os.exe_path` | `()` | `str` |
 
 ## Tests
 
-`os_cwd`, `os_args`, `os_env`, `os_capture`, `os_exec_args`, `os_exec`
+`os_cwd`, `os_args`, `os_env`, `os_run`, `os_capture`, `os_exec_args`, `os_exec`

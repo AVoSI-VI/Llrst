@@ -1,0 +1,1 @@
+E|tests/err/adt_bound.llr|5|24|15|trait.missing|trait=Eq|ty=nope

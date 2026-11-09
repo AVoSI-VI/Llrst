@@ -22,6 +22,7 @@ The error type in `std` and tools is always `str`. Programs may define an enum i
 (let f (try (fs.read (& p))))       ; yes: try returns early with the err
 ```
 `try` works on `res` and `opt` inside functions returning the same kind.
+On `res`, a different error converts through `From` when the function's error type implements it and `from`'s parameter is that error. Otherwise it is `type.mismatch`.
 
 ## Unwrapping
 
@@ -29,6 +30,17 @@ The error type in `std` and tools is always `str`. Programs may define an enum i
 (opt.unwrap x)                      ; only in tests and main
 (res.unwrap x)
 (opt.or x default)                  ; when a default exists
+(opt.expect x "why")                ; panic with that message
+(res.expect x "why")
+(opt.unwrap_or_else x (clos () T ...))
+(opt.take (&mut slot))              ; leaves none, returns the old opt
+(opt.map x f)                       ; f is (clos ((& T)) U)
+(opt.and_then x f)                  ; f returns (opt U)
+(opt.ok_or x err)                   ; (res T E)
+(res.map x f)
+(res.map_err x f)
+(res.ok x)                          ; (opt T)
+(res.err x)                         ; (opt E)
 ```
 
 ## Panics

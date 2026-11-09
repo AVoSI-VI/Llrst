@@ -5,6 +5,7 @@
 (use proj.a64_int)
 (use proj.a64_mem)
 (use proj.cg_isa)
+(use std.fmt)
 (use std.str)
 
 (pub (fn gpr ((r i64)) i64
@@ -17,12 +18,14 @@
   (if (== r cg_isa.sp) (ret a64_buf.sp))
   (if (== r cg_isa.ret_i) (ret a64_buf.x0))
   (if (and (>= r 16) (< r 32)) (ret (- r 16)))
+  (if (and (>= r 48) (< r 64)) (ret (+ a64_buf.x19 (- r 48))))
   a64_buf.x9))
 
 (pub (fn fpr ((r i64)) i64
   (if (== r cg_isa.fp0) (ret a64_buf.v16))
   (if (== r cg_isa.fp1) (ret a64_buf.v17))
   (if (== r cg_isa.ret_f) (ret a64_buf.v0))
+  (if (and (>= r 64) (< r 80)) (ret (+ a64_buf.v8 (- r 64))))
   (if (>= r 32) (ret (- r 32)))
   a64_buf.v16))
 
@@ -294,18 +297,10 @@
   (mov_hw b a64_buf.x9 a64_buf.x0)
   (a64_fp.fmov b false a64_buf.v16 a64_buf.v0)))
 
-(fn nib ((n u8)) u8 (if (< n 10u8) (+ 48u8 n) (+ 87u8 n)))
-
-(fn hex_byte ((s (&mut str)) (x u8)) unit
-  (str.push_byte s (nib (shr x 4u8)))
-  (str.push_byte s (nib (band x 15u8))))
-
-(fn hex ((b (& a64_buf.buf))) str
+(fn eq ((b (& a64_buf.buf)) (want (& str))) unit
   (let mut s (str.new))
-  (for i 0 (a64_buf.len b) (hex_byte (&mut s) (a64_buf.at b i)))
-  s)
-
-(fn eq ((b (& a64_buf.buf)) (want (& str))) unit (let got (hex b)) (assert_eq (& got) want))
+  (for i 0 (a64_buf.len b) (str.push (&mut s) (& (fmt.hex (as i64 (a64_buf.at b i)) 2))))
+  (assert_eq (& s) want))
 
 (fn fresh () a64_buf.buf (a64_buf.new))
 

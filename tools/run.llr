@@ -8,6 +8,7 @@
 (use std.path)
 (use std.str)
 (use std.sys)
+(use std.time)
 
 (extern llr_dlopen ((path (ptr u8))) (ptr u8))
 
@@ -39,9 +40,9 @@
   (if (> (str.len (& uid)) 0) (do (str.push (&mut cmd) " --ui") (ui_tool.push_arg (&mut cmd) (& uid))))
   (str.push (&mut cmd) " --emit-dylib -o")
   (ui_tool.push_arg (&mut cmd) dest)
-  (let t0 (fs.now_ms))
+  (let t0 (time.mono_ms))
   (let code (os.shell (& cmd)))
-  (let ms (str.from_int (- (fs.now_ms) t0)))
+  (let ms (str.from_int (- (time.mono_ms) t0)))
   (if (== code 0)
     (do (io.puts (& (fmt.pipe3 "build" "ok" (& (fmt.kv "ms" (& ms)))))) (ret true)))
   (io.puts (& (fmt.pipe3 "build" "fail" (& (fmt.kv "code" (& (str.from_int code)))))))

@@ -1,0 +1,11 @@
+(fn main () unit
+  (assert_eq 0b1010 10)
+  (assert_eq 0o17 15)
+  (assert_eq 1_000 1000)
+  (assert_eq 0xFF_FF 65535)
+  (assert_eq (as i64 1e3) 1000)
+  (assert_near 1.5e-3 0.0015 0.0000001)
+  (let mut u (str.new))
+  (let _ok (str.push_utf8 (&mut u) 233))
+  (assert_eq "\u{E9}" (& u))
+  (assert_eq "\u{41}" "A"))

@@ -35,6 +35,7 @@ Source: `std/sys_windows.llr`. Import with `(use std.sys_windows)` for module fu
 | `sys_windows.readdir` | `((d (ptr u8)))` | `(ptr u8)` |
 | `sys_windows.closedir` | `((d (ptr u8)))` | `i32` |
 | `sys_windows.llr_stat_mtime` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
+| `sys_windows.llr_now_ms` | `()` | `i64` |
 | `sys_windows.llr_stat_size` | `((path (ptr u8)) (out (ptr i64)))` | `i64` |
 | `sys_windows.llr_readdir_name` | `((ent (ptr u8)))` | `(ptr u8)` |
 | `sys_windows.llr_panic_frames` | `()` | `unit` |
@@ -73,3 +74,15 @@ Source: `std/sys_windows.llr`. Import with `(use std.sys_windows)` for module fu
 | `sys_windows.llr_spawn_self` | `((arg (ptr u8)))` | `i32` |
 | `sys_windows.llr_exec` | `((file (ptr u8)) (args (ptr u8)) (n u64))` | `i32` |
 | `sys_windows.llr_exe_path` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_windows.llr_mono_ms` | `()` | `i64` |
+| `sys_windows.llr_sleep_ms` | `((ms i64))` | `unit` |
+| `sys_windows.llr_entropy` | `((buf (ptr u8)) (n u64))` | `i64` |
+| `sys_windows.llr_set_env` | `((name (ptr u8)) (value (ptr u8)))` | `i32` |
+| `sys_windows.llr_pid` | `()` | `i64` |
+| `sys_windows.llr_io_get` | `()` | `(ptr u8)` |
+| `sys_windows.llr_io_set` | `((p (ptr u8)))` | `unit` |
+| `sys_windows.llr_run` | `((file (ptr u8)) (args (ptr u8)) (n u64) (in (ptr u8)) (in_n u64) (out (ptr u8)) (out_n (ptr u64)) (err (ptr u8)) (err_n (ptr u64)))` | `i32` |
+| `sys_windows.llr_sendto` | `((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (len u32))` | `i64` |
+| `sys_windows.llr_recvfrom` | `((fd i32) (buf (ptr u8)) (n u64) (addr (ptr u8)) (alen (ptr u32)))` | `i64` |
+| `sys_windows.llr_set_timeout` | `((fd i32) (ms i64))` | `i32` |
+| `sys_windows.llr_resolve` | `((host (ptr u8)) (buf (ptr u8)) (cap u64) (out_n (ptr i64)))` | `i32` |

@@ -2,6 +2,7 @@
 mod inline;
 pub mod lint;
 pub mod lower;
+mod lower_cf;
 mod lower_call;
 mod lower_clos;
 mod lower_div;
@@ -105,6 +106,7 @@ pub enum Rvalue {
     Bin(BinOp, Operand, Operand),
     Neg(Operand),
     WNeg(Operand),
+    BNot(Operand),
     Not(Operand),
     Cast(Operand, Ty),
     Struct(Ty, Vec<Operand>),

@@ -8,9 +8,11 @@ mod diag;
 mod driver;
 mod inl;
 mod link;
+mod load;
 mod mir;
 mod parse;
 mod prelude;
+mod reexp;
 mod resolve;
 mod sexpr;
 mod thir;
@@ -96,7 +98,7 @@ fn main() {
     }
     match cmd.as_str() {
         "version" => {
-            println!("llrc|0.4.5");
+            println!("llrc|0.8.0");
             return;
         }
         "build" | "run" | "check" | "emit-mir" => {}

@@ -1,33 +1,55 @@
 ;; Match lowering: a chain of tests, then bindings, then the arm body.
+(use std.str)
+(use proj.diag)
 (use proj.lower)
+(use proj.lower_clos)
+(use proj.lower_scope)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
 
+(struct hit (local i64) (pl mir.place) (mv bool))
+
+(struct job (pat thir.pat) (pl mir.place))
+
+(struct menv
+  (guard thir.ex)
+  (body thir.ex)
+  (join i64)
+  (by i64)
+  (local bool)
+  (dest mir.place)
+  (on bool))
+
 (pub (fn into_match ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let base (scrut p w e))
   (let join (lower.new_block w))
-  (for i 0 (vec.len (& (. e pats)))
+  (let n (vec.len (& (. e pats))))
+  (for i 0 n
     (let fail (lower.new_block w))
-    (let pat (vec.get (& (. e pats)) i))
-    (let mut binds (vec.new <i64>))
-    (let mut bpl (vec.new <mir.place>))
+    (let env (arm_env e i join (mir.is_local (& base)) (mir.pclone (& dest))))
+    (let mut jobs (vec.new <job>))
+    (vec.push (&mut jobs) (job_new (clone_pat (vec.get (& (. e pats)) i)) (mir.pclone (& base))))
+    (let mut binds (vec.new <hit>))
     (let mut drops (vec.new <mir.place>))
-    (test_pat p w pat (mir.pclone (& base)) fail (&mut binds) (&mut bpl) (&mut drops))
-    (lower.push_scope w)
-    (bind_all p w e (& binds) (& bpl) (&mut drops))
-    (lower.expr_into p w (vec.get (& (. e kids)) (+ i 1)) (mir.pclone (& dest)))
-    (lower.pop_scope p w)
-    (let mut g (mir.tnone))
-    (set (. g kind) 0u8)
-    (set (. g bb) join)
-    (lower.terminate w g)
+    (drive p w jobs fail (&mut binds) (&mut drops) (& env))
     (set (. w cur) fail))
   (let mut u (mir.tnone))
   (set (. u kind) 5u8)
   (lower.terminate w u)
   (set (. w cur) join)))
+
+(fn arm_env ((e (& thir.ex)) (i i64) (join i64) (local bool) (dest mir.place)) menv
+  (let n (vec.len (& (. e pats))))
+  (let guard (vec.get (& (. e kids)) (+ (+ 1 n) i)))
+  (menv (lower_clos.clone_ex guard)
+    (lower_clos.clone_ex (vec.get (& (. e kids)) (+ 1 i)))
+    join
+    (. e id)
+    local
+    dest
+    (== (. (. guard ty) kind) 3u8)))
 
 (fn scrut ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) mir.place
   (if (< (. e id) 0) (ret (lower.as_place p w (vec.get (& (. e kids)) 0))))
@@ -36,88 +58,73 @@
   (lower.push w (mir.sassign (mir.ploc t) (mir.ruse o)))
   (mir.ppush (mir.ploc t) 1u8 0))
 
-(fn bind_all ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (ls (& (vec i64))) (ps (& (vec mir.place))) (drops (&mut (vec mir.place)))) unit
-  (let mut moved false)
-  (for i 0 (vec.len ls)
-    (let l (@ (vec.get ls i)))
-    (let pl (mir.pclone (vec.get ps i)))
-    (vec.push (&mut (. w all)) l)
-    (if (< (. e id) 0) (if (bind_val p w l pl) (set moved true)) (bind_ref w e l (mir.pclone (vec.get ps i)))))
-  (if (and (< (. e id) 0) moved) (drop_rest w drops)))
-
-(fn bind_val ((p (& prog.prog)) (w (&mut lower.low)) (l i64) (pl mir.place)) bool
-  (let pty (mir.place_ty p (& (. w locs)) (& pl)))
-  (if (prog.needs_drop p (& pty)) (vec.push (&mut (. w drops)) l))
-  (if (ty.is_copy (& pty))
-    (do (lower.push w (mir.sassign (mir.ploc l) (mir.ruse (mir.ocopy pl)))) (ret false)))
-  (lower.push w (mir.sassign (mir.ploc l) (mir.ruse (mir.omove pl))))
-  true)
-
-(fn bind_ref ((w (&mut lower.low)) (e (& thir.ex)) (l i64) (pl mir.place)) unit
-  (let mut r (mir.rvoid))
-  (set (. r kind) 1u8)
-  (set (. r flag) (== (. e id) 1))
-  (set (. r local) (. pl local))
-  (set (. r pk) (pk_of (& pl)))
-  (set (. r pi) (pi_of (& pl)))
-  (lower.push w (mir.sassign (mir.ploc l) r)))
-
-(fn drop_rest ((w (&mut lower.low)) (drops (& (vec mir.place)))) unit
-  (for i 0 (vec.len drops)
-    (let pl (mir.pclone (vec.get drops i)))
-    (lower.push w (st_drop pl))))
-
-(fn st_drop ((pl mir.place)) mir.st
-  (mir.st 1u8 (. pl local) (pk (mir.pclone (& pl))) (pi_of (& pl)) (mir.rvoid) 0 0 0))
-
-(fn pk ((pl mir.place)) (vec u8)
-  (let mut o (vec.new <u8>))
-  (for i 0 (vec.len (& (. pl pk))) (vec.push (&mut o) (@ (vec.get (& (. pl pk)) i))))
-  o)
-
-(fn pi_of ((pl (& mir.place))) (vec i64)
-  (let mut o (vec.new <i64>))
-  (for i 0 (vec.len (& (. pl pi))) (vec.push (&mut o) (@ (vec.get (& (. pl pi)) i))))
-  o)
-
-(fn test_pat ((p (& prog.prog))
+(fn drive ((p (& prog.prog))
    (w (&mut lower.low))
-   (pat (& thir.pat))
-   (place mir.place)
+   (jobs (vec job))
    (fail i64)
-   (ls (&mut (vec i64)))
-   (ps (&mut (vec mir.place)))
-   (drops (&mut (vec mir.place)))) unit
-  (if (== (. pat kind) 0u8) (ret (wild p w (& place) drops)))
-  (if (== (. pat kind) 1u8) (ret (bind_push w pat place ls ps)))
-  (if (== (. pat kind) 2u8) (ret (test_lit w pat (& place) fail)))
-  (test_var p w pat place fail ls ps drops))
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let mut jobs jobs)
+  (if (== (vec.len (& jobs)) 0) (ret (commit p w binds drops fail env)))
+  (let cur (vec.remove (&mut jobs) 0))
+  (one p w cur jobs fail binds drops env))
 
-(fn wild ((p (& prog.prog)) (w (&mut lower.low)) (place (& mir.place)) (drops (&mut (vec mir.place)))) unit
-  (if (not (has_down place)) (ret))
-  (let pty (mir.place_ty p (& (. w locs)) place))
-  (if (prog.needs_drop p (& pty)) (vec.push drops (mir.pclone place))))
+(fn one ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (jobs (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let k (. (. cur pat) kind))
+  (if (== k 0u8) (ret (drive_wild p w cur jobs fail binds drops env)))
+  (if (== k 1u8) (ret (drive_bind p w cur jobs fail binds drops env)))
+  (if (== k 2u8) (ret (drive_lit p w cur jobs fail binds drops env)))
+  (if (== k 6u8) (ret (drive_str p w cur jobs fail binds drops env)))
+  (if (== k 3u8) (ret (drive_var p w cur jobs fail binds drops env)))
+  (if (== k 5u8) (ret (drive_fields p w (& (. cur pat)) (mir.pclone (& (. cur pl))) false 0 jobs fail binds drops env)))
+  (drive_or p w cur jobs fail binds drops env))
 
-(fn has_down ((pl (& mir.place))) bool
-  (for i 0 (vec.len (& (. pl pk))) (if (== (@ (vec.get (& (. pl pk)) i)) 2u8) (ret true)))
-  false)
+(fn drive_wild ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (jobs (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (if (and (has_down (& (. cur pl))) (needs p w (& (. cur pl)))) (vec.push drops (mir.pclone (& (. cur pl)))))
+  (drive p w jobs fail binds drops env))
 
-(fn bind_push ((w (&mut lower.low)) (pat (& thir.pat)) (place mir.place) (ls (&mut (vec i64))) (ps (&mut (vec mir.place)))) unit
-  (vec.push ls (lower.map_l w (. pat id)))
-  (vec.push ps place))
+(fn drive_bind ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (jobs (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let pty (mir.place_ty p (& (. w locs)) (& (. cur pl))))
+  (let mv (and (< (. env by) 0) (not (ty.is_copy (& pty)))))
+  (vec.push binds (hit (lower.map_l w (. (. cur pat) id)) (mir.pclone (& (. cur pl))) mv))
+  (drive p w jobs fail binds drops env))
 
-(fn test_lit ((w (&mut lower.low)) (pat (& thir.pat)) (place (& mir.place)) (fail i64)) unit
+(fn drive_lit ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (jobs (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
   (let ok (lower.new_block w))
-  (if (or (str.eq (& (. pat text)) "true") (str.eq (& (. pat text)) "false"))
-    (ret (test_bool w pat place fail ok)))
-  (let mut t (mir.tnone))
-  (set (. t kind) 2u8)
-  (set (. t op) (mir.ocopy (mir.pclone place)))
-  (set (. t else) fail)
-  (vec.push (&mut (. t vals)) (. pat id))
-  (vec.push (&mut (. t bbs)) ok)
-  (lower.terminate w t)
-  (set (. w cur) ok))
+  (if (or (str.eq (& (. (. cur pat) text)) "true") (str.eq (& (. (. cur pat) text)) "false"))
+    (test_bool w (& (. cur pat)) (& (. cur pl)) fail ok)
+    (test_int w (& (. cur pat)) (& (. cur pl)) fail ok))
+  (set (. w cur) ok)
+  (drive p w jobs fail binds drops env))
 
 (fn test_bool ((w (&mut lower.low)) (pat (& thir.pat)) (place (& mir.place)) (fail i64) (ok i64)) unit
   (let yes (str.eq (& (. pat text)) "true"))
@@ -126,39 +133,246 @@
   (set (. t op) (mir.ocopy (mir.pclone place)))
   (set (. t bb) (if yes ok fail))
   (set (. t bb2) (if yes fail ok))
-  (lower.terminate w t)
-  (set (. w cur) ok))
+  (lower.terminate w t))
 
-(fn test_var ((p (& prog.prog))
+(fn test_int ((w (&mut lower.low)) (pat (& thir.pat)) (place (& mir.place)) (fail i64) (ok i64)) unit
+  (let mut t (mir.tnone))
+  (set (. t kind) 2u8)
+  (set (. t op) (mir.ocopy (mir.pclone place)))
+  (set (. t else) fail)
+  (vec.push (&mut (. t vals)) (. pat id))
+  (vec.push (&mut (. t bbs)) ok)
+  (lower.terminate w t))
+
+(fn drive_str ((p (& prog.prog))
    (w (&mut lower.low))
-   (pat (& thir.pat))
-   (place mir.place)
+   (cur job)
+   (jobs (vec job))
    (fail i64)
-   (ls (&mut (vec i64)))
-   (ps (&mut (vec mir.place)))
-   (drops (&mut (vec mir.place)))) unit
-  (let d (lower.temp p w (ty.int 6) (. pat line) (. pat col)))
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let arg (borrow_str p w (mir.pclone (& (. cur pl))) (& (. cur pat))))
+  (let lit (mir.oconst 3u8 0 0 (str.clone (& (. (. cur pat) text))) (thir.ref_str p)))
+  (let slot (lower.temp p w (ty.bool_ty) (. (. cur pat) line) (. (. cur pat) col)))
+  (let next (lower.new_block w))
+  (lower.terminate w (eq_term p slot next arg lit))
+  (set (. w cur) next)
+  (let ok (lower.new_block w))
+  (let mut br (mir.tnone))
+  (set (. br kind) 1u8)
+  (set (. br op) (mir.ocopy (mir.ploc slot)))
+  (set (. br bb) ok)
+  (set (. br bb2) fail)
+  (lower.terminate w br)
+  (set (. w cur) ok)
+  (drive p w jobs fail binds drops env))
+
+(fn borrow_str ((p (& prog.prog)) (w (&mut lower.low)) (pl mir.place) (pat (& thir.pat))) mir.op
+  (let tmp (lower.temp p w (thir.ref_str p) (. pat line) (. pat col)))
+  (let mut r (mir.rvoid))
+  (set (. r kind) 1u8)
+  (set (. r local) (. pl local))
+  (set (. r pk) (pk_of (& pl)))
+  (set (. r pi) (pi_of (& pl)))
+  (lower.push w (mir.sassign (mir.ploc tmp) r))
+  (mir.ocopy (mir.ploc tmp)))
+
+(fn eq_term ((p (& prog.prog)) (slot i64) (next i64) (arg mir.op) (lit mir.op)) mir.term
+  (let mut t (mir.tnone))
+  (set (. t kind) 3u8)
+  (set (. t bb) next)
+  (set (. t dest) slot)
+  (set (. t fk) 0u8)
+  (set (. t fid) (prog.meth_id p (prog.pre_id p "str") "eq"))
+  (vec.push (&mut (. t args)) arg)
+  (vec.push (&mut (. t args)) lit)
+  t)
+
+(fn drive_var ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (jobs (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let d (lower.temp p w (ty.int 6) (. (. cur pat) line) (. (. cur pat) col)))
   (let mut disc (mir.rvoid))
   (set (. disc kind) 9u8)
-  (set (. disc local) (. place local))
-  (set (. disc pk) (pk_of (& place)))
-  (set (. disc pi) (pi_of (& place)))
+  (set (. disc local) (. (. cur pl) local))
+  (set (. disc pk) (pk_of (& (. cur pl))))
+  (set (. disc pi) (pi_of (& (. cur pl))))
   (lower.push w (mir.sassign (mir.ploc d) disc))
   (let ok (lower.new_block w))
   (let mut sw (mir.tnone))
   (set (. sw kind) 2u8)
   (set (. sw op) (mir.ocopy (mir.ploc d)))
   (set (. sw else) fail)
-  (vec.push (&mut (. sw vals)) (. pat id))
+  (vec.push (&mut (. sw vals)) (. (. cur pat) id))
   (vec.push (&mut (. sw bbs)) ok)
   (lower.terminate w sw)
   (set (. w cur) ok)
+  (drive_fields p w (& (. cur pat)) (mir.pclone (& (. cur pl))) true (. (. cur pat) id) jobs fail binds drops env))
+
+(fn drive_fields ((p (& prog.prog))
+   (w (&mut lower.low))
+   (pat (& thir.pat))
+   (place mir.place)
+   (down bool)
+   (idx i64)
+   (rest (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let mut jobs (vec.new <job>))
   (for i 0 (vec.len (& (. pat subs)))
-    (let fp (mir.ppush (mir.ppush (mir.pclone (& place)) 2u8 (. pat id)) 0u8 i))
-    (test_pat p w (vec.get (& (. pat subs)) i) fp fail ls ps drops)))
+    (let fp (field_at (mir.pclone (& place)) down idx i))
+    (vec.push (&mut jobs) (job_new (clone_pat (vec.get (& (. pat subs)) i)) fp)))
+  (let mut rest rest)
+  (while (> (vec.len (& rest)) 0) (vec.push (&mut jobs) (vec.remove (&mut rest) 0)))
+  (drive p w jobs fail binds drops env))
+
+(fn field_at ((place mir.place) (down bool) (idx i64) (i i64)) mir.place
+  (let base (if down (mir.ppush (mir.pclone (& place)) 2u8 idx) (mir.pclone (& place))))
+  (mir.ppush base 0u8 i))
+
+(fn drive_or ((p (& prog.prog))
+   (w (&mut lower.low))
+   (cur job)
+   (rest (vec job))
+   (fail i64)
+   (binds (&mut (vec hit)))
+   (drops (&mut (vec mir.place)))
+   (env (& menv))) unit
+  (let n (vec.len (& (. (. cur pat) subs))))
+  (let saved (vec.len binds))
+  (let saved_d (vec.len drops))
+  (for i 0 n
+    (let last (== (+ i 1) n))
+    (let af (if last fail (lower.new_block w)))
+    (let mut jobs (vec.new <job>))
+    (vec.push (&mut jobs) (job_new (clone_pat (vec.get (& (. (. cur pat) subs)) i)) (mir.pclone (& (. cur pl)))))
+    (push_jobs (&mut jobs) (& rest))
+    (drive p w jobs af binds drops env)
+    (trunc_hit binds saved)
+    (trunc_pl drops saved_d)
+    (if (not last) (set (. w cur) af)))
+  (set (. w cur) fail))
+
+(fn commit ((p (& prog.prog))
+   (w (&mut lower.low))
+   (binds (& (vec hit)))
+   (drops (& (vec mir.place)))
+   (fail i64)
+   (env (& menv))) unit
+  (lower_scope.push_scope w)
+  (let moved (bind_all p w env binds))
+  (if (. env on) (guard_br p w env fail binds))
+  (if (and (< (. env by) 0) moved) (drop_rest w drops))
+  (lower.expr_into p w (& (. env body)) (mir.pclone (& (. env dest))))
+  (lower_scope.pop_scope p w)
+  (let mut g (mir.tnone))
+  (set (. g kind) 0u8)
+  (set (. g bb) (. env join))
+  (lower.terminate w g))
+
+(fn guard_br ((p (& prog.prog)) (w (&mut lower.low)) (env (& menv)) (fail i64) (binds (& (vec hit)))) unit
+  (let line (. (. env guard) line))
+  (let col (. (. env guard) col))
+  (let slot (lower.temp p w (ty.bool_ty) line col))
+  (lower.expr_into p w (& (. env guard)) (mir.ploc slot))
+  (let gfail (lower.new_block w))
+  (let gok (lower.new_block w))
+  (let mut br (mir.tnone))
+  (set (. br kind) 1u8)
+  (set (. br op) (mir.ocopy (mir.ploc slot)))
+  (set (. br bb) gok)
+  (set (. br bb2) gfail)
+  (lower.terminate w br)
+  (set (. w cur) gfail)
+  (move_back w binds)
+  (lower_scope.emit_top w)
+  (let mut go (mir.tnone))
+  (set (. go kind) 0u8)
+  (set (. go bb) fail)
+  (lower.terminate w go)
+  (set (. w cur) gok))
+
+(fn bind_all ((p (& prog.prog)) (w (&mut lower.low)) (env (& menv)) (binds (& (vec hit)))) bool
+  (let mut moved false)
+  (for i 0 (vec.len binds)
+    (if (bind_one p w env (vec.get binds i)) (set moved true)))
+  moved)
+
+(fn bind_one ((p (& prog.prog)) (w (&mut lower.low)) (env (& menv)) (h (& hit))) bool
+  (vec.push (&mut (. w all)) (. h local))
+  (if (>= (. env by) 0) (do (bind_ref w env (. h local) (mir.pclone (& (. h pl)))) (ret false)))
+  (let pty (mir.place_ty p (& (. w locs)) (& (. h pl))))
+  (if (prog.needs_drop p (& pty)) (vec.push (&mut (. w drops)) (. h local)))
+  (if (ty.is_copy (& pty))
+    (do (lower.push w (mir.sassign (mir.ploc (. h local)) (mir.ruse (mir.ocopy (mir.pclone (& (. h pl))))))) (ret false)))
+  (if (not (. env local)) (note_move w (& (. h pl))))
+  (lower.push w (mir.sassign (mir.ploc (. h local)) (mir.ruse (mir.omove (mir.pclone (& (. h pl)))))))
+  true)
+
+(fn bind_ref ((w (&mut lower.low)) (env (& menv)) (l i64) (pl mir.place)) unit
+  (let mut r (mir.rvoid))
+  (set (. r kind) 1u8)
+  (set (. r flag) (== (. env by) 1))
+  (set (. r local) (. pl local))
+  (set (. r pk) (pk_of (& pl)))
+  (set (. r pi) (pi_of (& pl)))
+  (lower.push w (mir.sassign (mir.ploc l) r)))
+
+(fn note_move ((w (&mut lower.low)) (pl (& mir.place))) unit
+  (let code (if (mir.has_deref pl) "move.deref" "move.field"))
+  (let mut d (diag.make true (str.clone (& (. w path))) (. w sline) (. w scol) (. w slen) (str.from code)))
+  (diag.add (&mut d) "fix" (str.from "match on (& ...)"))
+  (vec.push (&mut (. w diags)) d))
+
+(fn move_back ((w (&mut lower.low)) (binds (& (vec hit)))) unit
+  (for i 0 (vec.len binds)
+    (let h (vec.get binds i))
+    (if (. h mv)
+      (lower.push w (mir.sassign (mir.pclone (& (. h pl))) (mir.ruse (mir.omove (mir.ploc (. h local)))))))))
+
+(fn drop_rest ((w (&mut lower.low)) (drops (& (vec mir.place)))) unit
+  (for i 0 (vec.len drops) (lower.push w (st_drop (mir.pclone (vec.get drops i))))))
+
+(fn st_drop ((pl mir.place)) mir.st
+  (mir.st 1u8 (. pl local) (pk_of (& pl)) (pi_of (& pl)) (mir.rvoid) 0 0 0))
+
+(fn needs ((p (& prog.prog)) (w (& lower.low)) (pl (& mir.place))) bool
+  (prog.needs_drop p (& (mir.place_ty p (& (. w locs)) pl))))
+
+(fn has_down ((pl (& mir.place))) bool
+  (for i 0 (vec.len (& (. pl pk))) (if (== (@ (vec.get (& (. pl pk)) i)) 2u8) (ret true)))
+  false)
+
+(fn job_new ((pat thir.pat) (pl mir.place)) job (job pat pl))
+
+(fn push_jobs ((jobs (&mut (vec job))) (rest (& (vec job)))) unit
+  (for i 0 (vec.len rest) (vec.push jobs (clone_job (vec.get rest i)))))
+
+(fn clone_job ((j (& job))) job (job_new (clone_pat (& (. j pat))) (mir.pclone (& (. j pl)))))
+
+(fn trunc_hit ((v (&mut (vec hit))) (n i64)) unit (while (> (vec.len v) n) (let _ (vec.pop v))))
+
+(fn trunc_pl ((v (&mut (vec mir.place))) (n i64)) unit (while (> (vec.len v) n) (let _ (vec.pop v))))
+
+(fn clone_pat ((p (& thir.pat))) thir.pat
+  (let mut n (thir.pat_new (. p kind) (. p id) (str.clone (& (. p text))) (. p line) (. p col)))
+  (for i 0 (vec.len (& (. p subs))) (vec.push (&mut (. n subs)) (clone_pat (vec.get (& (. p subs)) i))))
+  n)
 
 (fn pk_of ((pl (& mir.place))) (vec u8)
   (let mut o (vec.new <u8>))
   (for i 0 (vec.len (& (. pl pk))) (vec.push (&mut o) (@ (vec.get (& (. pl pk)) i))))
   o)
 
+(fn pi_of ((pl (& mir.place))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len (& (. pl pi))) (vec.push (&mut o) (@ (vec.get (& (. pl pi)) i))))
+  o)

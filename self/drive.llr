@@ -2,9 +2,11 @@
 (use std.fs)
 (use std.io)
 (use std.opt)
+(use std.os)
 (use std.path)
 (use std.str)
 (use std.sys)
+(use std.time)
 (use proj.borrow)
 (use proj.cg_drop)
 (use proj.cg_entry)
@@ -14,6 +16,7 @@
 (use proj.cg_term)
 (use proj.check)
 (use proj.diag)
+(use proj.inline)
 (use proj.link)
 (use proj.lint)
 (use proj.load)
@@ -35,22 +38,36 @@
   (pub (emit_obj bool))
   (pub (emit_dylib bool))
   (pub (checked bool))
+  (pub (debug bool))
   (pub (deny (vec str)))
   (pub (args (vec str)))))
+
+(pub (fn phase ((name (& str)) (t0 i64)) unit
+  (match (os.env "LLRST_TIME")
+    ((opt.none) ())
+    ((opt.some _)
+      (do
+        (let mut s (str.from "time|"))
+        (str.push (&mut s) name)
+        (str.push_byte (&mut s) 124u8)
+        (str.push (&mut s) (& (str.from_int (- (time.mono_ms) t0))))
+        (io.eputs (& s)))))))
 
 (pub (fn run ((o (& flags))) i64
   (if (not (target_ok (& (. o target))))
     (ret (bad (& (. o file)) "target.unsupported" (& (. o target)))))
-  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target)))
-    ((res.err e) (do (io_err (& e)) (ret 1)))
-    ((res.ok p) (build o p)))))
+  (let t (time.mono_ms))
+  (let loaded (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target))))
+  (phase "load" t)
+  (match loaded ((res.err e) (do (io_err (& e)) (ret 1))) ((res.ok p) (build o p)))))
 
 (fn io_err ((e (& str))) unit (io.eputs e))
 
 (pub (fn target_ok ((t (& str))) bool
   (if (== (str.len t) 0) (ret true))
   (if (is_wasm t) (ret true))
-  (if (and (str.has t "x86_64") (not (str.has t "apple"))) (ret true))
+  (if (str.has t "x86_64") (ret true))
+  (if (str.has t "riscv64") (ret true))
   (or (str.has t "aarch64") (str.has t "arm64"))))
 
 (pub (fn is_wasm ((t (& str))) bool (or (str.eq t "wasm32-wasi") (str.eq t "wasm32-unknown-unknown"))))
@@ -67,6 +84,8 @@
   (if (> (str.len t) 0) (ret (or (str.has t "aarch64") (str.has t "arm64"))))
   (link.host_a64))
 
+(fn is_rv ((t (& str))) bool (str.has t "riscv64"))
+
 (fn big_end ((t (& str))) bool (str.has t "s390x"))
 
 (fn bad ((file (& str)) (code (& str)) (got (& str))) i64
@@ -74,40 +93,49 @@
   1)
 
 (fn at_main ((file (& str)) (code (& str)) (k (& str)) (v (& str)) (k2 (& str)) (v2 (& str))) str
-  (let mut d (diag.make true (slash file) 1 1 0 (str.from code)))
+  (let mut d (diag.make true (str.replace_byte file 92u8 47u8) 1 1 0 (str.from code)))
   (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
   (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (diag.render (& d)))
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
-
 (fn build ((o (& flags)) (p prog.prog)) i64
   (let mut ds (vec.new <diag.dg>))
   (let mut dump (str.new))
-  (check.run (& p) "" (&mut ds) (&mut dump) false (. o test))
+  (let mut t (time.mono_ms))
+  (let mut kept (check.run (& p) "" (&mut ds) (&mut dump) false (. o test) true))
+  (phase "check" t)
   (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)))))
-  (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds))))
-  (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target)))))
+  (if (is_wasm (& (. o target))) (ret (wasm_out o p (&mut ds) (&mut kept))))
+  (let s (cg_isa.isa (is_a64 (& (. o target))) (is_win (& (. o target))) (is_rv (& (. o target)))))
   (let mut g (cg_mod.new (. o checked) s (is_darwin (& (. o target))) (big_end (& (. o target)))))
-  (let entry (if (. o test) (tests (&mut g) (& p) (&mut ds)) (main_sym (&mut g) (& p) (&mut ds))))
+  (cg_mod.set_debug (&mut g) (. o debug))
+  (let mut ic (inline.empty))
+  (let entry
+    (if (. o test) (tests (&mut g) (& p) (&mut ds) (&mut ic)) (main_sym (&mut g) (& p) (&mut ds))))
   (if (. o emit_dylib) (cg_reload.queue (&mut g) (& p)))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (cg_mod.done_ids (& g))))))
-  (pump (&mut g) (& p) (&mut ds))
+  (set t (time.mono_ms))
+  (pump (&mut g) (& p) (&mut ds) (&mut kept) (&mut ic))
   (lint.generics (& p) (&mut ds) (& (cg_mod.done_ids (& g))))
+  (phase "codegen" t)
   (if (diag.any_err (& ds) "") (ret (finish o (&mut ds))))
-  (if (. o emit_dylib)
-    (cg_reload.emit (&mut g) (& p) entry)
-    (cg_entry.emit_main (&mut g) entry))
+  (if (. o emit_dylib) (cg_reload.emit (&mut g) (& p) entry) (cg_entry.emit_main (&mut g) entry))
+  (set t (time.mono_ms))
+  (let needs (cg_mod.needs (& g)))
   (let bytes (cg_mod.finish (& g)))
-  (if (. o emit_obj) (ret (write_obj o (& bytes) (&mut ds))))
-  (let err (link.link (& bytes) (& (out_path o)) (& (. o target)) (& (. o file)) (. o emit_dylib)))
+  (if (. o emit_obj)
+    (ret (do (let code (write_obj o (& bytes) (&mut ds))) (phase "object" t) code)))
+  (phase "object" t)
+  (set t (time.mono_ms))
+  (let err (link_out o (& bytes) (& needs)))
+  (phase "link" t)
   (if (> (str.len (& err)) 0) (do (io.eputs (& err)) (ret 1)))
   (finish o (&mut ds)))
+
+(fn link_out ((o (& flags)) (bytes (& str)) (needs (& (vec str)))) str
+  (link.link bytes (& (out_path o)) (& (. o target)) (& (. o file)) (. o emit_dylib) needs))
 
 (fn stopped ((o (& flags))) bool
   (or (str.eq (& (. o cmd)) "check") (str.eq (& (. o cmd)) "emit-mir")))
@@ -129,9 +157,9 @@
   (if (. d err) (ret))
   (for i 0 (vec.len deny) (if (str.eq (& (. d code)) (vec.get deny i)) (set (. d err) true))))
 
-(fn wasm_out ((o (& flags)) (p prog.prog) (ds (&mut (vec diag.dg)))) i64
+(fn wasm_out ((o (& flags)) (p prog.prog) (ds (&mut (vec diag.dg))) (kept (&mut check.kept))) i64
   (let wasi (str.has (& (. o target)) "wasi"))
-  (let bytes (wasm_fn.build (& p) (. o checked) wasi (. o test) ds))
+  (let bytes (wasm_fn.build (& p) (. o checked) wasi (. o test) ds kept))
   (if (diag.any_err ds "") (ret (finish o ds)))
   (let path (wasm_path o))
   (match (fs.write (& path) (& bytes))
@@ -186,17 +214,17 @@
    (v (& str))
    (k2 (& str))
    (v2 (& str))) unit
-  (let mut d (diag.make true (slash file) line col len (str.from code)))
+  (let mut d (diag.make true (str.replace_byte file 92u8 47u8) line col len (str.from code)))
   (if (> (str.len k) 0) (diag.add (&mut d) k (str.clone v)))
   (if (> (str.len k2) 0) (diag.add (&mut d) k2 (str.clone v2)))
   (vec.push ds d))
 
-(fn tests ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) i64
+(fn tests ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (ic (&mut inline.icache))) i64
   (let mut names (vec.new <str>))
   (let mut syms (vec.new <i64>))
   (for i 0 (vec.len (& (. p tests)))
     (if (== (. (vec.get (& (. p tests)) i) mod) (. p main))
-      (add_test g p ds i (&mut names) (&mut syms))))
+      (add_test g p ds i (&mut names) (&mut syms) ic)))
   (let run (cg_mod.func_sym g p (prog.std_fn p "test" "run") (vec.new <ty.sty>)))
   (let done (cg_mod.func_sym g p (prog.std_fn p "test" "done") (vec.new <ty.sty>)))
   (cg_entry.emit_tests g (& names) (& syms) run done))
@@ -206,7 +234,8 @@
    (ds (&mut (vec diag.dg)))
    (i i64)
    (names (&mut (vec str)))
-   (syms (&mut (vec i64)))) unit
+   (syms (&mut (vec i64)))
+   (ic (&mut inline.icache))) unit
   (let t (vec.get (& (. p tests)) i))
   (match (thir.check_test p (. t mod) (& (. t body)) (. t line) (. t col) (. t len) ds)
     ((res.err _) ())
@@ -214,7 +243,7 @@
       (do
         (let mut name (str.from "test."))
         (str.push (&mut name) (& (. t name)))
-        (let b (lower.lower_fn p e name ds))
+        (let b (lower.lower_fn p e name ds ic))
         (borrow.run p ds (& b))
         (lint.body ds (& b))
         (if (diag.any_err ds "") (ret))
@@ -223,42 +252,68 @@
         (vec.push names (str.clone (& (. t name))))
         (vec.push syms sym)))))
 
-(fn pump ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn pump ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
   (while (or (> (vec.len (& (. g pend))) 0) (> (vec.len (& (. g dpend))) 0))
-    (do (drain g p ds) (drain_drop g p))))
+    (do (drain g p ds kept ic) (drain_drop g p))))
 
-(fn drain ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg)))) unit
+(fn drain ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
   (while (> (vec.len (& (. g pend))) 0)
     (do
-      (let args
-        (match (vec.pop (&mut (. g pargs))) ((opt.some v) v) ((opt.none) (vec.new <ty.sty>))))
-      (let id (match (vec.pop (&mut (. g pend))) ((opt.some v) v) ((opt.none) 0)))
-      (if (not (cg_mod.is_done g id (& args))) (inst g p ds id args)))))
+      (let i (opt.or (vec.pop (&mut (. g pend))) 0))
+      (if (not (cg_mod.is_done g i)) (inst g p ds i kept ic)))))
 
-(fn inst ((g (&mut cg_mod.cg)) (p (& prog.prog)) (ds (&mut (vec diag.dg))) (id i64) (args (vec ty.sty))) unit
-  (cg_mod.mark_done g id (& args))
+(fn from_kept ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (id i64)
+   (ix i64)
+   (args (& (vec ty.sty)))
+   (kept (&mut check.kept))) unit
+  (if (diag.any_err ds "") (ret))
+  (let b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
+  (let sym (cg_mod.func_sym g p id (clone_tys args)))
+  (cg_term.compile g p (& b) sym true))
+
+(fn inst ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (ds (&mut (vec diag.dg)))
+   (i i64)
+   (kept (&mut check.kept))
+   (ic (&mut inline.icache))) unit
+  (cg_mod.mark_done g i)
+  (let id (fid_at g i))
+  (let args (clone_tys (vec.get (& (. g fargs)) i)))
+  (let slot (check.kept_ix p id (& args) kept))
+  (if (>= slot 0) (ret (from_kept g p ds id slot (& args) kept)))
   (match (thir.check_fn p id (clone_tys (& args)) ds)
     ((res.err _) ())
     ((res.ok e)
       (do
-        (let b (lower.lower_fn p e (prog.fn_path p id) ds))
+        (let b (lower.lower_fn p e (prog.fn_path p id) ds ic))
         (borrow.run p ds (& b))
         (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))
         (let sym (cg_mod.func_sym g p id (clone_tys (& args))))
         (cg_term.compile g p (& b) sym true)))))
 
-(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty)
-  (let mut o (vec.new <ty.sty>))
-  (for i 0 (vec.len v) (vec.push (&mut o) (ty.clone (vec.get v i))))
-  o)
+(fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
+
+(fn fid_at ((g (& cg_mod.cg)) (i i64)) i64 (@ (vec.get (& (. g fid)) i)))
 
 (fn sym_at ((g (& cg_mod.cg)) (i i64)) i64 (@ (vec.get (& (. g dsym)) i)))
 
 (fn drain_drop ((g (&mut cg_mod.cg)) (p (& prog.prog))) unit
   (while (> (vec.len (& (. g dpend))) 0)
     (do
-      (let i (match (vec.pop (&mut (. g dpend))) ((opt.some v) v) ((opt.none) 0)))
+      (let i (opt.or (vec.pop (&mut (. g dpend))) 0))
       (if (cg_mod.drop_pending g i)
         (do
           (let ty (ty.clone (vec.get (& (. g dty)) i)))
@@ -270,11 +325,11 @@
   (assert_eq (target_ok "") true)
   (assert_eq (target_ok "x86_64-unknown-linux-gnu") true)
   (assert_eq (target_ok "x86_64-pc-windows-gnu") true)
-  (assert_eq (target_ok "x86_64-apple-darwin") false)
+  (assert_eq (target_ok "x86_64-apple-darwin") true)
   (assert_eq (target_ok "aarch64-unknown-linux-gnu") true)
   (assert_eq (target_ok "aarch64-apple-darwin") true)
   (assert_eq (target_ok "arm64-apple-darwin") true)
-  (assert_eq (target_ok "riscv64gc-unknown-linux-gnu") false)
+  (assert_eq (target_ok "riscv64gc-unknown-linux-gnu") true)
   (assert_eq (target_ok "s390x-unknown-linux-gnu") false)
   (assert_eq (target_ok "wasm32-wasi") true)
   (assert_eq (target_ok "wasm32-unknown-unknown") true)

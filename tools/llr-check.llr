@@ -30,7 +30,7 @@
   v)
 
 (fn main () unit
-  (let env_llrc (match (os.env "LLRC") ((opt.some s) s) ((opt.none) (str.new))))
+  (let env_llrc (opt.or (os.env "LLRC") (str.new)))
   (let llrc (pick (& (candidates (& env_llrc) (& (os.exe_path))))))
   (let code (os.exec (& llrc) (& (forward))))
   (if (or (< code 0) (== code 127))

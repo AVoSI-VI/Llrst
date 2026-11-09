@@ -1,19 +1,17 @@
 ;; WebSocket frames. Lengths of 7, 16, and 64 bits. Messages may span continuations.
-(fn eshort ((want i64) (got i64)) str
-  (let mut m (str.from "http.short|want="))
-  (str.push (&mut m) (& (str.from_int want)))
-  (str.push (&mut m) "|got=")
-  (str.push (&mut m) (& (str.from_int got)))
-  m)
+(use std.bytes)
+(use std.http)
+(use std.net)
+(use std.sys)
 
 (fn need ((buf (& str)) (n i64)) (res unit str)
-  (if (< (str.len buf) n) (ret (res.err (eshort n (str.len buf)))))
+  (if (< (str.len buf) n) (ret (res.err (http.eshort n (str.len buf)))))
   (res.ok ()))
 
 (fn be ((buf (& str)) (i i64) (n i64)) i64
-  (let mut v 0)
-  (for k 0 n (set v (+ (* v 256) (as i64 (str.at buf (+ i k))))))
-  v)
+  (let mut v (vec.new <u8>))
+  (for k 0 n (vec.push (&mut v) (str.at buf (+ i k))))
+  (bytes.rd_be (& v) 0 n))
 
 (fn head_len ((len7 i64) (mask bool)) i64
   (let ext (if (== len7 126) 2 (if (== len7 127) 8 0)))
@@ -84,9 +82,10 @@
   (if (== op 0u8) (ret (follow acc op0 fin payload)))
   (start acc op0 fin op payload)))
 
-(fn push_be ((out (&mut str)) (n i64) (bytes i64)) unit
-  (let mut shift (* (- bytes 1) 8))
-  (while (>= shift 0) (str.push_byte out (as u8 (band (shr n shift) 255))) (set shift (- shift 8))))
+(fn push_be ((out (&mut str)) (n i64) (width i64)) unit
+  (let mut v (vec.new <u8>))
+  (bytes.wr_be (&mut v) n width)
+  (for i 0 width (str.push_byte out (@ (vec.get (& v) i)))))
 
 (pub (fn encode ((op u8) (payload (& str))) str
   (let n (str.len payload))
@@ -146,3 +145,46 @@
   (assert_eq (. p op) 9u8)
   (assert (res.is_err (& (feed (&mut acc) (&mut op) true 0u8 "x"))))
   (assert (res.is_err (& (feed (&mut acc) (&mut op) true 3u8 "x")))))
+
+(fn masked_hello () str
+  (let mut s (str.new))
+  (str.push_byte (&mut s) 129u8)
+  (str.push_byte (&mut s) 133u8)
+  (str.push_byte (&mut s) 1u8)
+  (str.push_byte (&mut s) 2u8)
+  (str.push_byte (&mut s) 3u8)
+  (str.push_byte (&mut s) 4u8)
+  (str.push_byte (&mut s) 105u8)
+  (str.push_byte (&mut s) 103u8)
+  (str.push_byte (&mut s) 111u8)
+  (str.push_byte (&mut s) 104u8)
+  (str.push_byte (&mut s) 110u8)
+  s)
+
+(fn ws_client ((port i64)) i32
+  (let c (res.unwrap (net.connect "127.0.0.1" port)))
+  (res.unwrap (net.send c
+     "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
+  (let resp (res.unwrap (net.recv c 256)))
+  (if (not (str.has (& resp) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")) (ret 1))
+  (res.unwrap (net.send c (& (masked_hello))))
+  (let echo (res.unwrap (net.recv c 32)))
+  (net.close c)
+  (if (str.has (& echo) "hello") (ret 0))
+  (ret 1))
+
+(fn wait_child ((pid i32)) unit
+  (let mut st 0i32)
+  (sys.waitpid pid (as (ptr i32) (&mut st)) 0i32)
+  (assert_eq (as i64 (band st 127i32)) 0)
+  (assert_eq (as i64 (band (shr st 8i32) 255i32)) 0))
+
+(test http_ws_serve
+  (let l (res.unwrap (net.listen 0)))
+  (let port (res.unwrap (net.local_port l)))
+  (let pid (sys.llr_call_child ws_client port))
+  (let mut routes (vec.new <route>))
+  (let n (res.unwrap (http.serve l "/tmp" (& routes) 1)))
+  (assert_eq n 1)
+  (net.close l)
+  (wait_child pid))

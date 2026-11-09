@@ -1,0 +1,7 @@
+(trait id (fn id ((& Self)) i64))
+
+(impl id (opt T) <T> (fn id ((a (& (opt T)))) i64 1))
+
+(impl id (opt i64) (fn id ((a (& (opt i64)))) i64 2))
+
+(fn main () unit ())

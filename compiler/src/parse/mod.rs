@@ -34,9 +34,9 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "pub", "1", n));
             }
             let inner = items[1].head().unwrap_or("");
-            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline" | "trait") {
+            if !matches!(inner, "fn" | "extern" | "struct" | "enum" | "const" | "inline" | "trait" | "use") {
                 return Err(Diag::error(items[1].span(), "parse.expect")
-                    .kv("want", "fn extern struct enum const inline trait")
+                    .kv("want", "fn extern struct enum const inline trait use")
                     .kv("got", inner)
                     .kv("fix", "(pub (fn ...)) per method"));
             }
@@ -53,7 +53,7 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
                 return Err(arity(sp, "use", "1", n));
             }
             let path = name_of(&items[1])?;
-            Item::Use(path.split('.').map(|s| s.to_string()).collect(), sp)
+            Item::Use(path.split('.').map(|s| s.to_string()).collect(), sp, is_pub)
         }
         "mod" => {
             if n != 1 {
@@ -112,12 +112,13 @@ fn parse_item(s: &Sexpr, is_pub: bool) -> PResult<Item> {
         "impl" => {
             if is_trait_impl(items) {
                 let trait_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "2+", n))?)?;
-                let ty_name = name_of(&items[2])?;
+                let self_ty = parse_ty(&items[2])?;
+                let (generics, at) = parse_generics(items, 3)?;
                 let mut methods = Vec::new();
-                for f in &items[3..] {
+                for f in &items[at..] {
                     methods.push(method_fn(f)?);
                 }
-                Item::TraitImpl(TraitImpl { trait_name, ty_name, methods, span: sp })
+                Item::TraitImpl(TraitImpl { trait_name, self_ty, generics, methods, span: sp })
             } else {
                 let ty_name = name_of(items.get(1).ok_or_else(|| arity(sp, "impl", "1+", n))?)?;
                 let (generics, at) = parse_generics(items, 2)?;
@@ -210,8 +211,11 @@ fn trait_method(s: &Sexpr) -> PResult<FnDecl> {
 }
 
 fn is_trait_impl(items: &[Sexpr]) -> bool {
-    match items.get(2).and_then(|s| s.atom()) {
-        Some(a) => !a.starts_with('<'),
+    match items.get(2) {
+        Some(s) => match s.atom() {
+            Some(a) => !a.starts_with('<'),
+            None => !matches!(s.head(), Some("fn" | "pub" | "inline")),
+        },
         None => false,
     }
 }

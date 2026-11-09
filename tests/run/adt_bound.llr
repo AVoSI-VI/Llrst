@@ -1,0 +1,5 @@
+(struct box2 <T:Eq> (n T))
+
+(fn main () unit
+  (let b (box2 1))
+  (assert_eq (. b n) 1))

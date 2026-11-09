@@ -1,0 +1,2 @@
+(fn main () unit
+  (match 1 (1 (if "no") 2) (_ 0)))

@@ -9,6 +9,7 @@
 (use std.path)
 (use std.str)
 (use std.sys)
+(use std.time)
 
 (struct job (src str) (out str) (bin str) (std str) (ui str) (seen i64))
 
@@ -46,9 +47,9 @@
   (ui_tool.push_arg (&mut cmd) (& wasm))
   (str.push (&mut cmd) " 2>")
   (ui_tool.push_arg (&mut cmd) (& errp))
-  (let t0 (fs.now_ms))
+  (let t0 (time.mono_ms))
   (let code (os.shell (& cmd)))
-  (let ms (str.from_int (- (fs.now_ms) t0)))
+  (let ms (str.from_int (- (time.mono_ms) t0)))
   (if (== code 0) (ret (io.puts (& (fmt.pipe3 "build" "ok" (& (fmt.kv "ms" (& ms))))))))
   (let msg
     (match (fs.read (& errp))

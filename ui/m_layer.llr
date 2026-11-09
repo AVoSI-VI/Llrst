@@ -14,7 +14,15 @@
 (use ui.widget)
 
 (fn scrim ((msg i64) (w f32) (h f32)) (box (dyn widget.widget))
-  (let face (w_box.sized w h (w_box.container (blend.color.rgba 0u8 0u8 0u8 120u8) 0.0f32 0.0f32 0.0f32 0.0f32 (widget.empty))))
+  (let face
+    (w_box.sized w
+      h
+      (w_box.container (blend.color.rgba 0u8 0u8 0u8 120u8)
+        0.0f32
+        0.0f32
+        0.0f32
+        0.0f32
+        (widget.empty))))
   (w_gesture.tap msg face))
 
 (fn layer ((c (& ctx.ctx)) (msg i64) (body (box (dyn widget.widget)))) (box (dyn widget.widget))
@@ -39,15 +47,16 @@
 (pub (fn dialog ((msg i64) (body (box (dyn widget.widget)))) (box (dyn widget.widget))
   (widget.view_kids widget.ty_dialog
     (one body)
-    (clos ((c (& ctx.ctx)) (ks (vec (box (dyn widget.widget))))) (box (dyn widget.widget))
+    (clos ((c (& ctx.ctx)) (ks (vec (box (dyn widget.widget)))))
+      (box (dyn widget.widget))
       (semantics.wrap semantics.role_dialog
         (str.new)
         (str.new)
         0
         semantics.act_dismiss
         false
-        (layer c msg (first ks))))))
-)
+        (layer c msg (first ks)))))))
+
 (fn bar ((c (& ctx.ctx)) (text (& str))) (box (dyn widget.widget))
   (let th (ctx.ctx.theme c))
   (let label (w_text.text text (. th body) (theme.ink (& (. th on_primary)))))
@@ -65,12 +74,9 @@
   s)
 
 (fn snack_head ((text (& str))) i64
-  (match (str.find_byte text 10u8)
-    ((opt.none) 0)
-    ((opt.some n) n)))
+  (match (str.find_byte text 10u8) ((opt.none) 0) ((opt.some n) n)))
 
-(fn snack_num ((s (& str))) i64
-  (match (str.to_int s) ((opt.some n) n) ((opt.none) 0)))
+(fn snack_num ((s (& str))) i64 (opt.or (str.to_int s) 0))
 
 (fn snack_read ((self (&mut model)) (text (& str))) unit
   (let at (snack_head text))
@@ -109,8 +115,8 @@
   (fn layout ((_s (& model))) i64 (as i64 (sizeof model))))
 
 (pub (fn snack_bar ((text str)) (box (dyn widget.widget))
-  (state.stateful widget.ty_snack (key.key.none) (model text 400 true)))
-)
+  (state.stateful widget.ty_snack (key.key.none) (model text 400 true))))
+
 (test m_layer_name
   (assert_eq (widget.widget.name (& (dialog 1 (widget.empty)))) "dialog")
   (let w (snack_bar (str.from "Saved")))

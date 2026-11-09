@@ -1,0 +1,8 @@
+(use proj.nest.api)
+(use std.io)
+
+(fn main () unit
+  (io.puts (& (str.from_int (api.answer))))
+  (io.puts (& (str.from_int (api.pt.sum (& (api.pt 3 4))))))
+  (io.puts (& (str.from_int api.base)))
+  (io.puts (& (str.from_int (api.via)))))

@@ -14,22 +14,6 @@
 
 (pub (struct font (bytes str) (info ttf.dir) (cmap ttf_cmap.sel) (cache glyph.cache)))
 
-(fn slash ((p (& str))) str
-  (let mut o (str.new))
-  (for i 0 (str.len p) (let c (str.at p i)) (str.push_byte (&mut o) (if (== c 92u8) 47u8 c)))
-  o)
-
-(fn exe_buf () str
-  (let mut buf (str.new))
-  (let mut n 256)
-  (while (<= n 65536)
-    (do
-      (str.reserve (&mut buf) (- n (. buf len)))
-      (let got (sys.llr_exe_path (. buf p) (as u64 n)))
-      (if (> got 0) (do (set (. buf len) got) (ret buf)))
-      (set n (* n 2))))
-  (str.new))
-
 (fn join_path ((a (& str)) (b (& str))) str
   (if (== (str.len a) 0) (ret (str.from b)))
   (if (str.starts b "/") (ret (str.from b)))
@@ -38,20 +22,18 @@
   (str.push (&mut out) b)
   out)
 
-(fn dir_of ((p (& str))) str
-  (let mut i (- (str.len p) 1))
-  (while (>= i 0)
-    (if (== (str.at p i) 47u8) (ret (if (== i 0) (str.from "/") (str.slice p 0 i))))
-    (set i (- i 1)))
-  (str.from "."))
-
 (fn exe_dir () str
-  (let p (exe_buf))
+  (let p (os.exe_path))
   (if (== (str.len (& p)) 0) (ret (str.new)))
-  (dir_of (& (slash (& p)))))
+  (let s (str.replace_byte (& p) 92u8 47u8))
+  (match (str.rfind_byte (& s) 47u8)
+    ((opt.some i) (if (== i 0) (str.from "/") (str.slice (& s) 0 i)))
+    ((opt.none) (str.from "."))))
 
 (fn ui_dir () str
-  (match (os.env "LLRST_UI") ((opt.some s) (ret (slash (& s)))) ((opt.none) ()))
+  (match (os.env "LLRST_UI")
+    ((opt.some s) (ret (str.replace_byte (& s) 92u8 47u8)))
+    ((opt.none) ()))
   (let exe (exe_dir))
   (if (> (str.len (& exe)) 0)
     (do
@@ -128,5 +110,5 @@
   (let p (res.unwrap (font.outline (& f) a)))
   (assert (> (vec.len (& (. p pts))) 0))
   (drop (exe_dir))
-  (drop (slash "a\\b"))
+  (drop (str.replace_byte "a\\b" 92u8 47u8))
   (drop (scale_of (& f) 16.0f32)))

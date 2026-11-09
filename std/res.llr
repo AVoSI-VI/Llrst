@@ -6,7 +6,17 @@
   (pub (fn is_ok ((self (& (res T E)))) bool (match self ((res.ok _) true) ((res.err _) false))))
   (pub (fn is_err ((self (& (res T E)))) bool (match self ((res.ok _) false) ((res.err _) true))))
   (pub (fn unwrap ((self (res T E))) T (match self ((res.ok v) v) ((res.err _) (panic "res.err")))))
-  (pub (fn unwrap_err ((self (res T E))) E (match self ((res.ok _) (panic "res.ok")) ((res.err e) e)))))
+  (pub (fn unwrap_err ((self (res T E))) E (match self ((res.ok _) (panic "res.ok")) ((res.err e) e))))
+  (pub (fn map <U> ((self (res T E)) (f (clos ((& T)) U))) (res U E)
+    (match self ((res.ok v) (res.ok <U E> (call f (& v)))) ((res.err e) (res.err <U E> e)))))
+  (pub (fn map_err <F> ((self (res T E)) (f (clos ((& E)) F))) (res T F)
+    (match self ((res.ok v) (res.ok <T F> v)) ((res.err e) (res.err <T F> (call f (& e)))))))
+  (pub (fn ok ((self (res T E))) (opt T)
+    (match self ((res.ok v) (opt.some v)) ((res.err _) (opt.none <T>)))))
+  (pub (fn err ((self (res T E))) (opt E)
+    (match self ((res.ok _) (opt.none <E>)) ((res.err e) (opt.some e)))))
+  (pub (fn expect ((self (res T E)) (msg (& str))) T
+    (match self ((res.ok v) v) ((res.err _) (panic msg))))))
 
 (test res_basic
   (let a (res.ok <i64 str> 3))
@@ -14,4 +24,13 @@
   (assert_eq (res.unwrap a) 3)
   (let b (res.err <i64 str> (str.from "bad")))
   (assert (res.is_err (& b)))
-  (assert_eq (& (res.unwrap_err b)) "bad"))
+  (assert_eq (& (res.unwrap_err b)) "bad")
+  (assert_eq (res.unwrap (res.map (res.ok <i64 str> 3) (clos ((n (& i64))) i64 (+ (@ n) 1)))) 4)
+  (let bad
+    (res.map_err (res.err <i64 str> (str.from "bad")) (clos ((e (& str))) str (str.cat e "!"))))
+  (assert_eq (& (res.unwrap_err bad)) "bad!")
+  (match (res.ok (res.ok <i64 str> 3)) ((opt.some n) (assert_eq n 3)) ((opt.none) (assert false)))
+  (match (res.err (res.err <i64 str> (str.from "bad")))
+    ((opt.some e) (assert_eq (& e) "bad"))
+    ((opt.none) (assert false)))
+  (assert_eq (res.expect (res.ok <i64 str> 5) "no") 5))

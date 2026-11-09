@@ -10,6 +10,20 @@ static int sock_fd(uint64_t sock) {
     return fd;
 }
 
+static void host_addr(const void *addr, uint32_t len, unsigned char tmp[28], const void **out, int *out_len) {
+    const unsigned char *s = (const unsigned char *)addr;
+    if (s != 0 && len == 28 && s[0] == 10 && s[1] == 0) {
+        memcpy(tmp, s, 28);
+        tmp[0] = 23; /* AF_INET6 */
+        tmp[1] = 0;
+        *out = tmp;
+        *out_len = 28;
+        return;
+    }
+    *out = addr;
+    *out_len = (int)len;
+}
+
 static uint64_t socket_of(int fd) {
     Slot slot;
     if (!copy_slot(fd, &slot) || slot.kind != KIND_SOCK) {
@@ -21,6 +35,9 @@ static uint64_t socket_of(int fd) {
 
 int socket(int domain, int ty, int proto) {
     ensure_init();
+    if (domain == 10) {
+        domain = 23; /* AF_INET6 */
+    }
     uint64_t sock = llr_wsa_socket(domain, ty, proto);
     if (sock == SOCK_BAD) {
         map_wsa();
@@ -35,7 +52,11 @@ int bind(int fd, void *addr, uint32_t len) {
     if (sock == SOCK_BAD) {
         return -1;
     }
-    if (llr_wsa_bind(sock, addr, (int)len) != 0) {
+    unsigned char tmp[28];
+    const void *use = addr;
+    int ulen = (int)len;
+    host_addr(addr, len, tmp, &use, &ulen);
+    if (llr_wsa_bind(sock, use, ulen) != 0) {
         map_wsa();
         return -1;
     }
@@ -93,7 +114,11 @@ int connect(int fd, void *addr, uint32_t len) {
     if (sock == SOCK_BAD) {
         return -1;
     }
-    if (llr_wsa_connect(sock, addr, (int)len) != 0) {
+    unsigned char tmp[28];
+    const void *use = addr;
+    int ulen = (int)len;
+    host_addr(addr, len, tmp, &use, &ulen);
+    if (llr_wsa_connect(sock, use, ulen) != 0) {
         map_wsa();
         return -1;
     }
@@ -228,5 +253,79 @@ int fcntl(int fd, int cmd, int arg) {
     EnterCriticalSection(&fd_lock);
     slots[fd - FD_BASE].nonblock = (arg & L_NONBLOCK) ? 1 : 0;
     LeaveCriticalSection(&fd_lock);
+    return 0;
+}
+
+int64_t llr_sendto(int fd, const void *buf, uint64_t n, const void *addr, uint32_t len) {
+    unsigned char tmp[28];
+    const void *use;
+    int ulen;
+    uint64_t sock;
+    ensure_init();
+    sock = socket_of(fd);
+    if (sock == SOCK_BAD) {
+        return -1;
+    }
+    if (n > 0x7fffffff) {
+        n = 0x7fffffff;
+    }
+    host_addr(addr, len, tmp, &use, &ulen);
+    int sent = llr_wsa_sendto(sock, buf, (int)n, use, ulen);
+    if (sent < 0) {
+        map_wsa();
+        return -1;
+    }
+    return sent;
+}
+
+int64_t llr_recvfrom(int fd, void *buf, uint64_t n, void *addr, uint32_t *alen) {
+    uint64_t sock;
+    int got;
+    ensure_init();
+    sock = socket_of(fd);
+    if (sock == SOCK_BAD) {
+        return -1;
+    }
+    if (n > 0x7fffffff) {
+        n = 0x7fffffff;
+    }
+    got = alen == NULL ? 0 : (int)*alen;
+    int nread = llr_wsa_recvfrom(sock, buf, (int)n, addr, alen == NULL ? NULL : &got);
+    if (nread < 0) {
+        map_wsa();
+        return -1;
+    }
+    if (alen != NULL) {
+        *alen = (uint32_t)got;
+    }
+    return nread;
+}
+
+int llr_set_timeout(int fd, int64_t ms) {
+    uint64_t sock;
+    uint32_t t;
+    ensure_init();
+    sock = socket_of(fd);
+    if (sock == SOCK_BAD) {
+        return -1;
+    }
+    t = ms <= 0 ? 0 : (uint32_t)ms;
+    if (llr_wsa_setsockopt(sock, 0xffff, 0x1006, &t, (int)sizeof t) != 0) {
+        map_wsa();
+        return -1;
+    }
+    if (llr_wsa_setsockopt(sock, 0xffff, 0x1005, &t, (int)sizeof t) != 0) {
+        map_wsa();
+        return -1;
+    }
+    return 0;
+}
+
+int llr_resolve(const char *host, char *buf, uint64_t cap, int64_t *out_n) {
+    ensure_init();
+    if (llr_wsa_resolve(host, buf, cap, out_n) != 0) {
+        map_wsa();
+        return -1;
+    }
     return 0;
 }

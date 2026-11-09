@@ -104,12 +104,13 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
         _ => {}
     }
     match &e.kind {
-        Let { .. } | Name(_) | Lit(_) | Break | Continue | Sizeof(_) => {}
+        Let { .. } | Name(_) | Lit(_) | Break(_) | Continue(_) | Sizeof(_) => {}
         Set { place, value } => {
             walk_expr(diags, place, scope);
             walk_expr(diags, value, scope);
         }
-        Do(xs) | Loop(xs) => walk_seq(diags, xs, scope),
+        Do(xs) => walk_seq(diags, xs, scope),
+        Loop { body, .. } => walk_seq(diags, body, scope),
         If { cond, then, els } => {
             walk_expr(diags, cond, scope);
             walk_expr(diags, then, scope);
@@ -121,9 +122,12 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
             walk_expr(diags, cond, scope);
             walk_seq(diags, body, scope);
         }
-        For { lo, hi, body, .. } => {
+        For { lo, hi, step, body, .. } => {
             walk_expr(diags, lo, scope);
             walk_expr(diags, hi, scope);
+            if let Some(step) = step {
+                walk_expr(diags, step, scope);
+            }
             walk_seq(diags, body, scope);
         }
         Return(x) => {
@@ -134,14 +138,22 @@ fn walk_expr(diags: &Diags, e: &crate::ast::Expr, scope: &mut Vec<Bind>) {
         Match { scrut, arms } => {
             walk_expr(diags, scrut, scope);
             for a in arms {
+                if let Some(g) = &a.guard {
+                    walk_expr(diags, g, scope);
+                }
                 walk_expr(diags, &a.body, scope);
             }
         }
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | BNot(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => walk_expr(diags, place, scope),
-        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => {
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             walk_expr(diags, l, scope);
             walk_expr(diags, r, scope);
+        }
+        AssertNear(g, w, eps) => {
+            walk_expr(diags, g, scope);
+            walk_expr(diags, w, scope);
+            walk_expr(diags, eps, scope);
         }
         Call { args, .. } => args.iter().for_each(|x| walk_expr(diags, x, scope)),
         CallPtr { callee, args } => {
@@ -219,7 +231,7 @@ fn mark_op(read: &mut [bool], op: &Operand) {
 fn mark_stmt(read: &mut [bool], s: &Stmt) {
     let Stmt::Assign(_, rv) = s else { return };
     match rv {
-        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
+        Rvalue::Use(op) | Rvalue::Neg(op) | Rvalue::WNeg(op) | Rvalue::BNot(op) | Rvalue::Not(op) | Rvalue::Cast(op, _) | Rvalue::BoxPack { value: op, .. } => {
             mark_op(read, op);
         }
         Rvalue::Ref { place, .. } | Rvalue::BoxBorrow { place, .. } | Rvalue::Discr(place) => mark_place(read, place),
@@ -276,8 +288,12 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             one(place);
             Some(one(value))
         }
-        Do(xs) | Loop(xs) => {
+        Do(xs) => {
             many(xs);
+            None
+        }
+        Loop { body, .. } => {
+            many(body);
             None
         }
         If { cond, then, els } => {
@@ -290,9 +306,12 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             many(body);
             None
         }
-        For { lo, hi, body, .. } => {
+        For { lo, hi, step, body, .. } => {
             one(lo);
             one(hi);
+            if let Some(step) = step {
+                one(step);
+            }
             many(body);
             None
         }
@@ -302,11 +321,16 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             arms.iter().for_each(|a| one(&a.body));
             None
         }
-        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
+        Ref { place, .. } | Deref(place) | Not(place) | Neg(place) | WNeg(place) | BNot(place) | Field { base: place, .. } | Cast { expr: place, .. } | Try(place)
         | Panic(place) | Assert(place) | Drop(place) => Some(one(place)),
-        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) => {
+        Bin { l, r, .. } | And(l, r) | Or(l, r) | AssertEq(l, r) | AssertNe(l, r) => {
             one(l);
             Some(one(r))
+        }
+        AssertNear(g, w, eps) => {
+            one(g);
+            one(w);
+            Some(one(eps))
         }
         Call { args, .. } => {
             many(args);
@@ -321,6 +345,6 @@ fn note_expr(prog: &crate::resolve::Program, module: u32, e: &crate::ast::Expr) 
             many(body);
             None
         }
-        Lit(_) | Break | Continue | Sizeof(_) | Name(_) => None,
+        Lit(_) | Break(_) | Continue(_) | Sizeof(_) | Name(_) => None,
     };
 }

@@ -8,6 +8,10 @@
 
 (const cpu_arm64 i64 0x0100000C)
 
+(const cpu_x64 i64 0x01000007)
+
+(const sub_x64 i64 3)
+
 (const mh_object i64 1)
 
 (const mh_subsects i64 0x2000)
@@ -53,7 +57,9 @@
   (pub (data_vm i64))
   (pub (ro_vm i64))
   (pub (bss_vm i64))
-  (pub (vmsize i64))))
+  (pub (vmsize i64))
+  (pub (line (vec u8)))
+  (pub (rel_line (vec u8)))))
 
 (struct lay
   (text i64)
@@ -62,6 +68,8 @@
   (rt i64)
   (rd i64)
   (rr i64)
+  (line i64)
+  (lr i64)
   (sym i64)
   (str i64)
   (fileoff i64)
@@ -86,8 +94,8 @@
 
 (fn span ((start i64) (end i64)) i64 (if (== start 0) 0 (- end start)))
 
-(fn layout ((p (& parts))) lay
-  (let mut off (+ hdr_bytes cmd_bytes))
+(fn layout ((p (& parts)) (cmdsz i64)) lay
+  (let mut off (+ hdr_bytes cmdsz))
   (let text (place (&mut off) (vec.len (& (. p text))) 16))
   (let data (place (&mut off) (vec.len (& (. p data))) 8))
   (let ro (place (&mut off) (vec.len (& (. p rodata))) 8))
@@ -95,9 +103,11 @@
   (let rt (place (&mut off) (vec.len (& (. p rel_text))) 4))
   (let rd (place (&mut off) (vec.len (& (. p rel_data))) 4))
   (let rr (place (&mut off) (vec.len (& (. p rel_rodata))) 4))
+  (let line (place (&mut off) (vec.len (& (. p line))) 1))
+  (let lr (place (&mut off) (vec.len (& (. p rel_line))) 4))
   (let sym (place (&mut off) (vec.len (& (. p syms))) 8))
   (let start (first_off text data ro))
-  (lay text data ro rt rd rr sym off start (span start end)))
+  (lay text data ro rt rd rr line lr sym off start (span start end)))
 
 (fn put_pad ((b (&mut (vec u8))) (name (& str))) unit
   (let n (str.len name))
@@ -125,13 +135,13 @@
   (elf_out.push_n b flags 4)
   (elf_out.push_n b 0 12))
 
-(fn put_hdr ((b (&mut (vec u8)))) unit
+(fn put_hdr ((b (&mut (vec u8))) (ncmd i64) (cmdsz i64) (x64 bool)) unit
   (elf_out.push_n b mh_magic 4)
-  (elf_out.push_n b cpu_arm64 4)
-  (elf_out.push_n b 0 4)
+  (if x64 (elf_out.push_n b cpu_x64 4) (elf_out.push_n b cpu_arm64 4))
+  (if x64 (elf_out.push_n b sub_x64 4) (elf_out.push_n b 0 4))
   (elf_out.push_n b mh_object 4)
-  (elf_out.push_n b 4 4)
-  (elf_out.push_n b cmd_bytes 4)
+  (elf_out.push_n b ncmd 4)
+  (elf_out.push_n b cmdsz 4)
   (elf_out.push_n b mh_subsects 4)
   (elf_out.push_n b 0 4))
 
@@ -216,12 +226,28 @@
 (fn put_bss ((b (&mut (vec u8))) (p (& parts))) unit
   (put_sec b "__bss" "__DATA" (. p bss_vm) (. p bss) 0 3 0 0 bss_flags))
 
+(fn put_dwarf ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
+  (let n (vec.len (& (. p line))))
+  (elf_out.push_n b lc_segment 4)
+  (elf_out.push_n b 152 4)
+  (put_pad b "__DWARF")
+  (elf_out.push_n b 0 8)
+  (elf_out.push_n b n 8)
+  (elf_out.push_n b (. lay line) 8)
+  (elf_out.push_n b n 8)
+  (elf_out.push_n b 1 4)
+  (elf_out.push_n b 1 4)
+  (elf_out.push_n b 1 4)
+  (elf_out.push_n b 0 4)
+  (put_sec b "__debug_line" "__DWARF" 0 n (. lay line) 0 (. lay lr) (nrel (& (. p rel_line))) 33554432))
+
 (fn put_cmds ((b (&mut (vec u8))) (p (& parts)) (lay (& lay))) unit
   (put_seg b (. lay fileoff) (. lay filesize) (. p vmsize))
   (put_text b p lay)
   (put_data b p lay)
   (put_ro b p lay)
   (put_bss b p)
+  (if (> (vec.len (& (. p line))) 0) (put_dwarf b p lay))
   (put_build b)
   (put_symtab b (/ (vec.len (& (. p syms))) 16) (. lay sym) (. lay str) (vec.len (& (. p strs))))
   (put_dysym b (. p nlocal) (. p nextdef) (. p nundef)))
@@ -238,6 +264,8 @@
   (emit_at b (. lay rt) (& (. p rel_text)))
   (emit_at b (. lay rd) (& (. p rel_data)))
   (emit_at b (. lay rr) (& (. p rel_rodata)))
+  (emit_at b (. lay line) (& (. p line)))
+  (emit_at b (. lay lr) (& (. p rel_line)))
   (emit_at b (. lay sym) (& (. p syms)))
   (emit_at b (. lay str) (& (. p strs))))
 
@@ -246,10 +274,16 @@
   (for i 0 (vec.len b) (str.push_byte (&mut s) (@ (vec.get b i))))
   s)
 
-(pub (fn assemble ((p (& parts))) str
-  (let lay (layout p))
+(fn cmd_size ((p (& parts))) i64
+  (if (> (vec.len (& (. p line))) 0) (+ cmd_bytes 152) cmd_bytes))
+
+(fn cmd_count ((p (& parts))) i64 (if (> (vec.len (& (. p line))) 0) 5 4))
+
+(pub (fn assemble ((p (& parts)) (x64 bool)) str
+  (let sz (cmd_size p))
+  (let lay (layout p sz))
   (let mut b (vec.new <u8>))
-  (put_hdr (&mut b))
+  (put_hdr (&mut b) (cmd_count p) sz x64)
   (put_cmds (&mut b) p (& lay))
   (put_body (&mut b) p (& lay))
   (to_str (& b))))

@@ -100,9 +100,11 @@ float-to-int saturates and int-to-float rounds.
 
 ## Traits
 
-`(trait Eq (fn eq ((& Self) (& Self)) bool))` declares a trait. `(impl Eq i64 (fn eq ...))` is the impl. The impl type is a concrete name. `(Eq.eq a b)` on a concrete type, including a substituted generic, is a direct call to that impl.
+`(trait Eq (fn eq ((& Self) (& Self)) bool))` declares a trait. `(impl Eq i64 (fn eq ...))` is a concrete impl. `(impl Eq (vec T) <T:Eq> (fn eq ...))` is a generic impl: the self type may be a type form, and the impl is monomorphized per instance the way a generic fn is. `trait.dup` compares the trait and the head type, so `(vec T)` and `(vec str)` are the same head. A struct or enum bound such as `<T:Eq>` is checked when that type is instantiated. `(Eq.eq a b)` on a concrete type, including a substituted generic, is a direct call to that impl.
 
 `<T:Eq:Ord>` adds bounds. A missing impl is `trait.missing|trait=|ty=`. A second impl is `trait.dup|trait=|ty=`.
+
+`(trait From (fn from (Self) Self))` is how `(try e)` converts a `res` error. An impl may replace the parameter type; that type is the source, and the return type is the impl type. Inside a function that returns `(res U F)`, `(try e)` on `(res T E)` calls `from` when `F` implements `From` and the parameter is `E`. The same error type is returned unchanged. Anything else is `type.mismatch`. `trait.dup` still allows one `From` impl per head type.
 
 `(& (dyn Eq))` and `(&mut (dyn Eq))` are a 16-byte value: data pointer, then vtable. Passing `(& n)` where that type is expected builds it when `n`'s type implements the trait. A method that returns `Self` or takes `Self` by value is `trait.object|why=self`, so `Clone` is static only.
 
@@ -121,4 +123,4 @@ float-to-int saturates and int-to-float rounds.
 
 `(sizeof T)` is the size in bytes of `T`, computed when the call is compiled. `mem.replace` swaps a place with a new value and returns the old one, including private fields of a whole struct. `mem.forget` drops the compiler's duty to run `drop` on a value. `sys.argc` and `sys.argv` read the process arguments. `sys.arch` is a compile-time `(& str)`.
 
-Every local is a stack slot. Stage 0 sets Cranelift `opt_level=speed`. The installed `llrs` compiler does not.
+A scalar local whose address is never taken lives in a callee-saved register when one is free. SysV has five GPRs and no callee-saved XMM, so its floats stay in memory. Win64 has seven GPRs and XMM6–XMM15. AAPCS64 has ten GPRs and d8–d15. Anything else is a stack slot. The prologue spills those registers and the epilogue reloads them. Stage 0 sets Cranelift `opt_level=speed`.

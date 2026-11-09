@@ -331,15 +331,11 @@ static void cmd_arg(Cmdbuf *b, const char *s) {
     cmd_ch(b, '"');
 }
 
-int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+char *llr_win_cmdline(const char *file, const char *args, uint64_t n) {
     Cmdbuf b;
     uint64_t i;
-    STARTUPINFOA start;
-    PROCESS_INFORMATION info;
-    BOOL ok;
-    DWORD code;
     if (file == NULL) {
-        return -1;
+        return NULL;
     }
     memset(&b, 0, sizeof b);
     cmd_arg(&b, file);
@@ -356,13 +352,26 @@ int32_t llr_exec(const char *file, const char *args, uint64_t n) {
     cmd_ch(&b, 0);
     if (b.bad || b.p == NULL) {
         free(b.p);
+        return NULL;
+    }
+    return b.p;
+}
+
+int32_t llr_exec(const char *file, const char *args, uint64_t n) {
+    char *line;
+    STARTUPINFOA start;
+    PROCESS_INFORMATION info;
+    BOOL ok;
+    DWORD code;
+    line = llr_win_cmdline(file, args, n);
+    if (line == NULL) {
         return -1;
     }
     memset(&start, 0, sizeof start);
     start.cb = sizeof start;
     memset(&info, 0, sizeof info);
-    ok = CreateProcessA(NULL, b.p, NULL, NULL, TRUE, 0, NULL, NULL, &start, &info);
-    free(b.p);
+    ok = CreateProcessA(NULL, line, NULL, NULL, TRUE, 0, NULL, NULL, &start, &info);
+    free(line);
     if (!ok) {
         return -1;
     }

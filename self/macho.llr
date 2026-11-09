@@ -1,4 +1,4 @@
-;; Mach-O 64 arm64 relocatable. Consumes elf.obj. Symbol names gain a leading
+;; Mach-O 64 relocatable, arm64 or x86-64. Consumes elf.obj. Symbol names gain a leading
 ;; underscore. Relocs are external and listed in descending address order.
 (use proj.elf)
 (use proj.elf_out)
@@ -65,7 +65,14 @@
     (let s (vec.get (& (. o syms)) (@ (vec.get ord i))))
     (emit_nlist syms strs s (sym_vm s vm))))
 
-(fn bits_of ((kind i64)) rbits
+(fn bits_x ((kind i64)) rbits
+  (if (== kind elf.abs64) (ret (rbits 0 0 3)))
+  (if (== kind elf.pc32) (ret (rbits 1 1 2)))
+  (if (== kind elf.plt32) (ret (rbits 2 1 2)))
+  (rbits 0 0 0))
+
+(fn bits_of ((kind i64) (x64 bool)) rbits
+  (if x64 (ret (bits_x kind)))
   (if (== kind elf.a64_abs) (ret (rbits 0 0 3)))
   (if (== kind elf.a64_call) (ret (rbits 2 1 2)))
   (if (== kind elf.a64_page) (ret (rbits 3 1 2)))
@@ -79,9 +86,9 @@
   (elf_out.push_n b at 4)
   (elf_out.push_n b info 4))
 
-(fn emit_one ((b (&mut (vec u8))) (r (& elf.rela)) (map (& (vec i64)))) unit
-  (let bits (bits_of (. r kind)))
-  (if (!= (. r addend) 0) (emit_word b (. r at) (pack (. r addend) 0 2 0 10)))
+(fn emit_one ((b (&mut (vec u8))) (r (& elf.rela)) (map (& (vec i64))) (x64 bool)) unit
+  (let bits (bits_of (. r kind) x64))
+  (if (and (not x64) (!= (. r addend) 0)) (emit_word b (. r at) (pack (. r addend) 0 2 0 10)))
   (let sym (@ (vec.get map (. r sym))))
   (emit_word b (. r at) (pack sym (. bits pcrel) (. bits len) 1 (. bits ty))))
 
@@ -100,16 +107,30 @@
   (sort_desc o (&mut ix))
   ix)
 
-(fn emit_rels ((o (& elf.obj)) (sec i64) (map (& (vec i64)))) (vec u8)
+(fn emit_rels ((o (& elf.obj)) (sec i64) (map (& (vec i64))) (x64 bool)) (vec u8)
   (let ix (indexes o sec))
   (let mut b (vec.new <u8>))
-  (for i 0 (vec.len (& ix)) (emit_one (&mut b) (vec.get (& (. o rels)) (@ (vec.get (& ix) i))) map))
+  (for i 0 (vec.len (& ix)) (emit_one (&mut b) (vec.get (& (. o rels)) (@ (vec.get (& ix) i))) map x64))
   b)
 
-(fn clone_bytes ((src (& (vec u8)))) (vec u8)
-  (let mut d (vec.new <u8>))
-  (for i 0 (vec.len src) (vec.push (&mut d) (@ (vec.get src i))))
-  d)
+(fn list_at ((rels (& (vec elf.rela))) (ix (& (vec i64))) (i i64)) i64
+  (. (vec.get rels (@ (vec.get ix i))) at))
+
+(fn sort_list ((rels (& (vec elf.rela))) (ix (&mut (vec i64)))) unit
+  (let n (vec.len ix))
+  (for i 0 n
+    (for j (+ i 1) n
+      (if (< (list_at rels ix i) (list_at rels ix j)) (vec.swap ix i j)))))
+
+(fn emit_list ((rels (& (vec elf.rela))) (map (& (vec i64))) (x64 bool)) (vec u8)
+  (let mut ix (vec.new <i64>))
+  (for i 0 (vec.len rels) (vec.push (&mut ix) i))
+  (sort_list rels (&mut ix))
+  (let mut b (vec.new <u8>))
+  (for i 0 (vec.len (& ix)) (emit_one (&mut b) (vec.get rels (@ (vec.get (& ix) i))) map x64))
+  b)
+
+(fn clone_bytes ((src (& (vec u8)))) (vec u8) (vec.clone src))
 
 (fn packed ((o (& elf.obj))
    (vm (& macho_out.vma))
@@ -118,7 +139,9 @@
    (strs (vec u8))
    (rt (vec u8))
    (rd (vec u8))
-   (rr (vec u8))) macho_out.parts
+   (rr (vec u8))
+   (line (vec u8))
+   (lr (vec u8))) macho_out.parts
   (macho_out.parts (clone_bytes (& (. o text)))
     (clone_bytes (& (. o data)))
     (clone_bytes (& (. o rodata)))
@@ -135,9 +158,19 @@
     (. vm data)
     (. vm ro)
     (. vm bss)
-    (. vm end)))
+    (. vm end)
+    line
+    lr))
 
 (pub (fn bytes ((o (& elf.obj))) str
+  (let line (vec.new <u8>))
+  (let rel (vec.new <elf.rela>))
+  (bytes_line o (& line) (& rel))))
+
+(fn is_x64 ((o (& elf.obj))) bool (== (. o machine) elf.mach_x64))
+
+(pub (fn bytes_line ((o (& elf.obj)) (line (& (vec u8))) (lrel (& (vec elf.rela)))) str
+  (let x64 (is_x64 o))
   (let vm
     (macho_out.vmas (vec.len (& (. o text)))
       (vec.len (& (. o data)))
@@ -149,11 +182,12 @@
   (let mut syms (vec.new <u8>))
   (let mut strs (vec.new <u8>))
   (build_syms o (& ord) (& vm) (&mut syms) (&mut strs))
-  (let rt (emit_rels o elf.sec_text (& map)))
-  (let rd (emit_rels o elf.sec_data (& map)))
-  (let rr (emit_rels o elf.sec_rodata (& map)))
-  (let p (packed o (& vm) (& c) syms strs rt rd rr))
-  (macho_out.assemble (& p))))
+  (let rt (emit_rels o elf.sec_text (& map) x64))
+  (let rd (emit_rels o elf.sec_data (& map) x64))
+  (let rr (emit_rels o elf.sec_rodata (& map) x64))
+  (let lr (emit_list lrel (& map) x64))
+  (let p (packed o (& vm) (& c) syms strs rt rd rr (clone_bytes line) lr))
+  (macho_out.assemble (& p) x64)))
 
 (fn put_str ((b (&mut (vec u8))) (s (& str))) unit (for i 0 (str.len s) (vec.push b (str.at s i))))
 
@@ -203,8 +237,8 @@
 
 (fn cstr_eq ((img (& str)) (at i64) (want (& str))) bool
   (let n (str.len want))
-  (for i 0 n (if (!= (str.at img (+ at i)) (str.at want i)) (ret false)))
-  (== (str.at img (+ at n)) 0u8))
+  (if (>= (+ (+ at n) 1) (str.len img)) (ret false))
+  (and (str.eq (& (str.slice img at (+ at n))) want) (== (str.at img (+ at n)) 0u8)))
 
 (fn sym_ok ((img (& str)) (i i64) (want (& str))) bool
   (cstr_eq img (+ (str_off img) (u_at img (nlist img i) 4)) want))

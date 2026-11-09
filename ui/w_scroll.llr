@@ -1,4 +1,5 @@
 ;; A viewport that clips its child and shifts it by the scroll offset.
+(use std.math)
 (use std.str)
 (use ui.anim)
 (use ui.ctx)
@@ -27,20 +28,18 @@
 
 (struct model (off f32) (vel f32) (drag bool))
 
-(fn milli ((x f32)) i64 (as i64 (* (as f64 x) 1000.0)))
-
 (fn f_of ((n i64)) f32 (/ (as f32 n) 1000.0f32))
 
 (fn part_at ((s (& str)) (i i64)) i64
   (let ps (str.split s 124u8))
   (if (>= i (vec.len (& ps))) (ret 0))
-  (match (str.to_int (vec.get (& ps) i)) ((opt.some n) n) ((opt.none) 0)))
+  (opt.or (str.to_int (vec.get (& ps) i)) 0))
 
 (fn scroll_text ((off f32) (vel f32) (drag bool)) str
   (let mut s (str.from "S|"))
-  (str.push (&mut s) (& (str.from_int (milli off))))
+  (str.push (&mut s) (& (str.from_int (math.milli off))))
   (str.push_byte (&mut s) 124u8)
-  (str.push (&mut s) (& (str.from_int (milli vel))))
+  (str.push (&mut s) (& (str.from_int (math.milli vel))))
   (str.push_byte (&mut s) 124u8)
   (str.push (&mut s) (& (str.from_int (if drag 1 0))))
   s)
@@ -64,7 +63,13 @@
   (fn msg ((_s (&mut model)) (_m i64)) bool false)
   (fn input ((self (&mut model)) (e (& state.ev)) (_o (&mut state.out))) bool
     (if (!= (. e kind) state.in_ptr) (ret false))
-    (scroll.touch (&mut (. self off)) (&mut (. self vel)) (&mut (. self drag)) (. e code) (. e dy) (. e w) (. e h)))
+    (scroll.touch (&mut (. self off))
+      (&mut (. self vel))
+      (&mut (. self drag))
+      (. e code)
+      (. e dy)
+      (. e w)
+      (. e h)))
   (fn route ((_s (& model))) i64 (neg 1))
   (fn dispose ((_s (&mut model))) unit ())
   (fn ticking ((self (& model))) bool (scroll.live (. self vel) (. self drag)))
