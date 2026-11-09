@@ -1,0 +1,79 @@
+;; Per-body liveness used by codegen: which FPR locals a call must keep, and the
+;; compare that feeds a block's `if` without a bool slot. Debug line marks too.
+(use proj.a64_buf)
+(use proj.cg_frame)
+(use proj.cg_isa)
+(use proj.cg_line)
+(use proj.cg_mod)
+(use proj.cg_op)
+(use proj.liveness)
+(use proj.mir)
+(use proj.prog)
+(use proj.rv_buf)
+(use proj.x64_buf)
+
+(pub (fn code_at ((fx (& cg_frame.fncx))) i64
+  (if (. (. fx isa) rv) (ret (rv_buf.len (& (. (. fx buf) r)))))
+  (if (. (. fx isa) a64) (ret (a64_buf.len (& (. (. fx buf) a)))))
+  (x64_buf.len (& (. (. fx buf) x)))))
+
+(pub (fn mark ((g (&mut cg_mod.cg)) (fx (& cg_frame.fncx))) unit
+  (if (not (. g debug)) (ret))
+  (if (<= (. fx line) 0) (ret))
+  (let at (code_at fx))
+  (let f (cg_line.file_ix (&mut (. g dfiles)) (& (. fx path))))
+  (cg_line.add (&mut (. g dstack)) at (. fx line) (. fx col) f)))
+
+;; `_x = Cmp(a, b)` then `if _x`, with _x written nowhere else and dead after
+;; the branch, is one compare and a jcc; _x is never materialized.
+(pub (fn fuse_ok ((b (& mir.body)) (live (& liveness.live)) (defs (& (vec i64))) (bi i64)) bool
+  (let blk (vec.get (& (. b blocks)) bi))
+  (let n (vec.len (& (. blk stmts))))
+  (if (== n 0) (ret false))
+  (let s (vec.get (& (. blk stmts)) (- n 1)))
+  (let t (& (. blk term)))
+  (if (or (!= (. t kind) 1u8) (or (!= (. s kind) 0u8) (!= (vec.len (& (. s pk))) 0))) (ret false))
+  (let r (& (. s rv)))
+  (if (or (!= (. r kind) 2u8) (or (< (. r op) 5) (> (. r op) 10))) (ret false))
+  (if (or (== (. (. t op) kind) 2u8) (!= (. (. t op) local) (. s local))) (ret false))
+  (if (!= (vec.len (& (. (. t op) pk))) 0) (ret false))
+  (if (not (cg_op.int_cmp (& (. b locs)) r)) (ret false))
+  (if (liveness.live_after live bi n (. s local)) (ret false))
+  (== (@ (vec.get defs (. s local))) 1)))
+
+(pub (fn cmp_branch ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (b (& mir.body))
+   (s (& mir.st))
+   (t (& mir.term))) unit
+  (set (. fx line) (. s line))
+  (set (. fx col) (. s col))
+  (mark g fx)
+  (cg_frame.reset fx)
+  (let cc (cg_op.eval_cmp g p fx (& (. b locs)) (& (. s rv))))
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cc (@ (vec.get (& (. fx labs)) (. t bb))))
+  (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) (@ (vec.get (& (. fx labs)) (. t bb2))))))
+
+(pub (fn def_counts ((b (& mir.body))) (vec i64)
+  (let mut d (vec.new <i64>))
+  (for i 0 (vec.len (& (. b locs))) (vec.push (&mut d) 0))
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for si 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) si))
+      (if (== (. s kind) 0u8) (vec.set (&mut d) (. s local) (+ (@ (vec.get (& d) (. s local))) 1))))
+    (let t (& (. blk term)))
+    (if (== (. t kind) 3u8) (vec.set (&mut d) (. t dest) (+ (@ (vec.get (& d) (. t dest))) 1))))
+  d))
+
+;; FPR locals live across the calls a statement or terminator makes. A call's
+;; own destination is written by the call, so its old value is not kept.
+(pub (fn keep_live ((fx (&mut cg_frame.fncx)) (live (& liveness.live)) (bb i64) (idx i64) (after bool) (skip i64)) unit
+  (for i 0 (. fx nfpr)
+    (let l (@ (vec.get (& (. fx floc)) i)))
+    (let on (if after (liveness.live_after live bb idx l) (liveness.live_at live bb idx l)))
+    (vec.set (&mut (. fx keep)) i (and on (!= l skip))))))
+
+(pub (fn call_dest ((t (& mir.term))) i64
+  (if (and (== (. t kind) 3u8) (== (vec.len (& (. t dpk))) 0)) (. t dest) (neg 1))))

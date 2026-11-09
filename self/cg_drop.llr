@@ -1,5 +1,6 @@
 ;; Drop flags and per-type glue. Glue pushes a panic frame named drop.<type>.
 (use proj.cg_frame)
+(use proj.cg_place)
 (use proj.cg_trace)
 (use proj.cg_isa)
 (use proj.cg_lay)
@@ -20,7 +21,7 @@
   (let row (vec.get (& (. fx ff)) local))
   (if (and (== (vec.len pk) 0) (> (vec.len row) 0)) (ret (fields g p fx locs local)))
   (if (one_field g p fx locs local pk pi) (ret))
-  (let ty (cg_frame.place g p fx locs local pk pi))
+  (let ty (cg_place.place g p fx locs local pk pi))
   (if (not (prog.needs_drop p (& ty))) (ret))
   (let sym (cg_mod.drop_sym g (& ty)))
   (if (and (== (vec.len pk) 0) (@ (vec.get (& (. fx fon)) local))) (ret (guarded g fx local sym)))

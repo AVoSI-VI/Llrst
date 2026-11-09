@@ -4,23 +4,19 @@
 (use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.mir)
+(use proj.optfwd)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
 
-(pub (struct plan
-  (pub (kind (vec i64)))
-  (pub (idx (vec i64)))
-  (pub (ngpr i64))
-  (pub (nfpr i64))))
+(pub (struct plan (pub (kind (vec i64))) (pub (idx (vec i64))) (pub (ngpr i64)) (pub (nfpr i64))))
 
 (fn note ((hit (&mut (vec bool))) (local i64) (pk (& (vec u8))) (ref bool)) unit
   (if (or (< local 0) (>= local (vec.len hit))) (ret))
   (if (and (> (vec.len pk) 0) (== (@ (vec.get pk 0)) 1u8)) (ret))
   (if (or ref (> (vec.len pk) 0)) (vec.set hit local true)))
 
-(fn note_op ((hit (&mut (vec bool))) (o (& mir.op))) unit
-  (note hit (. o local) (& (. o pk)) false))
+(fn note_op ((hit (&mut (vec bool))) (o (& mir.op))) unit (note hit (. o local) (& (. o pk)) false))
 
 (fn note_ops ((hit (&mut (vec bool))) (ops (& (vec mir.op)))) unit
   (for i 0 (vec.len ops) (note_op hit (vec.get ops i))))
@@ -45,7 +41,38 @@
     (let blk (vec.get (& (. b blocks)) bi))
     (for k 0 (vec.len (& (. blk stmts))) (note_st (&mut hit) (vec.get (& (. blk stmts)) k)))
     (note_term (&mut hit) (& (. blk term))))
+  (let used (uses b))
+  (for i 0 (vec.len (& hit)) (if (not (@ (vec.get (& used) i))) (vec.set (&mut hit) i true)))
   hit)
+
+;; A local that optfwd forwarded away has no read or write left; a register
+;; would be wasted on it. Params and the return slot always count as used.
+(fn uses ((b (& mir.body))) (vec bool)
+  (let mut used (vec.new <bool>))
+  (for i 0 (vec.len (& (. b locs))) (vec.push (&mut used) (<= i (. b args))))
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for k 0 (vec.len (& (. blk stmts))) (use_st (&mut used) (vec.get (& (. blk stmts)) k)))
+    (let t (& (. blk term)))
+    (if (== (. t kind) 3u8) (use_at (&mut used) (. t dest)))
+    (use_op (&mut used) (& (. t op)))
+    (use_ops (&mut used) (& (. t args))))
+  used)
+
+(fn use_at ((used (&mut (vec bool))) (l i64)) unit
+  (if (and (>= l 0) (< l (vec.len used))) (vec.set used l true)))
+
+(fn use_op ((used (&mut (vec bool))) (o (& mir.op))) unit
+  (if (!= (. o kind) 2u8) (use_at used (. o local))))
+
+(fn use_ops ((used (&mut (vec bool))) (ops (& (vec mir.op)))) unit
+  (for i 0 (vec.len ops) (use_op used (vec.get ops i))))
+
+(fn use_st ((used (&mut (vec bool))) (s (& mir.st))) unit
+  (if (or (== (. s kind) 0u8) (== (. s kind) 1u8)) (use_at used (. s local)))
+  (let r (& (. s rv)))
+  (if (optfwd.place_rv r) (use_at used (. r local)))
+  (use_ops used (& (. r ops))))
 
 (fn push_mem ((k (&mut (vec i64))) (xs (&mut (vec i64)))) unit
   (vec.push k cg_isa.slot_mem)
@@ -76,7 +103,14 @@
   (let mut gi 0)
   (let mut fi 0)
   (for i 0 (vec.len (& (. b locs)))
-    (add p s (& (. (vec.get (& (. b locs)) i) ty)) (@ (vec.get (& hit) i)) (&mut gi) (&mut fi) (&mut k) (&mut xs)))
+    (add p
+      s
+      (& (. (vec.get (& (. b locs)) i) ty))
+      (@ (vec.get (& hit) i))
+      (&mut gi)
+      (&mut fi)
+      (&mut k)
+      (&mut xs)))
   (plan k xs gi fi)))
 
 (fn loc ((t ty.sty)) thir.loc (thir.loc_new (str.from "x") t true 1 1))

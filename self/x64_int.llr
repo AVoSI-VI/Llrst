@@ -62,7 +62,9 @@
   (x64_buf.push b (as u8 (+ base (band r 7)))))
 
 (pub (fn mov_rr ((b (&mut x64_buf.buf)) (w i64) (dst i64) (src i64)) unit
-  (x64_buf.emit_rr b w 139 dst src)))
+  (if (and (== w 8) (or (== dst src) (x64_buf.last_mov b src dst))) (ret))
+  (x64_buf.emit_rr b w 139 dst src)
+  (if (== w 8) (x64_buf.note_mov b dst src))))
 
 (pub (fn mov_ri ((b (&mut x64_buf.buf)) (w i64) (dst i64) (imm i64)) unit
   (if (and (== w 8) (not (x64_buf.fits_i32 imm))) (ret (mov_abs b dst imm)))

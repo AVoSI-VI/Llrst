@@ -1,0 +1,144 @@
+;; Forward single-assignment copies and constants, after optmir's other passes.
+;; emit-mir keeps the original body. `_a = copy|move _b` or `_a = <const>`, where
+;; _a and _b are each written once, never borrowed, and hold a type with no drop,
+;; lets every read of _a read _b (or the constant) and removes the assignment.
+;; A local written once is read only after that write (init is checked), so the
+;; source cannot change in between. cg_slot gives a local with no use left no register.
+(use proj.mir)
+(use proj.prog)
+
+(struct info (defs (vec i64)) (addr (vec bool)) (proj (vec bool)))
+
+(pub (fn run ((p (& prog.prog)) (b (&mut mir.body))) unit
+  (let mut again true)
+  (let mut round 0)
+  (while (and again (< round 4)) (do (set again (pass p b)) (set round (+ round 1))))))
+
+(fn pass ((p (& prog.prog)) (b (&mut mir.body))) bool
+  (let inf (scan b))
+  (let mut changed false)
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let n (vec.len (& (. (vec.get (& (. b blocks)) bi) stmts))))
+    (for si 0 n (if (try_stmt p b (& inf) bi si) (set changed true))))
+  changed)
+
+;; The candidate `_a = <op>`: ok, the local written, and a copy of the operand.
+(struct cand (ok bool) (a i64) (o mir.op))
+
+(fn candidate ((p (& prog.prog)) (b (& mir.body)) (inf (& info)) (bi i64) (si i64)) cand
+  (let s (vec.get (& (. (vec.get (& (. b blocks)) bi) stmts)) si))
+  (let no (cand false 0 (mir.ocopy (mir.ploc 0))))
+  (if (or (!= (. s kind) 0u8) (!= (vec.len (& (. s pk))) 0)) (ret no))
+  (let r (& (. s rv)))
+  (if (not (single p b inf (. s local))) (ret no))
+  (if (reborrow r) (ret (cand true (. s local) (mir.ocopy (mir.ploc (. r local))))))
+  (if (or (!= (. r kind) 0u8) (!= (vec.len (& (. r ops))) 1)) (ret no))
+  (cand true (. s local) (mir.oclone (vec.get (& (. r ops)) 0))))
+
+;; `& (*_b)` is the pointer in _b again.
+(fn reborrow ((r (& mir.rv))) bool
+  (and (== (. r kind) 1u8)
+    (and (== (vec.len (& (. r pk))) 1) (== (@ (vec.get (& (. r pk)) 0)) 1u8))))
+
+(fn try_stmt ((p (& prog.prog)) (b (&mut mir.body)) (inf (& info)) (bi i64) (si i64)) bool
+  (let c (candidate p b inf bi si))
+  (if (not (. c ok)) (ret false))
+  (let a (. c a))
+  (if (== (. (. c o) kind) 2u8)
+    (do
+      (if (@ (vec.get (& (. inf proj)) a)) (ret false))
+      (subst b a (neg 1) (& (. c o)))
+      (nop b bi si)
+      (ret true)))
+  (if (!= (vec.len (& (. (. c o) pk))) 0) (ret false))
+  (let src (. (. c o) local))
+  (if (or (== src a) (not (single p b inf src))) (ret false))
+  (subst b a src (& (. c o)))
+  (nop b bi si)
+  true)
+
+(fn single ((p (& prog.prog)) (b (& mir.body)) (inf (& info)) (l i64)) bool
+  (if (== l 0) (ret false))
+  (let n (+ (@ (vec.get (& (. inf defs)) l)) (if (<= l (. b args)) 1 0)))
+  (if (!= n 1) (ret false))
+  (if (@ (vec.get (& (. inf addr)) l)) (ret false))
+  (not (prog.needs_drop p (& (. (vec.get (& (. b locs)) l) ty)))))
+
+(fn nop ((b (&mut mir.body)) (bi i64) (si i64)) unit
+  (let s (vec.get_mut (&mut (. (vec.get_mut (&mut (. b blocks)) bi) stmts)) si))
+  (set (. s kind) 4u8))
+
+;; ----- rewrite -----
+(fn subst ((b (&mut mir.body)) (a i64) (src i64) (c (& mir.op))) unit
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get_mut (&mut (. b blocks)) bi))
+    (for si 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get_mut (&mut (. blk stmts)) si))
+      (sub_ops (&mut (. (. s rv) ops)) a src c)
+      (if (and (>= src 0) (and (place_rv (& (. s rv))) (== (. (. s rv) local) a)))
+        (set (. (. s rv) local) src)))
+    (sub_op (&mut (. (. blk term) op)) a src c)
+    (sub_ops (&mut (. (. blk term) args)) a src c)))
+
+(fn sub_ops ((ops (&mut (vec mir.op))) (a i64) (src i64) (c (& mir.op))) unit
+  (for i 0 (vec.len ops) (sub_op (vec.get_mut ops i) a src c)))
+
+(fn sub_op ((o (&mut mir.op)) (a i64) (src i64) (c (& mir.op))) unit
+  (if (== (. o kind) 2u8) (ret))
+  (if (!= (. o local) a) (ret))
+  (if (>= src 0) (ret (set (. o local) src)))
+  (set (@ o) (mir.oclone c)))
+
+;; ----- scan -----
+;; defs counts whole and projected writes, including call results. addr marks a
+;; local named as a place by an rv (ref, discriminant, box borrow). proj marks a
+;; local read through a projection, which a constant cannot replace.
+(fn scan ((b (& mir.body))) info
+  (let n (vec.len (& (. b locs))))
+  (let mut inf (info (vec.new <i64>) (vec.new <bool>) (vec.new <bool>)))
+  (for i 0 n
+    (vec.push (&mut (. inf defs)) 0)
+    (vec.push (&mut (. inf addr)) false)
+    (vec.push (&mut (. inf proj)) false))
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for si 0 (vec.len (& (. blk stmts))) (scan_st (&mut inf) (vec.get (& (. blk stmts)) si)))
+    (scan_term (&mut inf) (& (. blk term))))
+  inf)
+
+(fn bump ((v (&mut (vec i64))) (i i64)) unit
+  (if (or (< i 0) (>= i (vec.len v))) (ret))
+  (vec.set v i (+ (@ (vec.get v i)) 1)))
+
+(fn mark ((v (&mut (vec bool))) (i i64)) unit
+  (if (or (< i 0) (>= i (vec.len v))) (ret))
+  (vec.set v i true))
+
+(fn scan_st ((inf (&mut info)) (s (& mir.st))) unit
+  (if (== (. s kind) 0u8) (bump (&mut (. inf defs)) (. s local)))
+  (let r (& (. s rv)))
+  (if (place_rv r)
+    (if (deref_first (& (. r pk)))
+      (mark (&mut (. inf proj)) (. r local))
+      (mark (&mut (. inf addr)) (. r local))))
+  (scan_ops inf (& (. r ops))))
+
+;; A place that starts with a deref reads the local's pointer; it does not
+;; take the local's address.
+(fn deref_first ((pk (& (vec u8)))) bool (and (> (vec.len pk) 0) (== (@ (vec.get pk 0)) 1u8)))
+
+;; ref, discriminant read, and box borrow name a place in `local`.
+(pub (fn place_rv ((r (& mir.rv))) bool
+  (or (== (. r kind) 1u8) (or (== (. r kind) 9u8) (== (. r kind) 20u8)))))
+
+(fn scan_term ((inf (&mut info)) (t (& mir.term))) unit
+  (if (== (. t kind) 3u8) (bump (&mut (. inf defs)) (. t dest)))
+  (scan_op inf (& (. t op)))
+  (scan_ops inf (& (. t args))))
+
+(fn scan_ops ((inf (&mut info)) (ops (& (vec mir.op)))) unit
+  (for i 0 (vec.len ops) (scan_op inf (vec.get ops i))))
+
+(fn scan_op ((inf (&mut info)) (o (& mir.op))) unit
+  (if (== (. o kind) 2u8) (ret))
+  (if (> (vec.len (& (. o pk))) 0) (mark (&mut (. inf proj)) (. o local))))

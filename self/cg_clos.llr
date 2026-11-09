@@ -1,5 +1,6 @@
 ;; Closure trampoline, env drop, and the value built by rvalue kind 18.
 (use proj.cg_frame)
+(use proj.cg_place)
 (use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
@@ -194,7 +195,7 @@
   (let env (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 cg_isa.fp env cg_isa.acc)
   (store_caps g p fx locs r (& seq) env)
-  (let _ (cg_frame.place g p fx locs local pk pi))
+  (let _ (cg_place.place g p fx locs local pk pi))
   (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst cg_isa.addr)
   (cg_isa.sym_addr (&mut (. fx buf))
     (& (. fx isa))
@@ -238,4 +239,4 @@
       (cg_frame.ld fx 8 cg_isa.addr cg_isa.fp hold)
       (let n (cg_lay.size (&mut (. g lays)) p (& ty)))
       (cg_frame.copy g p fx n))
-    (do (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp hold) (cg_frame.store_s fx (& ty)))))
+    (do (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp hold) (cg_place.store_s fx (& ty)))))

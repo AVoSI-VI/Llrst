@@ -174,19 +174,48 @@ update; no micro bench regresses past the regression gate.
 The big one: `self/` has no register allocation and no optimizer
 (`HANDOFF.md` known gaps). Work in the order the stage0/stage2 gap benches dictate:
 
-- [ ] Extend the scalar-in-register rule (`docs/spec/types.md:126`): more locals in
+- [x] Extend the scalar-in-register rule (`docs/spec/types.md:126`): more locals in
   registers, floats included on SysV (caller-saved XMM around calls is allowed to
   be phase 2a if callee-saved save/restore is the blocker).
-- [ ] Kill redundant load/store pairs to stack slots in `self/cg_*.llr` output
+  SysV floats live in xmm8-15 as caller-saved registers: `cg_frame` spills only the
+  FPR locals that `liveness` says are live across each call (`cg_live.keep_live`),
+  and the prologue keeps only float params. Reg-reg float moves are `movaps`; a
+  `movsd` merge serialized every op through xmm0 (`mandelbrot` 2.8x to 1.05x).
+  Register pressure drops because `optfwd` removes the temps that used to take
+  the five SysV GPRs: a local with no use left gets no register (`cg_slot.uses`).
+- [x] Kill redundant load/store pairs to stack slots in `self/cg_*.llr` output
   (a small peephole over emitted code, or track the slot's current register in
   `cg_slot.llr`).
-- [ ] Constant folding and dead-slot elimination at MIR level in `self/mir.llr` /
+  A plain memory scalar is read and written at `fp+disp` (`cg_op.mem_of`,
+  `load_at`, `store_at`) instead of `lea; mov; mov`; a binop's right operand goes
+  straight into `tmp`/`fp1` when it is a constant or a plain local, and an i32
+  constant on an unchecked add/sub or a compare is an immediate; a compare that
+  only feeds the block's `if` is one `cmp` and a `jcc` (`cg_live.fuse_ok`); call
+  arguments that are 8-byte locals are passed from their slot or register, and a
+  scalar result lands in its slot; `isa_x64.copy` uses displacements; `x64_int`
+  drops `mov a, b` right after `mov b, a`.
+- [x] Constant folding and dead-slot elimination at MIR level in `self/mir.llr` /
   `self/inline.llr`, mirrored in stage 0 (Phase 3) so `emit-mir` stays byte-equal.
+  Done as `self/optfwd.llr`, run last by `optmir.run`: a single-assignment
+  `_a = copy|move _b`, `_a = & (*_b)`, or `_a = <const>` is forwarded into every
+  read and removed. It runs after `emit-mir`, like the rest of `optmir`, so stage 0
+  needs no mirror and `tests/mir.sh` stays byte-equal. Arithmetic folding is not
+  needed by the gap benches and is left to Phase 3.
 - [ ] RISC-V (`self/isa_rv*.llr`) and wasm (`self/wasm_*.llr`) get the same treatment
   only after x86-64/aarch64 numbers land; they are not on the critical path.
+  `optfwd` and every `cg_op`/`cg_term` change go through `cg_isa` and `optmir`, so
+  RISC-V and wasm already get them (`tests/wasm.sh` fails=0 under a `node:wasi`
+  stand-in for wasmtime). Still open: the displacement form of
+  `isa_a64_frame.copy_off`, and aarch64 numbers, which need the Mac.
 
 Exit: stage 2 within 10% of stage 0 on `fib`, `sieve`, `nbody`, `spectral-norm`;
 baseline updated; the `llrs1/llrs0` self-build ratio in `HANDOFF.md` re-measured.
+Met 2026-11-09 on Linux x86-64 (median of five, `benchmarks/baseline.txt`): `fib`
+1.05x, `sieve` 1.05x, `nbody` 1.08x, `spectral_norm` 1.03x; every cross task is at
+most 1.08x (`binary_trees` 1.31x to 0.98x, `mandelbrot` 1.74x to 1.05x). The
+self-build ratio `llrs1/llrs0` is 1.15 (16.8s/14.6s) against 1.22 for the previous
+commit on the same machine; `llrs0` itself is 6% slower on that build because
+codegen now runs liveness and `optfwd` per body.
 
 ### Phase 3: stage 0 and shared MIR
 

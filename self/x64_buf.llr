@@ -81,13 +81,26 @@
 
 (pub (struct rel (pub (at i64)) (pub (kind i64)) (pub (sym i64))))
 
+;; mov_at, mov_dst, and mov_src remember the last 64-bit register move when it
+;; is still the last thing emitted, so `mov a, b` right after `mov b, a` is dropped.
 (pub (struct buf
   (pub (bytes (vec u8)))
   (pub (labs (vec i64)))
   (pub (fixs (vec fix)))
-  (pub (rels (vec rel)))))
+  (pub (rels (vec rel)))
+  (pub (mov_at i64))
+  (pub (mov_dst i64))
+  (pub (mov_src i64))))
 
-(pub (fn new () buf (buf (vec.new <u8>) (vec.new <i64>) (vec.new <fix>) (vec.new <rel>))))
+(pub (fn new () buf (buf (vec.new <u8>) (vec.new <i64>) (vec.new <fix>) (vec.new <rel>) (neg 1) 0 0)))
+
+(pub (fn last_mov ((b (& buf)) (dst i64) (src i64)) bool
+  (and (== (. b mov_at) (len b)) (and (== (. b mov_dst) dst) (== (. b mov_src) src)))))
+
+(pub (fn note_mov ((b (&mut buf)) (dst i64) (src i64)) unit
+  (set (. b mov_at) (len b))
+  (set (. b mov_dst) dst)
+  (set (. b mov_src) src)))
 
 (pub (fn len ((b (& buf))) i64 (vec.len (& (. b bytes)))))
 
@@ -249,7 +262,10 @@
   (vec.push (&mut (. b labs)) (neg 1))
   id))
 
-(pub (fn bind ((b (&mut buf)) (id i64)) unit (let n (len b)) (vec.set (&mut (. b labs)) id n)))
+(pub (fn bind ((b (&mut buf)) (id i64)) unit
+  (let n (len b))
+  (set (. b mov_at) (neg 1))
+  (vec.set (&mut (. b labs)) id n)))
 
 (pub (fn fixup ((b (&mut buf)) (lab i64) (kind i64)) unit
   (let at (len b))

@@ -98,7 +98,7 @@ flowchart LR
 | check | `check.llr`, `thir.llr`, `thir_expr.llr`, `thir_call.llr`, `thir_pat.llr`, `thir_lit.llr`, `thir_clos.llr` | one typed body per instance; closure capture |
 | MIR | `lower.llr`, `lower_cf.llr`, `lower_call.llr`, `lower_match.llr`, `lower_clos.llr`, `lower_div.llr`, `inline.llr`, `mir.llr`, `mir_print.llr` | places, blocks, drop, `sys.checked_div`, inline substitution |
 | borrowck | `borrow.llr`, `holders.llr`, `loans.llr`, `liveness.llr`, `moves.llr`, `static_ck.llr`, `lint.llr` | loans, holders, init, `'static`, warnings |
-| codegen | `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_slot.llr`, `cg_trace.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | scalar locals in callee-saved registers when their address is not taken, otherwise a stack slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
+| codegen | `optmir.llr`, `optfwd.llr` (stage 2 only, after `emit-mir`), `cg_mod.llr`, `cg_entry.llr`, `cg_frame.llr`, `cg_place.llr`, `cg_live.llr`, `cg_slot.llr`, `cg_trace.llr`, `cg_lay.llr`, `cg_op.llr`, `cg_cast.llr`, `cg_ovf.llr`, `cg_bits.llr`, `cg_term.llr`, `cg_drop.llr`, `cg_clos.llr`, `cg_vt.llr`, `cg_isa.llr`, `isa_x64.llr`, `isa_a64.llr`, `isa_a64_fp.llr`, `isa_a64_frame.llr`, `isa_a64_ovf.llr`, `x64.llr`, `x64_int.llr`, `x64_sse.llr`, `x64_abi.llr`, `x64_buf.llr`, `a64.llr`, `a64_int.llr`, `a64_mem.llr`, `a64_fp.llr`, `a64_abi.llr`, `a64_buf.llr` | scalar locals in callee-saved registers when their address is not taken, otherwise a stack slot; SysV, Win64, or AAPCS64; `--checked` traps; vtables; closure trampolines |
 | objects | `elf.llr`, `elf_out.llr`, `coff.llr`, `macho.llr`, `macho_out.llr`, `wasm.llr`, `wasm_out.llr` | ELF64 (x86-64 or aarch64), COFF (REL32, ADDR64), Mach-O arm64, or one Wasm module (`.wasm`) for `wasm32-wasi` and `wasm32-unknown-unknown`. Language pointers stay 8 bytes. `sys.os_id` is 3 on wasm. |
 | link | `link.llr`, `link_so.llr`, `link_win.llr` | Unix `cc` plus `llr_stat.o`; Windows `cl /link /STACK:8388608 /Brepro` plus the prebuilt shims. A reference to `llr_ui_open` also links the host UI shim. `--emit-dylib` passes `-shared` or `/LD` |
 | driver | `llrs.llr`, `drive.llr`, `diag.llr`, `cg_reload.llr` | `build run check emit-mir version`; `-o --std --ui --test --checked --deny --target --emit-obj --emit-dylib`; reachable instances from `main` or `--test` |
@@ -113,9 +113,9 @@ commit|d823ddc|Merge pull request #3 from AVoSI-VI/ui|2026-11-03
 version|0.8.0
 suite|tests/run.sh fails=0|2026-11-08|stage 0
 self|stage2=equal|scripts/self.ps1 --stage at 2026-11-06|windows x64|llrs0 build self/llrs.llr 19.0s|llrs1/llrs0=1.14
-bench|2026-11-08|Linux x86_64|Intel Core Ultra 5 125H|benchmarks/baseline.txt|5-run median|gate=30%
-compile|llrc self/llrs.llr 3.9s|llrs0 20.6s|llrs1 22.1s|llrs1/llrs0=1.07|http check llrc 60ms|llrs2 303ms|llrs2/llrc=5.1
-runtime|stage2/stage0|fib 0.93|sieve 1.09|nbody 1.29|mandelbrot 2.4|spectral 1.18|string 1.18|json 1.08|sort 1.66|map 1.04|trees 0.85
+bench|2026-11-09|Linux x86_64|Intel Core Ultra 5 125H|benchmarks/baseline.txt|5-run median|gate=30%
+compile|llrc self/llrs.llr 3.1s|llrs0 14.6s|llrs1 16.8s|llrs1/llrs0=1.15|http check llrc 32ms|llrs2 199ms|llrs2/llrc=6.2
+runtime|stage2/stage0|fib 1.05|sieve 1.05|nbody 1.08|mandelbrot 1.05|spectral 1.03|string 1.06|json 1.01|sort 1.01|map 0.95|trees 0.98|fannkuch 1.03
 stage0 vs C|fib 23x|sieve 23x|nbody 46x|mandelbrot 3.4x|spectral 28x|string 8.7x|json 38x|sort 3.2x|map 9.6x|trees 9.4x|fannkuch 35x
 stage0 vs Rust|fib 17x|sieve 17x|nbody 30x|mandelbrot 3.4x|string 9.4x|json 39x|sort 11x|map 5.3x|trees 7.5x
 stage0 vs Nim|fib 21x|sieve 15x|nbody 42x|mandelbrot 3.9x|string 5.7x|json 2.8x|sort 1.9x|map 3.0x|trees 8.2x
@@ -255,7 +255,8 @@ and the copy inside `tests/run.ps1` scan `compiler/src`, `std`, `ui`, `web`, `to
 | `self/thir_expr.llr` | 497 | |
 | `runtime/llr_win.c` | 496 | |
 | `compiler/src/mir/lower.rs` | 495 | |
-| `self/cg_frame.llr` | 496 | Register slots live in `cg_slot.llr`; trace pushes live in `cg_trace.llr` |
+| `self/cg_term.llr` | 485 | Calls and statements; liveness-driven spills and the fused compare live in `cg_live.llr` |
+| `self/cg_frame.llr` | 452 | Register slots live in `cg_slot.llr`; places and scalar transfer in `cg_place.llr`; trace pushes in `cg_trace.llr` |
 | `compiler/src/codegen/func.rs` | 494 | Trace push/pop lives in `codegen/trace.rs` |
 | `self/link.llr` | 491 | |
 | `runtime/llr_ui_android_in.c` | 485 | |
@@ -475,6 +476,7 @@ accepts flags before or after the subcommand, so `LLRC="llrc --std ./std"` works
 
 ## Progress log
 
+- 2026-11-09: Phase 2 of `langspeed.md`: stage 2 is within 10% of stage 0 on every cross task (`fib` 1.05, `sieve` 1.05, `nbody` 1.08, `spectral_norm` 1.03, `mandelbrot` 1.74 to 1.05, `binary_trees` 1.31 to 0.98). New `self/optfwd.llr` (last `optmir` pass, after `emit-mir`) forwards single-assignment copies, reborrows, and constants and removes the temp; `cg_slot` gives a local with no use left no register. `cg_op` reads and writes a plain memory scalar at `fp+disp`, loads a constant or plain-local right operand straight into `tmp`/`fp1`, and uses `add_ri`/`sub_ri`/`cmp_ri` for i32 constants; `cg_live` (split from `cg_term`) computes `liveness` per body so a call spills only the FPR locals live across it and fuses `_x = Cmp; if _x` into `cmp; jcc`; `cg_term` passes 8-byte locals from their slot or register and stores a scalar result straight to its slot; `isa_x64.copy` uses displacements; `x64_int.mov_rr` drops `mov a, b` after `mov b, a`. `cg_place.llr` is split from `cg_frame.llr`. `scripts/self.sh` is `stage2=equal`, `tests/run.sh` fails=0 under `llrs2`, `tests/check.sh`, `tests/mir.sh`, and `tests/wasm.sh` fails=0. `llrs1/llrs0` is 1.15 (16.8s/14.6s; the previous commit measures 1.22 on the same machine); `llrs0` is 6% slower on the self build from the added passes. Open: `isa_a64_frame.copy_off` still adds and subtracts the offset, and aarch64 numbers.
 - 2026-11-09: Phase 3 of `langspeed.md`. Inline frames are pushed only around calls when the inlined region is not a loop (`mir/speed.rs`, `self/optmir.llr`), after borrowck and after `emit-mir`. A `std` `clone`/`from` of a finished local becomes a move when no holder is live afterwards; a whole-local drop whose flag is definitely clear is removed. The unmarked-inline limit stays 0: inlining `vec.len` makes `vec.sort` report `borrow.mut_shared|ref=n`. Median of five, stage 0: `sieve` 151098 ns to 74822, `map_ops` 20608 to 15669. One cross sample: `map-ops` 796 ms to 346, `json-parse` 2633 to 1829, `sieve` 488 to 250. `tests/run.sh` fails=0; check and emit-mir stay byte-equal with stage 2.
 - 2026-11-09: SysV float locals live in xmm8-15 (`cg_isa.saved_fpr_n` 8, `isa_x64.saved_base`). The ABI does not preserve them, so `cg_frame.call_sym`/`call_r` spill the function's own FPR locals around every call (externs, `sys.alloc`, drop glue, trace push/pop) and the prologue skips them; spilling only around `extern` calls lost them through any Llrst callee that reached C. `isa_x64_fp.fmov` is `movaps`: a reg-reg `movsd` merges into the low lane and serialized every float op through `xmm0` (`mandelbrot` 162 ms to 92 ms against stage 2 at HEAD). `scripts/self.sh` is `stage2=equal` and the suite is fails=0 under `llrs2`.
 - 2026-11-08: Phases 8-15 moved to `history/phases-8-15.md`. The log through 2026-11-07 moved to `history/progress.md`. Llrst is 0.8.0. `tests/run.sh` fails=0 under stage 0. A Unix link pulls `llr_reload.o` when any `llr_reload_*` symbol is referenced. `tests/err/match_miss.err` is UTF-8.

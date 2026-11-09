@@ -37,6 +37,8 @@
   (pub (nfpr i64))
   (pub (gspill (vec i64)))
   (pub (fspill (vec i64)))
+  (pub (floc (vec i64)))
+  (pub (keep (vec bool)))
   (pub (reg i64))))
 
 (pub (fn ld ((fx (&mut fncx)) (w i64) (dst i64) (base i64) (disp i64)) unit
@@ -111,6 +113,8 @@
     0
     (vec.new <i64>)
     (vec.new <i64>)
+    (vec.new <i64>)
+    (vec.new <bool>)
     (neg 1)))
 
 (fn local_slot ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut fncx)) (cur (&mut i64)) (t (& ty.sty))) unit
@@ -140,6 +144,7 @@
   (let t (& (. (vec.get (& (. b locs)) i) ty)))
   (let k (@ (vec.get (& (. pl kind)) i)))
   (if (== k cg_isa.slot_mem) (ret (local_slot g p fx cur t)))
+  (if (== k cg_isa.slot_fpr) (vec.set (&mut (. fx floc)) (@ (vec.get (& (. pl idx)) i)) i))
   (reg_slot p fx cur t k (@ (vec.get (& (. pl idx)) i))))
 
 (fn spill_room ((fx (&mut fncx)) (cur (&mut i64))) unit
@@ -154,13 +159,22 @@
 (fn caller_fpr ((fx (& fncx))) bool
   (and (not (. (. fx isa) win)) (and (not (. (. fx isa) a64)) (not (. (. fx isa) rv)))))
 
-(fn fpr_io ((fx (&mut fncx)) (load bool)) unit
+(fn fpr_io ((fx (&mut fncx)) (load bool) (all bool)) unit
   (for i 0 (. fx nfpr)
-    (cg_isa.slot_io (&mut (. fx buf)) (& (. fx isa)) true i (@ (vec.get (& (. fx fspill)) i)) load)))
+    (if (or all (@ (vec.get (& (. fx keep)) i)))
+      (cg_isa.slot_io (&mut (. fx buf))
+        (& (. fx isa))
+        true
+        i
+        (@ (vec.get (& (. fx fspill)) i))
+        load))))
 
-(pub (fn spill_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx false))))
+;; `keep` says which FPR locals are live across the next call; cg_term sets it
+;; from liveness before every statement and terminator. The prologue keeps the
+;; float params that landed in registers.
+(pub (fn spill_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx false false))))
 
-(pub (fn reload_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx true))))
+(pub (fn reload_f ((fx (&mut fncx))) unit (if (caller_fpr fx) (fpr_io fx true false))))
 
 (pub (fn call_sym ((fx (&mut fncx)) (sym i64)) unit
   (spill_f fx)
@@ -175,7 +189,7 @@
 (fn spill_now ((fx (&mut fncx)) (load bool)) unit
   (for i 0 (. fx ngpr)
     (cg_isa.slot_io (&mut (. fx buf)) (& (. fx isa)) false i (@ (vec.get (& (. fx gspill)) i)) load))
-  (if (not (caller_fpr fx)) (fpr_io fx load)))
+  (if (not (caller_fpr fx)) (fpr_io fx load true)))
 
 (fn push_whole ((fx (&mut fncx)) (cur (&mut i64)) (p (& prog.prog)) (t (& ty.sty))) unit
   (vec.push (&mut (. fx ff)) (vec.new <i64>))
@@ -240,6 +254,8 @@
   (let pl (cg_slot.build p b (& (. fx isa))))
   (set (. fx ngpr) (. pl ngpr))
   (set (. fx nfpr) (. pl nfpr))
+  (for i 0 (. pl nfpr)
+    (do (vec.push (&mut (. fx floc)) (neg 1)) (vec.push (&mut (. fx keep)) true)))
   (for i 0 (vec.len (& (. b locs))) (lay_one g p (&mut fx) (&mut cur) b (& pl) i))
   (if trace (do (set (. fx do_trace) true) (set (. fx trace) (alloc (&mut cur) 16 8))))
   (alloc_traces (&mut fx) (&mut cur) b)
@@ -256,9 +272,12 @@
   (save_in g p (&mut fx) b)
   (zero_flags (&mut fx))
   (flag_params p (&mut fx) b)
+  (for i 0 (. fx nfpr) (vec.set (&mut (. fx keep)) i (is_param (@ (vec.get (& (. fx floc)) i)) b)))
   (if trace (emit_trace g (&mut fx) (& (. b name))))
   (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) (@ (vec.get (& (. fx labs)) 0)))
   fx))
+
+(fn is_param ((l i64) (b (& mir.body))) bool (and (>= l 1) (<= l (. b args))))
 
 (fn probe ((g (&mut cg_mod.cg)) (fx (&mut fncx))) unit
   (if (or (. (. g isa) a64) (. (. g isa) rv))
@@ -341,11 +360,11 @@
 
 (fn row_copy ((fx (& fncx)) (local i64)) (vec i64) (i64s (vec.get (& (. fx ff)) local)))
 
-(fn off_at ((fx (& fncx)) (local i64)) i64 (@ (vec.get (& (. fx off)) local)))
+(pub (fn off_at ((fx (& fncx)) (local i64)) i64 (@ (vec.get (& (. fx off)) local))))
 
-(fn is_reg ((fx (& fncx)) (local i64)) bool
+(pub (fn is_reg ((fx (& fncx)) (local i64)) bool
   (if (or (< local 0) (>= local (vec.len (& (. fx sk))))) (ret false))
-  (!= (@ (vec.get (& (. fx sk)) local)) cg_isa.slot_mem))
+  (!= (@ (vec.get (& (. fx sk)) local)) cg_isa.slot_mem)))
 
 (pub (fn home ((fx (& fncx)) (local i64) (pk (& (vec u8)))) i64
   (if (or (!= (vec.len pk) 0) (not (is_reg fx local))) (ret (neg 1)))
@@ -431,89 +450,3 @@
 (pub (fn addr_local ((fx (&mut fncx)) (reg i64) (local i64)) unit
   (if (@ (vec.get (& (. fx z)) local)) (ret (cg_isa.zero (&mut (. fx buf)) (& (. fx isa)) reg)))
   (lea fx reg cg_isa.fp (@ (vec.get (& (. fx off)) local)))))
-
-(fn deref0 ((pk (& (vec u8)))) bool (and (> (vec.len pk) 0) (== (@ (vec.get pk 0)) 1u8)))
-
-(fn arm ((fx (&mut fncx)) (local i64)) unit (set (. fx reg) (off_at fx local)))
-
-(fn into_addr ((fx (&mut fncx)) (local i64)) unit
-  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr (off_at fx local)))
-
-(pub (fn place ((g (&mut cg_mod.cg))
-   (p (& prog.prog))
-   (fx (&mut fncx))
-   (locs (& (vec thir.loc)))
-   (local i64)
-   (pk (& (vec u8)))
-   (pi (& (vec i64)))) ty.sty
-  (set (. fx reg) (neg 1))
-  (if (and (is_reg fx local) (== (vec.len pk) 0))
-    (arm fx local)
-    (if (and (is_reg fx local) (deref0 pk)) (into_addr fx local) (addr_local fx cg_isa.addr local)))
-  (let from (if (and (is_reg fx local) (deref0 pk)) 1 0))
-  (let mut ty (ty.clone (& (. (vec.get locs local) ty))))
-  (if (== from 1) (set ty (ty.inner (& ty))))
-  (let mut variant (neg 1))
-  (for i from (vec.len pk)
-    (set ty (step g p fx (& ty) (&mut variant) (@ (vec.get pk i)) (@ (vec.get pi i)))))
-  ty))
-
-(fn step ((g (&mut cg_mod.cg))
-   (p (& prog.prog))
-   (fx (&mut fncx))
-   (ty (& ty.sty))
-   (variant (&mut i64))
-   (k u8)
-   (n i64)) ty.sty
-  (if (== k 1u8) (ret (do (ld fx 8 cg_isa.addr cg_isa.addr 0) (ty.inner ty))))
-  (if (== k 2u8) (ret (do (set (@ variant) n) (ty.clone ty))))
-  (field_step g p fx ty variant n))
-
-(fn field_step ((g (&mut cg_mod.cg))
-   (p (& prog.prog))
-   (fx (&mut fncx))
-   (ty (& ty.sty))
-   (variant (&mut i64))
-   (n i64)) ty.sty
-  (let ix (cg_lay.of_idx (&mut (. g lays)) p ty))
-  (let off
-    (if (>= (@ variant) 0)
-      (cg_lay.var_at (& (. g lays)) ix (@ variant) n)
-      (cg_lay.field_at (& (. g lays)) ix n)))
-  (if (!= off 0) (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr off))
-  (let next (mir.field_ty p ty (@ variant) n))
-  (set (@ variant) (neg 1))
-  next)
-
-(pub (fn load_s ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (if (ty.is_unit t) (ret))
-  (if (>= (. fx reg) 0) (ret (xfer fx t false)))
-  (if (cg_lay.is_float t) (ret (ld_xmm fx t)))
-  (ld fx (cg_lay.width t) cg_isa.acc cg_isa.addr 0)))
-
-(fn ld_xmm ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp0 cg_isa.addr 0))
-
-(pub (fn store_s ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (if (ty.is_unit t) (ret))
-  (if (>= (. fx reg) 0) (ret (xfer fx t true)))
-  (if (cg_lay.is_float t) (ret (st_xmm_r11 fx t)))
-  (st fx (cg_lay.width t) cg_isa.dst 0 cg_isa.acc)))
-
-(fn xfer ((fx (&mut fncx)) (t (& ty.sty)) (store bool)) unit
-  (let r (. fx reg))
-  (set (. fx reg) (neg 1))
-  (if (cg_lay.is_float t) (ret (xfer_f fx t r store)))
-  (let w (cg_lay.width t))
-  (if store
-    (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) w r cg_isa.acc)
-    (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc r)))
-
-(fn xfer_f ((fx (&mut fncx)) (t (& ty.sty)) (r i64) (store bool)) unit
-  (let s (== (. t kind) 1u8))
-  (if store
-    (cg_isa.fmov (&mut (. fx buf)) (& (. fx isa)) s r cg_isa.fp0)
-    (cg_isa.fmov (&mut (. fx buf)) (& (. fx isa)) s cg_isa.fp0 r)))
-
-(fn st_xmm_r11 ((fx (&mut fncx)) (t (& ty.sty))) unit
-  (cg_isa.fst (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.dst 0 cg_isa.fp0))

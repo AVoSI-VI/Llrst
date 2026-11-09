@@ -2,6 +2,7 @@
 (use proj.cg_bits)
 (use proj.cg_cast)
 (use proj.cg_frame)
+(use proj.cg_place)
 (use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
@@ -17,30 +18,62 @@
   (if (>= w 8) (ret))
   (cg_isa.widen (&mut (. fx buf)) (& (. fx isa)) cg_isa.acc cg_isa.acc 8 w (cg_lay.signed t))))
 
+;; A scalar local with no projection that lives in a frame slot is read and
+;; written at fp+disp; `place` is for addresses and projections. 0 is "not one".
+(pub (fn mem_of ((fx (& cg_frame.fncx)) (local i64) (pk (& (vec u8)))) i64
+  (if (!= (vec.len pk) 0) (ret 0))
+  (if (or (< local 0) (>= local (vec.len (& (. fx sk))))) (ret 0))
+  (if (!= (@ (vec.get (& (. fx sk)) local)) cg_isa.slot_mem) (ret 0))
+  (if (@ (vec.get (& (. fx z)) local)) (ret 0))
+  (@ (vec.get (& (. fx off)) local))))
+
+(fn scalar_at ((locs (& (vec thir.loc))) (local i64)) bool
+  (let t (& (. (vec.get locs local) ty)))
+  (and (not (cg_lay.is_agg t)) (not (ty.is_unit t))))
+
+(pub (fn load_at ((fx (&mut cg_frame.fncx)) (t (& ty.sty)) (d i64) (ireg i64) (freg i64)) unit
+  (if (cg_lay.is_float t)
+    (ret (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) freg cg_isa.fp d)))
+  (cg_frame.ld fx (cg_lay.width t) ireg cg_isa.fp d)))
+
+(pub (fn store_at ((fx (&mut cg_frame.fncx)) (t (& ty.sty)) (d i64)) unit
+  (if (cg_lay.is_float t)
+    (ret (cg_isa.fst (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp d cg_isa.fp0)))
+  (cg_frame.st fx (cg_lay.width t) cg_isa.fp d cg_isa.acc)))
+
 (pub (fn eval_op ((g (&mut cg_mod.cg))
    (p (& prog.prog))
    (fx (&mut cg_frame.fncx))
    (locs (& (vec thir.loc)))
    (o (& mir.op))) ty.sty
   (if (== (. o kind) 2u8) (ret (eval_const g p fx o)))
-  (let ty (cg_frame.place g p fx locs (. o local) (& (. o pk)) (& (. o pi))))
+  (let d (mem_of fx (. o local) (& (. o pk))))
+  (if (and (!= d 0) (scalar_at locs (. o local))) (ret (eval_direct fx locs o d)))
+  (let ty (cg_place.place g p fx locs (. o local) (& (. o pk)) (& (. o pi))))
   (clear fx o)
   (if (cg_lay.is_agg (& ty)) (ret ty))
-  (cg_frame.load_s fx (& ty))
+  (cg_place.load_s fx (& ty))
   ty))
 
-(fn clear ((fx (&mut cg_frame.fncx)) (o (& mir.op))) unit
+(fn eval_direct ((fx (&mut cg_frame.fncx)) (locs (& (vec thir.loc))) (o (& mir.op)) (d i64)) ty.sty
+  (set (. fx reg) (neg 1))
+  (clear fx o)
+  (let t (ty.clone (& (. (vec.get locs (. o local)) ty))))
+  (load_at fx (& t) d cg_isa.acc cg_isa.fp0)
+  t)
+
+(pub (fn clear ((fx (&mut cg_frame.fncx)) (o (& mir.op))) unit
   (if (!= (. o kind) 1u8) (ret))
   (for i 0 (vec.len (& (. o pk))) (if (== (@ (vec.get (& (. o pk)) i)) 1u8) (ret)))
   (if (== (vec.len (& (. o pk))) 0) (ret (cg_frame.set_flag fx (. o local) false)))
   (if (and (== (vec.len (& (. o pk))) 1) (== (@ (vec.get (& (. o pk)) 0)) 0u8))
     (ret (cg_frame.set_field fx (. o local) (@ (vec.get (& (. o pi)) 0)) false)))
-  (cg_frame.set_flag fx (. o local) false))
+  (cg_frame.set_flag fx (. o local) false)))
 
 (fn eval_const ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (o (& mir.op))) ty.sty
   (if (== (. o ck) 0u8)
     (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) (cg_lay.width (& (. o ty))) cg_isa.acc (. o id)))
-  (if (== (. o ck) 1u8) (fconst fx (& (. o ty)) (& (. o text))))
+  (if (== (. o ck) 1u8) (fconst fx (& (. o ty)) (& (. o text)) cg_isa.fp0))
   (if (== (. o ck) 2u8) (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 1 cg_isa.acc (. o id)))
   (if (== (. o ck) 3u8)
     (cg_isa.sym_addr (&mut (. fx buf)) (& (. fx isa)) cg_isa.acc (cg_mod.str_sym g (& (. o text)))))
@@ -51,12 +84,12 @@
       (cg_mod.func_sym g p (. o id) (vec.new <ty.sty>))))
   (ty.clone (& (. o ty))))
 
-(fn fconst ((fx (&mut cg_frame.fncx)) (t (& ty.sty)) (text (& str))) unit
+(fn fconst ((fx (&mut cg_frame.fncx)) (t (& ty.sty)) (text (& str)) (reg i64)) unit
   (let bits (if (== (. t kind) 1u8) (cg_bits_f32 text) (cg_bits_f64 text)))
   (let d (cg_frame.tmp fx 8 8))
   (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc bits)
   (cg_frame.st fx 8 cg_isa.fp d cg_isa.acc)
-  (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp0 cg_isa.fp d))
+  (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) reg cg_isa.fp d))
 
 (fn cg_bits_f64 ((text (& str))) i64 (cg_bits.f64_bits text))
 
@@ -98,7 +131,7 @@
    (fx (&mut cg_frame.fncx))
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
-  (let _ (cg_frame.place g p fx locs (. r local) (& (. r pk)) (& (. r pi))))
+  (let _ (cg_place.place g p fx locs (. r local) (& (. r pk)) (& (. r pi))))
   (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.addr)
   (ty.ptr_ty (ty.int 4)))
 
@@ -120,14 +153,106 @@
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
   (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
-  (let d (hold fx (& t)))
-  (let _ (eval_op g p fx locs (vec.get (& (. r ops)) 1)))
-  (if (cg_lay.is_float (& t))
+  (let o1 (vec.get (& (. r ops)) 1))
+  (let out (if (and (>= (. r op) 5) (<= (. r op) 10)) (ty.bool_ty) (ty.clone (& t))))
+  (if (imm_ok g o1 (. r op) (& t)) (ret (do (ibin_imm fx (. r op) (& t) (. o1 id)) out)))
+  (if (simple fx locs o1 (& t)) (load_rhs fx locs o1) (rhs_via_acc g p fx locs o1 (& t)))
+  (if (cg_lay.is_float (& t)) (fbin fx (. r op) (== (. t kind) 1u8)) (ibin g p fx (. r op) (& t)))
+  out)
+
+;; An integer compare whose result only feeds the block's `if`: the compare is
+;; emitted, the flags are left for jcc, and the condition code is returned.
+(pub (fn eval_cmp ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))) i64
+  (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (let o1 (vec.get (& (. r ops)) 1))
+  (let w (cg_lay.width (& t)))
+  (if (imm_ok g o1 (. r op) (& t))
+    (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc (. o1 id))
+    (do
+      (if (simple fx locs o1 (& t)) (load_rhs fx locs o1) (rhs_via_acc g p fx locs o1 (& t)))
+      (cg_isa.cmp_rr (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc cg_isa.tmp)))
+  (icc (. r op) (cg_lay.signed (& t)))))
+
+;; True when both operands of a compare are integers held plainly: a constant,
+;; or a local read without a projection.
+(pub (fn int_cmp ((locs (& (vec thir.loc))) (r (& mir.rv))) bool
+  (and (int_operand locs (vec.get (& (. r ops)) 0)) (int_operand locs (vec.get (& (. r ops)) 1)))))
+
+(fn int_operand ((locs (& (vec thir.loc))) (o (& mir.op))) bool
+  (if (== (. o kind) 2u8) (ret (!= (. o ck) 1u8)))
+  (if (!= (vec.len (& (. o pk))) 0) (ret false))
+  (let t (& (. (vec.get locs (. o local)) ty)))
+  (and (not (cg_lay.is_agg t)) (and (not (cg_lay.is_float t)) (not (ty.is_unit t)))))
+
+;; An integer constant on the right of an unchecked add or sub, a wrapping add
+;; or sub, or a compare is an immediate when it fits i32 and the operand is at
+;; least 4 bytes wide.
+(fn imm_ok ((g (& cg_mod.cg)) (o (& mir.op)) (op i64) (t (& ty.sty))) bool
+  (if (or (!= (. o kind) 2u8) (!= (. o ck) 0u8)) (ret false))
+  (if (or (cg_lay.is_float t) (< (cg_lay.width t) 4)) (ret false))
+  (if (or (< (. o id) (neg 2147483648)) (> (. o id) 2147483647)) (ret false))
+  (if (and (>= op 5) (<= op 10)) (ret true))
+  (if (or (== op 16) (== op 17)) (ret true))
+  (and (or (== op 0) (== op 1)) (not (. g checked))))
+
+(fn ibin_imm ((fx (&mut cg_frame.fncx)) (op i64) (t (& ty.sty)) (imm i64)) unit
+  (let w (cg_lay.width t))
+  (if (or (== op 0) (== op 16))
+    (ret (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc imm)))
+  (if (or (== op 1) (== op 17))
+    (ret (cg_isa.sub_ri (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc imm)))
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) w cg_isa.acc imm)
+  (cg_isa.setcc (&mut (. fx buf)) (& (. fx isa)) (icc op (cg_lay.signed t)) cg_isa.acc))
+
+;; The left operand sits in acc or fp0. The general path parks it in a slot
+;; while the right operand is evaluated; a constant or a plain scalar local on
+;; the right goes straight into tmp or fp1 instead.
+(fn rhs_via_acc ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (o (& mir.op))
+   (t (& ty.sty))) unit
+  (let d (hold fx t))
+  (let _ (eval_op g p fx locs o))
+  (if (cg_lay.is_float t)
     (cg_isa.fmov (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp1 cg_isa.fp0)
     (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp cg_isa.acc))
-  (reload fx (& t) d (if (cg_lay.is_float (& t)) cg_isa.fp0 cg_isa.acc))
-  (if (cg_lay.is_float (& t)) (fbin fx (. r op) (== (. t kind) 1u8)) (ibin g p fx (. r op) (& t)))
-  (if (>= (. r op) 5) (if (<= (. r op) 10) (ty.bool_ty) (ty.clone (& t))) (ty.clone (& t))))
+  (reload fx t d (if (cg_lay.is_float t) cg_isa.fp0 cg_isa.acc)))
+
+(fn simple ((fx (& cg_frame.fncx)) (locs (& (vec thir.loc))) (o (& mir.op)) (t (& ty.sty))) bool
+  (if (== (. o kind) 2u8)
+    (ret (and (<= (. o ck) 2u8) (== (cg_lay.is_float (& (. o ty))) (cg_lay.is_float t)))))
+  (if (!= (vec.len (& (. o pk))) 0) (ret false))
+  (if (not (scalar_at locs (. o local))) (ret false))
+  (if (!= (cg_lay.is_float (& (. (vec.get locs (. o local)) ty))) (cg_lay.is_float t)) (ret false))
+  (or (>= (cg_frame.home fx (. o local) (& (. o pk))) 0)
+    (!= (mem_of fx (. o local) (& (. o pk))) 0)))
+
+(fn load_rhs ((fx (&mut cg_frame.fncx)) (locs (& (vec thir.loc))) (o (& mir.op))) unit
+  (if (== (. o kind) 2u8) (ret (const_rhs fx o)))
+  (clear fx o)
+  (let rt (ty.clone (& (. (vec.get locs (. o local)) ty))))
+  (let r (cg_frame.home fx (. o local) (& (. o pk))))
+  (if (< r 0) (ret (load_at fx (& rt) (mem_of fx (. o local) (& (. o pk))) cg_isa.tmp cg_isa.fp1)))
+  (if (cg_lay.is_float (& rt))
+    (cg_isa.fmov (&mut (. fx buf)) (& (. fx isa)) (== (. rt kind) 1u8) cg_isa.fp1 r)
+    (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) (cg_lay.width (& rt)) cg_isa.tmp r)))
+
+(fn const_rhs ((fx (&mut cg_frame.fncx)) (o (& mir.op))) unit
+  (if (== (. o ck) 0u8)
+    (ret (cg_isa.mov_ri (&mut (. fx buf))
+       (& (. fx isa))
+       (cg_lay.width (& (. o ty)))
+       cg_isa.tmp
+       (. o id))))
+  (if (== (. o ck) 2u8)
+    (ret (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 1 cg_isa.tmp (. o id))))
+  (fconst fx (& (. o ty)) (& (. o text)) cg_isa.fp1))
 
 (fn ibin ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (op i64) (t (& ty.sty))) unit
   (let w (cg_lay.width t))
@@ -218,7 +343,7 @@
    (fx (&mut cg_frame.fncx))
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
-  (let _ (cg_frame.place g p fx locs (. r local) (& (. r pk)) (& (. r pi))))
+  (let _ (cg_place.place g p fx locs (. r local) (& (. r pk)) (& (. r pi))))
   (cg_frame.ld fx 4 cg_isa.acc cg_isa.addr 0)
   (ty.int 6))
 
@@ -230,18 +355,32 @@
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
   (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
-  (let d (hold fx (& t)))
-  (let it (eval_op g p fx locs (vec.get (& (. r ops)) 1)))
-  (ext fx (& it))
+  (let o1 (vec.get (& (. r ops)) 1))
   (let elem (pointee (& (. r ty))))
-  (cg_isa.mul_ri (&mut (. fx buf))
-    (& (. fx isa))
-    8
-    cg_isa.acc
-    (cg_lay.size (&mut (. g lays)) p (& elem)))
-  (cg_frame.ld fx 8 cg_isa.tmp cg_isa.fp d)
+  (let n (cg_lay.size (&mut (. g lays)) p (& elem)))
+  (if (simple fx locs o1 (& (ty.int 3)))
+    (do
+      (load_rhs fx locs o1)
+      (ext_tmp fx locs o1)
+      (cg_isa.mul_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp n))
+    (do
+      (let d (hold fx (& t)))
+      (let it (eval_op g p fx locs o1))
+      (ext fx (& it))
+      (cg_isa.mul_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc n)
+      (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp cg_isa.acc)
+      (cg_frame.ld fx 8 cg_isa.acc cg_isa.fp d)))
   (cg_isa.add_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc cg_isa.tmp)
   (ty.clone (& t)))
+
+(fn ext_tmp ((fx (&mut cg_frame.fncx)) (locs (& (vec thir.loc))) (o (& mir.op))) unit
+  (let t
+    (if (== (. o kind) 2u8)
+      (ty.clone (& (. o ty)))
+      (ty.clone (& (. (vec.get locs (. o local)) ty)))))
+  (let w (cg_lay.width (& t)))
+  (if (>= w 8) (ret))
+  (cg_isa.widen (&mut (. fx buf)) (& (. fx isa)) cg_isa.tmp cg_isa.tmp 8 w (cg_lay.signed (& t))))
 
 (fn eval_peq ((g (&mut cg_mod.cg))
    (p (& prog.prog))

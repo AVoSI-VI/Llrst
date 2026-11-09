@@ -1,5 +1,6 @@
 ;; Allocate a `(box (dyn Trait))` and reborrow its fat pointer.
 (use proj.cg_frame)
+(use proj.cg_place)
 (use proj.cg_isa)
 (use proj.cg_lay)
 (use proj.cg_mod)
@@ -45,7 +46,7 @@
   (if (cg_lay.is_float t)
     (cg_isa.fld (&mut (. fx buf)) (& (. fx isa)) (== (. t kind) 1u8) cg_isa.fp0 cg_isa.fp hold)
     (cg_frame.ld fx (cg_lay.width t) cg_isa.acc cg_isa.fp hold))
-  (cg_frame.store_s fx t))
+  (cg_place.store_s fx t))
 
 (fn finish ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -55,7 +56,7 @@
    (s (& mir.st))
    (ty (& ty.sty))
    (heap i64)) unit
-  (let _ (cg_frame.place g p fx locs (. s local) (& (. s pk)) (& (. s pi))))
+  (let _ (cg_place.place g p fx locs (. s local) (& (. s pk)) (& (. s pi))))
   (let ds (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 cg_isa.fp ds cg_isa.addr)
   (cg_frame.ld fx 8 cg_isa.dst cg_isa.fp ds)
@@ -71,10 +72,10 @@
    (locs (& (vec thir.loc)))
    (s (& mir.st))) unit
   (let rv (& (. s rv)))
-  (let _ (cg_frame.place g p fx locs (. rv local) (& (. rv pk)) (& (. rv pi))))
+  (let _ (cg_place.place g p fx locs (. rv local) (& (. rv pk)) (& (. rv pi))))
   (let hold (cg_frame.tmp fx 8 8))
   (cg_frame.st fx 8 cg_isa.fp hold cg_isa.addr)
-  (let _ (cg_frame.place g p fx locs (. s local) (& (. s pk)) (& (. s pi))))
+  (let _ (cg_place.place g p fx locs (. s local) (& (. s pk)) (& (. s pi))))
   (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst cg_isa.addr)
   (cg_frame.ld fx 8 cg_isa.addr cg_isa.fp hold)
   (cg_frame.copy g p fx 16)))

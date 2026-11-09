@@ -290,12 +290,8 @@
   (st b s 8 cg_isa.acc cg_isa.fp disp)))
 
 (fn copy_off ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (w i64) (i i64)) unit
-  (add_ri b s 8 cg_isa.addr i)
-  (add_ri b s 8 cg_isa.dst i)
-  (ld b s w cg_isa.acc cg_isa.addr 0)
-  (st b s w cg_isa.acc cg_isa.dst 0)
-  (sub_ri b s 8 cg_isa.addr i)
-  (sub_ri b s 8 cg_isa.dst i))
+  (ld b s w cg_isa.acc cg_isa.addr i)
+  (st b s w cg_isa.acc cg_isa.dst i))
 
 (pub (fn copy ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (n i64)) unit
   (if (<= n 0) (ret))
