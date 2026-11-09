@@ -1,0 +1,3 @@
+(fn main () unit
+  (let a (arr.of 1 2))
+  (let x (arr.get (& a) -1)))

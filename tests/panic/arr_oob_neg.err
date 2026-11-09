@@ -1,0 +1,2 @@
+P|tests/panic/arr_oob_neg.llr|3|10|idx.oob|len=2|idx=-1
+P|main.main

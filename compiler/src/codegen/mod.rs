@@ -3,6 +3,7 @@ mod boxdyn;
 mod clos;
 mod drop;
 mod func;
+mod place;
 mod ovf;
 mod reload;
 pub mod layout;

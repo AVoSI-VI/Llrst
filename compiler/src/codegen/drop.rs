@@ -6,7 +6,7 @@ use crate::mir::{drop_method, needs_drop};
 use crate::resolve::DefKind;
 use crate::ty::Ty;
 use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{types, InstBuilder};
+use cranelift_codegen::ir::{types, BlockArg, InstBuilder};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_codegen::ir::Block;
 use cranelift_module::{FuncId, Module};
@@ -36,6 +36,8 @@ pub fn compile_drop(cg: &mut Codegen, t: &Ty, id: FuncId) -> PResult<()> {
             b.ins().jump(leave, &[]);
         } else if matches!(t, Ty::Adt(..)) {
             drop_adt(cg, &mut b, t, addr, leave);
+        } else if matches!(t, Ty::Arr(..)) {
+            drop_arr(cg, &mut b, t, addr, leave);
         } else {
             b.ins().jump(leave, &[]);
         }
@@ -140,12 +142,39 @@ fn drop_enum(cg: &mut Codegen, b: &mut FunctionBuilder, t: &Ty, addr: cranelift_
     b.switch_to_block(done);
 }
 
+/// Counter `k` is a block parameter. Element `k` is dropped at `addr + k * size`, then `k + 1`, until `N`.
+fn drop_arr(cg: &mut Codegen, b: &mut FunctionBuilder, t: &Ty, addr: cranelift_codegen::ir::Value, leave: Block) {
+    let Ty::Arr(elem, n) = t else { unreachable!() };
+    if !needs_drop(cg.prog, elem) {
+        b.ins().jump(leave, &[]);
+        return;
+    }
+    let size = cg.layouts.size(elem) as i64;
+    let glue = cg.drop_glue(elem);
+    let fr = cg.module.declare_func_in_func(glue, b.func);
+    let head = b.create_block();
+    b.append_block_param(head, types::I64);
+    let zero = BlockArg::from(b.ins().iconst(types::I64, 0));
+    b.ins().jump(head, &[zero]);
+    b.switch_to_block(head);
+    let k = b.block_params(head)[0];
+    let body = b.create_block();
+    let done = b.ins().icmp_imm_s(IntCC::Equal, k, *n as i64);
+    b.ins().brif(done, leave, &[], body, &[]);
+    b.switch_to_block(body);
+    let off = b.ins().imul_imm_s(k, size);
+    let ea = b.ins().iadd(addr, off);
+    b.ins().call(fr, &[ea]);
+    let next = BlockArg::from(b.ins().iadd_imm_s(k, 1));
+    b.ins().jump(head, &[next]);
+}
+
 fn drop_frame(cg: &Codegen, t: &Ty) -> String {
     match t {
         Ty::Clos(..) => "drop.clos".into(),
         Ty::BoxDyn { .. } => "drop.box".into(),
         Ty::Adt(d, args) => framed(cg, &cg.prog.type_name(*d), args),
-        other => format!("drop.{}", other),
+        other => format!("drop.{}", shown(cg, other)),
     }
 }
 
@@ -161,6 +190,7 @@ fn framed(cg: &Codegen, name: &str, args: &[Ty]) -> String {
 fn shown(cg: &Codegen, t: &Ty) -> String {
     match t {
         Ty::Clos(..) => "clos".into(),
+        Ty::Arr(elem, n) => format!("(arr {} {})", shown(cg, elem), n),
         Ty::Adt(d, args) if args.is_empty() => cg.prog.type_name(*d),
         Ty::Adt(d, args) => {
             let a: Vec<String> = args.iter().map(|x| shown(cg, x)).collect();

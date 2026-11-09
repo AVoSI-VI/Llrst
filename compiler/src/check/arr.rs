@@ -194,7 +194,7 @@ impl<'a> Checker<'a> {
     }
 
     fn ref_arr(&self, a: &Expr, need_mut: bool) -> PResult<(Ty, u64)> {
-        let got = self.shallow(&a.ty);
+        let got = self.zonk_ty(&a.ty);
         let want = if need_mut { "(&mut (arr T N))" } else { "(& (arr T N))" };
         let Ty::Ref { mutable, inner, .. } = &got else {
             return Err(Diag::error(a.span, "type.mismatch").kv("want", want).kv("got", self.show(&got)));

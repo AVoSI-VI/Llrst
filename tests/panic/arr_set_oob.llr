@@ -1,0 +1,3 @@
+(fn main () unit
+  (let mut a (arr.of 1 2))
+  (arr.set (&mut a) 5 0))

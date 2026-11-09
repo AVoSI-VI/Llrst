@@ -1,0 +1,11 @@
+(use std.io)
+
+(fn main () unit
+  (let mut a (arr i64 4) (arr.filled 3))
+  (arr.set (&mut a) 3 7)
+  (let mut s 0)
+  (for i 0 (arr.len (& a)) (set s (+ s (@ (arr.get (& a) i)))))
+  (io.puts (& (str.from_int s)))
+  (io.puts (& (str.from_int (as i64 (sizeof (arr u8 16))))))
+  (let b (arr.filled <(arr u8 8)> 2u8))
+  (io.puts (& (str.from_int (as i64 (@ (arr.get (& b) 7)))))))
