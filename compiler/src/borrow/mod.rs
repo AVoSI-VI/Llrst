@@ -134,6 +134,11 @@ pub fn overlaps(a: &Place, b: &Place) -> bool {
     pa.iter().zip(&pb).all(|(x, y)| x == y)
 }
 
+pub use holders::compute as compute_holders;
+pub use liveness::compute as compute_live;
+pub use loans::compute as compute_loans;
+pub use loans::Loan;
+
 pub fn borrowck(prog: &Program, diags: &Diags, sm: &SourceMap, body: &Body) {
     let live = liveness::compute(prog, body);
     moves::check_moves(prog, diags, sm, body);

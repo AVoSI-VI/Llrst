@@ -7,6 +7,7 @@
 (use proj.lint)
 (use proj.lower)
 (use proj.mir)
+(use proj.optmir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
@@ -87,9 +88,9 @@
    (args (& (vec ty.sty)))
    (kept (&mut check.kept))) unit
   (if (diag.any_err ds "") (ret))
-  (let b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
+  (let mut b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
   (let ord (wasm_mod.func_sym g p id (clone_tys args)))
-  (compile_body g p (& b) ord true))
+  (compile_body g p (&mut b) ord true))
 
 (fn inst ((g (&mut wasm_mod.wm))
    (p (& prog.prog))
@@ -105,12 +106,12 @@
     ((res.err _) ())
     ((res.ok e)
       (do
-        (let b (lower.lower_fn p e (prog.fn_path p id) ds ic))
+        (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic))
         (borrow.run p ds (& b))
         (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))
         (let ord (wasm_mod.func_sym g p id (clone_tys (& args))))
-        (compile_body g p (& b) ord true)))))
+        (compile_body g p (&mut b) ord true)))))
 
 (fn dty_at ((g (& wasm_mod.wm)) (i i64)) ty.sty (ty.clone (vec.get (& (. g dty)) i)))
 
@@ -127,7 +128,8 @@
           (wasm_mod.mark_drop g i)
           (wasm_drop.glue g p (& ty) ord))))))
 
-(pub (fn compile_body ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (b (& mir.body)) (ord i64) (trace bool)) unit
+(pub (fn compile_body ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (b (&mut mir.body)) (ord i64) (trace bool)) unit
+  (optmir.run p b)
   (let mut fx (wasm_abi.fresh (str.clone (& (. b path))) (nparams b)))
   (let tr (want_trace (& (. b name)) trace))
   (wasm_abi.layout g p (&mut fx) b tr)

@@ -170,10 +170,10 @@
     (do (if (not (proj_eq a b i j)) (ret false)) (set i (+ i 1)) (set j (+ j 1))))
   true))
 
-(fn body_acc ((b (& mir.body))) (vec (vec (vec acc)))
+(pub (fn body_acc ((b (& mir.body))) (vec (vec (vec acc)))
   (let mut o (vec.new < (vec (vec acc)) >))
   (for i 0 (vec.len (& (. b blocks))) (vec.push (&mut o) (blk_acc (vec.get (& (. b blocks)) i))))
-  o)
+  o))
 
 (fn blk_acc ((blk (& mir.blk))) (vec (vec acc))
   (let mut o (vec.new < (vec acc) >))

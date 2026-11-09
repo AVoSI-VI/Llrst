@@ -153,7 +153,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         let mut test_fns = Vec::new();
         for (i, t) in tests.iter().enumerate() {
             let body = check_test(&prog, diags, sm, prog.main_module, t)?;
-            let mir = lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new(), opt.checked);
+            let mut mir = lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new(), opt.checked);
             if opt.emit_mir {
                 st.mir_dump.push_str(&print_body(&mir));
             }
@@ -163,7 +163,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
                 continue;
             }
             let id = cg.declare_test_fn(i);
-            cg.compile_body_with_id(&mir, id)?;
+            cg.compile_body_with_id(&mut mir, id)?;
             test_fns.push((t.name.clone(), id));
         }
         crate::mir::lint::lint_unused(&prog, diags);
@@ -267,14 +267,14 @@ impl<'a> Pipeline<'a> {
         let body = check_fn(self.prog, self.diags, self.sm, inst.0, &inst.1)?;
         let name = self.prog.fn_path(inst.0);
         let lifetimes = self.prog.fn_def(inst.0).lifetimes.clone();
-        let mir = lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes, self.opt.checked);
+        let mut mir = lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes, self.opt.checked);
         if self.opt.emit_mir {
             self.mir_dump.push_str(&print_body(&mir));
         }
         borrowck(self.prog, self.diags, self.sm, &mir);
         crate::mir::lint::lint(self.diags, &mir);
         if codegen && !self.diags.has_errors() {
-            cg.compile_body(&mir, inst)?;
+            cg.compile_body(&mut mir, inst)?;
         }
         Ok(())
     }

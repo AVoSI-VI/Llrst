@@ -13,6 +13,7 @@
 (use proj.rv_buf)
 (use proj.x64_buf)
 (use proj.mir)
+(use proj.optmir)
 (use proj.prog)
 (use proj.ty)
 
@@ -28,7 +29,8 @@
   (let f (cg_line.file_ix (&mut (. g dfiles)) (& (. fx path))))
   (cg_line.add (&mut (. g dstack)) at (. fx line) (. fx col) f))
 
-(pub (fn compile ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (& mir.body)) (sym i64) (trace bool)) unit
+(pub (fn compile ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut mir.body)) (sym i64) (trace bool)) unit
+  (optmir.run p b)
   (let on (. g debug))
   (cg_line.push_fn on (&mut (. g dstack)))
   (let mut fx (cg_frame.open g p b 256 trace))

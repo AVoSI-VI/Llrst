@@ -243,12 +243,12 @@
       (do
         (let mut name (str.from "test."))
         (str.push (&mut name) (& (. t name)))
-        (let b (lower.lower_fn p e name ds ic))
+        (let mut b (lower.lower_fn p e name ds ic))
         (borrow.run p ds (& b))
         (lint.body ds (& b))
         (if (diag.any_err ds "") (ret))
         (let sym (cg_entry.test_sym g (vec.len names)))
-        (cg_term.compile g p (& b) sym true)
+        (cg_term.compile g p (&mut b) sym true)
         (vec.push names (str.clone (& (. t name))))
         (vec.push syms sym)))))
 
@@ -278,9 +278,9 @@
    (args (& (vec ty.sty)))
    (kept (&mut check.kept))) unit
   (if (diag.any_err ds "") (ret))
-  (let b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
+  (let mut b (mem.replace (vec.get_mut (&mut (. kept bodies)) ix) (mir.empty_body)))
   (let sym (cg_mod.func_sym g p id (clone_tys args)))
-  (cg_term.compile g p (& b) sym true))
+  (cg_term.compile g p (&mut b) sym true))
 
 (fn inst ((g (&mut cg_mod.cg))
    (p (& prog.prog))
@@ -297,12 +297,12 @@
     ((res.err _) ())
     ((res.ok e)
       (do
-        (let b (lower.lower_fn p e (prog.fn_path p id) ds ic))
+        (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic))
         (borrow.run p ds (& b))
         (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))
         (let sym (cg_mod.func_sym g p id (clone_tys (& args))))
-        (cg_term.compile g p (& b) sym true)))))
+        (cg_term.compile g p (&mut b) sym true)))))
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))
 

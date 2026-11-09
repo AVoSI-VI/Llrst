@@ -1,0 +1,396 @@
+;; After borrowck, before codegen. emit-mir keeps the unoptimized body.
+;; Inline frames sit on calls only, unless the inlined region is a loop.
+;; A std clone or from of a finished local becomes a move.
+;; A drop whose flag is definitely clear is removed.
+(use proj.borrow)
+(use proj.holders)
+(use proj.liveness)
+(use proj.loans)
+(use proj.mir)
+(use proj.prog)
+(use proj.ty)
+(use std.str)
+
+(struct ced (bb i64) (src i64))
+
+(struct hit (ok bool) (bb i64) (idx i64))
+
+(struct own (ok bool) (src i64) (bb i64) (idx i64))
+
+(struct reg
+  (slot i64)
+  (name str)
+  (pbb i64)
+  (pidx i64)
+  (obb i64)
+  (oidx i64)
+  (sink bool)
+  (cover (vec bool)))
+
+(pub (fn run ((p (& prog.prog)) (b (&mut mir.body))) unit
+  (elide_clones p b)
+  (elide_traces b)
+  (elide_drops b)))
+
+;; ----- clone to move -----
+
+(fn elide_clones ((p (& prog.prog)) (b (&mut mir.body))) unit
+  (if (not (saw_copy p b)) (ret))
+  (let accs (borrow.body_acc b))
+  (let live (liveness.compute p b (& accs)))
+  (let ls (loans.collect b))
+  (let hs (holders.compute p b (& ls)))
+  (let fr (holders.live_sets (& hs) (& live)))
+  (let mut edits (vec.new <ced>))
+  (for bi 0 (vec.len (& (. b blocks))) (consider p b (& ls) (& fr) bi (&mut edits)))
+  (for i 0 (vec.len (& edits)) (apply_clone b (vec.get (& edits) i))))
+
+(fn saw_copy ((p (& prog.prog)) (b (& mir.body))) bool
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let t (& (. (vec.get (& (. b blocks)) bi) term)))
+    (if (and (== (. t kind) 3u8) (and (== (. t fk) 0u8) (and (== (vec.len (& (. t args))) 1) (std_copy p (. t fid)))))
+      (ret true)))
+  false)
+
+(fn std_copy ((p (& prog.prog)) (id i64)) bool
+  (if (or (< id 0) (>= id (vec.len (& (. p defs))))) (ret false))
+  (let d (vec.get (& (. p defs)) id))
+  (if (!= (. d kind) 2u8) (ret false))
+  (if (not (or (str.eq (& (. d name)) "clone") (str.eq (& (. d name)) "from"))) (ret false))
+  (. (vec.get (& (. p mods)) (. d module)) is_std))
+
+(fn consider ((p (& prog.prog))
+   (b (& mir.body))
+   (ls (& (vec loans.loan)))
+   (fr (& holders.liveh))
+   (bi i64)
+   (edits (&mut (vec ced)))) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (let t (& (. blk term)))
+  (if (!= (. t kind) 3u8) (ret))
+  (if (or (!= (. t fk) 0u8) (!= (vec.len (& (. t args))) 1)) (ret))
+  (if (not (std_copy p (. t fid))) (ret))
+  (let arg (vec.get (& (. t args)) 0))
+  (if (not (whole_op arg)) (ret))
+  (let got (chase b (. arg local)))
+  (if (not (. got ok)) (ret))
+  (if (== (. t dest) (. got src)) (ret))
+  (if (not (sig_ok p (. t fid) (& (. t targs)) (& (. (vec.get (& (. b locs)) (. got src)) ty)))) (ret))
+  (if (used_later b bi (. got src)) (ret))
+  (let li (loan_at ls (. got bb) (. got idx)))
+  (if (< li 0) (ret))
+  (let idx (vec.len (& (. blk stmts))))
+  (let bits (vec.get (vec.get (& (. fr aft)) bi) idx))
+  (if (holders.in_force bits li) (ret))
+  (vec.push edits (ced bi (. got src))))
+
+(fn sig_ok ((p (& prog.prog)) (id i64) (targs (& (vec ty.sty))) (src (& ty.sty))) bool
+  (let d (vec.get (& (. p defs)) id))
+  (if (== (vec.len (& (. d spars))) 0) (ret false))
+  (let ret (ty.subst (& (. d ret)) targs))
+  (let p0 (ty.subst (& (. (vec.get (& (. d spars)) 0) ty)) targs))
+  (if (or (!= (. p0 kind) 6u8) (. p0 flag)) (ret false))
+  (let inner (ty.inner (& p0)))
+  (and (ty.eq (& inner) (& ret)) (ty.eq src (& ret))))
+
+(fn whole_op ((o (& mir.op))) bool
+  (and (or (== (. o kind) 0u8) (== (. o kind) 1u8)) (== (vec.len (& (. o pk))) 0)))
+
+(fn chase ((b (& mir.body)) (local i64)) own
+  (let mut cur local)
+  (let mut step 0)
+  (while (< step 4)
+    (let h (one_def b cur))
+    (if (not (. h ok)) (ret (own false 0 0 0)))
+    (let s (vec.get (& (. (vec.get (& (. b blocks)) (. h bb)) stmts)) (. h idx)))
+    (let r (& (. s rv)))
+    (if (and (== (. r kind) 1u8) (and (not (. r flag)) (and (not (. r two)) (== (vec.len (& (. r pk))) 0))))
+      (ret (own true (. r local) (. h bb) (. h idx))))
+    (if (or (!= (. r kind) 0u8) (!= (vec.len (& (. r ops))) 1)) (ret (own false 0 0 0)))
+    (let o (vec.get (& (. r ops)) 0))
+    (if (not (whole_op o)) (ret (own false 0 0 0)))
+    (set cur (. o local))
+    (set step (+ step 1)))
+  (own false 0 0 0))
+
+(fn one_def ((b (& mir.body)) (local i64)) hit
+  (let mut n 0)
+  (let mut hb 0)
+  (let mut hi 0)
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for si 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) si))
+      (if (and (== (. s kind) 0u8) (and (== (. s local) local) (== (vec.len (& (. s pk))) 0)))
+        (do (set n (+ n 1)) (set hb bi) (set hi si)))))
+  (if (!= n 1) (ret (hit false 0 0)))
+  (hit true hb hi))
+
+(fn loan_at ((ls (& (vec loans.loan))) (bb i64) (idx i64)) i64
+  (for i 0 (vec.len ls)
+    (let l (vec.get ls i))
+    (if (and (== (. l bb) bb) (== (. l idx) idx)) (ret i)))
+  (neg 1))
+
+(fn used_later ((b (& mir.body)) (from i64) (src i64)) bool
+  (let n (vec.len (& (. b blocks))))
+  (let mut seen (vec.new <bool>))
+  (for i 0 n (vec.push (&mut seen) false))
+  (let mut stack (mir.succs (& (. (vec.get (& (. b blocks)) from) term))))
+  (while (> (vec.len (& stack)) 0)
+    (let bb (opt.unwrap (vec.pop (&mut stack))))
+    (if (not (@ (vec.get (& seen) bb)))
+      (do
+        (vec.set (&mut seen) bb true)
+        (if (block_uses b bb src) (ret true))
+        (let ss (mir.succs (& (. (vec.get (& (. b blocks)) bb) term))))
+        (for i 0 (vec.len (& ss)) (vec.push (&mut stack) (@ (vec.get (& ss) i)))))))
+  false)
+
+(fn block_uses ((b (& mir.body)) (bb i64) (src i64)) bool
+  (let blk (vec.get (& (. b blocks)) bb))
+  (for si 0 (vec.len (& (. blk stmts)))
+    (if (acc_uses (& (borrow.stmt_acc (vec.get (& (. blk stmts)) si))) src) (ret true)))
+  (acc_uses (& (borrow.term_acc (& (. blk term)))) src))
+
+(fn acc_uses ((xs (& (vec borrow.acc))) (src i64)) bool
+  (for i 0 (vec.len xs) (if (touches (vec.get xs i) src) (ret true)))
+  false)
+
+(fn touches ((a (& borrow.acc)) (src i64)) bool
+  (if (!= (. (. a pl) local) src) (ret false))
+  (if (or (== (. a kind) 5u8) (== (. a kind) 6u8)) (ret false))
+  (if (and (== (. a kind) 1u8) (mir.is_local (& (. a pl)))) (ret false))
+  true)
+
+(fn apply_clone ((b (&mut mir.body)) (e (& ced))) unit
+  (let blk (vec.get_mut (&mut (. b blocks)) (. e bb)))
+  (let pk (copy_u (& (. (. blk term) dpk))))
+  (let pi (copy_i (& (. (. blk term) dpi))))
+  (let pl (mir.place (. (. blk term) dest) pk pi))
+  (vec.push (&mut (. blk stmts)) (mir.sassign pl (mir.ruse (mir.omove (mir.ploc (. e src))))))
+  (set (. (. blk term) kind) 0u8))
+
+(fn copy_u ((v (& (vec u8)))) (vec u8)
+  (let mut o (vec.new <u8>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+(fn copy_i ((v (& (vec i64)))) (vec i64)
+  (let mut o (vec.new <i64>))
+  (for i 0 (vec.len v) (vec.push (&mut o) (@ (vec.get v i))))
+  o)
+
+;; ----- inline traces -----
+
+(fn elide_traces ((b (&mut mir.body))) unit
+  (let rs (regions b))
+  (let n (vec.len (& (. b blocks))))
+  (let mut kill (blank_is n))
+  (for i 0 (vec.len (& rs))
+    (let r (vec.get (& rs) i))
+    (if (. r sink)
+      (do
+        (vec.push (vec.get_mut (&mut kill) (. r pbb)) (. r pidx))
+        (vec.push (vec.get_mut (&mut kill) (. r obb)) (. r oidx)))))
+  (for bb 0 n (remove_bb b bb (vec.get (& kill) bb)))
+  (for bb 0 n (if (call_here b bb) (sink_call b (& rs) bb))))
+
+(fn blank_is ((n i64)) (vec (vec i64))
+  (let mut o (vec.new < (vec i64) >))
+  (for i 0 n (vec.push (&mut o) (vec.new <i64>)))
+  o)
+
+(fn remove_bb ((b (&mut mir.body)) (bb i64) (idxs (& (vec i64)))) unit
+  (let xs (&mut (. (vec.get_mut (&mut (. b blocks)) bb) stmts)))
+  (let mut left (vec.clone idxs))
+  (while (> (vec.len (& left)) 0)
+    (let mut m 0)
+    (let mut k 0)
+    (for i 0 (vec.len (& left))
+      (if (>= (@ (vec.get (& left) i)) m)
+        (do (set m (@ (vec.get (& left) i))) (set k i))))
+    (let _ (vec.remove xs m))
+    (let _ (vec.remove (&mut left) k))))
+
+(fn call_here ((b (& mir.body)) (bb i64)) bool
+  (== (. (. (vec.get (& (. b blocks)) bb) term) kind) 3u8))
+
+(fn sink_call ((b (&mut mir.body)) (rs (& (vec reg))) (bb i64)) unit
+  (let mut slots (vec.new <i64>))
+  (let mut names (vec.new <str>))
+  (for i 0 (vec.len rs)
+    (let r (vec.get rs i))
+    (if (covered r bb) (insert_name (&mut slots) (&mut names) (. r slot) (& (. r name)))))
+  (if (== (vec.len (& slots)) 0) (ret))
+  (push_names b bb (& slots) (& names))
+  (let mut dest (term_bb b bb))
+  (for i 0 (vec.len (& slots)) (set dest (add_pop b (@ (vec.get (& slots) i)) dest)))
+  (set_bb b bb dest))
+
+(fn covered ((r (& reg)) (bb i64)) bool
+  (and (. r sink) (@ (vec.get (& (. r cover)) bb))))
+
+(fn push_names ((b (&mut mir.body)) (bb i64) (slots (& (vec i64))) (names (& (vec str)))) unit
+  (let blk (vec.get_mut (&mut (. b blocks)) bb))
+  (for i 0 (vec.len slots)
+    (vec.push (&mut (. blk stmts)) (mir.strace (@ (vec.get slots i)) (str.clone (vec.get names i))))))
+
+(fn term_bb ((b (& mir.body)) (bb i64)) i64 (. (. (vec.get (& (. b blocks)) bb) term) bb))
+
+(fn set_bb ((b (&mut mir.body)) (bb i64) (dest i64)) unit
+  (set (. (. (vec.get_mut (&mut (. b blocks)) bb) term) bb) dest))
+
+(fn insert_name ((slots (&mut (vec i64))) (names (&mut (vec str))) (slot i64) (name (& str))) unit
+  (let mut i 0)
+  (while (and (< i (vec.len slots)) (< (@ (vec.get slots i)) slot)) (set i (+ i 1)))
+  (vec.insert slots i slot)
+  (vec.insert names i (str.clone name)))
+
+(fn add_pop ((b (&mut mir.body)) (slot i64) (next i64)) i64
+  (let id (vec.len (& (. b blocks))))
+  (let mut stmts (vec.new <mir.st>))
+  (vec.push (&mut stmts) (mir.stpop slot))
+  (let mut t (mir.tnone))
+  (set (. t kind) 0u8)
+  (set (. t bb) next)
+  (vec.push (&mut (. b blocks)) (mir.blk stmts t))
+  id)
+
+(fn regions ((b (& mir.body))) (vec reg)
+  (let mut pushes (vec.new <reg>))
+  (let mut pops (vec.new <reg>))
+  (for bi 0 (vec.len (& (. b blocks))) (scan_blk b bi (&mut pushes) (&mut pops)))
+  (let mut out (vec.new <reg>))
+  (for i 0 (vec.len (& pushes)) (pair b (vec.get (& pushes) i) (& pops) (&mut out)))
+  out)
+
+(fn scan_blk ((b (& mir.body)) (bi i64) (pushes (&mut (vec reg))) (pops (&mut (vec reg)))) unit
+  (let blk (vec.get (& (. b blocks)) bi))
+  (for si 0 (vec.len (& (. blk stmts)))
+    (let s (vec.get (& (. blk stmts)) si))
+    (if (== (. s kind) 6u8)
+      (vec.push pushes (reg (. s local) (str.clone (& (. (. s rv) text))) bi si 0 0 false (vec.new <bool>))))
+    (if (== (. s kind) 7u8) (vec.push pops (reg (. s local) (str.new) bi si 0 0 false (vec.new <bool>))))))
+
+(fn pair ((b (& mir.body)) (push (& reg)) (pops (& (vec reg))) (out (&mut (vec reg)))) unit
+  (let mut n 0)
+  (let mut obb 0)
+  (let mut oidx 0)
+  (for i 0 (vec.len pops)
+    (let p (vec.get pops i))
+    (if (== (. p slot) (. push slot)) (do (set n (+ n 1)) (set obb (. p pbb)) (set oidx (. p pidx)))))
+  (if (!= n 1) (ret))
+  (let sink (and (!= (. push pbb) obb) (not (cyclic b (. push pbb) obb))))
+  (let cover (if sink (reach b (. push pbb) obb) (vec.new <bool>)))
+  (vec.push out (reg (. push slot) (str.clone (& (. push name))) (. push pbb) (. push pidx) obb oidx sink cover)))
+
+(fn reach ((b (& mir.body)) (start i64) (stop i64)) (vec bool)
+  (let n (vec.len (& (. b blocks))))
+  (let mut seen (vec.new <bool>))
+  (for i 0 n (vec.push (&mut seen) false))
+  (vec.set (&mut seen) start true)
+  (let mut stack (vec.new <i64>))
+  (vec.push (&mut stack) start)
+  (while (> (vec.len (& stack)) 0)
+    (let u (opt.unwrap (vec.pop (&mut stack))))
+    (let ss (mir.succs (& (. (vec.get (& (. b blocks)) u) term))))
+    (for i 0 (vec.len (& ss))
+      (let s (@ (vec.get (& ss) i)))
+      (if (and (!= s stop) (not (@ (vec.get (& seen) s))))
+        (do (vec.set (&mut seen) s true) (vec.push (&mut stack) s)))))
+  seen)
+
+(fn cyclic ((b (& mir.body)) (start i64) (stop i64)) bool
+  (let mut color (vec.new <i64>))
+  (for i 0 (vec.len (& (. b blocks))) (vec.push (&mut color) 0))
+  (walk b start stop (&mut color)))
+
+(fn walk ((b (& mir.body)) (u i64) (stop i64) (color (&mut (vec i64)))) bool
+  (vec.set color u 1)
+  (let mut cyc false)
+  (let ss (mir.succs (& (. (vec.get (& (. b blocks)) u) term))))
+  (for i 0 (vec.len (& ss))
+    (if (not cyc)
+      (do
+        (let s (@ (vec.get (& ss) i)))
+        (if (!= s stop)
+          (if (== (@ (vec.get color s)) 1) (set cyc true)
+            (if (and (== (@ (vec.get color s)) 0) (walk b s stop color)) (set cyc true)))))))
+  (vec.set color u 2)
+  cyc)
+
+;; ----- dead drops -----
+
+(fn elide_drops ((b (&mut mir.body))) unit
+  (if (not (any_drop b)) (ret))
+  (let n (vec.len (& (. b locs))))
+  (let nb (vec.len (& (. b blocks))))
+  (let mut inn (vec.new < (vec u64) >))
+  (for i 0 nb (vec.push (&mut inn) (borrow.bools n)))
+  (for i 1 (+ (. b args) 1) (let _ (borrow.setb (vec.get_mut (&mut inn) 0) i true)))
+  (let mut changed true)
+  (while changed
+    (do
+      (set changed false)
+      (for bb 0 nb (if (step_bb b bb (&mut inn) false) (set changed true)))))
+  (for bb 0 nb (let _ (step_bb b bb (&mut inn) true))))
+
+(fn any_drop ((b (& mir.body))) bool
+  (for bi 0 (vec.len (& (. b blocks)))
+    (let blk (vec.get (& (. b blocks)) bi))
+    (for si 0 (vec.len (& (. blk stmts)))
+      (let s (vec.get (& (. blk stmts)) si))
+      (if (and (== (. s kind) 1u8) (== (vec.len (& (. s pk))) 0)) (ret true))))
+  false)
+
+(fn step_bb ((b (&mut mir.body)) (bb i64) (inn (&mut (vec (vec u64)))) (edit bool)) bool
+  (let mut st (borrow.clone_b (vec.get inn bb)))
+  (let n (vec.len (& (. (vec.get (& (. b blocks)) bb) stmts))))
+  (for si 0 n
+    (if edit (maybe_nop b bb si (& st)))
+    (step_stmt (vec.get (& (. (vec.get (& (. b blocks)) bb) stmts)) si) (&mut st)))
+  (step_term (& (. (vec.get (& (. b blocks)) bb) term)) (&mut st))
+  (if edit (ret false))
+  (let mut ch false)
+  (let ss (mir.succs (& (. (vec.get (& (. b blocks)) bb) term))))
+  (for i 0 (vec.len (& ss))
+    (if (borrow.or_words (vec.get_mut inn (@ (vec.get (& ss) i))) (& st)) (set ch true)))
+  ch)
+
+(fn maybe_nop ((b (&mut mir.body)) (bb i64) (si i64) (st (& (vec u64)))) unit
+  (let s (vec.get_mut (&mut (. (vec.get_mut (&mut (. b blocks)) bb) stmts)) si))
+  (if (and (== (. s kind) 1u8) (and (== (vec.len (& (. s pk))) 0) (not (borrow.bit st (. s local)))))
+    (set (. s kind) 4u8)))
+
+(fn step_stmt ((s (& mir.st)) (st (&mut (vec u64)))) unit
+  (if (== (. s kind) 0u8)
+    (do
+      (kill_ops (& (. (. s rv) ops)) st)
+      (if (== (vec.len (& (. s pk))) 0) (let _ (borrow.setb st (. s local) true)))))
+  (if (and (== (. s kind) 1u8) (== (vec.len (& (. s pk))) 0)) (let _ (borrow.setb st (. s local) false)))
+  (if (== (. s kind) 2u8) (let _ (borrow.setb st (. s local) false))))
+
+(fn step_term ((t (& mir.term)) (st (&mut (vec u64)))) unit
+  (if (or (== (. t kind) 1u8) (== (. t kind) 2u8)) (kill_op (& (. t op)) st))
+  (if (== (. t kind) 3u8)
+    (do
+      (if (!= (. t fk) 0u8) (kill_op (& (. t op)) st))
+      (kill_ops (& (. t args)) st)
+      (if (== (vec.len (& (. t dpk))) 0) (let _ (borrow.setb st (. t dest) true))))))
+
+(fn kill_ops ((ops (& (vec mir.op))) (st (&mut (vec u64)))) unit
+  (for i 0 (vec.len ops) (kill_op (vec.get ops i) st)))
+
+(fn kill_op ((o (& mir.op)) (st (&mut (vec u64)))) unit
+  (if (!= (. o kind) 1u8) (ret))
+  (if (op_deref o) (ret))
+  (if (op_lone o) (ret))
+  (let _ (borrow.setb st (. o local) false)))
+
+(fn op_deref ((o (& mir.op))) bool
+  (for i 0 (vec.len (& (. o pk))) (if (== (@ (vec.get (& (. o pk)) i)) 1u8) (ret true)))
+  false)
+
+(fn op_lone ((o (& mir.op))) bool
+  (and (== (vec.len (& (. o pk))) 1) (== (@ (vec.get (& (. o pk)) 0)) 0u8)))

@@ -12,15 +12,15 @@
 (use proj.ty)
 (use std.str)
 
-(pub (fn prepare ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body))) unit
+(pub (fn prepare ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (&mut mir.body))) unit
   (for i 0 (vec.len (& (. b clos))) (one g p fx b i))))
 
-(fn one ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (& mir.body)) (i i64)) unit
-  (let c (vec.get (& (. b clos)) i))
+(fn one ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (b (&mut mir.body)) (i i64)) unit
+  (let c (vec.get_mut (&mut (. b clos)) i))
   (let raw (cg_mod.mangle (& (. (. c body) name)) (& (vec.new <ty.sty>))))
   (let name (cg_mod.uniq g (& raw)))
   (let sym (elf.add_sym (&mut (. g obj)) (& name) elf.local elf.st_func elf.sec_text 0 0))
-  (cg_term.compile g p (& (. c body)) sym true)
+  (cg_term.compile g p (&mut (. c body)) sym true)
   (vec.push (&mut (. fx tramp)) (tramp g p c sym (& name)))
   (vec.push (&mut (. fx cdrop)) (env_drop g p c (& name))))
 

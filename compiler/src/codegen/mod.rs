@@ -302,12 +302,12 @@ impl<'a> Codegen<'a> {
         id
     }
 
-    pub fn compile_body(&mut self, body: &Body, inst: &Instance) -> PResult<()> {
+    pub fn compile_body(&mut self, body: &mut Body, inst: &Instance) -> PResult<()> {
         let id = self.func_id(inst);
         func::compile(self, body, id)
     }
 
-    pub fn compile_body_with_id(&mut self, body: &Body, id: FuncId) -> PResult<()> {
+    pub fn compile_body_with_id(&mut self, body: &mut Body, id: FuncId) -> PResult<()> {
         func::compile(self, body, id)
     }
 

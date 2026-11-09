@@ -27,13 +27,13 @@
     (if (not (taken g (& s))) (ret s))
     (set n (+ n 1))))
 
-(pub (fn prepare ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (& mir.body))) unit
+(pub (fn prepare ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (&mut mir.body))) unit
   (for i 0 (vec.len (& (. b clos))) (one g p fx b i))))
 
-(fn one ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (& mir.body)) (i i64)) unit
-  (let c (vec.get (& (. b clos)) i))
+(fn one ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (b (&mut mir.body)) (i i64)) unit
+  (let c (vec.get_mut (&mut (. b clos)) i))
   (let inner (add_body g (& (. c body))))
-  (wasm_fn.compile_body g p (& (. c body)) inner true)
+  (wasm_fn.compile_body g p (&mut (. c body)) inner true)
   (vec.push (&mut (. fx tramp)) (tramp g p c inner))
   (vec.push (&mut (. fx cdrop)) (env_drop g p c)))
 

@@ -12,6 +12,11 @@
 (use std.map)
 (use std.str)
 
+;; Same node count as compiler/src/inl.rs. 0 keeps substitution on (inline ...) only.
+;; vec.len is under the old trial limit and has no call, but inlining it makes
+;; vec.sort report borrow.mut_shared|ref=n. Eq.eq on i64 is 5 nodes; Hash.hash is 8.
+(const lim i64 0)
+
 (pub (struct icache (tab (map str thir.ex))))
 
 (pub (fn empty () icache (icache (map.new))))
@@ -20,10 +25,56 @@
 
 (pub (fn put ((ic (&mut icache)) (v icache)) unit (drop (mem.replace ic v))))
 
+(fn nodes_kids ((xs (& (vec expr)))) i64
+  (let mut n 0)
+  (for i 0 (vec.len xs)
+    (let c (nodes_expr (vec.get xs i)))
+    (if (>= c 1000000) (ret c))
+    (set n (+ n c)))
+  n)
+
+(fn and_n ((k i64)) i64
+  (if (<= k 1) (ret 1))
+  (- k 1))
+
+(fn nodes_expr ((e (& expr))) i64
+  (if (== (. e kind) 12u8) (ret 1000000))
+  (if (== (. e kind) 35u8) (ret 0))
+  (let n (nodes_kids (& (. e kids))))
+  (if (>= n 1000000) (ret n))
+  (if (or (== (. e kind) 18u8) (== (. e kind) 19u8)) (ret (+ n (and_n (vec.len (& (. e kids)))))))
+  (+ n 1))
+
+(fn nodes_body ((xs (& (vec expr)))) i64 (nodes_kids xs))
+
+(fn clos_expr ((e (& expr))) bool
+  (if (== (. e kind) 31u8) (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (clos_expr (vec.get (& (. e kids)) i)) (ret true)))
+  false)
+
+(fn clos_body ((xs (& (vec expr)))) bool
+  (for i 0 (vec.len xs) (if (clos_expr (vec.get xs i)) (ret true)))
+  false)
+
+(fn call_expr ((e (& expr))) bool
+  (if (or (== (. e kind) 23u8) (== (. e kind) 24u8)) (ret true))
+  (for i 0 (vec.len (& (. e kids))) (if (call_expr (vec.get (& (. e kids)) i)) (ret true)))
+  false)
+
+(fn call_body ((xs (& (vec expr)))) bool
+  (for i 0 (vec.len xs) (if (call_expr (vec.get xs i)) (ret true)))
+  false)
+
+(fn small ((d (& prog.def))) bool
+  (let n (nodes_body (& (. d body))))
+  (and (not (. d extern))
+    (and (not (clos_body (& (. d body))))
+      (and (not (call_body (& (. d body)))) (and (> n 0) (<= n lim))))))
+
 (pub (fn wants ((p (& prog.prog)) (w (& lower.low)) (e (& thir.ex))) bool
   (if (!= (. e id) 0) (ret false))
   (let d (vec.get (& (. p defs)) (. e id2)))
-  (and (. d inline) (not (on_stack w (. e id2))))))
+  (and (or (. d inline) (small d)) (not (on_stack w (. e id2))))))
 
 (fn ikey ((p (& prog.prog)) (id i64) (tys (& (vec ty.sty)))) str
   (let mut s (prog.fn_path p id))

@@ -35,14 +35,16 @@ fn fresh_sym(cg: &mut Codegen, base: &str) -> String {
     }
 }
 
-pub fn prepare(cg: &mut Codegen, body: &Body) -> PResult<()> {
-    for c in &body.closures {
-        let params: Vec<Ty> = (1..=c.body.arg_count).map(|i| c.body.locals[i].ty.clone()).collect();
-        let ret = c.body.locals[0].ty.clone();
+pub fn prepare(cg: &mut Codegen, body: &mut Body) -> PResult<()> {
+    for i in 0..body.closures.len() {
+        let params: Vec<Ty> = (1..=body.closures[i].body.arg_count).map(|j| body.closures[i].body.locals[j].ty.clone()).collect();
+        let ret = body.closures[i].body.locals[0].ty.clone();
         let sig = cg.signature(&params, &ret);
-        let name = fresh_sym(cg, &format!("llr_{}", c.body.name.replace('.', "_")));
+        let cname = body.closures[i].body.name.clone();
+        let name = fresh_sym(cg, &format!("llr_{}", cname.replace('.', "_")));
         let id = cg.module.declare_function(&name, Linkage::Local, &sig).unwrap();
-        super::func::compile(cg, &c.body, id)?;
+        super::func::compile(cg, &mut body.closures[i].body, id)?;
+        let c = &body.closures[i];
         let tramp = emit_tramp(cg, c, id, &name)?;
         let drop = emit_env_drop(cg, c, &name)?;
         cg.clos_ids.insert(c.body.name.clone(), (tramp, drop));

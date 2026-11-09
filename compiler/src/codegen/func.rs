@@ -47,7 +47,8 @@ fn field_drops(prog: &crate::resolve::Program, ty: &Ty) -> Option<Vec<bool>> {
     if mask.iter().any(|n| *n) { Some(mask) } else { None }
 }
 
-pub fn compile(cg: &mut Codegen, body: &Body, id: FuncId) -> PResult<()> {
+pub fn compile(cg: &mut Codegen, body: &mut Body, id: FuncId) -> PResult<()> {
+    crate::mir::speed::run(cg.prog, body);
     super::clos::prepare(cg, body)?;
     let params: Vec<Ty> = (1..=body.arg_count).map(|i| body.locals[i].ty.clone()).collect();
     let ret = body.locals[0].ty.clone();

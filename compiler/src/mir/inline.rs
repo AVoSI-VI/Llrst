@@ -7,7 +7,8 @@ impl<'a> Lower<'a> {
     /// Returns true when the call was replaced by the callee body.
     pub fn inline_call(&mut self, func: &Func, args: &[Operand], dest: &Place, sp: Span) -> bool {
         let Func::Def(d, targs) = func else { return false };
-        if !self.prog.fn_def(*d).inline || self.inline_stack.contains(d) {
+        let f = self.prog.fn_def(*d);
+        if self.inline_stack.contains(d) || !(f.inline || (!f.is_extern && f.has_body && crate::inl::small_body(&f.body))) {
             return false;
         }
         self.inline_stack.push(*d);

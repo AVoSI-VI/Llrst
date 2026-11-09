@@ -193,15 +193,32 @@ baseline updated; the `llrs1/llrs0` self-build ratio in `HANDOFF.md` re-measured
 Stage 0 already runs Cranelift at `opt_level=speed`, so the wins here are in MIR and
 in what both compilers share:
 
-- [ ] Inline policy: measure `self/inline.llr` / `compiler/src/inl.rs` thresholds
+- [x] Inline policy: measure `self/inline.llr` / `compiler/src/inl.rs` thresholds
   against `fib`, `map-ops`, `json-parse`; tune or leave, with numbers.
-- [ ] Drop-glue and clone elision where `holders`/`loans` already prove a move:
-  fewer copies on `json-parse` and `map-ops`.
-- [ ] Any MIR change lands in stage 0 and `self/` in the same commit, per the
-  `HANDOFF.md` rule that a behavior change in one is a bug in the other.
+  Left at 0 (explicit `(inline ...)` only). A limit of 12 inlines `vec.len`,
+  and `vec.sort` then fails `borrow.mut_shared|ref=n` because the result keeps
+  `self`'s loan. `Eq.eq` on `i64` is 5 expression nodes and `Hash.hash` on
+  `i64` is 8; `fib` has no such callee. Inline frames are pushed only around
+  calls, and only when the inlined region is not a loop, so `vec.get` and
+  `str.at` do not call `llr_trace_push` on the success path. Panic traces stay
+  `vec.check`, `vec.get`, `main.main`.
+- [x] Drop-glue and clone elision where `holders`/`loans` already prove a move:
+  fewer copies on `json-parse` and `map-ops`. A `std` `clone` or `from` whose
+  argument is a loan of a local with no later use and no live holder becomes a
+  move. A whole-local drop whose flag is definitely clear is removed. One
+  sample: stage 0 `map-ops` 796 ms to 346 ms, `json-parse` 2633 ms to 1829 ms.
+- [x] The passes run after `emit-mir` and after borrowck, in stage 0 and
+  `self/` (native and wasm). `tests/mir.sh` and `tests/check.sh` stay
+  byte-equal. `tests/run.sh` is fails=0 under stage 0, and stage 2 built from
+  this tree matches stage 0 on check and emit-mir.
 
 Exit: stage 0 numbers improve or hold on every micro bench; check/mir goldens
-byte-equal; no cross-language task regresses.
+byte-equal; no cross-language task regresses. Median of five micro runs, stage
+0 ns/call, baseline to now: `fib` 54436 to 42086, `sieve` 151098 to 74822,
+`sort` 48891 to 35529, `string_build` 12582 to 9522, `map_ops` 20608 to 15669,
+`alloc_churn` 11780 to 9027. One cross sample improved every Llrst line; `fib`
+stage 2 (524 ms to 485 ms) and `string-build` stayed inside the 26% noise band
+and were left in `baseline.txt`.
 
 ### Phase 4: compiler throughput
 
