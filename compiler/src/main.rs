@@ -11,6 +11,7 @@ mod link;
 mod load;
 mod mir;
 mod parse;
+mod phase;
 mod prelude;
 mod reexp;
 mod resolve;

@@ -1,5 +1,6 @@
 use crate::ast::{self, Item, TyExpr};
 use crate::diag::{Diag, Diags, PResult, Span};
+use crate::phase;
 use crate::ty::{DefId, IntTy, Ty};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -376,6 +377,18 @@ pub fn finish_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], own
 }
 
 pub fn resolve_ty(prog: &Program, module: u32, generics: &[String], t: &TyExpr) -> PResult<Ty> {
+    // Nested calls see the flag clear, so one signature's resolve time is one sample.
+    if !phase::resolve_on() {
+        return resolve_ty_body(prog, module, generics, t);
+    }
+    phase::resolve_pause();
+    let t0 = std::time::Instant::now();
+    let got = resolve_ty_body(prog, module, generics, t);
+    phase::resolve_resume(t0.elapsed().as_nanos());
+    got
+}
+
+fn resolve_ty_body(prog: &Program, module: u32, generics: &[String], t: &TyExpr) -> PResult<Ty> {
     Ok(match t {
         TyExpr::Name(n, sp) => {
             if let Some(i) = IntTy::from_name(n) {

@@ -86,9 +86,46 @@
 (fn loc_on ((live (& liveness.live)) (bb i64) (pt i64) (loc i64) (aft bool)) bool
   (if aft (liveness.live_after live bb pt loc) (liveness.live_at live bb pt loc)))
 
+;; OR one local's loans into o. Words, not one bit at a time: nloan is the hot width.
 (fn or_span ((o (&mut (vec u64))) (bits (& (vec u64))) (nloan i64) (loc i64)) unit
-  (let base (* loc nloan))
-  (for i 0 nloan (if (borrow.bit bits (+ base i)) (let _ (borrow.setb o i true)))))
+  (let mut src (* loc nloan))
+  (let mut dst 0)
+  (while (< dst nloan)
+    (do
+      (let n (or_chunk o bits src dst (- nloan dst)))
+      (set src (+ src n))
+      (set dst (+ dst n)))))
+
+(fn or_chunk ((o (&mut (vec u64))) (bits (& (vec u64))) (src i64) (dst i64) (want i64)) i64
+  (let n (chunk_n src dst want))
+  (put_bits o dst (take_bits bits src n))
+  n)
+
+(fn chunk_n ((src i64) (dst i64) (want i64)) i64
+  (let srem (- 64 (% src 64)))
+  (let drem (- 64 (% dst 64)))
+  (let m (if (< want srem) want srem))
+  (if (< m drem) m drem))
+
+(fn bit_mask ((n i64)) u64
+  (if (>= n 64) (ret (ones_u)))
+  (if (<= n 0) (ret 0u64))
+  (- (shl 1u64 (as u64 n)) 1u64))
+
+(fn ones_u () u64 (let hi (shl 1u64 63)) (bor hi (- hi 1u64)))
+
+(fn word_at ((v (& (vec u64))) (w i64)) u64
+  (if (or (< w 0) (>= w (vec.len v))) (ret 0u64))
+  (@ (vec.get v w)))
+
+(fn take_bits ((bits (& (vec u64))) (at i64) (n i64)) u64
+  (band (shr (word_at bits (/ at 64)) (as u64 (% at 64))) (bit_mask n)))
+
+(fn put_bits ((o (&mut (vec u64))) (at i64) (chunk u64)) unit
+  (let w (/ at 64))
+  (if (>= w (vec.len o)) (ret))
+  (let cur (word_at o w))
+  (vec.set o w (bor cur (shl chunk (as u64 (% at 64))))))
 
 (pub (fn compute ((p (& prog.prog)) (b (& mir.body)) (ls (& (vec loans.loan)))) hold
   (let nloc (vec.len (& (. b locs))))
@@ -262,7 +299,20 @@
   (for i 0 (vec.len gs) (let _ (borrow.setb st (idx nloan to (@ (vec.get gs i))) true))))
 
 (fn kill_local ((st (&mut (vec u64))) (nloan i64) (local i64)) unit
-  (for i 0 nloan (let _ (borrow.setb st (idx nloan local i) false))))
+  (clr_span st (* local nloan) nloan))
+
+(fn clr_span ((st (&mut (vec u64))) (at i64) (n i64)) unit
+  (let mut i 0)
+  (while (< i n) (set i (+ i (clr_chunk st (+ at i) (- n i))))))
+
+(fn clr_chunk ((st (&mut (vec u64))) (at i64) (want i64)) i64
+  (let n (if (< want (- 64 (% at 64))) want (- 64 (% at 64))))
+  (let w (/ at 64))
+  (if (>= w (vec.len st)) (ret n))
+  (let mask (shl (bit_mask n) (as u64 (% at 64))))
+  (let cur (word_at st w))
+  (vec.set st w (band cur (bxor mask (ones_u))))
+  n)
 
 (fn on_loans ((ls (& (vec loans.loan))) (nloc i64) (st (&mut (vec u64))) (s (& mir.st))) unit
   (let pi (& (. s pi)))

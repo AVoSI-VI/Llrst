@@ -1,0 +1,136 @@
+;; LLRST_TIME prints time|<phase>|<ms> on stderr. Unset, nothing is printed.
+(use std.io)
+(use std.os)
+(use std.str)
+(use std.time)
+
+(pub (struct clock
+  (pub (on bool))
+  (pub (load i64))
+  (pub (parse i64))
+  (pub (collect i64))
+  (pub (resolve i64))
+  (pub (check i64))
+  (pub (borrow i64))
+  (pub (lower i64))
+  (pub (codegen i64))
+  (pub (link i64))))
+
+(pub (fn off () clock (clock false 0 0 0 0 0 0 0 0 0)))
+
+(pub (fn start () clock
+  (let mut c (off))
+  (match (os.env "LLRST_TIME")
+    ((opt.none) ())
+    ((opt.some _) (set (. c on) true)))
+  c))
+
+(pub (fn s_load () i64 0))
+
+(pub (fn s_parse () i64 1))
+
+(pub (fn s_collect () i64 2))
+
+(pub (fn s_resolve () i64 3))
+
+(pub (fn now ((c (& clock))) i64 (if (. c on) (time.mono_ns) 0)))
+
+(fn bump ((n i64) (dt i64)) i64 (if (<= dt 0) n (+ n dt)))
+
+(fn put ((c (&mut clock)) (slot i64) (n i64)) unit
+  (if (not (. c on)) (ret))
+  (if (== slot 0) (set (. c load) n))
+  (if (== slot 1) (set (. c parse) n))
+  (if (== slot 2) (set (. c collect) n))
+  (if (== slot 3) (set (. c resolve) n))
+  (if (== slot 4) (set (. c check) n))
+  (if (== slot 5) (set (. c borrow) n))
+  (if (== slot 6) (set (. c lower) n))
+  (if (== slot 7) (set (. c codegen) n))
+  (if (== slot 8) (set (. c link) n)))
+
+(pub (fn at ((c (& clock)) (slot i64)) i64
+  (if (== slot 0) (ret (. c load)))
+  (if (== slot 1) (ret (. c parse)))
+  (if (== slot 2) (ret (. c collect)))
+  (if (== slot 3) (ret (. c resolve)))
+  (if (== slot 4) (ret (. c check)))
+  (if (== slot 5) (ret (. c borrow)))
+  (if (== slot 6) (ret (. c lower)))
+  (if (== slot 7) (ret (. c codegen)))
+  (. c link)))
+
+(fn acc ((c (&mut clock)) (slot i64) (t0 i64)) unit
+  (if (not (. c on)) (ret))
+  (put c slot (bump (at c slot) (- (time.mono_ns) t0))))
+
+(pub (fn add_load ((c (&mut clock)) (t0 i64)) unit (acc c 0 t0)))
+
+(pub (fn add_parse ((c (&mut clock)) (t0 i64)) unit (acc c 1 t0)))
+
+(pub (fn add_collect ((c (&mut clock)) (t0 i64)) unit (acc c 2 t0)))
+
+(pub (fn add_resolve ((c (&mut clock)) (t0 i64)) unit (acc c 3 t0)))
+
+(pub (fn add_check ((c (&mut clock)) (t0 i64)) unit (acc c 4 t0)))
+
+(pub (fn add_borrow ((c (&mut clock)) (t0 i64)) unit (acc c 5 t0)))
+
+(pub (fn add_lower ((c (&mut clock)) (t0 i64)) unit (acc c 6 t0)))
+
+(pub (fn add_codegen ((c (&mut clock)) (t0 i64)) unit (acc c 7 t0)))
+
+(pub (fn add_link ((c (&mut clock)) (t0 i64)) unit (acc c 8 t0)))
+
+;; Drop `sub` out of a bucket that already includes it. Floor at zero.
+(pub (fn uncount ((c (&mut clock)) (slot i64) (sub i64)) unit
+  (if (not (. c on)) (ret))
+  (let n (at c slot))
+  (if (>= sub n) (put c slot 0) (put c slot (- n sub)))))
+
+(pub (fn ms ((ns i64)) i64 (if (<= ns 0) 0 (/ ns 1000000))))
+
+(fn say ((name (& str)) (ns i64)) unit
+  (let mut s (str.from "time|"))
+  (str.push (&mut s) name)
+  (str.push_byte (&mut s) 124u8)
+  (str.push (&mut s) (& (str.from_int (ms ns))))
+  (io.eputs (& s)))
+
+(pub (fn report ((c (& clock))) unit
+  (if (not (. c on)) (ret))
+  (say "load" (. c load))
+  (say "parse" (. c parse))
+  (say "collect" (. c collect))
+  (say "resolve" (. c resolve))
+  (say "check" (. c check))
+  (say "borrow" (. c borrow))
+  (say "lower" (. c lower))
+  (say "codegen" (. c codegen))
+  (say "link" (. c link))))
+
+(test ms_trunc
+  (assert_eq (ms 0) 0)
+  (assert_eq (ms 999999) 0)
+  (assert_eq (ms 1000000) 1)
+  (assert_eq (ms 2500000) 2))
+
+(test uncount_off
+  (let mut c (off))
+  (set (. c load) 5)
+  (uncount (&mut c) (s_load) 1)
+  (assert_eq (. c load) 5))
+
+(test uncount_floors
+  (let mut c (off))
+  (set (. c on) true)
+  (set (. c load) 5)
+  (uncount (&mut c) (s_load) 9)
+  (assert_eq (. c load) 0)
+  (set (. c parse) 20)
+  (uncount (&mut c) (s_parse) 4)
+  (assert_eq (. c parse) 16))
+
+(test report_off
+  (let c (off))
+  (report (& c)))

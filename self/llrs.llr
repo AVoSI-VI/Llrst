@@ -5,13 +5,13 @@
 (use std.path)
 (use std.str)
 (use std.sys)
-(use std.time)
 (use proj.check)
 (use proj.diag)
 (use proj.drive)
 (use proj.link)
 (use proj.lint)
 (use proj.load)
+(use proj.phase)
 (use proj.prog)
 
 (fn usage () unit
@@ -144,19 +144,27 @@
 (fn emit_cmd ((o (& drive.flags))) unit
   (if (not (drive.target_ok (& (. o target))))
     (os.exit (drive.reject_target (& (. o file)) (& (. o target)))))
-  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target)))
-    ((res.err e) (do (io.eputs (& e)) (os.exit 1)))
-    ((res.ok p) (emit_ok o p))))
+  (let mut c (phase.start))
+  (let code (emit_go o (&mut c)))
+  (phase.report (& c))
+  (os.exit code))
 
-(fn emit_ok ((o (& drive.flags)) (p prog.prog)) unit
+(fn emit_go ((o (& drive.flags)) (c (&mut phase.clock))) i64
+  (match (load.load_at (& (. o file)) (& (. o std)) (& (. o ui)) (& (. o target)) c)
+    ((res.err e) (do (io.eputs (& e)) (ret 1)))
+    ((res.ok p) (emit_ok o p c))))
+
+(fn emit_ok ((o (& drive.flags)) (p prog.prog) (c (&mut phase.clock))) i64
   (let mut ds (vec.new <diag.dg>))
   (let mut s (str.new))
-  (let t (time.mono_ms))
-  (drop (check.run (& p) "" (&mut ds) (&mut s) true (. o test) false))
-  (drive.phase "check" t)
-  (if (not (diag.any_err (& (. p notes)) "")) (lint.generics (& p) (&mut ds) (& (vec.new <i64>))))
+  (drop (check.run (& p) "" (&mut ds) (&mut s) true (. o test) false c))
+  (if (not (diag.any_err (& (. p notes)) ""))
+    (do
+      (let t0 (phase.now c))
+      (lint.generics (& p) (&mut ds) (& (vec.new <i64>)))
+      (phase.add_borrow c t0)))
   (sys.write_str 1 (& s))
-  (os.exit (drive.finish o (&mut ds))))
+  (drive.finish o (&mut ds)))
 
 (fn main () unit
   (let args (os.args))

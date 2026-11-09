@@ -6,6 +6,7 @@ use crate::diag::{Diag, Diags, PResult, SourceMap, Span};
 use crate::mir::lower::lower_fn;
 use crate::mir::print::print_body;
 use crate::load::Loader;
+use crate::phase::{self, Phases};
 use crate::resolve::{DefKind, Program};
 use crate::ty::{DefId, Ty};
 use std::collections::HashSet;
@@ -84,10 +85,11 @@ pub fn os_extern_file(target: Option<&str>) -> PResult<&'static str> {
 
 /// Runs the pipeline. Returns the process exit code.
 pub fn run(opt: Options) -> i32 {
+    let phases = Phases::from_env();
     let mut sm = SourceMap::default();
     let diags = Diags::default();
     diags.set_deny(&opt.deny);
-    let code = match pipeline(&opt, &mut sm, &diags) {
+    let code = match pipeline(&opt, &mut sm, &diags, &phases) {
         Ok(()) if !diags.has_errors() => 0,
         Ok(()) => 1,
         Err(d) => {
@@ -96,14 +98,15 @@ pub fn run(opt: Options) -> i32 {
         }
     };
     diags.flush(&sm);
+    phases.report();
     code
 }
 
-fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
+fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags, phases: &Phases) -> PResult<()> {
     let std_dir = find_std(opt)?;
     let ui_dir = find_ui(opt);
     let proj_dir = opt.input.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let mut prog = Loader::new(sm, diags, std_dir, proj_dir, ui_dir).load(&opt.input, opt.target.as_deref())?;
+    let mut prog = Loader::new(sm, diags, std_dir, proj_dir, ui_dir).load(&opt.input, opt.target.as_deref(), phases)?;
     if diags.has_errors() {
         return Ok(());
     }
@@ -127,7 +130,7 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
     }
     let main_def = prog.modules[prog.main_module as usize].items.get("main").copied();
 
-    let mut st = Pipeline { prog: &prog, diags, sm, opt, seen: HashSet::new(), mir_dump: String::new() };
+    let mut st = Pipeline { prog: &prog, diags, sm, opt, seen: HashSet::new(), mir_dump: String::new(), phases };
 
     for f in &user_fns {
         if let Err(d) = st.process(&(*f, Vec::new()), &mut cg, false) {
@@ -135,13 +138,17 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         }
     }
     if !opt.test {
+        let _b = phases.guard(phase::BORROW);
         crate::mir::lint::lint_unused(&prog, diags);
     }
     if diags.has_errors() || opt.check_only {
         if opt.emit_mir {
             print!("{}", st.mir_dump);
         }
-        crate::mir::lint::lint_generics(&prog, diags, &HashSet::new());
+        {
+            let _b = phases.guard(phase::BORROW);
+            crate::mir::lint::lint_generics(&prog, diags, &HashSet::new());
+        }
         return Ok(());
     }
     // From here on, everything reachable is compiled. User fns were checked but not
@@ -152,21 +159,36 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         let tests = prog.modules[prog.main_module as usize].tests.clone();
         let mut test_fns = Vec::new();
         for (i, t) in tests.iter().enumerate() {
-            let body = check_test(&prog, diags, sm, prog.main_module, t)?;
-            let mut mir = lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new(), opt.checked);
+            let body = {
+                let _g = phases.guard(phase::CHECK);
+                check_test(&prog, diags, sm, prog.main_module, t)?
+            };
+            let mut mir = {
+                let _g = phases.guard(phase::LOWER);
+                lower_fn(&prog, diags, sm, &body, format!("test.{}", t.name), Vec::new(), opt.checked)
+            };
             if opt.emit_mir {
                 st.mir_dump.push_str(&print_body(&mir));
             }
-            borrowck(&prog, diags, sm, &mir);
-            crate::mir::lint::lint(diags, &mir);
+            {
+                let _g = phases.guard(phase::BORROW);
+                borrowck(&prog, diags, sm, &mir);
+                crate::mir::lint::lint(diags, &mir);
+            }
             if diags.has_errors() {
                 continue;
             }
             let id = cg.declare_test_fn(i);
-            cg.compile_body_with_id(&mut mir, id)?;
+            {
+                let _g = phases.guard(phase::CODEGEN);
+                cg.compile_body_with_id(&mut mir, id)?;
+            }
             test_fns.push((t.name.clone(), id));
         }
-        crate::mir::lint::lint_unused(&prog, diags);
+        {
+            let _b = phases.guard(phase::BORROW);
+            crate::mir::lint::lint_unused(&prog, diags);
+        }
         if diags.has_errors() {
             return Ok(());
         }
@@ -205,33 +227,44 @@ fn pipeline(opt: &Options, sm: &mut SourceMap, diags: &Diags) -> PResult<()> {
         if diags.has_errors() {
             break;
         }
-        cg.finish_drops()?;
+        {
+            let _g = phases.guard(phase::CODEGEN);
+            cg.finish_drops()?;
+        }
         if cg.discovered.is_empty() {
             break;
         }
     }
     let done: HashSet<DefId> = st.seen.iter().map(|(id, _)| *id).collect();
-    crate::mir::lint::lint_generics(&prog, diags, &done);
+    {
+        let _b = phases.guard(phase::BORROW);
+        crate::mir::lint::lint_generics(&prog, diags, &done);
+    }
     if opt.emit_mir {
         print!("{}", st.mir_dump);
     }
     if diags.has_errors() {
         return Ok(());
     }
-    if opt.emit_dylib {
-        let pump = mod_item(&prog, "ui.app", "pump").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
-        let release = mod_item(&prog, "ui.app", "release").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
-        cg.emit_boot(entry, pump, release)?;
-    } else {
-        cg.emit_entry(entry)?;
-    }
-    let obj = cg.emit_object()?;
+    let obj = {
+        let _g = phases.guard(phase::CODEGEN);
+        if opt.emit_dylib {
+            let pump = mod_item(&prog, "ui.app", "pump").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
+            let release = mod_item(&prog, "ui.app", "release").and_then(|id| cg.funcs.get(&(id, Vec::new())).copied());
+            cg.emit_boot(entry, pump, release)?;
+        } else {
+            cg.emit_entry(entry)?;
+        }
+        cg.emit_object()?
+    };
     let out = opt.output.clone().unwrap_or_else(|| opt.input.with_extension(""));
     if opt.emit_obj {
+        let _g = phases.guard(phase::CODEGEN);
         let p = out.with_extension("o");
         std::fs::write(&p, &obj).map_err(|e| Diag::error(Span::default(), "io.write").kv("path", p.display().to_string()).kv("got", e.to_string()))?;
         return Ok(());
     }
+    let _g = phases.guard(phase::LINK);
     let out = crate::link::host_exe(&out, opt.target.as_deref());
     crate::link::link(&obj, &out, opt.target.as_deref(), opt.emit_dylib)
 }
@@ -256,6 +289,7 @@ struct Pipeline<'a> {
     opt: &'a Options,
     seen: HashSet<Instance>,
     mir_dump: String,
+    phases: &'a Phases,
 }
 
 impl<'a> Pipeline<'a> {
@@ -264,16 +298,27 @@ impl<'a> Pipeline<'a> {
         if !self.seen.insert(inst.clone()) {
             return Ok(());
         }
-        let body = check_fn(self.prog, self.diags, self.sm, inst.0, &inst.1)?;
+        let phases = self.phases;
+        let body = {
+            let _g = phases.guard(phase::CHECK);
+            check_fn(self.prog, self.diags, self.sm, inst.0, &inst.1)?
+        };
         let name = self.prog.fn_path(inst.0);
         let lifetimes = self.prog.fn_def(inst.0).lifetimes.clone();
-        let mut mir = lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes, self.opt.checked);
+        let mut mir = {
+            let _g = phases.guard(phase::LOWER);
+            lower_fn(self.prog, self.diags, self.sm, &body, name, lifetimes, self.opt.checked)
+        };
         if self.opt.emit_mir {
             self.mir_dump.push_str(&print_body(&mir));
         }
-        borrowck(self.prog, self.diags, self.sm, &mir);
-        crate::mir::lint::lint(self.diags, &mir);
+        {
+            let _g = phases.guard(phase::BORROW);
+            borrowck(self.prog, self.diags, self.sm, &mir);
+            crate::mir::lint::lint(self.diags, &mir);
+        }
         if codegen && !self.diags.has_errors() {
+            let _g = phases.guard(phase::CODEGEN);
             cg.compile_body(&mut mir, inst)?;
         }
         Ok(())

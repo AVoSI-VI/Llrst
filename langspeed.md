@@ -251,18 +251,37 @@ and were left in `baseline.txt`.
 
 ### Phase 4: compiler throughput
 
-- [ ] Add per-phase timing to the driver (`self/drive.llr`, stage 0 `driver.rs`):
+- [x] Add per-phase timing to the driver (`self/drive.llr`, stage 0 `driver.rs`):
   load, parse, collect, resolve, check, borrow, lower, codegen, link. Print behind
   a flag; keep default output unchanged.
-- [ ] Attack the largest phase only. Likely candidates: repeated `last_seg`-style
+  `LLRST_TIME` (any value, unset by default) prints `time|<phase>|<ms>` for those
+  nine phases on stderr. Stage 0 is `compiler/src/phase.rs`; stage 2 is
+  `self/phase.llr`. Object emission is part of codegen.
+- [x] Attack the largest phase only. Likely candidates: repeated `last_seg`-style
   string scans (`HANDOFF.md` std-gap table lists several duplicated helpers),
   re-parsing `std` per build, codegen of `self/` once Phase 2 makes stage 2 code
   itself faster (the 1.14 ratio compounds here).
-- [ ] Re-run `compile` benches: `self/llrs.llr` build per stage, one large `std`
+  On `llrs0` building `self/llrs.llr`, borrow was 9.0s of 14.0s. Inside it,
+  holder fixpoint plus loan-liveness was 6.1s and move checking was 1.9s. Parse
+  was 0.4s, so re-parsing `std` was not the phase to attack. `holders.or_span`
+  and `kill_local` now copy or clear one local's loan bits a machine word at a
+  time instead of one `borrow.bit`/`borrow.setb` call per loan.
+- [x] Re-run `compile` benches: `self/llrs.llr` build per stage, one large `std`
   file, `tests/run.sh` wall time.
+  One sample, `benchmarks/run.sh --once --only compile`, same machine as
+  `baseline.txt`: llrc 3127 ms (was 3117), llrs0 12040 (was 14631), llrs1 13814
+  (was 16813), http check llrc 32 ms, llrs2 180 (was 199). `scripts/self.sh
+  --stage` wall time was 29.0s. `tests/run.sh` under that `llrs2` is fails=0;
+  its wall time was not recorded as a bench line.
 
-Exit: `llrs1/llrs0` at or below 1.05, or a written reason in `HANDOFF.md` for the
-remaining gap; `scripts/self.sh` wall time down against the Phase 0 baseline.
+Exit: `llrs1/llrs0` is 1.15 (13.8s/12.0s), not 1.05. The reason is in
+`HANDOFF.md`: both compilers run the same `self/` algorithm, phase 2 already
+put integer loops within 5% of stage 0, and this cut moved both stages by the
+same fraction. What is left is stage 2 versus Cranelift on the borrow checker,
+still the largest phase (7.4s of the 12.0s `llrs0` build). `scripts/self.sh
+--stage` is 29.0s against the Phase 0 total of 51.8s (llrc 4.5s + llrs0 21.3s
++ llrs1 26.0s). `self|stage2=equal`. `tests/check.sh` and `tests/mir.sh` fails=0.
+`tests/run.sh` under `llrs2` is fails=0.
 
 ### Phase 5: close the cross-language gap, then lock it in
 

@@ -122,8 +122,8 @@ bench|stage2|sort|37261
 bench|stage2|string_build|11006
 bench|stage2|map_ops|18263
 bench|stage2|alloc_churn|9805
-compile|llrc|self/llrs.llr|3117
-compile|llrs0|self/llrs.llr|14631
-compile|llrs1|self/llrs.llr|16813
+compile|llrc|self/llrs.llr|3127
+compile|llrs0|self/llrs.llr|12040
+compile|llrs1|self/llrs.llr|13814
 compile|llrc|std/http.llr|32
-compile|llrs2|std/http.llr|199
+compile|llrs2|std/http.llr|180
