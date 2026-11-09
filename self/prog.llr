@@ -444,6 +444,7 @@
 
 (pub (fn needs_drop ((p (& prog)) (t (& ty.sty))) bool
   (if (or (== (. t kind) 10u8) (== (. t kind) 15u8)) (ret true))
+  (if (== (. t kind) 16u8) (ret (needs_drop p (vec.get (& (. t args)) 0))))
   (if (!= (. t kind) 8u8) (ret false))
   (if (has_drop p (. t id)) (ret true))
   (let k (drop_known p (. t id)))

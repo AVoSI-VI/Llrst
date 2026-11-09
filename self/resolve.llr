@@ -3,6 +3,7 @@
 (use std.str)
 (use proj.diag)
 (use proj.prog)
+(use proj.thir_show)
 (use proj.ty)
 
 (fn gen_i ((gens (& (vec str))) (name (& str))) i64
@@ -126,9 +127,92 @@
   (let fat (try (dyn_of p m inner false)))
   (res.ok (ty.box_ty (. fat id))))
 
+;; N in `(arr T N)`: a decimal atom >= 1, no suffix, no `_`, fitting in i64.
+(fn dec_len ((s (& str))) i64
+  (let n (str.len s))
+  (if (or (== n 0) (== (str.at s 0) 48u8)) (ret (neg 1)))
+  (let mut v 0)
+  (for i 0 n
+    (let c (str.at s i))
+    (if (or (< c 48u8) (> c 57u8)) (ret (neg 1)))
+    (let d (- (as i64 c) 48))
+    (if (> v 922337203685477580) (ret (neg 1)))
+    (if (and (== v 922337203685477580) (> d 7)) (ret (neg 1)))
+    (set v (+ (* v 10) d)))
+  v)
+
+(fn ty_text ((t (& ty))) str
+  (if (== (. t kind) 0u8) (ret (str.clone (& (. t text)))))
+  (if (== (. t kind) 1u8) (ret (app_text t)))
+  (if (== (. t kind) 2u8) (ret (ref_text t)))
+  (if (== (. t kind) 3u8) (ret (ptr_text t)))
+  (str.from "ty"))
+
+(fn app_text ((t (& ty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (& (. t text)))
+  (for i 0 (vec.len (& (. t args)))
+    (str.push_byte (&mut s) 32u8)
+    (str.push (&mut s) (& (ty_text (vec.get (& (. t args)) i)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn ref_text ((t (& ty))) str
+  (let mut s (str.from "("))
+  (str.push (&mut s) (if (str.starts (& (. t text)) "mut") "&mut" "&"))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (ty_text (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn ptr_text ((t (& ty))) str
+  (let mut s (str.from "(ptr "))
+  (str.push (&mut s) (& (ty_text (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn arr_len_err ((p (& prog.prog)) (m i64) (t (& ty))) str
+  (let mut g (span_dg p m t (str.from "type.arr_len")))
+  (diag.add (&mut g) "got" (ty_text t))
+  (diag.render (& g)))
+
+(fn arr_of ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
+  (if (!= (vec.len (& (. t args))) 2)
+    (ret (res.err (arity_err p m t "arr" 2 (vec.len (& (. t args)))))))
+  (let elem (try (resolve p m gens (vec.get (& (. t args)) 0))))
+  (let n (vec.get (& (. t args)) 1))
+  (if (!= (. n kind) 0u8) (ret (res.err (arr_len_err p m n))))
+  (let len (dec_len (& (. n text))))
+  (if (< len 0) (ret (res.err (arr_len_err p m n))))
+  (res.ok (ty.arr len elem)))
+
+(fn find_arr ((t (& ty.sty))) (opt ty.sty)
+  (if (== (. t kind) 16u8) (ret (opt.some (ty.clone t))))
+  (if (or (== (. t kind) 6u8) (== (. t kind) 7u8))
+    (ret (find_arr (vec.get (& (. t args)) 0))))
+  (if (or (== (. t kind) 8u8) (or (== (. t kind) 9u8) (== (. t kind) 10u8)))
+    (ret (find_in (& (. t args)))))
+  (opt.none))
+
+(fn find_in ((xs (& (vec ty.sty)))) (opt ty.sty)
+  (for i 0 (vec.len xs)
+    (match (find_arr (vec.get xs i))
+      ((opt.some a) (ret (opt.some a)))
+      ((opt.none) ())))
+  (opt.none))
+
+(fn extern_msg ((p (& prog.prog)) (m i64) (sp (& ty)) (a (& ty.sty))) str
+  (let mut g (span_dg p m sp (str.from "type.extern_ty")))
+  (diag.add (&mut g) "ty" (thir_show.nshow p a))
+  (diag.render (& g)))
+
+(pub (fn extern_arr ((p (& prog.prog)) (m i64) (t (& ty.sty)) (sp (& ty))) (res unit str)
+  (match (find_arr t) ((opt.none) (res.ok ())) ((opt.some a) (res.err (extern_msg p m sp (& a)))))))
+
 (fn resolve_app ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
   (if (is_dyn t) (ret (res.err (why_err p m t (str.from "ref")))))
   (if (str.eq (& (. t text)) "box") (ret (box_of p m t)))
+  (if (str.eq (& (. t text)) "arr") (ret (arr_of p m gens t)))
   (let args (try (map_res p m gens (& (. t args)))))
   (let base (try (named p m gens t (vec.len (& args)))))
   (if (not (any_param (& args))) (try (ground_bounds p m t (. base id) (& args))))

@@ -177,7 +177,7 @@
   (if (== k 21u8) (ret (into_not p w e dest)))
   (if (or (== k 22u8) (== k 23u8)) (ret (lower_cf.into_logic p w e dest)))
   (if (== k 24u8) (ret (lower_call.into_call p w e dest)))
-  (if (== k 25u8) (ret (into_struct p w e dest)))
+  (if (or (== k 25u8) (== k 37u8)) (ret (into_struct p w e dest)))
   (if (== k 26u8) (ret (into_variant p w e dest)))
   (if (== k 28u8) (ret (lower_call.into_try p w e dest)))
   (if (== k 29u8) (ret (lower_clos.into_clos p w e dest)))
@@ -242,16 +242,23 @@
   (if (== (. e kind) 15u8)
     (ret (or (== (. (. (vec.get (& (. e kids)) 0) ty) kind) 7u8)
        (through_ptr (vec.get (& (. e kids)) 0)))))
-  (if (== (. e kind) 16u8) (ret (through_ptr (vec.get (& (. e kids)) 0))))
+  (if (or (== (. e kind) 16u8) (== (. e kind) 36u8))
+    (ret (through_ptr (vec.get (& (. e kids)) 0))))
   false)
 
 (pub (fn as_place ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex))) mir.place
   (if (== (. e kind) 1u8) (ret (mir.ploc (map_l w (. e id)))))
   (if (== (. e kind) 16u8) (ret (mir.ppush (as_place p w (vec.get (& (. e kids)) 0)) 0u8 (. e id))))
+  (if (== (. e kind) 36u8) (ret (index_place p w e)))
   (if (== (. e kind) 15u8) (ret (place_deref p w e)))
   (let t (temp p w (ty.clone (& (. e ty))) (. e line) (. e col)))
   (expr_into p w e (mir.ploc t))
   (mir.ploc t)))
+
+(fn index_place ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex))) mir.place
+  (let base (as_place p w (vec.get (& (. e kids)) 0)))
+  (let idx (vec.get (& (. e kids)) 1))
+  (mir.ppush base 3u8 (map_l w (. idx id))))
 
 (fn place_deref ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex))) mir.place
   (let inner (vec.get (& (. e kids)) 0))

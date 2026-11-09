@@ -129,6 +129,13 @@
   (set (. r local) 0)
   (mir.sassign (mir.ploc 0) r))
 
+(fn idx0 () mir.st
+  (let mut pk (vec.new <u8>))
+  (let mut pi (vec.new <i64>))
+  (vec.push (&mut pk) 3u8)
+  (vec.push (&mut pi) 0)
+  (mir.st 0u8 0 pk pi (mir.rvoid) 0 0 0))
+
 (test slot_gpr
   (let p (prog.blank_prog))
   (let b (body (ty.int 3) 2 (opt.none)))
@@ -144,6 +151,12 @@
   (let pl (build (& p) (& b) (& (cg_isa.isa false false false))))
   (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_mem)
   (assert_eq (. pl ngpr) 0))
+
+(test slot_index
+  (let p (prog.blank_prog))
+  (let b (body (ty.int 3) 1 (opt.some (idx0))))
+  (let pl (build (& p) (& b) (& (cg_isa.isa false false false))))
+  (assert_eq (@ (vec.get (& (. pl kind)) 0)) cg_isa.slot_mem))
 
 (test slot_fpr
   (let p (prog.blank_prog))

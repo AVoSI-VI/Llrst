@@ -35,9 +35,6 @@ for dir in run std; do
       *) continue ;;
     esac
     rel="${f#$root/}"
-    name="$(basename "$f" .llr)"
-    # Stage 2 learns (arr T N) in expand.md phase A2.
-    case "$name" in arr|arr_checked) continue ;; esac
     set +u
     ( cd "$root" && "$llrc" emit-mir "$rel" --std "$root/std" >"$tmp/want" 2>"$tmp/want.err" || true )
     ( cd "$root" && LLRST_STD="$root/std" "$stage" emit-mir "$rel" >"$tmp/got" 2>"$tmp/got.err" || true )

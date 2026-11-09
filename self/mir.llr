@@ -1,4 +1,4 @@
-;; MIR places, operands, and blocks. Projection kind: 0 field, 1 deref, 2 downcast.
+;; MIR places, operands, and blocks. Projection kind: 0 field, 1 deref, 2 downcast, 3 index.
 (use std.str)
 (use proj.prog)
 (use proj.thir)
@@ -202,6 +202,7 @@
     (let n (@ (vec.get (& (. pl pi)) i)))
     (if (== k 1u8) (set t (ty.inner (& t))))
     (if (== k 2u8) (set variant n))
+    (if (== k 3u8) (set t (ty.inner (& t))))
     (if (== k 0u8) (do (set t (field_ty p (& t) variant n)) (set variant (neg 1)))))
   t))
 

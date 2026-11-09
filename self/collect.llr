@@ -192,7 +192,17 @@
   (set (. d ret) (try (res_ty c p mi (& (. d gens)) (& (. it ret)))))
   (if self_on (set (. d ret) (ty.subst_self (& (. d ret)) self_ty)))
   (try (fill_params p mi it (&mut d) self_on self_ty c))
+  (try (reject_extern p mi it (& d)))
   (res.ok d)))
+
+(fn reject_extern ((p (& prog.prog)) (mi i64) (it (& item)) (d (& prog.def))) (res unit str)
+  (if (not (. d extern)) (ret (res.ok ())))
+  (for i 0 (vec.len (& (. d spars)))
+    (try (resolve.extern_arr p
+      mi
+      (& (. (vec.get (& (. d spars)) i) ty))
+      (& (. (vec.get (& (. it params)) i) ty)))))
+  (resolve.extern_arr p mi (& (. d ret)) (& (. it ret))))
 
 (fn fill_params ((p (& prog.prog))
    (mi i64)

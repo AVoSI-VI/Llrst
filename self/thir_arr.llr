@@ -1,0 +1,322 @@
+;; `(arr T N)` desugars. Kinds match thir_expr.llr: 36 index, 37 arr.
+;; The shape, temp names, and `or` match compiler/src/check/arr.rs.
+(use std.str)
+(use proj.prog)
+(use proj.thir)
+(use proj.thir_expr)
+(use proj.ty)
+
+(struct head (aid i64) (iid i64) (stmts (vec thir.ex)))
+
+(pub (fn check ((p (& prog.prog))
+   (c (&mut thir.ck))
+   (e (& expr))
+   (b i64)
+   (targs (& (vec ty.sty)))
+   (won bool)
+   (want (& ty.sty))) (res thir.ex str)
+  (if (== b 11) (ret (arr_of p c e won want)))
+  (if (== b 12) (ret (arr_filled p c e targs won want)))
+  (if (== b 13) (ret (arr_len p c e)))
+  (if (== b 14) (ret (arr_get p c e false)))
+  (if (== b 15) (ret (arr_get p c e true)))
+  (arr_set p c e)))
+
+(fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
+  (let mut x (thir.ex_new k t (. e line) (. e col) (. c file)))
+  (set (. x len) (. e len))
+  x)
+
+(fn i64ty () ty.sty (ty.int 3))
+
+(fn lit ((c (& thir.ck)) (e (& expr)) (v i64)) thir.ex
+  (let mut x (at c e 0u8 (i64ty)))
+  (set (. x id2) v)
+  x)
+
+(fn loc ((c (& thir.ck)) (e (& expr)) (id i64) (t ty.sty)) thir.ex
+  (let mut x (at c e 1u8 t))
+  (set (. x id) id)
+  x)
+
+(fn let_ex ((c (& thir.ck)) (e (& expr)) (id i64) (init thir.ex)) thir.ex
+  (let mut x (at c e 3u8 (ty.unit)))
+  (set (. x id) id)
+  (set (. x flag) true)
+  (vec.push (&mut (. x kids)) init)
+  x)
+
+(fn assign ((c (& thir.ck)) (e (& expr)) (place thir.ex) (value thir.ex)) thir.ex
+  (let mut x (at c e 4u8 (ty.unit)))
+  (vec.push (&mut (. x kids)) place)
+  (vec.push (&mut (. x kids)) value)
+  x)
+
+(fn block ((c (& thir.ck)) (e (& expr)) (t ty.sty) (kids (vec thir.ex))) thir.ex
+  (let mut x (at c e 5u8 t))
+  (set (. x kids) kids)
+  x)
+
+(fn one_block ((c (& thir.ck)) (e (& expr)) (inner thir.ex)) thir.ex
+  (let mut x (at c e 5u8 (ty.unit)))
+  (vec.push (&mut (. x kids)) inner)
+  x)
+
+(fn bin ((c (& thir.ck)) (e (& expr)) (op i64) (l thir.ex) (r thir.ex)) thir.ex
+  (let mut x (at c e 18u8 (ty.bool_ty)))
+  (set (. x id) op)
+  (vec.push (&mut (. x kids)) l)
+  (vec.push (&mut (. x kids)) r)
+  x)
+
+(fn or_ex ((c (& thir.ck)) (e (& expr)) (l thir.ex) (r thir.ex)) thir.ex
+  (let mut x (at c e 23u8 (ty.bool_ty)))
+  (vec.push (&mut (. x kids)) l)
+  (vec.push (&mut (. x kids)) r)
+  x)
+
+(fn for_ex ((c (& thir.ck)) (e (& expr)) (id i64) (lo thir.ex) (hi thir.ex) (body thir.ex)) thir.ex
+  (let mut x (at c e 9u8 (ty.unit)))
+  (set (. x id) id)
+  (vec.push (&mut (. x kids)) lo)
+  (vec.push (&mut (. x kids)) hi)
+  (vec.push (&mut (. x kids)) body)
+  x)
+
+(fn ref_ex ((c (& thir.ck)) (e (& expr)) (mutable bool) (place thir.ex) (t ty.sty)) thir.ex
+  (let mut x (at c e 14u8 t))
+  (set (. x flag) mutable)
+  (vec.push (&mut (. x kids)) place)
+  x)
+
+(fn deref_ex ((c (& thir.ck)) (e (& expr)) (inner thir.ex) (t ty.sty)) thir.ex
+  (let mut x (at c e 15u8 t))
+  (vec.push (&mut (. x kids)) inner)
+  x)
+
+(fn index_ex ((c (& thir.ck)) (e (& expr)) (base thir.ex) (idx thir.ex) (t ty.sty)) thir.ex
+  (let mut x (at c e 36u8 t))
+  (vec.push (&mut (. x kids)) base)
+  (vec.push (&mut (. x kids)) idx)
+  x)
+
+(fn call2 ((c (& thir.ck)) (e (& expr)) (f i64) (t ty.sty) (a thir.ex) (b thir.ex)) thir.ex
+  (let mut x (at c e 24u8 t))
+  (set (. x id2) f)
+  (vec.push (&mut (. x kids)) a)
+  (vec.push (&mut (. x kids)) b)
+  x)
+
+(fn str_ty ((p (& prog.prog))) ty.sty (ty.adt (prog.pre_id p "str") (vec.new <ty.sty>)))
+
+(fn loc_lit ((p (& prog.prog)) (c (& thir.ck)) (e (& expr))) thir.ex
+  (let mut x (at c e 0u8 (thir.ref_str p)))
+  (set (. x id) 3)
+  (set (. x text) (thir.loc_text p (. c file) (. e line) (. e col)))
+  x)
+
+(fn need ((e (& expr)) (n i64)) (res unit str)
+  (if (== (vec.len (& (. e kids))) n) (ret (res.ok ())))
+  (res.err (thir.kv2 "type.arity"
+    "want"
+    (str.from_int n)
+    "got"
+    (str.from_int (vec.len (& (. e kids)))))))
+
+(fn as_arr ((c (& thir.ck)) (t (& ty.sty))) (opt ty.sty)
+  (let s (thir.shallow c t))
+  (if (== (. s kind) 16u8) (opt.some s) (opt.none)))
+
+(fn opted ((w (& (opt ty.sty)))) bool (match w ((opt.some _) true) ((opt.none) false)))
+
+(fn hint_of ((w (& (opt ty.sty)))) ty.sty
+  (match w ((opt.some s) (ty.inner s)) ((opt.none) (ty.unit))))
+
+(fn elem_of ((w (& (opt ty.sty))) (first (& thir.ex))) ty.sty
+  (match w ((opt.some s) (ty.inner s)) ((opt.none) (ty.clone (& (. first ty))))))
+
+(fn len_mis ((p (& prog.prog)) (c (& thir.ck)) (elem (& ty.sty)) (wn i64) (gn i64)) str
+  (let ez (thir.zonk_ty c elem))
+  (let w (ty.arr wn (ty.clone (& ez))))
+  (let g (ty.arr gn ez))
+  (thir.kv2 "type.mismatch" "want" (thir.nshow p (& w)) "got" (thir.nshow p (& g))))
+
+(fn arr_of ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)
+  (let n (vec.len (& (. e kids))))
+  (if (== n 0)
+    (ret (res.err (thir.kv2 "type.arity" "want" (str.from "1") "got" (str.from "0")))))
+  (let shaped (if won (as_arr c want) (opt.none)))
+  (let hint (hint_of (& shaped)))
+  (let first (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) (opted (& shaped)) (& hint))))
+  (let elem (elem_of (& shaped) (& first)))
+  (let mut xs (vec.new <thir.ex>))
+  (vec.push (&mut xs) first)
+  (for i 1 n
+    (let one (try (thir_expr.check_expr p c (vec.get (& (. e kids)) i) true (& elem))))
+    (vec.push (&mut xs) one))
+  (match shaped
+    ((opt.some s)
+      (if (!= (. s id) (vec.len (& xs)))
+        (ret (res.err (len_mis p c (& elem) (. s id) (vec.len (& xs)))))))
+    ((opt.none) ()))
+  (let mut x (at c e 37u8 (ty.arr (vec.len (& xs)) (ty.clone (& elem)))))
+  (set (. x kids) xs)
+  (res.ok x))
+
+(fn arr_filled ((p (& prog.prog))
+   (c (&mut thir.ck))
+   (e (& expr))
+   (targs (& (vec ty.sty)))
+   (won bool)
+   (want (& ty.sty))) (res thir.ex str)
+  (try (need e 1))
+  (let spec (try (filled_ty p c targs won want)))
+  (let elem (thir.zonk_ty c (vec.get (& (. spec args)) 0)))
+  (if (not (ty.is_copy (& elem)))
+    (ret (res.err (fill_err p c (vec.get (& (. e kids)) 0) (& elem)))))
+  (let x (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) true (& elem))))
+  (filled_loop c e x elem (. spec id)))
+
+(fn fill_err ((p (& prog.prog)) (c (&mut thir.ck)) (arg (& expr)) (elem (& ty.sty))) str
+  (thir.keep c
+    (. arg line)
+    (. arg col)
+    (. arg len)
+    (thir.kv "type.arr_fill" "ty" (thir.nshow p elem))))
+
+(fn filled_ty ((p (& prog.prog))
+   (c (&mut thir.ck))
+   (targs (& (vec ty.sty)))
+   (won bool)
+   (want (& ty.sty))) (res ty.sty str)
+  (if (> (vec.len targs) 0) (ret (targ_arr p c (vec.get targs 0))))
+  (if won (match (as_arr c want) ((opt.some s) (ret (res.ok s))) ((opt.none) ())))
+  (res.err (thir.kv "type.infer" "fix" (str.from "(let NAME (arr T N) ...)"))))
+
+(fn targ_arr ((p (& prog.prog)) (c (&mut thir.ck)) (t (& ty.sty))) (res ty.sty str)
+  (match (as_arr c t)
+    ((opt.some s) (res.ok s))
+    ((opt.none)
+      (do
+        (let w (ty.arr 1 (thir.fresh c false)))
+        (let got (thir.zonk_ty c t))
+        (res.err (thir.kv2 "type.mismatch" "want" (thir.nshow p (& w)) "got" (thir.nshow p (& got))))))))
+
+(fn decl ((c (&mut thir.ck)) (e (& expr)) (name (& str)) (t ty.sty) (m bool)) (res i64 str)
+  (thir.declare c name t m (. e line) (. e col) (. e len)))
+
+(fn filled_loop ((c (&mut thir.ck)) (e (& expr)) (x thir.ex) (elem ty.sty) (n i64)) (res thir.ex str)
+  (thir.push_scope c)
+  (let ty (ty.arr n (ty.clone (& elem))))
+  (let xid (try (decl c e "_x" (ty.clone (& elem)) true)))
+  (let aid (try (decl c e "_a" (ty.clone (& ty)) true)))
+  (let kid (try (decl c e "_k" (i64ty) false)))
+  (let xlet (let_ex c e xid x))
+  (let alet (let_ex c e aid (at c e 37u8 (ty.clone (& ty)))))
+  (let idx
+    (index_ex c e (loc c e aid (ty.clone (& ty))) (loc c e kid (i64ty)) (ty.clone (& elem))))
+  (let set (assign c e idx (loc c e xid elem)))
+  (let ford (for_ex c e kid (lit c e 0) (lit c e n) (one_block c e set)))
+  (let val (loc c e aid (ty.clone (& ty))))
+  (thir.pop_scope c)
+  (let mut kids (vec.new <thir.ex>))
+  (vec.push (&mut kids) xlet)
+  (vec.push (&mut kids) alet)
+  (vec.push (&mut kids) ford)
+  (vec.push (&mut kids) val)
+  (res.ok (block c e ty kids)))
+
+(fn arr_len ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (try (need e 1))
+  (let a (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let arrt (try (ref_arr p c (& a) false)))
+  (let mut kids (vec.new <thir.ex>))
+  (vec.push (&mut kids) a)
+  (vec.push (&mut kids) (lit c e (. arrt id)))
+  (res.ok (block c e (i64ty) kids)))
+
+(fn arr_get ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (mutable bool)) (res thir.ex str)
+  (try (need e 2))
+  (let a (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let arrt (try (ref_arr p c (& a) mutable)))
+  (let aty (ty.clone (& (. a ty))))
+  (let elem (ty.inner (& arrt)))
+  (let n (. arrt id))
+  (let i (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 1) true (& (i64ty)))))
+  (let bound (try (bind p c e a i n)))
+  (let base (deref_ex c e (loc c e (. bound aid) aty) (ty.arr n (ty.clone (& elem)))))
+  (let idx (index_ex c e base (loc c e (. bound iid) (i64ty)) (ty.clone (& elem))))
+  (let rty (ty.ref_ty mutable (str.new) elem))
+  (let r (ref_ex c e mutable idx (ty.clone (& rty))))
+  (res.ok (close c e (. bound stmts) r rty)))
+
+(fn arr_set ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (try (need e 3))
+  (let a (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let arrt (try (ref_arr p c (& a) true)))
+  (let aty (ty.clone (& (. a ty))))
+  (let elem (ty.inner (& arrt)))
+  (let n (. arrt id))
+  (let i (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 1) true (& (i64ty)))))
+  (let x (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 2) true (& elem))))
+  (let bound (try (bind p c e a i n)))
+  (let base (deref_ex c e (loc c e (. bound aid) aty) (ty.arr n (ty.clone (& elem)))))
+  (let idx (index_ex c e base (loc c e (. bound iid) (i64ty)) elem))
+  (let set (assign c e idx x))
+  (thir.pop_scope c)
+  (let mut xs (. bound stmts))
+  (vec.push (&mut xs) set)
+  (res.ok (block c e (ty.unit) xs)))
+
+(fn bind ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (a thir.ex) (i thir.ex) (n i64)) (res head str)
+  (thir.push_scope c)
+  (let aty (ty.clone (& (. a ty))))
+  (let aid (try (decl c e "_a" aty false)))
+  (let iid (try (decl c e "_i" (i64ty) false)))
+  (let alet (let_ex c e aid a))
+  (let ilet (let_ex c e iid i))
+  (let chk (try (oob p c e iid n)))
+  (let mut stmts (vec.new <thir.ex>))
+  (vec.push (&mut stmts) alet)
+  (vec.push (&mut stmts) ilet)
+  (vec.push (&mut stmts) chk)
+  (res.ok (head aid iid stmts)))
+
+(fn close ((c (&mut thir.ck)) (e (& expr)) (stmts (vec thir.ex)) (tail thir.ex) (t ty.sty)) thir.ex
+  (thir.pop_scope c)
+  (let mut xs stmts)
+  (vec.push (&mut xs) tail)
+  (block c e t xs))
+
+(fn ref_arr ((p (& prog.prog)) (c (&mut thir.ck)) (a (& thir.ex)) (need_mut bool)) (res ty.sty str)
+  (let got (thir.zonk_ty c (& (. a ty))))
+  (if (!= (. got kind) 6u8) (ret (res.err (ref_mis p c a need_mut (& got)))))
+  (let inner (ty.inner (& got)))
+  (if (!= (. inner kind) 16u8) (ret (res.err (ref_mis p c a need_mut (& got)))))
+  (if (and need_mut (not (. got flag))) (ret (res.err (ref_mis p c a true (& got)))))
+  (res.ok inner))
+
+(fn ref_mis ((p (& prog.prog)) (c (&mut thir.ck)) (a (& thir.ex)) (need_mut bool) (got (& ty.sty))) str
+  (let want (if need_mut (str.from "(&mut (arr T N))") (str.from "(& (arr T N))")))
+  (thir.keep c
+    (. a line)
+    (. a col)
+    (. a len)
+    (thir.kv2 "type.mismatch" "want" want "got" (thir.nshow p got))))
+
+(fn oob ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (iid i64) (n i64)) (res thir.ex str)
+  (let lt (bin c e 7 (loc c e iid (i64ty)) (lit c e 0)))
+  (let ge (bin c e 10 (loc c e iid (i64ty)) (lit c e n)))
+  (let mut iff (at c e 6u8 (ty.unit)))
+  (vec.push (&mut (. iff kids)) (or_ex c e lt ge))
+  (vec.push (&mut (. iff kids)) (try (oob_panic p c e iid n)))
+  (res.ok iff))
+
+(fn oob_panic ((p (& prog.prog)) (c (& thir.ck)) (e (& expr)) (iid i64) (n i64)) (res thir.ex str)
+  (let oobf (thir.std_fn p "str" "oob"))
+  (if (< oobf 0) (ret (res.err (thir.kv "name.unknown" "name" (str.from "str.oob")))))
+  (let pan (thir.std_fn p "sys" "panic"))
+  (if (< pan 0) (ret (res.err (thir.kv "name.unknown" "name" (str.from "sys.panic")))))
+  (let call (call2 c e oobf (str_ty p) (lit c e n) (loc c e iid (i64ty))))
+  (let msg (ref_ex c e false call (thir.ref_str p)))
+  (res.ok (call2 c e pan (ty.never) (loc_lit p c e) msg)))

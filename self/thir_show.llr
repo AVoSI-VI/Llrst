@@ -8,6 +8,7 @@
   (if (== (. t kind) 6u8) (ret (ref_nm p t)))
   (if (== (. t kind) 11u8) (ret (dyn_nm p t)))
   (if (== (. t kind) 15u8) (ret (box_nm p t)))
+  (if (== (. t kind) 16u8) (ret (arr_nm p t)))
   (ty.show t)))
 
 (fn dyn_nm ((p (& prog.prog)) (t (& ty.sty))) str
@@ -16,6 +17,14 @@
   (str.push (&mut s) " (dyn ")
   (str.push (&mut s) (& (prog.type_name p (. t id))))
   (str.push (&mut s) "))")
+  s)
+
+(fn arr_nm ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "(arr "))
+  (str.push (&mut s) (& (nshow p (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int (. t id))))
+  (str.push_byte (&mut s) 41u8)
   s)
 
 (fn box_nm ((p (& prog.prog)) (t (& ty.sty))) str

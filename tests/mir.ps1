@@ -32,9 +32,6 @@ $files = @()
 $files += Get-ChildItem (Join-Path $root "tests\run\*.llr")
 $files += Get-ChildItem (Join-Path $root "std\*.llr")
 foreach ($f in $files) {
-  $name = [IO.Path]::GetFileNameWithoutExtension($f.Name)
-  # Stage 2 learns (arr T N) in expand.md phase A2.
-  if ($name -eq "arr" -or $name -eq "arr_checked") { continue }
   $rel = $f.FullName.Substring($root.Length + 1).Replace("\", "/")
   Push-Location $root
   cmd /c "`"$llrc`" emit-mir `"$rel`" --std `"$env:LLRST_STD`" > `"$tmp\want`" 2> `"$tmp\want.err`""

@@ -144,6 +144,7 @@
 (fn class_ty ((p (& prog.prog)) (t (& ty.sty)) (vis (&mut (vec bool))) (memo (&mut (vec i8)))) i8
   (if (or (== (. t kind) 10u8) (== (. t kind) 15u8)) (ret 1i8))
   (if (== (. t kind) 13u8) (ret (neg 1i8)))
+  (if (== (. t kind) 16u8) (ret (class_ty p (vec.get (& (. t args)) 0) vis memo)))
   (if (!= (. t kind) 8u8) (ret 0i8))
   (if (prog.has_drop p (. t id)) (ret 1i8))
   (if (ty_param t) (ret (neg 1i8)))

@@ -31,8 +31,6 @@ $fails = 0
 foreach ($dir in @("err", "warn")) {
   foreach ($f in Get-ChildItem (Join-Path $root "tests\$dir\*.llr")) {
     $name = $f.BaseName
-    # Stage 2 learns (arr T N) in expand.md phase A2.
-    if ($name -like "arr_*") { continue }
     $golden = Join-Path $f.DirectoryName "$name.err"
     if (-not (Test-Path $golden)) { continue }
     $flags = @()

@@ -72,7 +72,16 @@
     (let n (@ (vec.get pi i)))
     (if (== k 0u8) (do (str.push_byte (&mut s) 46u8) (str.push (&mut s) (& (str.from_int n)))))
     (if (== k 1u8) (set s (wrap "(*" (& s) ")")))
-    (if (== k 2u8) (set s (wrap_v (& s) n))))
+    (if (== k 2u8) (set s (wrap_v (& s) n)))
+    (if (== k 3u8) (set s (index_txt (& s) n))))
+  s)
+
+(fn index_txt ((m (& str)) (n i64)) str
+  (let mut s (str.clone m))
+  (str.push_byte (&mut s) 91u8)
+  (str.push (&mut s) "_")
+  (str.push (&mut s) (& (str.from_int n)))
+  (str.push_byte (&mut s) 93u8)
   s)
 
 (fn wrap ((a (& str)) (m (& str)) (b (& str))) str

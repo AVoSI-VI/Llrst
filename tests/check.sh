@@ -31,8 +31,6 @@ for dir in err warn; do
   for f in "$root"/tests/$dir/*.llr; do
     [ -e "$f" ] || continue
     name="$(basename "$f" .llr)"
-    # Stage 2 learns (arr T N) in expand.md phase A2.
-    case "$name" in arr_*) continue ;; esac
     golden="$root/tests/$dir/$name.err"
     [ -e "$golden" ] || continue
     flags=()

@@ -121,6 +121,8 @@
     (if (deref_first (& (. r pk)))
       (mark (&mut (. inf proj)) (. r local))
       (mark (&mut (. inf addr)) (. r local))))
+  (mark_idx inf (& (. s pk)) (& (. s pi)))
+  (mark_idx inf (& (. r pk)) (& (. r pi)))
   (scan_ops inf (& (. r ops))))
 
 ;; A place that starts with a deref reads the local's pointer; it does not
@@ -133,6 +135,7 @@
 
 (fn scan_term ((inf (&mut info)) (t (& mir.term))) unit
   (if (== (. t kind) 3u8) (bump (&mut (. inf defs)) (. t dest)))
+  (mark_idx inf (& (. t dpk)) (& (. t dpi)))
   (scan_op inf (& (. t op)))
   (scan_ops inf (& (. t args))))
 
@@ -141,4 +144,10 @@
 
 (fn scan_op ((inf (&mut info)) (o (& mir.op))) unit
   (if (== (. o kind) 2u8) (ret))
+  (mark_idx inf (& (. o pk)) (& (. o pi)))
   (if (> (vec.len (& (. o pk))) 0) (mark (&mut (. inf proj)) (. o local))))
+
+;; An index local has no operand slot, so a constant cannot replace it.
+(fn mark_idx ((inf (&mut info)) (pk (& (vec u8))) (pi (& (vec i64)))) unit
+  (for i 0 (vec.len pk)
+    (if (== (@ (vec.get pk i)) 3u8) (mark (&mut (. inf addr)) (@ (vec.get pi i))))))

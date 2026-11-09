@@ -65,12 +65,14 @@
   (mark_term (& (. blk term)) read))
 
 (fn mark_st ((s (& mir.st)) (read (&mut (vec bool)))) unit
-  (if (== (. s kind) 0u8) (mark_rv (& (. s rv)) read))
-  (if (== (. s kind) 1u8) (mark_pl (. s local) (& (. s pk)) read)))
+  (if (== (. s kind) 0u8)
+    (do (mark_rv (& (. s rv)) read) (mark_index (& (. s pk)) (& (. s pi)) read)))
+  (if (== (. s kind) 1u8) (mark_pl (. s local) (& (. s pk)) (& (. s pi)) read)))
 
 (fn mark_rv ((r (& mir.rv)) (read (&mut (vec bool)))) unit
   (for i 0 (vec.len (& (. r ops))) (mark_op (vec.get (& (. r ops)) i) read))
-  (if (or (== (. r kind) 1u8) (== (. r kind) 9u8)) (mark_pl (. r local) (& (. r pk)) read)))
+  (if (or (== (. r kind) 1u8) (== (. r kind) 9u8))
+    (mark_pl (. r local) (& (. r pk)) (& (. r pi)) read)))
 
 (fn mark_term ((t (& mir.term)) (read (&mut (vec bool)))) unit
   (mark_op (& (. t op)) read)
@@ -78,9 +80,15 @@
   (if (== (. t kind) 4u8) (vec.set read 0 true)))
 
 (fn mark_op ((o (& mir.op)) (read (&mut (vec bool)))) unit
-  (if (!= (. o kind) 2u8) (mark_pl (. o local) (& (. o pk)) read)))
+  (if (!= (. o kind) 2u8) (mark_pl (. o local) (& (. o pk)) (& (. o pi)) read)))
 
-(fn mark_pl ((local i64) (pk (& (vec u8))) (read (&mut (vec bool)))) unit (vec.set read local true))
+(fn mark_pl ((local i64) (pk (& (vec u8))) (pi (& (vec i64))) (read (&mut (vec bool)))) unit
+  (vec.set read local true)
+  (mark_index pk pi read))
+
+(fn mark_index ((pk (& (vec u8))) (pi (& (vec i64))) (read (&mut (vec bool)))) unit
+  (for i 0 (vec.len pk)
+    (if (== (@ (vec.get pk i)) 3u8) (vec.set read (@ (vec.get pi i)) true))))
 
 (fn push_w ((out (&mut (vec diag.dg)))
    (path (& str))

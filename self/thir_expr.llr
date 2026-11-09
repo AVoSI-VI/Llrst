@@ -1,6 +1,8 @@
 ;; Expression checking. Kinds: 0 lit, 1 local, 2 const, 3 let, 4 assign, 5 block,
 ;; 6 if, 7 while, 8 loop, 9 for, 10 brk, 11 cont, 12 ret, 13 match, 14 ref,
 ;; 15 deref, 16 field, 17 cast, 18 bin, 19 neg, 20 wneg, 21 not, 22 and, 23 or.
+;; 36 index: kids are the base and the index local. 37 arr: kids are the elements
+;; (empty is the initializer `arr.filled` writes before the fill loop).
 (use std.ast)
 (use std.str)
 (use proj.lit)
@@ -281,7 +283,7 @@
   b)
 
 (pub (fn is_place ((e (& thir.ex))) bool
-  (if (or (== (. e kind) 1u8) (== (. e kind) 15u8)) (ret true))
+  (if (or (== (. e kind) 1u8) (or (== (. e kind) 15u8) (== (. e kind) 36u8))) (ret true))
   (if (== (. e kind) 16u8) (ret (is_place (vec.get (& (. e kids)) 0))))
   false))
 
@@ -305,7 +307,7 @@
     (ret (if (. (vec.get (& (. c locals)) (. e id)) mut)
        (res.ok ())
        (res.err (thir.keep c (. e line) (. e col) (. e len) (mut_err c e))))))
-  (if (== (. e kind) 16u8) (ret (place_mut c (vec.get (& (. e kids)) 0))))
+  (if (or (== (. e kind) 16u8) (== (. e kind) 36u8)) (ret (place_mut c (vec.get (& (. e kids)) 0))))
   (if (== (. e kind) 15u8) (ret (deref_mut c (vec.get (& (. e kids)) 0))))
   (res.err (str.from "type.not_place")))
 

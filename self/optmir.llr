@@ -390,6 +390,7 @@
   (if (!= (. o kind) 1u8) (ret))
   (if (op_deref o) (ret))
   (if (op_lone o) (ret))
+  (if (op_index o) (ret))
   (let _ (borrow.setb st (. o local) false)))
 
 (fn op_deref ((o (& mir.op))) bool
@@ -398,3 +399,7 @@
 
 (fn op_lone ((o (& mir.op))) bool
   (and (== (vec.len (& (. o pk))) 1) (== (@ (vec.get (& (. o pk)) 0)) 0u8)))
+
+(fn op_index ((o (& mir.op))) bool
+  (for i 0 (vec.len (& (. o pk))) (if (== (@ (vec.get (& (. o pk)) i)) 3u8) (ret true)))
+  false)
