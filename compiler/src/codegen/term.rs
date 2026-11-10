@@ -118,9 +118,14 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 self.b.ins().brif(v, self.blocks[*a as usize], &[], self.blocks[*c as usize], &[]);
             }
             Term::Switch(op, cases, default) => {
-                let (v, _) = self.scalar(op);
+                let (v, ty) = self.scalar(op);
                 for (val, target) in cases {
-                    let c = self.b.ins().icmp_imm_s(IntCC::Equal, v, *val as i64);
+                    let c = if matches!(ty, Ty::Int(i) if i.wide()) {
+                        let k = self.i128_const(*val as i128);
+                        self.b.ins().icmp(IntCC::Equal, v, k)
+                    } else {
+                        self.b.ins().icmp_imm_s(IntCC::Equal, v, *val as i64)
+                    };
                     let next = self.b.create_block();
                     self.b.ins().brif(c, self.blocks[*target as usize], &[], next, &[]);
                     self.b.switch_to_block(next);
@@ -175,7 +180,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 _ => dty.clone(),
             },
         };
-        if self.cg.is_agg(&callee_ret) {
+        if self.cg.returns_sret(&callee_ret) {
             vals.push(daddr);
         }
         for a in args {
@@ -209,7 +214,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
                 let sig = self.cg.signature(&formals, &r);
                 let sr = self.b.import_signature(sig);
                 let mut args = Vec::new();
-                let rest = if self.cg.is_agg(&r) {
+                let rest = if self.cg.returns_sret(&r) {
                     args.push(vals[0]);
                     &vals[1..]
                 } else {

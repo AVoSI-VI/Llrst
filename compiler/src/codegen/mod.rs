@@ -9,6 +9,7 @@ mod reload;
 pub mod layout;
 mod ops;
 mod term;
+mod wide;
 mod trace;
 mod vtbl;
 
@@ -59,6 +60,8 @@ pub struct Codegen<'a> {
     pub checked: bool,
     /// Apple libc uses different flag bits, `sockaddr_in`, and `rlimit` numbers.
     pub darwin: bool,
+    /// s390x cannot return Cranelift `I128`. A wide int uses the sret pointer there.
+    pub s390x: bool,
     /// `(path, line starts)` copied from the source map, for panic locations.
     pub locs: Vec<(String, Vec<u32>)>,
     /// Instances discovered while compiling bodies, for the mono driver.
@@ -75,6 +78,8 @@ pub fn make_isa(target: Option<&str>) -> PResult<OwnedTargetIsa> {
     let mut flags = settings::builder();
     flags.set("opt_level", "speed").unwrap();
     flags.set("is_pic", "true").unwrap();
+    // x64 panics on an `I128` signature unless this is set. It splits one value into two `i64`s.
+    flags.set("enable_llvm_abi_extensions", "true").unwrap();
     let flags = settings::Flags::new(flags);
     let builder = match target {
         None => cranelift_native::builder().map_err(|e| Diag::error(Span::default(), "target.unsupported").kv("got", e))?,
@@ -108,6 +113,7 @@ impl<'a> Codegen<'a> {
         let ptr_ty = isa.pointer_type();
         let frontend = isa.frontend_config();
         let darwin = isa.triple().operating_system.is_like_darwin();
+        let s390x = matches!(isa.triple().architecture, target_lexicon::Architecture::S390x);
         let big_endian = isa.triple().endianness().map_or(false, |e| e == target_lexicon::Endianness::Big);
         let builder = ObjectBuilder::new(isa, "llr", cranelift_module::default_libcall_names())
             .map_err(|e| Diag::error(Span::default(), "codegen.init").kv("got", e.to_string()))?;
@@ -149,6 +155,7 @@ impl<'a> Codegen<'a> {
             big_endian,
             checked,
             darwin,
+            s390x,
             locs: sm.export_locs(),
             discovered: Vec::new(),
         })
@@ -158,10 +165,15 @@ impl<'a> Codegen<'a> {
         !t.is_scalar() && !t.is_unit()
     }
 
+    /// Aggregate return, or an `i128`/`u128` return on s390x, which has no `I128` return register.
+    pub fn returns_sret(&self, t: &Ty) -> bool {
+        self.is_agg(t) || (self.s390x && matches!(t, Ty::Int(i) if i.wide()))
+    }
+
     /// Signature for an Llrst function: aggregates by pointer, aggregate returns via sret.
     pub fn signature(&mut self, params: &[Ty], ret: &Ty) -> Signature {
         let mut sig = Signature::new(self.call_conv);
-        if self.is_agg(ret) {
+        if self.returns_sret(ret) {
             sig.params.push(AbiParam::new(self.ptr_ty));
         }
         for p in params {
@@ -171,8 +183,10 @@ impl<'a> Codegen<'a> {
             let t = layout::clif_type(p).unwrap_or(self.ptr_ty);
             sig.params.push(AbiParam::new(t));
         }
-        if let Some(t) = layout::clif_type(ret) {
-            sig.returns.push(AbiParam::new(t));
+        if !self.returns_sret(ret) {
+            if let Some(t) = layout::clif_type(ret) {
+                sig.returns.push(AbiParam::new(t));
+            }
         }
         sig
     }

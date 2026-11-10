@@ -1,5 +1,6 @@
 //! `--checked` overflow traps: branch to `sys.abort` with `int.overflow` or `cast.overflow`.
 use super::func::FnCx;
+use super::layout::clif_int;
 use crate::ast::BinOp;
 use crate::diag::Span;
 use crate::ty::{IntTy, Ty};
@@ -22,8 +23,8 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     /// Panics when the shift count is outside `0..bitwidth`, then shifts on the continuing path.
     pub fn checked_shift(&mut self, op: BinOp, x: Value, y: Value, t: &Ty, span: Span) -> Value {
         let Ty::Int(it) = t else { return self.emit_shift(op, x, y, false) };
-        let ct = int_clif(*it);
-        let lim = self.b.ins().iconst(ct, (it.bytes() as i64) * 8);
+        let ct = clif_int(*it);
+        let lim = self.iconst_int(ct, (it.bytes() as i64) * 8);
         let ge = self.b.ins().icmp(if it.signed() { IntCC::SignedGreaterThanOrEqual } else { IntCC::UnsignedGreaterThanOrEqual }, y, lim);
         let flag = if it.signed() {
             let neg = self.b.ins().icmp_imm_s(IntCC::SignedLessThan, y, 0);
@@ -95,17 +96,17 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
 
     /// Low bits below the float significand are nonzero. `i64::MIN` keeps its bit pattern as a magnitude.
     fn inexact_int(&mut self, x: Value, from: IntTy, prec: i64) -> Value {
-        let ct = int_clif(from);
+        let ct = clif_int(from);
         let mag = self.magnitude(x, from);
-        let width = self.b.ins().iconst(ct, from.bytes() as i64 * 8);
+        let width = self.iconst_int(ct, from.bytes() as i64 * 8);
         let zeros = self.b.ins().clz(mag);
         let bits = self.b.ins().isub(width, zeros);
-        let prec_v = self.b.ins().iconst(ct, prec);
+        let prec_v = self.iconst_int(ct, prec);
         let extra = self.b.ins().isub(bits, prec_v);
         let fits = self.b.ins().icmp_imm_s(IntCC::SignedLessThanOrEqual, extra, 0);
-        let zero = self.b.ins().iconst(ct, 0);
+        let zero = self.iconst_int(ct, 0);
         let shift = self.b.ins().select(fits, zero, extra);
-        let one = self.b.ins().iconst(ct, 1);
+        let one = self.iconst_int(ct, 1);
         let shifted = self.b.ins().ishl(one, shift);
         let mask = self.b.ins().isub(shifted, one);
         let low = self.b.ins().band(mag, mask);
@@ -130,19 +131,22 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     }
 
     fn cast_oob(&mut self, x: Value, from: IntTy, to: IntTy) -> Option<Value> {
+        if from.wide() {
+            return self.wide_cast_oob(x, from, to);
+        }
         if from.signed() == to.signed() && to.bytes() >= from.bytes() {
             return None;
         }
         if !from.signed() && to.signed() && to.bytes() > from.bytes() {
             return None;
         }
-        let ct = int_clif(from);
+        let ct = clif_int(from);
         if from.signed() && !to.signed() {
             let neg = self.b.ins().icmp_imm_s(IntCC::SignedLessThan, x, 0);
             if to.bytes() >= from.bytes() {
                 return Some(neg);
             }
-            let lim = self.b.ins().iconst(ct, 1i64 << (to.bytes() * 8));
+            let lim = self.iconst_int(ct, 1i64 << (to.bytes() * 8));
             let hi = self.b.ins().icmp(IntCC::SignedGreaterThanOrEqual, x, lim);
             return Some(self.b.ins().bor(neg, hi));
         }
@@ -150,16 +154,16 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             if to.bytes() == from.bytes() {
                 return Some(self.b.ins().icmp_imm_s(IntCC::SignedLessThan, x, 0));
             }
-            let max = self.b.ins().iconst(ct, (1i64 << ((to.bytes() * 8) - 1)) - 1);
+            let max = self.iconst_int(ct, (1i64 << ((to.bytes() * 8) - 1)) - 1);
             return Some(self.b.ins().icmp(IntCC::UnsignedGreaterThan, x, max));
         }
         if !to.signed() {
-            let lim = self.b.ins().iconst(ct, 1i64 << (to.bytes() * 8));
+            let lim = self.iconst_int(ct, 1i64 << (to.bytes() * 8));
             return Some(self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, x, lim));
         }
         let bits = (to.bytes() * 8) - 1;
-        let min = self.b.ins().iconst(ct, -(1i64 << bits));
-        let max = self.b.ins().iconst(ct, (1i64 << bits) - 1);
+        let min = self.iconst_int(ct, -(1i64 << bits));
+        let max = self.iconst_int(ct, (1i64 << bits) - 1);
         let lo = self.b.ins().icmp(IntCC::SignedLessThan, x, min);
         let hi = self.b.ins().icmp(IntCC::SignedGreaterThan, x, max);
         Some(self.b.ins().bor(lo, hi))
@@ -176,13 +180,16 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     /// Negation that panics on signed MIN and on any non-zero unsigned value.
     pub fn checked_neg(&mut self, x: Value, t: &Ty, span: Span) -> Value {
         let Ty::Int(it) = t else { return self.b.ins().ineg(x) };
+        if it.wide() {
+            return self.wide_neg(x, it.signed(), span);
+        }
         let flag = if it.signed() {
-            let min = self.b.ins().iconst(int_clif(*it), signed_min(*it));
+            let min = self.iconst_int(clif_int(*it), signed_min(*it));
             self.b.ins().icmp(IntCC::Equal, x, min)
         } else {
             self.b.ins().icmp_imm_s(IntCC::NotEqual, x, 0)
         };
-        let zero = self.b.ins().iconst(int_clif(*it), 0);
+        let zero = self.iconst_int(clif_int(*it), 0);
         let neg = self.b.ins().ineg(x);
         let result = if it.signed() { neg } else { zero };
         let _ = if it.signed() { zero } else { neg };
@@ -220,16 +227,6 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             .and_then(|m| m.items.get("abort").copied())
             .expect("std.sys abort");
         self.cg.func_id(&(d, Vec::new()))
-    }
-}
-
-fn int_clif(t: IntTy) -> types::Type {
-    match t {
-        IntTy::I8 | IntTy::U8 => types::I8,
-        IntTy::I16 | IntTy::U16 => types::I16,
-        IntTy::I32 | IntTy::U32 => types::I32,
-        IntTy::I64 | IntTy::U64 => types::I64,
-        IntTy::I128 | IntTy::U128 => types::I128,
     }
 }
 

@@ -42,7 +42,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         let td = self.cg.prog.trait_def(tr).unwrap();
         let (formals, ret) = abi_sig(td, slot as usize);
         let mut vals: Vec<Value> = Vec::new();
-        if self.cg.is_agg(&ret) {
+        if self.cg.returns_sret(&ret) {
             vals.push(daddr);
         }
         let (recv, _) = self.operand(&args[0]);

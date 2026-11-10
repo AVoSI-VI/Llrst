@@ -1,0 +1,3 @@
+P|tests/panic/i128_div_zero.llr|1|25|div.zero
+P|sys.div128
+P|main.main

@@ -70,7 +70,7 @@ fn emit_tramp(cg: &mut Codegen, c: &ClosInst, inner: FuncId, base: &str) -> PRes
         let params: Vec<Value> = b.block_params(entry).to_vec();
         let mut pi = 0;
         let mut call_args: Vec<Value> = Vec::new();
-        if cg.is_agg(&c.ret) {
+        if cg.returns_sret(&c.ret) {
             call_args.push(params[0]);
             pi = 1;
         }

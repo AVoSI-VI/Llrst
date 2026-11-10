@@ -119,6 +119,11 @@ impl<'a> Layouts<'a> {
     }
 }
 
+/// Cranelift type for an integer. `i128` and `u128` are both `I128`.
+pub fn clif_int(i: IntTy) -> types::Type {
+    clif_type(&Ty::Int(i)).expect("int")
+}
+
 /// Cranelift type for a scalar Llrst type.
 pub fn clif_type(t: &Ty) -> Option<types::Type> {
     Some(match t {

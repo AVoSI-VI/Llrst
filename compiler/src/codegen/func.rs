@@ -114,7 +114,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         let params: Vec<Value> = self.b.block_params(entry).to_vec();
         let mut pi = 0;
         let ret_ty = self.body.locals[0].ty.clone();
-        if self.cg.is_agg(&ret_ty) {
+        if self.cg.returns_sret(&ret_ty) {
             self.sret = Some(params[0]);
             pi = 1;
         }
@@ -188,6 +188,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
             Const::Int(v, _) => match ty {
                 Ty::F32 => Val::Scalar(self.b.ins().f32const(*v as f32)),
                 Ty::F64 => Val::Scalar(self.b.ins().f64const(*v as f64)),
+                Ty::Int(i) if i.wide() => Val::Scalar(self.i128_const(*v)),
                 _ => Val::Scalar(self.b.ins().iconst(clif_type(ty).unwrap_or(types::I64), *v as i64)),
             },
             Const::Float(v, is32) => {

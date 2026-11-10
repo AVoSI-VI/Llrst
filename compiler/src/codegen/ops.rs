@@ -40,16 +40,24 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
         match op {
             BinOp::Add | BinOp::WAdd => {
                 if self.cg.checked && op == BinOp::Add {
-                    let (v, of) = if signed { self.b.ins().sadd_overflow(x, y) } else { self.b.ins().uadd_overflow(x, y) };
-                    self.guard(v, of, span)
+                    if matches!(t, Ty::Int(i) if i.wide()) {
+                        self.wide_add(x, y, signed, span)
+                    } else {
+                        let (v, of) = if signed { self.b.ins().sadd_overflow(x, y) } else { self.b.ins().uadd_overflow(x, y) };
+                        self.guard(v, of, span)
+                    }
                 } else {
                     self.b.ins().iadd(x, y)
                 }
             }
             BinOp::Sub | BinOp::WSub => {
                 if self.cg.checked && op == BinOp::Sub {
-                    let (v, of) = if signed { self.b.ins().ssub_overflow(x, y) } else { self.b.ins().usub_overflow(x, y) };
-                    self.guard(v, of, span)
+                    if matches!(t, Ty::Int(i) if i.wide()) {
+                        self.wide_sub(x, y, signed, span)
+                    } else {
+                        let (v, of) = if signed { self.b.ins().ssub_overflow(x, y) } else { self.b.ins().usub_overflow(x, y) };
+                        self.guard(v, of, span)
+                    }
                 } else {
                     self.b.ins().isub(x, y)
                 }
@@ -106,7 +114,7 @@ impl<'a, 'b, 'c> FnCx<'a, 'b, 'c> {
     fn mask_shift(&mut self, y: Value, t: &Ty) -> Value {
         let Ty::Int(it) = t else { return y };
         let ct = clif_type(t).expect("int");
-        let mask = self.b.ins().iconst(ct, (it.bytes() as i64) * 8 - 1);
+        let mask = self.iconst_int(ct, (it.bytes() as i64) * 8 - 1);
         self.b.ins().band(y, mask)
     }
 

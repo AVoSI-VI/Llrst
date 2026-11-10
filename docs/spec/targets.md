@@ -16,7 +16,11 @@ checks these:
 | `aarch64-apple-darwin` | Mach-O arm64; `file` checks the object |
 | `x86_64-pc-windows-gnu` | MIR only in the suite (`sys.os_id` is 2) |
 
-An empty triple uses the host ISA.
+An empty triple uses the host ISA. `i128` and `u128` are Cranelift `I128`. The
+backend sets `enable_llvm_abi_extensions` so x86-64, aarch64, and riscv64 can pass and
+return that type. s390x has no `I128` return register, so on that target a wide int is
+returned through the aggregate return pointer. `iconst` of `I128` is not a legal
+instruction; a constant is two `i64` halves.
 
 ## self/
 
