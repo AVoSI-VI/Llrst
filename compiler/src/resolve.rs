@@ -355,9 +355,9 @@ fn make_fn(prog: &Program, mi: u32, f: &ast::FnDecl, outer: &[String], owner: Op
     let ret = resolve_ty(prog, mi, &generics, &f.ret)?;
     if f.is_extern {
         for ((_, ty), p) in params.iter().zip(&f.params) {
-            crate::arrty::extern_arr(prog, ty, p.ty.span())?;
+            crate::arrty::extern_ty(prog, ty, p.ty.span())?;
         }
-        crate::arrty::extern_arr(prog, &ret, f.ret.span())?;
+        crate::arrty::extern_ty(prog, &ret, f.ret.span())?;
     }
     Ok(FnDef {
         generics,

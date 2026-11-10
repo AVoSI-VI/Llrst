@@ -168,6 +168,7 @@ impl<'a> Checker<'a> {
                         self.unify(&from, &Ty::Int(IntTy::I64));
                         true
                     }
+                    (f, t) if wide_float(f, t) => false,
                     (f, t) if f.is_numeric() && t.is_numeric() => true,
                     (Ty::Bool, Ty::Int(_)) => true,
                     (Ty::Ptr(_), Ty::Ptr(_)) | (Ty::Ptr(_), Ty::Int(IntTy::U64)) | (Ty::Int(IntTy::U64), Ty::Ptr(_)) => true,
@@ -300,23 +301,8 @@ impl<'a> Checker<'a> {
 
     fn check_lit(&mut self, l: &Lit, want: Option<&Ty>, sp: Span) -> PResult<Expr> {
         let ty = match l {
-            Lit::Int(v, suffix) => {
-                let t = match suffix {
-                    Some(s) => Ty::Int(IntTy::from_name(s).ok_or_else(|| Diag::error(sp, "lex.bad_suffix").kv("got", s.clone()))?),
-                    None => match want.map(|w| self.shallow(w)) {
-                        Some(Ty::Int(i)) => Ty::Int(i),
-                        Some(Ty::F32) => Ty::F32,
-                        Some(Ty::F64) => Ty::F64,
-                        _ => self.fresh(true),
-                    },
-                };
-                if let Ty::Int(i) = &t {
-                    if !i.fits(*v) {
-                        return Err(Diag::error(sp, "lit.overflow").kv("ty", i.name()).kv("got", v.to_string()));
-                    }
-                }
-                t
-            }
+            Lit::Int(v, suffix) => self.int_lit_ty(*v, suffix.as_deref(), want, sp)?,
+            Lit::Wide(v, suffix) => wide_lit_ty(*v, suffix.as_deref(), want.map(|w| self.shallow(w)), sp)?,
             Lit::Float(_, suffix) => match suffix.as_deref() {
                 Some("f32") => Ty::F32,
                 Some("f64") | None => match want.map(|w| self.shallow(w)) {
@@ -330,6 +316,24 @@ impl<'a> Checker<'a> {
             Lit::Unit => Ty::Unit,
         };
         Ok(mk(ExprKind::Lit(l.clone()), ty, sp))
+    }
+
+    fn int_lit_ty(&mut self, v: i128, suffix: Option<&str>, want: Option<&Ty>, sp: Span) -> PResult<Ty> {
+        let t = match suffix {
+            Some(s) => Ty::Int(IntTy::from_name(s).ok_or_else(|| Diag::error(sp, "lex.bad_suffix").kv("got", s))?),
+            None => match want.map(|w| self.shallow(w)) {
+                Some(Ty::Int(i)) => Ty::Int(i),
+                Some(Ty::F32) => Ty::F32,
+                Some(Ty::F64) => Ty::F64,
+                _ => self.fresh(true),
+            },
+        };
+        if let Ty::Int(i) = &t {
+            if !i.fits(v) {
+                return Err(Diag::error(sp, "lit.overflow").kv("ty", i.name()).kv("got", v.to_string()));
+            }
+        }
+        Ok(t)
     }
 
     fn check_name(&mut self, n: &str, sp: Span) -> PResult<Expr> {
@@ -436,5 +440,31 @@ impl<'a> Checker<'a> {
         }
     }
 
+}
+
+fn wide_float(from: &Ty, to: &Ty) -> bool {
+    let wide = |t: &Ty| matches!(t, Ty::Int(i) if i.wide());
+    let float = |t: &Ty| matches!(t, Ty::F32 | Ty::F64);
+    (wide(from) && float(to)) || (float(from) && wide(to))
+}
+
+/// A `Lit::Wide` is a `u128`. Any other type, including an `i128` expectation, is `lit.overflow`.
+fn wide_lit_ty(v: u128, suffix: Option<&str>, want: Option<Ty>, sp: Span) -> PResult<Ty> {
+    let got = v.to_string();
+    let overflow = |ty: &str| Diag::error(sp, "lit.overflow").kv("ty", ty).kv("got", got.clone());
+    match suffix {
+        Some(s) => {
+            let i = IntTy::from_name(s).ok_or_else(|| Diag::error(sp, "lex.bad_suffix").kv("got", s))?;
+            if i != IntTy::U128 {
+                return Err(overflow(i.name()));
+            }
+            Ok(Ty::Int(IntTy::U128))
+        }
+        None => match want {
+            Some(Ty::Int(IntTy::U128)) => Ok(Ty::Int(IntTy::U128)),
+            Some(Ty::Int(i)) => Err(overflow(i.name())),
+            _ => Err(overflow("i64")),
+        },
+    }
 }
 

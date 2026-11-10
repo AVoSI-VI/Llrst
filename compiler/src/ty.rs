@@ -6,7 +6,7 @@ pub struct DefId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
-    I8, I16, I32, I64, U8, U16, U32, U64,
+    I8, I16, I32, I64, U8, U16, U32, U64, I128, U128,
 }
 
 impl IntTy {
@@ -14,6 +14,7 @@ impl IntTy {
         Some(match s {
             "i8" => IntTy::I8, "i16" => IntTy::I16, "i32" => IntTy::I32, "i64" => IntTy::I64,
             "u8" => IntTy::U8, "u16" => IntTy::U16, "u32" => IntTy::U32, "u64" => IntTy::U64,
+            "i128" => IntTy::I128, "u128" => IntTy::U128,
             _ => return None,
         })
     }
@@ -21,6 +22,7 @@ impl IntTy {
         match self {
             IntTy::I8 => "i8", IntTy::I16 => "i16", IntTy::I32 => "i32", IntTy::I64 => "i64",
             IntTy::U8 => "u8", IntTy::U16 => "u16", IntTy::U32 => "u32", IntTy::U64 => "u64",
+            IntTy::I128 => "i128", IntTy::U128 => "u128",
         }
     }
     pub fn bytes(self) -> u32 {
@@ -29,19 +31,31 @@ impl IntTy {
             IntTy::I16 | IntTy::U16 => 2,
             IntTy::I32 | IntTy::U32 => 4,
             IntTy::I64 | IntTy::U64 => 8,
+            IntTy::I128 | IntTy::U128 => 16,
         }
     }
     pub fn signed(self) -> bool {
-        matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64)
+        matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64 | IntTy::I128)
     }
+    /// `i128` or `u128`. Neither `fits` nor this shifts by 128.
+    pub fn wide(self) -> bool {
+        matches!(self, IntTy::I128 | IntTy::U128)
+    }
+    /// `I128` holds every `i128`. `U128` holds the non-negative ones. A `Lit::Wide` is a separate path.
     pub fn fits(self, v: i128) -> bool {
-        let bits = self.bytes() as u32 * 8;
-        if self.signed() {
-            let min = -(1i128 << (bits - 1));
-            let max = (1i128 << (bits - 1)) - 1;
-            v >= min && v <= max
-        } else {
-            v >= 0 && v < (1i128 << bits)
+        match self {
+            IntTy::I128 => true,
+            IntTy::U128 => v >= 0,
+            _ => {
+                let bits = self.bytes() * 8;
+                if self.signed() {
+                    let min = -(1i128 << (bits - 1));
+                    let max = (1i128 << (bits - 1)) - 1;
+                    v >= min && v <= max
+                } else {
+                    v >= 0 && v < (1i128 << bits)
+                }
+            }
         }
     }
 }

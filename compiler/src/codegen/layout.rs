@@ -49,7 +49,10 @@ impl<'a> Layouts<'a> {
     fn compute(&mut self, t: &Ty) -> Layout {
         let scalar = |n: u32| Layout { size: n, align: n, fields: Vec::new(), variants: Vec::new() };
         match t {
-            Ty::Int(i) => scalar(i.bytes()),
+            Ty::Int(i) => {
+                let n = i.bytes();
+                Layout { size: n, align: if i.wide() { 8 } else { n }, fields: Vec::new(), variants: Vec::new() }
+            }
             Ty::F32 => scalar(4),
             Ty::F64 => scalar(8),
             Ty::Bool => scalar(1),
@@ -124,6 +127,7 @@ pub fn clif_type(t: &Ty) -> Option<types::Type> {
             IntTy::I16 | IntTy::U16 => types::I16,
             IntTy::I32 | IntTy::U32 => types::I32,
             IntTy::I64 | IntTy::U64 => types::I64,
+            IntTy::I128 | IntTy::U128 => types::I128,
         },
         Ty::F32 => types::F32,
         Ty::F64 => types::F64,

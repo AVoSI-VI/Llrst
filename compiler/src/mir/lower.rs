@@ -20,7 +20,7 @@ pub struct Lower<'a> {
     pub prog: &'a Program,
     pub diags: &'a Diags,
     pub sm: &'a SourceMap,
-    /// Set while lowering `sys.checked_div`, whose own `/` and `%` must stay raw.
+    /// Set while lowering `sys.checked_div` and the 128-bit helpers, whose own `/` and `%` stay raw.
     pub raw_div: bool,
     pub checked: bool,
     pub checked_div: Option<DefId>,
@@ -61,7 +61,10 @@ pub fn lower_fn(prog: &Program, diags: &Diags, sm: &SourceMap, f: &FnBody, name:
     for m in local_map.iter_mut() {
         *m = remap[*m as usize];
     }
-    let raw_div = name == "sys.checked_div";
+    let raw_div = matches!(
+        name.as_str(),
+        "sys.checked_div" | "sys.div128" | "sys.udiv128" | "sys.checked_mul128" | "sys.checked_umul128"
+    );
     let body = Body { name, locals: new_locals, arg_count: f.params.len(), blocks: Vec::new(), span: f.span, lifetimes, closures: Vec::new() };
     let mut lw = Lower { prog, diags, sm, raw_div, checked, checked_div: None, body, cur: 0, local_map, scopes: Vec::new(), loops: Vec::new(), ret_ty: f.ret.clone(), inline_stack: Vec::new(), inline_exit: None, inline_dest: None };
     let entry = lw.new_block();
@@ -311,8 +314,11 @@ impl<'a> Lower<'a> {
                 self.assign(&dest, Rvalue::Cast(op, e.ty.clone()), sp);
             }
             ExprKind::Bin { op, l, r } => {
+                let wide = matches!(e.ty, Ty::Int(i) if i.wide());
                 if !self.raw_div && matches!(op, BinOp::Div | BinOp::Rem) && matches!(e.ty, Ty::Int(_)) {
                     self.lower_checked_div(*op, l, r, &dest, e.ty.clone(), sp);
+                } else if !self.raw_div && self.checked && *op == BinOp::Mul && wide {
+                    self.lower_wide_mul(l, r, &dest, e.ty.clone(), sp);
                 } else {
                     let a = self.as_operand(l);
                     let b = self.as_operand(r);
@@ -384,6 +390,7 @@ pub fn lit_const(l: &Lit, ty: &Ty) -> Const {
             Ty::F64 => Const::Float(*v as f64, false),
             _ => Const::Int(*v, IntTy::I64),
         },
+        Lit::Wide(v, _) => Const::Int(*v as i128, IntTy::U128),
         Lit::Float(v, _) => Const::Float(*v, matches!(ty, Ty::F32)),
         Lit::Bool(b) => Const::Bool(*b),
         Lit::Str(s) => Const::Str(s.clone()),

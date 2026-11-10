@@ -55,7 +55,7 @@ not `use.unused`.
 ## Types
 
 ```
-TYPE := i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64 | f32 | f64 | bool | unit | str
+TYPE := i8 | i16 | i32 | i64 | i128 | u8 | u16 | u32 | u64 | u128 | f32 | f64 | bool | unit | str
       | NAME                                 ; struct or enum
       | (NAME TYPE...)                       ; generic instance: (vec str) (opt i64) (res i64 str)
       | (& TYPE) | (&mut TYPE)               ; references
@@ -115,7 +115,7 @@ PLACE := NAME | (. PLACE NAME) | (@ EXPR)
 PAT   := _ | NAME | LIT | (or PAT PAT...) | (ENUM.VARIANT PAT...) | (ENUM.VARIANT) | (TYPE PAT...)
 ```
 
-Literal suffixes select integer type: `7u8`, `7i32`, `7u64`. Unsuffixed defaults to `i64`,
+Literal suffixes select integer type: `7u8`, `7i32`, `7u64`, `7i128`, `7u128`. Unsuffixed defaults to `i64`,
 or to the expected type when known. Floats: `1.0` default `f64`, `1.0f32`.
 
 A function body is a sequence; the last expression is the return value unless it is a

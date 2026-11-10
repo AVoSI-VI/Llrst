@@ -1,5 +1,6 @@
 //! Textual MIR dump for `llrc emit-mir`.
 use super::*;
+use crate::ty::IntTy;
 use std::fmt::Write;
 
 pub fn print_body(b: &Body) -> String {
@@ -36,7 +37,10 @@ fn operand(o: &Operand) -> String {
         Operand::Copy(p) => format!("copy {}", place(p)),
         Operand::Move(p) => format!("move {}", place(p)),
         Operand::Const(c, _) => match c {
-            Const::Int(v, t) => format!("{}{}", v, t.name()),
+            Const::Int(v, t) => {
+                let n = if *t == IntTy::U128 { (*v as u128).to_string() } else { v.to_string() };
+                format!("{n}{}", t.name())
+            }
             Const::Float(v, _) => format!("{}", v),
             Const::Bool(b) => format!("{}", b),
             Const::Str(s) => format!("{:?}", String::from_utf8_lossy(s)),

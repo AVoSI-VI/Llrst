@@ -3,7 +3,7 @@ use super::Checker;
 use crate::ast::{self, Lit};
 use crate::diag::{Diag, PResult, Span};
 use crate::thir::*;
-use crate::ty::Ty;
+use crate::ty::{IntTy, Ty};
 
 struct Cov {
     full: bool,
@@ -137,12 +137,16 @@ impl<'a> Checker<'a> {
 
     fn pat_lit(&mut self, l: &Lit, ty: &Ty, sp: Span) -> PResult<Pat> {
         let lit_ty = match l {
-            Lit::Int(_, _) => {
+            Lit::Int(_, suffix) => {
+                if wide_pat(ty, suffix.as_deref()) {
+                    return Err(Diag::error(sp, "match.bad_lit"));
+                }
                 if !ty.is_int() {
-                    return Err(self.mismatch(sp, ty, &Ty::Int(crate::ty::IntTy::I64)));
+                    return Err(self.mismatch(sp, ty, &Ty::Int(IntTy::I64)));
                 }
                 ty.clone()
             }
+            Lit::Wide(_, _) => return Err(Diag::error(sp, "match.bad_lit")),
             Lit::Bool(_) => Ty::Bool,
             Lit::Str(_) => {
                 if !self.is_str(ty) {
@@ -375,6 +379,10 @@ impl Cov {
     fn full_for(&self, ck: &Checker, ty: &Ty) -> bool {
         self.full || ck.type_full(self, ty)
     }
+}
+
+fn wide_pat(ty: &Ty, suffix: Option<&str>) -> bool {
+    matches!(suffix, Some("i128" | "u128")) || matches!(ty, Ty::Int(i) if i.wide())
 }
 
 fn bind_ty(ty: &Ty, by_ref: Option<bool>) -> Ty {

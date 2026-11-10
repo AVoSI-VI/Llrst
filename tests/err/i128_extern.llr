@@ -1,0 +1,3 @@
+(extern bad ((a i128)) unit)
+
+(fn main () unit ())

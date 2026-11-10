@@ -42,7 +42,7 @@ fn is_type_form(s: &Sexpr) -> bool {
     match s {
         Sexpr::Atom(a, _) => matches!(
             a.as_str(),
-            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64" | "bool" | "str" | "unit"
+            "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "u128" | "f32" | "f64" | "bool" | "str" | "unit"
         ),
         Sexpr::List(items, _) => {
             let Some(head) = items.first().and_then(|h| h.atom()) else { return false };
@@ -101,12 +101,24 @@ pub fn parse_lit_atom(a: &str) -> Option<Lit> {
     if float {
         return body.parse::<f64>().ok().map(|v| Lit::Float(if neg { -v } else { v }, suffix));
     }
-    let v = if let Some(r) = radix {
-        i128::from_str_radix(&body[2..], r).ok()
-    } else {
-        body.parse::<i128>().ok()
+    int_lit(body, radix, neg, suffix)
+}
+
+/// `i128` when the magnitude fits, including a negative sign. Otherwise a non-negative `Lit::Wide`.
+fn int_lit(body: &str, radix: Option<u32>, neg: bool, suffix: Option<String>) -> Option<Lit> {
+    let digits = match radix {
+        Some(_) => &body[2..],
+        None => body,
     };
-    v.and_then(|v| if neg { v.checked_neg() } else { Some(v) }).map(|v| Lit::Int(v, suffix))
+    let base = radix.unwrap_or(10);
+    if let Ok(v) = i128::from_str_radix(digits, base) {
+        let v = if neg { v.checked_neg()? } else { v };
+        return Some(Lit::Int(v, suffix));
+    }
+    if neg {
+        return None;
+    }
+    u128::from_str_radix(digits, base).ok().map(|v| Lit::Wide(v, suffix))
 }
 
 pub fn parse_expr(s: &Sexpr) -> PResult<Expr> {

@@ -1,0 +1,1 @@
+E|tests/err/u128_neg_lit.llr|1|24|6|lit.overflow|ty=u128|got=-1

@@ -84,6 +84,11 @@ and also exits 101. Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`
 | `cli.*` | `cli.unknown_flag` (`flag=`) |
 | `target.*` | `target.unsupported` (`got=`) |
 
+`type.bad_cast` includes a cast between `i128` or `u128` and `f32` or `f64` (`from=` `to=`).
+`match.bad_lit` includes a literal whose type is `i128` or `u128`. `type.extern_ty` includes
+`i128`, `u128`, an `(arr ...)`, and any other aggregate in an `extern` signature (`ty=`).
+`lit.overflow` is also a `u128` magnitude written where an `i128` is required, and `-1u128`.
+
 Adding a code requires adding a row here and a golden test in `tests/err/`.
 
 ## Tool output

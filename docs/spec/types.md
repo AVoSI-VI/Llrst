@@ -6,6 +6,8 @@
 |------|------|-------|
 | `i8 i16 i32 i64` | 1 2 4 8 | signed |
 | `u8 u16 u32 u64` | 1 2 4 8 | unsigned |
+| `i128` | 16 | signed; aligned 8; no float cast; not an extern type |
+| `u128` | 16 | unsigned; aligned 8; no float cast; not an extern type |
 | `f32 f64` | 4 8 | IEEE |
 | `bool` | 1 | `true` `false` |
 | `unit` | 0 | the only value is `()`; functions with nothing to return use it |
@@ -99,10 +101,21 @@ Signed `MIN / -1` and `MIN % -1` always panic `int.overflow`, with or without `-
 the truncated value does not fit, including `NaN` and infinities; otherwise it truncates
 toward zero. An int-to-float cast panics when the integer is not exactly representable.
 Without `--checked`, float-to-int still saturates and int-to-float still rounds.
+`i128` and `u128` wrap the same way. Their `/` and `%` call `sys.div128` and `sys.udiv128`
+with no widening. Unchecked `shl` and `shr` mask the count with 127. Under `--checked`, `*`
+calls `sys.checked_mul128` or `sys.checked_umul128`; `+`, `-`, and `neg` trap from the sign
+bits on `i128` and from the carry on `u128`; a shift traps when the count is outside `0..128`.
+`i128` to `u128` and back copies the bits; under `--checked` that cast traps when the sign bit
+is set. Narrowing a 128-bit int under `--checked` traps `cast.overflow` unless the high word
+is the sign fill of a signed target or zero for an unsigned target. A magnitude that does not
+fit in `i128` is a `u128` literal. `-1u128` is `lit.overflow`. A 128-bit literal is not a
+`match` pattern (`match.bad_lit`). An `i128` or `u128` in an `extern` signature is
+`type.extern_ty`.
 
 ## Casts
 
 `(as T e)` between numeric types only; truncating/sign-extending/float-int by Rust rules.
+There is no cast between `i128` or `u128` and `f32` or `f64` (`type.bad_cast`); go through `i64`.
 No implicit numeric conversion anywhere. `llrc build --checked` panics with
 `P|FILE|LINE|COL|cast.overflow` when an integer cast, a float-to-int cast, or an
 int-to-float cast does not fit in `T`. Bool-to-int always fits. Without `--checked`,

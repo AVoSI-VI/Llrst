@@ -142,6 +142,8 @@ pub enum Item {
 #[derive(Clone, Debug)]
 pub enum Lit {
     Int(i128, Option<String>), // value, suffix
+    /// A magnitude that does not fit in `i128`. Accepted only as `u128`; stored as its bit pattern.
+    Wide(u128, Option<String>),
     Float(f64, Option<String>),
     Bool(bool),
     Str(Vec<u8>),

@@ -1,4 +1,4 @@
-//! `(arr T N)` resolution and the `extern` rejection.
+//! `(arr T N)` resolution and the `extern` type rejection.
 use crate::ast::TyExpr;
 use crate::diag::{Diag, PResult, Span};
 use crate::resolve::{resolve_ty, Program};
@@ -42,18 +42,22 @@ fn ty_got(t: &TyExpr) -> String {
     }
 }
 
-fn find_arr(t: &Ty) -> Option<&Ty> {
+/// An `(arr ...)`, `i128`, `u128`, or other aggregate anywhere in an `extern` type.
+fn extern_bad(t: &Ty) -> Option<&Ty> {
     match t {
+        Ty::Int(i) if i.wide() => Some(t),
         Ty::Arr(..) => Some(t),
-        Ty::Ref { inner, .. } | Ty::Ptr(inner) => find_arr(inner),
-        Ty::Adt(_, a) => a.iter().find_map(find_arr),
-        Ty::Fn(ps, r) | Ty::Clos(ps, r) => ps.iter().find_map(find_arr).or_else(|| find_arr(r)),
+        Ty::Ref { inner, .. } | Ty::Ptr(inner) => extern_bad(inner),
+        Ty::Fn(ps, r) => ps.iter().find_map(extern_bad).or_else(|| extern_bad(r)),
+        Ty::Adt(_, args) => args.iter().find_map(extern_bad).or(Some(t)),
+        Ty::Clos(ps, r) => ps.iter().find_map(extern_bad).or_else(|| extern_bad(r)).or(Some(t)),
+        Ty::Dyn { .. } | Ty::BoxDyn { .. } => Some(t),
         _ => None,
     }
 }
 
-pub fn extern_arr(prog: &Program, t: &Ty, sp: Span) -> PResult<()> {
-    let Some(a) = find_arr(t) else { return Ok(()) };
+pub fn extern_ty(prog: &Program, t: &Ty, sp: Span) -> PResult<()> {
+    let Some(a) = extern_bad(t) else { return Ok(()) };
     let shown = TyPrinter { names: &|d: DefId| prog.type_name(d) }.show(a);
     Err(Diag::error(sp, "type.extern_ty").kv("ty", shown))
 }

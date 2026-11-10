@@ -229,6 +229,7 @@ fn int_clif(t: IntTy) -> types::Type {
         IntTy::I16 | IntTy::U16 => types::I16,
         IntTy::I32 | IntTy::U32 => types::I32,
         IntTy::I64 | IntTy::U64 => types::I64,
+        IntTy::I128 | IntTy::U128 => types::I128,
     }
 }
 

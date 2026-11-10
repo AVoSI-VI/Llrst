@@ -76,8 +76,9 @@ costs tokens). Dotted name `a.b` means `b` inside module or type `a`.
 
 ## Literals
 
-`123` `123u8` `123i32` `0x7F` `0xFFi32` `0b1010` `0o17` `1_000` `1.5` `1.5f32` `1e9` `1.5e-3` `true` `false` `"text"`
-An integer may be written in hexadecimal (`0x`), binary (`0b`), or octal (`0o`). Digits above 9 are `a-f` and `A-F`. The same type suffixes as decimal apply (`0x7Fi32`, `0b1010u8`). Prefixes are lowercase. A lowercase `f`, `i`, or `u` starts a suffix, so a hex digit `f` is written `F`. `_` may separate digits (`1_000`, `0xFF_FF`).
+`123` `123u8` `123i32` `123i128` `123u128` `0x7F` `0xFFi32` `0b1010` `0o17` `1_000` `1.5` `1.5f32` `1e9` `1.5e-3` `true` `false` `"text"`
+An integer may be written in hexadecimal (`0x`), binary (`0b`), or octal (`0o`). Digits above 9 are `a-f` and `A-F`. The same type suffixes as decimal apply (`0x7Fi32`, `0b1010u8`, `1i128`, `1u128`). Prefixes are lowercase. A lowercase `f`, `i`, or `u` starts a suffix, so a hex digit `f` is written `F`. `_` may separate digits (`1_000`, `0xFF_FF`).
+`i128` and `u128` are integer type names and literal suffixes. A magnitude that does not fit in `i128`, and is not negative, is a `u128` literal. `-1u128` is `lit.overflow`.
 A float may use an exponent: `1e9`, `1.5e-3`, `1E+2`. The exponent makes the literal a float even when there is no dot.
 String escapes: `\n \r \t \0 \" \\ \xHH \u{HHHH}`. `\u{HHHH}` is one to six hex digits, at most U+10FFFF, not a surrogate, and is encoded as UTF-8.
 
