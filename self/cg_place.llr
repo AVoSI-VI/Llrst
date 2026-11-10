@@ -46,7 +46,26 @@
    (n i64)) ty.sty
   (if (== k 1u8) (ret (do (cg_frame.ld fx 8 cg_isa.addr cg_isa.addr 0) (ty.inner ty))))
   (if (== k 2u8) (ret (do (set (@ variant) n) (ty.clone ty))))
+  (if (== k 3u8) (ret (do (set (@ variant) (neg 1)) (index_step g p fx ty n))))
   (field_step g p fx ty variant n))
+
+;; Index local into tmp (the plain-local rhs register), then addr += tmp * size(T).
+;; tmp is neither addr nor acc, so a scalar sitting in acc survives the address.
+(fn load_ix ((fx (&mut cg_frame.fncx)) (local i64)) unit
+  (if (cg_frame.is_reg fx local)
+    (ret (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.tmp (cg_frame.off_at fx local))))
+  (cg_frame.ld fx 8 cg_isa.tmp cg_isa.fp (cg_frame.off_at fx local)))
+
+(fn index_step ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (ty (& ty.sty)) (n i64)) ty.sty
+  (let elem (ty.inner ty))
+  (load_ix fx n)
+  (cg_isa.mul_ri (&mut (. fx buf))
+    (& (. fx isa))
+    8
+    cg_isa.tmp
+    (cg_lay.size (&mut (. g lays)) p (& elem)))
+  (cg_isa.add_rr (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr cg_isa.tmp)
+  elem)
 
 (fn field_step ((g (&mut cg_mod.cg))
    (p (& prog.prog))

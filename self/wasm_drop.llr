@@ -94,6 +94,7 @@
 (fn body ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (t (& ty.sty))) unit
   (if (== (. t kind) 15u8) (ret (glue_box g p fx)))
   (if (== (. t kind) 10u8) (ret (glue_clos g p fx)))
+  (if (== (. t kind) 16u8) (ret (glue_arr g p fx t)))
   (if (== (. t kind) 8u8) (glue_adt g p fx t)))
 
 (fn glue_box ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx))) unit
@@ -201,7 +202,77 @@
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
   (if (== (. t kind) 15u8) (ret (str.from "drop.box")))
+  (if (== (. t kind) 16u8) (ret (str.cat "drop." (& (arr_txt p t)))))
   (if (!= (. t kind) 8u8) (ret (str.cat "drop." (& (ty.show t)))))
   (str.cat "drop." (& (prog.type_name p (. t id)))))
+
+;; Counter lives at sp+16, beside the trace record at sp+0. A call keeps the slot.
+(fn glue_arr ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (t (& ty.sty))) unit
+  (let elem (ty.inner t))
+  (if (not (prog.needs_drop p (& elem))) (ret))
+  (let sz (cg_lay.size (&mut (. g lays)) p (& elem)))
+  (let ord (wasm_mod.drop_sym g (& elem)))
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.store_sp fx 16 8)
+  ;; `br 2` leaves this block. A branch to the loop repeats it.
+  (wasm_abi.op_block fx)
+  (wasm_abi.op_loop fx)
+  (wasm_abi.load_sp fx 16 8 true)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx (. t id))
+  (wasm_abi.put fx 81)
+  (wasm_abi.op_if0 fx)
+  (wasm_abi.br fx 2)
+  (wasm_abi.op_else fx)
+  (arr_at g fx ord sz)
+  (wasm_abi.end fx)
+  (wasm_abi.br fx 0)
+  (wasm_abi.end fx)
+  (wasm_abi.end fx))
+
+(fn arr_at ((g (&mut wasm_mod.wm)) (fx (&mut wasm_abi.fx)) (ord i64) (sz i64)) unit
+  (wasm_abi.get fx 0)
+  (wasm_abi.set_tmp fx)
+  (wasm_abi.load_sp fx 16 8 true)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx sz)
+  (wasm_abi.put fx 126)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.get_tmp fx)
+  (wasm_abi.put fx 124)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.call_ix fx (wasm_mod.call_of g ord))
+  (wasm_abi.load_sp fx 16 8 true)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx 1)
+  (wasm_abi.put fx 124)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.store_sp fx 16 8))
+
+(fn arr_txt ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "(arr "))
+  (str.push (&mut s) (& (elem_txt p (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int (. t id))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+(fn elem_txt ((p (& prog.prog)) (t (& ty.sty))) str
+  (if (== (. t kind) 8u8) (ret (adt_txt p t)))
+  (if (== (. t kind) 16u8) (ret (arr_txt p t)))
+  (ty.show t))
+
+(fn adt_txt ((p (& prog.prog)) (t (& ty.sty))) str
+  (if (== (vec.len (& (. t args))) 0) (ret (prog.type_name p (. t id))))
+  (let mut s (str.from "("))
+  (str.push (&mut s) (& (prog.type_name p (. t id))))
+  (for i 0 (vec.len (& (. t args)))
+    (str.push_byte (&mut s) 32u8)
+    (str.push (&mut s) (& (elem_txt p (vec.get (& (. t args)) i)))))
+  (str.push_byte (&mut s) 41u8)
+  s)
 
 (fn clone_tys ((v (& (vec ty.sty)))) (vec ty.sty) (vec.clone v))

@@ -81,7 +81,9 @@
   (let off
     (if variant
       (@ (vec.get (vec.get (& (. l vars)) (. (. s rv) op)) i))
-      (@ (vec.get (& (. l fields)) i))))
+      (if (== (. (. (. s rv) ty) kind) 16u8)
+        (* i (cg_lay.size (&mut (. g lays)) p (& (ty.inner (& (. (. s rv) ty))))))
+        (@ (vec.get (& (. l fields)) i)))))
   (wasm_abi.reload_acc fx base)
   (wasm_abi.add_acc fx off)
   (wasm_abi.get_acc fx)
@@ -105,6 +107,7 @@
   (wasm_abi.copy_n fx n))
 
 (fn field_ty ((p (& prog.prog)) (s (& mir.st)) (i i64) (variant bool)) ty.sty
+  (if (== (. (. (. s rv) ty) kind) 16u8) (ret (ty.inner (& (. (. s rv) ty)))))
   (if (!= (. (. (. s rv) ty) kind) 8u8) (ret (ty.int 3)))
   (let v (if variant (. (. s rv) op) 0))
   (mir.field_ty p (& (. (. s rv) ty)) v i))

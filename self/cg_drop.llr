@@ -109,11 +109,7 @@
     (do (let ns (cg_mod.cstr_sym g (& nm))) (cg_isa.trace_mark (&mut b) (& (. g isa)) (neg 16) ns))
     (cg_trace.bpush g (&mut b) disp (& nm)))
   (cg_frame.bload (&mut b) (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
-  (if (== (. t kind) 15u8)
-    (glue_box g p (&mut b))
-    (if (== (. t kind) 10u8)
-      (glue_clos (&mut b) (& (. g isa)) (cg_isa.arg_i 0))
-      (if (== (. t kind) 8u8) (glue_adt g p (&mut b) t) ())))
+  (glue_body g p (&mut b) t)
   (if (not (cg_frame.fast g)) (cg_trace.bpop g (&mut b) disp))
   (cg_isa.epilogue (&mut b) (& (. g isa)))
   (let _ (cg_isa.finish_code (&mut b) (& (. g isa))))
@@ -131,6 +127,12 @@
   (cg_frame.bstore b (& (. g isa)) 8 cg_isa.fp (saved_arg g) (cg_isa.arg_i 0))
   disp)
 
+(fn glue_body ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (t (& ty.sty))) unit
+  (if (== (. t kind) 15u8) (ret (glue_box g p b)))
+  (if (== (. t kind) 10u8) (ret (glue_clos b (& (. g isa)) (cg_isa.arg_i 0))))
+  (if (== (. t kind) 8u8) (ret (glue_adt g p b t)))
+  (if (== (. t kind) 16u8) (glue_arr g p b t)))
+
 (fn glue_box ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code))) unit
   (let arg (cg_isa.arg_i 0))
   (cg_frame.bload b (& (. g isa)) 8 cg_isa.acc arg 0)
@@ -146,6 +148,7 @@
 (fn frame_name ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "drop.clos")))
   (if (== (. t kind) 15u8) (ret (str.from "drop.box")))
+  (if (== (. t kind) 16u8) (ret (str.cat "drop." (& (shown p t)))))
   (if (!= (. t kind) 8u8) (ret (str.cat "drop." (& (ty.show t)))))
   (framed p (& (prog.type_name p (. t id))) (& (. t args))))
 
@@ -161,6 +164,7 @@
 
 (fn shown ((p (& prog.prog)) (t (& ty.sty))) str
   (if (== (. t kind) 10u8) (ret (str.from "clos")))
+  (if (== (. t kind) 16u8) (ret (arr_txt p t)))
   (if (!= (. t kind) 8u8) (ret (ty.show t)))
   (if (== (vec.len (& (. t args))) 0) (ret (prog.type_name p (. t id))))
   (let mut s (str.from "("))
@@ -170,6 +174,43 @@
     (str.push (&mut s) (& (shown p (vec.get (& (. t args)) i)))))
   (str.push_byte (&mut s) 41u8)
   s)
+
+(fn arr_txt ((p (& prog.prog)) (t (& ty.sty))) str
+  (let mut s (str.from "(arr "))
+  (str.push (&mut s) (& (shown p (vec.get (& (. t args)) 0))))
+  (str.push_byte (&mut s) 32u8)
+  (str.push (&mut s) (& (str.from_int (. t id))))
+  (str.push_byte (&mut s) 41u8)
+  s)
+
+;; Counter in saved_i(0), which the element call preserves. The caller's value
+;; of that register is parked in the box spill slot for the glue's own frame.
+(fn glue_arr ((g (&mut cg_mod.cg)) (p (& prog.prog)) (b (&mut cg_isa.code)) (t (& ty.sty))) unit
+  (let elem (ty.inner t))
+  (if (not (prog.needs_drop p (& elem))) (ret))
+  (let sz (cg_lay.size (&mut (. g lays)) p (& elem)))
+  (let sym (cg_mod.drop_sym g (& elem)))
+  (let k (cg_isa.saved_i 0))
+  (let slot (box_spill g))
+  (cg_isa.slot_io b (& (. g isa)) false 0 slot false)
+  (cg_isa.mov_ri b (& (. g isa)) 8 k 0)
+  (let head (cg_isa.label b (& (. g isa))))
+  (let done (cg_isa.label b (& (. g isa))))
+  (cg_isa.bind b (& (. g isa)) head)
+  (cg_isa.cmp_ri b (& (. g isa)) 8 k (. t id))
+  (cg_isa.jcc b (& (. g isa)) cg_isa.eq done)
+  (arr_at g b sym k sz)
+  (cg_isa.add_ri b (& (. g isa)) 8 k 1)
+  (cg_isa.jmp b (& (. g isa)) head)
+  (cg_isa.bind b (& (. g isa)) done)
+  (cg_isa.slot_io b (& (. g isa)) false 0 slot true))
+
+(fn arr_at ((g (&mut cg_mod.cg)) (b (&mut cg_isa.code)) (sym i64) (k i64) (sz i64)) unit
+  (cg_frame.bload b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.fp (saved_arg g))
+  (cg_isa.mov_rr b (& (. g isa)) 8 cg_isa.dst k)
+  (cg_isa.mul_ri b (& (. g isa)) 8 cg_isa.dst sz)
+  (cg_isa.add_rr b (& (. g isa)) 8 (cg_isa.arg_i 0) cg_isa.dst)
+  (cg_isa.call_sym b (& (. g isa)) sym))
 
 (fn glue_clos ((b (&mut cg_isa.code)) (s (& cg_isa.isa)) (arg i64)) unit
   (cg_frame.bload b s 8 cg_isa.dst arg 8)

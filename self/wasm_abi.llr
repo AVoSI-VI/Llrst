@@ -393,7 +393,25 @@
    (n i64)) ty.sty
   (if (== k 1u8) (ret (do (load_acc fx 0 8 true) (ty.inner ty))))
   (if (== k 2u8) (ret (do (set (@ variant) n) (ty.clone ty))))
+  (if (== k 3u8) (ret (do (set (@ variant) (neg 1)) (index_step g p fx ty n))))
   (field_step g p fx ty variant n))
+
+;; Address stays in tmp while the index local is loaded; acc ends as base + index * size.
+(fn index_step ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut fx)) (ty (& ty.sty)) (n i64)) ty.sty
+  (let elem (ty.inner ty))
+  (let sz (cg_lay.size (&mut (. g lays)) p (& elem)))
+  (get_acc fx)
+  (set_tmp fx)
+  (load_sp fx (off_at fx n) 8 true)
+  (get_acc fx)
+  (i64c fx sz)
+  (put fx 126)
+  (set_acc fx)
+  (get_acc fx)
+  (get_tmp fx)
+  (put fx 124)
+  (set_acc fx)
+  elem)
 
 (fn field_step ((g (&mut wasm_mod.wm))
    (p (& prog.prog))

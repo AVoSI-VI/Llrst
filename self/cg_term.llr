@@ -163,10 +163,7 @@
    (d i64)
    (k u8)
    (variant bool)) unit
-  (let off
-    (if variant
-      (cg_lay.var_at (& (. g lays)) ix (. (. s rv) op) i)
-      (cg_lay.field_at (& (. g lays)) ix i)))
+  (let off (rec_off g p s ix i variant))
   (cg_frame.ld fx 8 cg_isa.dst cg_isa.fp base)
   (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.dst off)
   (if (== k 2u8)
@@ -186,7 +183,14 @@
   (cg_isa.add_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.addr d)
   (cg_frame.copy g p fx n))
 
+(fn rec_off ((g (&mut cg_mod.cg)) (p (& prog.prog)) (s (& mir.st)) (ix i64) (i i64) (variant bool)) i64
+  (if variant (ret (cg_lay.var_at (& (. g lays)) ix (. (. s rv) op) i)))
+  (if (== (. (. (. s rv) ty) kind) 16u8)
+    (ret (* i (cg_lay.size (&mut (. g lays)) p (& (ty.inner (& (. (. s rv) ty))))))))
+  (cg_lay.field_at (& (. g lays)) ix i))
+
 (fn field_at ((p (& prog.prog)) (s (& mir.st)) (i i64) (variant bool)) ty.sty
+  (if (== (. (. (. s rv) ty) kind) 16u8) (ret (ty.inner (& (. (. s rv) ty)))))
   (if (!= (. (. (. s rv) ty) kind) 8u8) (ret (ty.int 3)))
   (let v (if variant (. (. s rv) op) 0))
   (mir.field_ty p (& (. (. s rv) ty)) v i))

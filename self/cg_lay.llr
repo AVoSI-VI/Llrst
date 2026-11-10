@@ -116,6 +116,7 @@
   (if (== k 10u8) (ret (clos_lay)))
   (if (or (== k 11u8) (== k 15u8)) (ret (dyn_lay)))
   (if (== k 8u8) (ret (adt_lay ls p t)))
+  (if (== k 16u8) (ret (arr_lay ls p t)))
   (empty 0 1))
 
 (fn clos_lay () lay
@@ -130,6 +131,10 @@
   (vec.push (&mut f) 0)
   (vec.push (&mut f) 8)
   (lay 16 8 f (vec.new < (vec i64) >)))
+
+(fn arr_lay ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
+  (let e (of_idx ls p (vec.get (& (. t args)) 0)))
+  (empty (* (. t id) (size_at ls e)) (align_at ls e)))
 
 (fn adt_lay ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
   (let d (vec.get (& (. p defs)) (. t id)))
@@ -241,3 +246,19 @@
   (assert_eq again third)
   (assert_eq (size_at (& ls) again) (. l size))
   (assert_eq (var_at (& ls) again 0 0) 8))
+
+(test lay_arr
+  (let mut ls (new))
+  (let p (prog.blank_prog))
+  (let a (ty.arr 4 (ty.int 4)))
+  (assert_eq (size (&mut ls) (& p) (& a)) 4)
+  (assert (not (is_scalar (& a))))
+  (assert (is_agg (& a)))
+  (let l (of (&mut ls) (& p) (& a)))
+  (assert_eq (vec.len (& (. l fields))) 0)
+  (let b (ty.arr 3 (ty.int 3)))
+  (let bl (of (&mut ls) (& p) (& b)))
+  (assert_eq (. bl size) 24)
+  (assert_eq (. bl align) 8)
+  (let n (ty.arr 2 (ty.arr 4 (ty.int 4))))
+  (assert_eq (size (&mut ls) (& p) (& n)) 8))
