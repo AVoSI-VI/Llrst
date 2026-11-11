@@ -153,7 +153,7 @@
    (drops (&mut (vec mir.place)))
    (env (& menv))) unit
   (let arg (borrow_str p w (mir.pclone (& (. cur pl))) (& (. cur pat))))
-  (let lit (mir.oconst 3u8 0 0 (str.clone (& (. (. cur pat) text))) (thir.ref_str p)))
+  (let lit (mir.oconst 3u8 0 0 0 (str.clone (& (. (. cur pat) text))) (thir.ref_str p)))
   (let slot (lower.temp p w (ty.bool_ty) (. (. cur pat) line) (. (. cur pat) col)))
   (let next (lower.new_block w))
   (lower.terminate w (eq_term p slot next arg lit))

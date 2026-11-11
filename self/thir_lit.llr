@@ -41,18 +41,30 @@
   (set (. x id2) (. n val))
   (res.ok x))
 
+(fn lit_got ((n (& lit.num))) str
+  (if (. n wide) (do (let u (as u128 (. n val))) (ret (Show.show (& u)))))
+  (Show.show (& (. n val))))
+
+(fn overflow ((name str) (n (& lit.num))) str (thir.kv2 "lit.overflow" "ty" name "got" (lit_got n)))
+
+(fn wide_ok ((i i64) (n (& lit.num))) (res ty.sty str)
+  (if (== i 9) (res.ok (ty.int 9)) (res.err (overflow (ty.int_name i) n))))
+
 (fn int_ty ((c (&mut thir.ck)) (n (& lit.num)) (won bool) (want (& ty.sty)) (line i64)) (res ty.sty str)
   (if (> (str.len (& (. n suffix))) 0)
     (do
       (let i (ty.int_id (& (. n suffix))))
       (if (< i 0) (ret (res.err (str.from "lex.bad_suffix"))))
-      (if (not (ty.fits i (. n val))) (ret (res.err (str.from "lit.overflow"))))
+      (if (. n wide) (ret (wide_ok i n)))
+      (if (not (ty.fits i (. n val))) (ret (res.err (overflow (ty.int_name i) n))))
       (ret (res.ok (ty.int i)))))
   (let w (if won (thir.shallow c want) (ty.unit)))
   (if (and won (== (. w kind) 0u8))
     (do
-      (if (not (ty.fits (. w id) (. n val))) (ret (res.err (str.from "lit.overflow"))))
+      (if (. n wide) (ret (wide_ok (. w id) n)))
+      (if (not (ty.fits (. w id) (. n val))) (ret (res.err (overflow (ty.int_name (. w id)) n))))
       (ret (res.ok (ty.int (. w id))))))
+  (if (. n wide) (ret (res.err (overflow (str.from "i64") n))))
   (if (and won (== (. w kind) 1u8)) (ret (res.ok (ty.mk 1u8 0 false (str.new) (vec.new <ty.sty>)))))
   (if (and won (== (. w kind) 2u8)) (ret (res.ok (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))))
   (res.ok (thir.fresh c true)))

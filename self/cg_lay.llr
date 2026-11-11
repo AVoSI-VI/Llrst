@@ -17,14 +17,9 @@
 
 (pub (fn align_up ((x i64) (a i64)) i64 (if (<= a 1) (ret x)) (* (/ (+ x (- a 1)) a) a)))
 
-(pub (fn int_bytes ((id i64)) i64
-  (if (or (== id 0) (== id 4)) (ret 1))
-  (if (or (== id 1) (== id 5)) (ret 2))
-  (if (or (== id 2) (== id 6)) (ret 4))
-  (if (or (== id 8) (== id 9)) (ret 16))
-  8))
+(pub (fn int_bytes ((id i64)) i64 (ty.int_bytes id)))
 
-(pub (fn signed ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (or (<= (. t id) 3) (== (. t id) 8)))))
+(pub (fn signed ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (ty.signed (. t id)))))
 
 (pub (fn is_scalar ((t (& ty.sty))) bool
   (let k (. t kind))

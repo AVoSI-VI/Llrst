@@ -116,7 +116,7 @@
   (let mut x (thir.ex_new 24u8 (ty.unit) (. e line) (. e col) (. c file)))
   (set (. x len) (. e len))
   (set (. x id) 0)
-  (set (. x id2) f)
+  (set (. x id2) (as i128 f))
   (set (. x tys) args)
   (set (. x kids) kids)
   x)

@@ -71,8 +71,9 @@
 
 (pub (fn wants ((p (& prog.prog)) (w (& lower.low)) (e (& thir.ex))) bool
   (if (!= (. e id) 0) (ret false))
-  (let d (vec.get (& (. p defs)) (. e id2)))
-  (and (or (. d inline) (small d)) (not (on_stack w (. e id2))))))
+  (let id (as i64 (. e id2)))
+  (let d (vec.get (& (. p defs)) id))
+  (and (or (. d inline) (small d)) (not (on_stack w id)))))
 
 (fn ikey ((p (& prog.prog)) (id i64) (tys (& (vec ty.sty)))) str
   (let mut s (prog.fn_path p id))
@@ -96,11 +97,12 @@
 
 (pub (fn try_inline ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (args (vec mir.op)) (dest mir.place)) bool
   (if (not (wants p w e)) (ret false))
-  (vec.push (&mut (. w stack)) (. e id2))
-  (let key (ikey p (. e id2) (& (. e tys))))
+  (let id (as i64 (. e id2)))
+  (vec.push (&mut (. w stack)) id)
+  (let key (ikey p id (& (. e tys))))
   (let hit (recall (& (. w ic)) (& key)))
   (match hit
-    ((opt.some b) (subst p w b args dest (. e id2) (ty.clone_tys (& (. e tys)))))
+    ((opt.some b) (subst p w b args dest id (ty.clone_tys (& (. e tys)))))
     ((opt.none)
       (if (not (miss p w e (& key) args dest))
         (do (let _ (vec.pop (&mut (. w stack)))) (ret false)))))
@@ -114,7 +116,7 @@
    (args (vec mir.op))
    (dest mir.place)) bool
   (let mut sink (vec.new <diag.dg>))
-  (let fid (. e id2))
+  (let fid (as i64 (. e id2)))
   (match (thir.check_fn p fid (ty.clone_tys (& (. e tys))) (&mut sink))
     ((res.err _) (do (diag.append (&mut (. w diags)) (& sink)) false))
     ((res.ok b)

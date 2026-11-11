@@ -59,7 +59,7 @@
   (let rty (ty.clone (& (. recv ty))))
   (let mut x (thir_call.at c e 24u8 (ty.subst_self (& (. sig ret)) (& rty))))
   (set (. x id) 5)
-  (set (. x id2) tr)
+  (set (. x id2) (as i128 tr))
   (set (. x text) (str.from_int slot))
   (vec.push (&mut (. x kids)) recv)
   (for i 1 n

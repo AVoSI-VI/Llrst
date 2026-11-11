@@ -157,7 +157,7 @@
 (fn emit_ok ((o (& drive.flags)) (p prog.prog) (c (&mut phase.clock))) i64
   (let mut ds (vec.new <diag.dg>))
   (let mut s (str.new))
-  (drop (check.run (& p) "" (&mut ds) (&mut s) true (. o test) false c))
+  (drop (check.run (& p) "" (&mut ds) (&mut s) true (. o test) false (. o checked) c))
   (if (not (diag.any_err (& (. p notes)) ""))
     (do
       (let t0 (phase.now c))

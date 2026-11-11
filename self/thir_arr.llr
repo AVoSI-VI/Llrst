@@ -31,7 +31,7 @@
 
 (fn lit ((c (& thir.ck)) (e (& expr)) (v i64)) thir.ex
   (let mut x (at c e 0u8 (i64ty)))
-  (set (. x id2) v)
+  (set (. x id2) (as i128 v))
   x)
 
 (fn loc ((c (& thir.ck)) (e (& expr)) (id i64) (t ty.sty)) thir.ex
@@ -102,7 +102,7 @@
 
 (fn call2 ((c (& thir.ck)) (e (& expr)) (f i64) (t ty.sty) (a thir.ex) (b thir.ex)) thir.ex
   (let mut x (at c e 24u8 t))
-  (set (. x id2) f)
+  (set (. x id2) (as i128 f))
   (vec.push (&mut (. x kids)) a)
   (vec.push (&mut (. x kids)) b)
   x)

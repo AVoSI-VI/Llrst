@@ -14,6 +14,7 @@
   (pub (ck u8))
   (pub (id i64))
   (pub (id2 i64))
+  (pub (hi i64))
   (pub (text str))
   (pub (ty ty.sty))))
 
@@ -94,12 +95,12 @@
   (vec.push (&mut (. q pi)) i)
   q))
 
-(pub (fn ocopy ((p place)) op (op 0u8 (. p local) (. p pk) (. p pi) 0u8 0 0 (str.new) (ty.unit))))
+(pub (fn ocopy ((p place)) op (op 0u8 (. p local) (. p pk) (. p pi) 0u8 0 0 0 (str.new) (ty.unit))))
 
-(pub (fn omove ((p place)) op (op 1u8 (. p local) (. p pk) (. p pi) 0u8 0 0 (str.new) (ty.unit))))
+(pub (fn omove ((p place)) op (op 1u8 (. p local) (. p pk) (. p pi) 0u8 0 0 0 (str.new) (ty.unit))))
 
-(pub (fn oconst ((thir.ck u8) (id i64) (id2 i64) (text str) (t ty.sty)) op
-  (op 2u8 0 (vec.new <u8>) (vec.new <i64>) thir.ck id id2 text t)))
+(pub (fn oconst ((ck u8) (id i64) (id2 i64) (hi i64) (text str) (t ty.sty)) op
+  (op 2u8 0 (vec.new <u8>) (vec.new <i64>) ck id id2 hi text t)))
 
 (pub (fn oclone ((o (& op))) op
   (op (. o kind)
@@ -109,6 +110,7 @@
     (. o ck)
     (. o id)
     (. o id2)
+    (. o hi)
     (str.clone (& (. o text)))
     (ty.clone (& (. o ty))))))
 
@@ -145,7 +147,7 @@
     0
     0
     0
-    (oconst 4u8 0 0 (str.new) (ty.unit))
+    (oconst 4u8 0 0 0 (str.new) (ty.unit))
     (vec.new <i64>)
     (vec.new <i64>)
     0u8

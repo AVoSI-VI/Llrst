@@ -31,8 +31,6 @@ for dir in err warn; do
   for f in "$root"/tests/$dir/*.llr; do
     [ -e "$f" ] || continue
     name="$(basename "$f" .llr)"
-    # Stage 2 learns i128 and u128 in expand.md phase B3.
-    case "$name" in i128_*|u128_*|lit_overflow_i128|lit_overflow_u128) continue ;; esac
     golden="$root/tests/$dir/$name.err"
     [ -e "$golden" ] || continue
     flags=()

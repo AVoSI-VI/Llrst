@@ -1,0 +1,51 @@
+;; Type atoms and casts. A 128-bit int does not cast to or from a float.
+(use proj.prog)
+(use proj.thir)
+(use proj.thir_expr)
+(use proj.ty)
+(use std.str)
+
+(pub (fn atom_ty ((name (& str))) bool
+  (if (>= (ty.int_id name) 0) (ret true))
+  (or (str.eq name "f32")
+    (or (str.eq name "f64") (or (str.eq name "bool") (or (str.eq name "str") (str.eq name "unit")))))))
+
+(pub (fn named_ty ((p (& prog.prog)) (name (& str))) (res ty.sty str)
+  (let i (ty.int_id name))
+  (if (>= i 0) (ret (res.ok (ty.int i))))
+  (if (str.eq name "f32") (ret (res.ok (ty.mk 1u8 0 false (str.new) (vec.new <ty.sty>)))))
+  (if (str.eq name "f64") (ret (res.ok (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))))
+  (if (str.eq name "bool") (ret (res.ok (ty.bool_ty))))
+  (if (str.eq name "unit") (ret (res.ok (ty.unit))))
+  (let id (prog.pre_id p "str"))
+  (if (< id 0) (ret (res.err (str.from "name.not_type"))))
+  (res.ok (ty.adt id (vec.new <ty.sty>)))))
+
+(fn wide_id ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (or (== (. t id) 8) (== (. t id) 9))))
+
+(fn float_ty ((t (& ty.sty))) bool (or (== (. t kind) 1u8) (== (. t kind) 2u8)))
+
+(fn wide_float ((f (& ty.sty)) (to (& ty.sty))) bool
+  (or (and (wide_id f) (float_ty to)) (and (float_ty f) (wide_id to))))
+
+(pub (fn check_cast ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
+  (let to (try (thir_expr.resolve_here p c (vec.get (& (. e tys)) 0))))
+  (let inner (try (thir_expr.check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
+  (let from (thir.shallow c (& (. inner ty))))
+  (if (not (cast_ok c (& from) (& to)))
+    (ret (res.err (thir.kv2 "type.bad_cast" "from" (thir.nshow p (& from)) "to" (thir.nshow p (& to))))))
+  (let mut x (thir_expr.at c e 17u8 to))
+  (vec.push (&mut (. x kids)) inner)
+  (res.ok x)))
+
+(fn cast_ok ((c (&mut thir.ck)) (from (& ty.sty)) (to (& ty.sty))) bool
+  (let f (thir.shallow c from))
+  (if (wide_float (& f) to) (ret false))
+  (if (and (== (. f kind) 14u8) (. f flag) (ty.is_num to))
+    (ret (thir.unify c (& f) (& (ty.int 3)))))
+  (if (and (ty.is_num (& f)) (ty.is_num to)) (ret true))
+  (if (and (== (. f kind) 3u8) (== (. to kind) 0u8)) (ret true))
+  (if (and (== (. f kind) 7u8) (== (. to kind) 7u8)) (ret true))
+  (if (and (== (. f kind) 7u8) (and (== (. to kind) 0u8) (== (. to id) 7))) (ret true))
+  (if (and (== (. to kind) 7u8) (and (== (. f kind) 0u8) (== (. f id) 7))) (ret true))
+  (and (== (. f kind) 6u8) (== (. to kind) 7u8)))

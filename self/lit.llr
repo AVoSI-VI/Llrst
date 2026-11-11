@@ -1,7 +1,13 @@
 ;; Literal text from the surface parser, printed the way llrc prints MIR constants.
 (use std.str)
 
-(pub (struct num (pub (ok bool)) (pub (float bool)) (pub (val i64)) (pub (suffix str)) (pub (show str))))
+(pub (struct num
+  (pub (ok bool))
+  (pub (float bool))
+  (pub (wide bool))
+  (pub (val i128))
+  (pub (suffix str))
+  (pub (show str))))
 
 (fn hex_dig ((c u8)) i64
   (if (and (>= c 48u8) (<= c 57u8)) (ret (- (as i64 c) 48)))
@@ -9,26 +15,51 @@
   (if (and (>= c 65u8) (<= c 70u8)) (ret (+ (- (as i64 c) 65) 10)))
   (neg 1))
 
-;; The negated magnitude, so i64 MIN fits. 1 means the digits overflow i64.
-(fn parse_dec ((s (& str)) (lo i64) (hi i64)) i64
-  (let mut n 0)
-  (for i lo hi
-    (let d (- (as i64 (str.at s i)) 48))
-    (if (< n (/ (+ (shl 1 63) d) 10)) (ret 1))
-    (set n (- (* n 10) d)))
-  n)
+(struct acc (v i128) (wide bool) (ok bool))
 
-(fn int_val ((body (& str)) (rad i64) (neg bool)) (opt i64)
-  (if (> rad 0)
-    (do
-      (let v (parse_rad body 2 (str.len body) rad))
-      (if (< v 0) (ret (opt.none)))
-      (ret (opt.some (if neg (neg v) v)))))
-  (let m (parse_dec body 0 (str.len body)))
-  (if (> m 0) (ret (opt.none)))
-  (if neg (ret (opt.some m)))
-  (if (== m (shl 1 63)) (ret (opt.none)))
-  (opt.some (neg m)))
+(fn i128_max () i128 170141183460469231731687303715884105727i128)
+
+(fn over ((v i128) (base i128) (d i128) (max i128)) bool
+  (or (> v (/ max base)) (and (== v (/ max base)) (> d (% max base)))))
+
+(fn u_over ((v u128) (base u128) (d u128)) bool
+  (let max 340282366920938463463374607431768211455u128)
+  (or (> v (/ max base)) (and (== v (/ max base)) (> d (% max base)))))
+
+(fn push_u ((a acc) (d i128) (base i128)) acc
+  (let uv (as u128 (. a v)))
+  (let ub (as u128 base))
+  (let ud (as u128 d))
+  (if (u_over uv ub ud) (ret (acc 0i128 true false)))
+  (acc (as i128 (+ (* uv ub) ud)) true true))
+
+(fn push_i ((a acc) (d i128) (base i128)) acc
+  (if (not (. a ok)) (ret a))
+  (if (. a wide) (ret (push_u a d base)))
+  (if (over (. a v) base d (i128_max)) (ret (push_u (acc (. a v) true true) d base)))
+  (acc (+ (* (. a v) base) d) false true))
+
+(fn digits ((s (& str)) (lo i64) (hi i64) (base i64)) acc
+  (let mut a (acc 0i128 false true))
+  (let b (as i128 base))
+  (for i lo hi
+    (let d (if (== base 10) (- (as i128 (str.at s i)) 48i128) (as i128 (hex_dig (str.at s i)))))
+    (if (or (< d 0i128) (>= d b)) (ret (acc 0i128 false false)))
+    (set a (push_i a d b)))
+  a)
+
+(fn apply_sign ((a acc) (neg bool)) acc
+  (if (not (. a ok)) (ret a))
+  (if (and neg (. a wide)) (ret (acc 0i128 true false)))
+  (if neg (acc (neg (. a v)) false true) a))
+
+;; Low 64 bits. The shift sign-fills, so the cast fits under --checked.
+(pub (fn lo64 ((v i128)) i64 (as i64 (shr (shl v 64) 64))))
+
+(pub (fn hi64 ((v i128)) i64 (as i64 (shr v 64))))
+
+(pub (fn join64 ((lo i64) (hi i64)) i128
+  (bor (shl (as i128 hi) 64) (as i128 (as u64 lo)))))
 
 (fn split_suf ((s (& str))) i64
   (let mut i 1)
@@ -57,18 +88,10 @@
   (if (str.starts body "0o") (ret 8))
   0)
 
-(fn parse_rad ((s (& str)) (lo i64) (hi i64) (base i64)) i64
-  (let mut n 0)
-  (for i lo hi
-    (let d (hex_dig (str.at s i)))
-    (if (or (< d 0) (>= d base)) (ret (neg 1)))
-    (set n (+ (* n base) d)))
-  n)
-
 (fn has_exp ((s (& str))) bool (or (str.has s "e") (str.has s "E")))
 
 (pub (fn parse_num ((s (& str))) num
-  (if (not (is_num s)) (ret (num false false 0 (str.new) (str.new))))
+  (if (not (is_num s)) (ret (num false false false 0i128 (str.new) (str.new))))
   (let mut neg false)
   (if (== (str.at s 0) 45u8) (set neg true))
   (let at (split_suf s))
@@ -77,22 +100,29 @@
   (let rad (radix_of (& body)))
   (let float
     (and (== rad 0) (or (str.has (& body) ".") (or (has_exp (& body)) (str.starts (& suf) "f")))))
-  (if float (ret (num true true 0 suf (float_show (& body) neg))))
-  (match (int_val (& body) rad neg)
-    ((opt.some v) (num true false v suf (str.new)))
-    ((opt.none) (num false false 0 (str.new) (str.new))))))
+  (if float (ret (num true true false 0i128 suf (float_show (& body) neg))))
+  (let a (apply_sign (digits (& body) (if (> rad 0) 2 0) (str.len (& body)) (if (> rad 0) rad 10)) neg))
+  (if (not (. a ok)) (ret (num false false false 0i128 (str.new) (str.new))))
+  (num true false (. a wide) (. a v) suf (str.new))))
 
 (test lit_int_edges
   (let lo (parse_num "-9223372036854775808"))
   (assert (. lo ok))
-  (assert_eq (. lo val) (shl 1 63))
+  (assert (not (. lo wide)))
+  (assert_eq (. lo val) -9223372036854775808i128)
   (let hi (parse_num "9223372036854775807"))
   (assert (. hi ok))
-  (assert_eq (. hi val) 9223372036854775807)
-  (assert (not (. (parse_num "9223372036854775808") ok)))
-  (assert (not (. (parse_num "99999999999999999999") ok)))
-  (assert_eq (. (parse_num "-0x10") val) (neg 16))
-  (assert_eq (. (parse_num "42u8") val) 42)
+  (assert_eq (. hi val) 9223372036854775807i128)
+  (let mid (parse_num "9223372036854775808"))
+  (assert (. mid ok))
+  (assert (not (. mid wide)))
+  (let wide (parse_num "340282366920938463463374607431768211455"))
+  (assert (. wide ok))
+  (assert (. wide wide))
+  (assert (not (. (parse_num "340282366920938463463374607431768211456") ok)))
+  (assert (not (. (parse_num "-170141183460469231731687303715884105729") ok)))
+  (assert_eq (. (parse_num "-0x10") val) -16i128)
+  (assert_eq (. (parse_num "42u8") val) 42i128)
   (assert_eq (& (. (parse_num "42u8") suffix)) "u8"))
 
 (fn trim_zeros ((s (& str))) str

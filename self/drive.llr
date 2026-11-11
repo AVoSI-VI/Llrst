@@ -93,7 +93,7 @@
 (fn build ((o (& flags)) (p prog.prog) (c (&mut phase.clock))) i64
   (let mut ds (vec.new <diag.dg>))
   (let mut dump (str.new))
-  (let mut kept (check.run (& p) "" (&mut ds) (&mut dump) false (. o test) true c))
+  (let mut kept (check.run (& p) "" (&mut ds) (&mut dump) false (. o test) true (. o checked) c))
   (if (diag.any_err (& (. p notes)) "") (ret (finish o (&mut ds))))
   (if (stopped o) (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)) c)))
   (if (diag.any_err (& ds) "") (ret (with_gens o (& p) (&mut ds) (& (vec.new <i64>)) c)))
@@ -269,7 +269,7 @@
   (let mut name (str.from "test."))
   (str.push (&mut name) tname)
   (let t0 (phase.now c))
-  (let mut b (lower.lower_fn p e name ds ic))
+  (let mut b (lower.lower_fn p e name ds ic (. g checked)))
   (phase.add_lower c t0)
   (let t1 (phase.now c))
   (borrow.run p ds (& b))
@@ -344,7 +344,7 @@
    (ic (&mut inline.icache))
    (c (&mut phase.clock))) unit
   (let t0 (phase.now c))
-  (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic))
+  (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic (. g checked)))
   (phase.add_lower c t0)
   (let t1 (phase.now c))
   (borrow.run p ds (& b))

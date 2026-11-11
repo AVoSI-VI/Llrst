@@ -16,7 +16,7 @@
   (let mut ck 0)
   (let mut v 0)
   (if (and (. n ok) (. n float)) (set ck 1))
-  (if (and (. n ok) (not (. n float))) (set v (. n val)))
+  (if (and (. n ok) (not (. n float))) (set v (lit.lo64 (. n val))))
   (if (str.eq (& (. (. d val) text)) "true") (do (set ck 2) (set v 1)))
   (if (str.eq (& (. (. d val) text)) "false") (set ck 2))
   (let text (str.clone (& (. (. d val) text))))
@@ -75,7 +75,7 @@
   (set (. t dpi) (pi dest))
   (set (. t args) args)
   (set (. t fk) (fk e))
-  (set (. t fid) (. e id2))
+  (set (. t fid) (as i64 (. e id2)))
   (if (== (. e id) 5) (set (. t slot) (str_int (& (. e text)))))
   (if (== (. e id) 1) (set (. t op) (lower.as_operand p w (vec.get (& (. e kids)) 0))))
   (if (== (. e id) 2) (set (. t op) (mir.ocopy (lower.as_place p w (vec.get (& (. e kids)) 0)))))
@@ -115,7 +115,7 @@
   (lower.push w (mir.sassign dest r)))
 
 (fn builtin ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
-  (let b (. e id2))
+  (let b (as i64 (. e id2)))
   (if (== b 0) (ret (set_kind w dest 10u8)))
   (if (== b 1) (ret (bin_rv p w e dest 11u8)))
   (if (== b 2) (ret (ptr_read p w e dest)))
@@ -182,7 +182,7 @@
 
 (fn arch ((p (& prog.prog)) (w (&mut lower.low)) (dest mir.place) (t (& ty.sty))) unit
   (lower.push w
-    (mir.sassign dest (mir.ruse (mir.oconst 3u8 0 0 (str.clone (& (. p arch))) (ty.clone t))))))
+    (mir.sassign dest (mir.ruse (mir.oconst 3u8 0 0 0 (str.clone (& (. p arch))) (ty.clone t))))))
 
 (pub (fn into_try ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let inner (vec.get (& (. e kids)) 0))

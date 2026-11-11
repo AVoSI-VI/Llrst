@@ -219,15 +219,20 @@
   (const_txt o))
 
 (fn const_txt ((o (& mir.op))) str
-  (if (== (. o ck) 0u8) (ret (int_txt (. o id) (. o id2))))
+  (if (== (. o ck) 0u8) (ret (int_txt (. o id) (. o hi) (. o id2))))
   (if (== (. o ck) 1u8) (ret (str.clone (& (. o text)))))
   (if (== (. o ck) 2u8) (ret (if (== (. o id) 1) (str.from "true") (str.from "false"))))
   (if (== (. o ck) 3u8) (ret (lit.debug_str (& (. o text)))))
   (if (== (. o ck) 5u8) (ret (pre "fn#" (str.from_int (. o id)))))
   (str.from "()"))
 
-(fn int_txt ((v i64) (tyid i64)) str
-  (let mut s (str.from_int v))
+(fn wide_txt ((lo i64) (hi i64) (tyid i64)) str
+  (let v (lit.join64 lo hi))
+  (if (== tyid 9) (do (let u (as u128 v)) (ret (Show.show (& u)))))
+  (Show.show (& v)))
+
+(fn int_txt ((v i64) (hi i64) (tyid i64)) str
+  (let mut s (if (or (== tyid 8) (== tyid 9)) (wide_txt v hi tyid) (str.from_int v)))
   (str.push (&mut s) (& (ty.int_name tyid)))
   s)
 

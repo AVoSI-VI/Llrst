@@ -186,17 +186,26 @@
   (if (< len 0) (ret (res.err (arr_len_err p m n))))
   (res.ok (ty.arr len elem)))
 
-(fn find_arr ((t (& ty.sty))) (opt ty.sty)
-  (if (== (. t kind) 16u8) (ret (opt.some (ty.clone t))))
+(fn bad_here ((t (& ty.sty))) bool
+  (or (and (== (. t kind) 0u8) (or (== (. t id) 8) (== (. t id) 9)))
+    (or (== (. t kind) 16u8) (or (== (. t kind) 11u8) (== (. t kind) 15u8)))))
+
+(fn or_bad ((t (& ty.sty)) (inner (opt ty.sty))) (opt ty.sty)
+  (match inner ((opt.some a) (opt.some a)) ((opt.none) (opt.some (ty.clone t)))))
+
+;; An i128, u128, array, or other aggregate in an extern signature.
+(fn find_bad ((t (& ty.sty))) (opt ty.sty)
+  (if (bad_here t) (ret (opt.some (ty.clone t))))
   (if (or (== (. t kind) 6u8) (== (. t kind) 7u8))
-    (ret (find_arr (vec.get (& (. t args)) 0))))
-  (if (or (== (. t kind) 8u8) (or (== (. t kind) 9u8) (== (. t kind) 10u8)))
-    (ret (find_in (& (. t args)))))
+    (ret (find_bad (vec.get (& (. t args)) 0))))
+  (if (== (. t kind) 9u8) (ret (find_in (& (. t args)))))
+  (if (or (== (. t kind) 8u8) (== (. t kind) 10u8))
+    (ret (or_bad t (find_in (& (. t args))))))
   (opt.none))
 
 (fn find_in ((xs (& (vec ty.sty)))) (opt ty.sty)
   (for i 0 (vec.len xs)
-    (match (find_arr (vec.get xs i))
+    (match (find_bad (vec.get xs i))
       ((opt.some a) (ret (opt.some a)))
       ((opt.none) ())))
   (opt.none))
@@ -207,7 +216,7 @@
   (diag.render (& g)))
 
 (pub (fn extern_arr ((p (& prog.prog)) (m i64) (t (& ty.sty)) (sp (& ty))) (res unit str)
-  (match (find_arr t) ((opt.none) (res.ok ())) ((opt.some a) (res.err (extern_msg p m sp (& a)))))))
+  (match (find_bad t) ((opt.none) (res.ok ())) ((opt.some a) (res.err (extern_msg p m sp (& a)))))))
 
 (fn resolve_app ((p (& prog.prog)) (m i64) (gens (& (vec str))) (t (& ty))) (res ty.sty str)
   (if (is_dyn t) (ret (res.err (why_err p m t (str.from "ref")))))

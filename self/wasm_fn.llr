@@ -106,7 +106,7 @@
     ((res.err _) ())
     ((res.ok e)
       (do
-        (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic))
+        (let mut b (lower.lower_fn p e (prog.fn_path p id) ds ic (. g checked)))
         (borrow.run p ds (& b))
         (if (not (check.user_fn p id)) (lint.body ds (& b)))
         (if (diag.any_err ds "") (ret))

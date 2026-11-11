@@ -35,10 +35,6 @@ for dir in run std; do
       *) continue ;;
     esac
     rel="${f#$root/}"
-    # Stage 2 learns i128 and u128 in expand.md phase B3.
-    case "$rel" in
-      tests/run/i128.llr|tests/run/u128.llr|tests/run/i128_checked.llr) continue ;;
-    esac
     set +u
     ( cd "$root" && "$llrc" emit-mir "$rel" --std "$root/std" >"$tmp/want" 2>"$tmp/want.err" || true )
     ( cd "$root" && LLRST_STD="$root/std" "$stage" emit-mir "$rel" >"$tmp/got" 2>"$tmp/got.err" || true )

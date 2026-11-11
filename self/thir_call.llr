@@ -149,7 +149,7 @@
   (try (bound_ok p c f (& inst)))
   (let mut x (at c e 24u8 ret))
   (set (. x id) 0)
-  (set (. x id2) f)
+  (set (. x id2) (as i128 f))
   (set (. x tys) inst)
   (append_ex (&mut (. x kids)) args)
   (res.ok x)))
@@ -272,7 +272,7 @@
   (try (adt_bounds p c id (& inst)))
   (let mut x (at c e 26u8 t))
   (set (. x id) id)
-  (set (. x id2) idx)
+  (set (. x id2) (as i128 idx))
   (append_ex (&mut (. x kids)) args)
   (res.ok x))
 
@@ -323,7 +323,7 @@
   (if (!= (vec.len (& (. e kids))) 0) (ret (res.err (str.from "type.arity"))))
   (let mut x (at c e 24u8 t))
   (set (. x id) 3)
-  (set (. x id2) b)
+  (set (. x id2) (as i128 b))
   (res.ok x))
 
 (fn argv_ty () ty.sty (ty.ptr_ty (ty.ptr_ty (ty.int 4))))

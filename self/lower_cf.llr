@@ -110,7 +110,7 @@
   (set (. r kind) 2u8)
   (set (. r op) 0)
   (vec.push (&mut (. r ops)) (mir.ocopy (mir.ploc i)))
-  (vec.push (&mut (. r ops)) (mir.oconst 0u8 1 (. t id) (str.new) (ty.clone t)))
+  (vec.push (&mut (. r ops)) (mir.oconst 0u8 1 (. t id) 0 (str.new) (ty.clone t)))
   r)
 
 (fn bin_op ((op i64) (a mir.op) (b mir.op)) mir.rv
@@ -121,7 +121,7 @@
   (vec.push (&mut (. r ops)) b)
   r)
 
-(fn zero_op ((t (& ty.sty))) mir.op (mir.oconst 0u8 0 (. t id) (str.new) (ty.clone t)))
+(fn zero_op ((t (& ty.sty))) mir.op (mir.oconst 0u8 0 (. t id) 0 (str.new) (ty.clone t)))
 
 (fn into_for_step ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex))) unit
   (let i (lower.map_l w (. e id)))

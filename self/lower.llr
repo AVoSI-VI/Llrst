@@ -16,6 +16,7 @@
 
 (pub (struct low
   (pub (raw bool))
+  (pub (checked bool))
   (pub (cdiv i64))
   (pub (locs (vec thir.loc)))
   (pub (blocks (vec mir.blk)))
@@ -45,8 +46,9 @@
   (pub (tslot i64))
   (pub (ic inline.icache))))
 
-(fn low_new ((name str) (ret ty.sty) (raw bool) (ic inline.icache)) low
+(fn low_new ((name str) (ret ty.sty) (raw bool) (checked bool) (ic inline.icache)) low
   (low raw
+    checked
     (neg 1)
     (vec.new <thir.loc>)
     (vec.new <mir.blk>)
@@ -76,10 +78,21 @@
     0
     ic))
 
-(pub (fn lower_fn ((p (& prog.prog)) (e thir.ex) (name str) (out (&mut (vec diag.dg))) (ic (&mut inline.icache))) mir.body
-  (let raw (str.eq (& name) "sys.checked_div"))
+(fn raw_name ((name (& str))) bool
+  (or (str.eq name "sys.checked_div")
+    (or (str.eq name "sys.div128")
+      (or (str.eq name "sys.udiv128")
+        (or (str.eq name "sys.checked_mul128") (str.eq name "sys.checked_umul128"))))))
+
+(pub (fn lower_fn ((p (& prog.prog))
+   (e thir.ex)
+   (name str)
+   (out (&mut (vec diag.dg)))
+   (ic (&mut inline.icache))
+   (checked bool)) mir.body
+  (let raw (raw_name (& name)))
   (let shown (str.clone (& name)))
-  (let mut w (low_new name (ty.clone (& (. e ty))) raw (inline.take ic)))
+  (let mut w (low_new name (ty.clone (& (. e ty))) raw checked (inline.take ic)))
   (set (. w path) (str.clone (& (. (vec.get (& (. p mods)) (. e file)) file))))
   (let built (lower_scope.remap_locals (& e)))
   (set (. w locs) (. built locs))
@@ -270,11 +283,11 @@
 
 (pub (fn as_operand ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex))) mir.op
   (if (== (. e kind) 0u8) (ret (lit_op e)))
-  (if (== (. e kind) 27u8) (ret (mir.oconst 5u8 (. e id) 0 (str.new) (ty.clone (& (. e ty))))))
+  (if (== (. e kind) 27u8) (ret (mir.oconst 5u8 (. e id) 0 0 (str.new) (ty.clone (& (. e ty))))))
   (if (or (== (. e kind) 1u8) (or (== (. e kind) 16u8) (== (. e kind) 15u8)))
     (ret (place_op p w e)))
   (if (ty.is_unit (& (. e ty)))
-    (do (expr_stmt p w e) (ret (mir.oconst 4u8 0 0 (str.new) (ty.unit)))))
+    (do (expr_stmt p w e) (ret (mir.oconst 4u8 0 0 0 (str.new) (ty.unit)))))
   (let t (temp p w (ty.clone (& (. e ty))) (. e line) (. e col)))
   (expr_into p w e (mir.ploc t))
   (mir.omove (mir.ploc t))))
@@ -343,11 +356,16 @@
 
 (fn lit_op ((e (& thir.ex))) mir.op
   (if (== (. e id) 0)
-    (ret (mir.oconst 0u8 (. e id2) (. (. e ty) id) (str.new) (ty.clone (& (. e ty))))))
-  (if (== (. e id) 1) (ret (mir.oconst 1u8 0 0 (str.clone (& (. e text))) (ty.clone (& (. e ty))))))
-  (if (== (. e id) 2) (ret (mir.oconst 2u8 (if (. e flag) 1 0) 0 (str.new) (ty.bool_ty))))
-  (if (== (. e id) 3) (ret (mir.oconst 3u8 0 0 (str.clone (& (. e text))) (ty.clone (& (. e ty))))))
-  (mir.oconst 4u8 0 0 (str.new) (ty.unit)))
+    (ret (mir.oconst 0u8
+      (lit.lo64 (. e id2))
+      (. (. e ty) id)
+      (lit.hi64 (. e id2))
+      (str.new)
+      (ty.clone (& (. e ty))))))
+  (if (== (. e id) 1) (ret (mir.oconst 1u8 0 0 0 (str.clone (& (. e text))) (ty.clone (& (. e ty))))))
+  (if (== (. e id) 2) (ret (mir.oconst 2u8 (if (. e flag) 1 0) 0 0 (str.new) (ty.bool_ty))))
+  (if (== (. e id) 3) (ret (mir.oconst 3u8 0 0 0 (str.clone (& (. e text))) (ty.clone (& (. e ty))))))
+  (mir.oconst 4u8 0 0 0 (str.new) (ty.unit)))
 
 (fn lit_static ((e (& expr))) bool
   (if (!= (. e kind) 0u8) (ret false))
@@ -384,8 +402,7 @@
   (push w (mir.sassign dest r)))
 
 (fn into_bin ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
-  (if (and (not (. w raw)) (and (or (== (. e id) 3) (== (. e id) 4)) (== (. (. e ty) kind) 0u8)))
-    (ret (lower_div.into_div p w e dest)))
+  (if (lower_div.rewrite w e) (ret (lower_div.into_op p w e dest)))
   (let a (as_operand p w (vec.get (& (. e kids)) 0)))
   (let b (as_operand p w (vec.get (& (. e kids)) 1)))
   (let mut r (mir.rvoid))
@@ -420,7 +437,7 @@
 (fn into_variant ((p (& prog.prog)) (w (&mut low)) (e (& thir.ex)) (dest mir.place)) unit
   (let mut r (mir.rvoid))
   (set (. r kind) 8u8)
-  (set (. r op) (. e id2))
+  (set (. r op) (as i64 (. e id2)))
   (set (. r ty) (ty.clone (& (. e ty))))
   (for i 0 (vec.len (& (. e kids)))
     (vec.push (&mut (. r ops)) (as_operand p w (vec.get (& (. e kids)) i))))
@@ -433,13 +450,13 @@
 
 (fn const_op ((e (& expr)) (t (& ty.sty))) mir.op
   (if (== (. e kind) 0u8) (ret (lit_op_text (& (. e text)) t)))
-  (mir.oconst 4u8 0 0 (str.new) (ty.unit)))
+  (mir.oconst 4u8 0 0 0 (str.new) (ty.unit)))
 
 (fn lit_op_text ((text (& str)) (t (& ty.sty))) mir.op
   (let n (lit.parse_num text))
   (if (and (. n ok) (not (. n float)))
-    (ret (mir.oconst 0u8 (. n val) (. t id) (str.new) (ty.clone t))))
-  (if (. n float) (ret (mir.oconst 1u8 0 0 (str.clone (& (. n show))) (ty.clone t))))
-  (if (str.eq text "true") (ret (mir.oconst 2u8 1 0 (str.new) (ty.bool_ty))))
-  (if (str.eq text "false") (ret (mir.oconst 2u8 0 0 (str.new) (ty.bool_ty))))
-  (mir.oconst 4u8 0 0 (str.new) (ty.unit)))
+    (ret (mir.oconst 0u8 (lit.lo64 (. n val)) (. t id) (lit.hi64 (. n val)) (str.new) (ty.clone t))))
+  (if (. n float) (ret (mir.oconst 1u8 0 0 0 (str.clone (& (. n show))) (ty.clone t))))
+  (if (str.eq text "true") (ret (mir.oconst 2u8 1 0 0 (str.new) (ty.bool_ty))))
+  (if (str.eq text "false") (ret (mir.oconst 2u8 0 0 0 (str.new) (ty.bool_ty))))
+  (mir.oconst 4u8 0 0 0 (str.new) (ty.unit)))

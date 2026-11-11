@@ -1,21 +1,50 @@
 ;; Integer division and remainder become a call to sys.checked_div.
+;; i128 and u128 call sys.div128 or sys.udiv128 with no widening.
+;; Under --checked, a 128-bit * calls sys.checked_mul128 or sys.checked_umul128.
 (use proj.lower)
 (use proj.mir)
 (use proj.prog)
 (use proj.thir)
 (use proj.ty)
 
-(pub (fn into_div ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+(fn wide ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (or (== (. t id) 8) (== (. t id) 9))))
+
+(pub (fn rewrite ((w (& lower.low)) (e (& thir.ex))) bool
+  (if (. w raw) (ret false))
+  (if (!= (. (. e ty) kind) 0u8) (ret false))
+  (if (or (== (. e id) 3) (== (. e id) 4)) (ret true))
+  (and (. w checked) (and (== (. e id) 2) (wide (& (. e ty)))))))
+
+(pub (fn into_op ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (if (wide (& (. e ty))) (wide_op p w e dest) (narrow p w e dest))))
+
+(fn wide_name ((e (& thir.ex))) str
+  (let signed (== (. (. e ty) id) 8))
+  (if (== (. e id) 2) (ret (if signed (str.from "checked_mul128") (str.from "checked_umul128"))))
+  (if signed (str.from "div128") (str.from "udiv128")))
+
+(fn wide_op ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
+  (let rem (not (== (. e id) 2)))
+  (let def (prog.std_fn p "sys" (& (wide_name e))))
+  (let a (lower.as_operand p w (vec.get (& (. e kids)) 0)))
+  (let b (lower.as_operand p w (vec.get (& (. e kids)) 1)))
+  (let tmp (lower.temp p w (ty.clone (& (. e ty))) (. e line) (. e col)))
+  (let next (lower.new_block w))
+  (lower.terminate w (call_sys def tmp next (loc_op p e) a b rem (== (. e id) 4)))
+  (set (. w cur) next)
+  (lower.push w (mir.sassign dest (mir.ruse (mir.omove (mir.ploc tmp))))))
+
+(fn narrow ((p (& prog.prog)) (w (&mut lower.low)) (e (& thir.ex)) (dest mir.place)) unit
   (let def (div_id p w))
   (let a (widen p w (vec.get (& (. e kids)) 0)))
   (let b (widen p w (vec.get (& (. e kids)) 1)))
   (let tmp (lower.temp p w (ty.int 3) (. e line) (. e col)))
   (let next (lower.new_block w))
-  (lower.terminate w (call_div def tmp next (loc_op p e) a b (== (. e id) 4)))
+  (lower.terminate w (call_sys def tmp next (loc_op p e) a b true (== (. e id) 4)))
   (set (. w cur) next)
   (if (and (== (. (. e ty) kind) 0u8) (== (. (. e ty) id) 3))
     (lower.push w (mir.sassign dest (mir.ruse (mir.omove (mir.ploc tmp)))))
-    (cast_back w dest tmp (& (. e ty))))))
+    (cast_back w dest tmp (& (. e ty)))))
 
 (fn div_id ((p (& prog.prog)) (w (&mut lower.low))) i64
   (if (>= (. w cdiv) 0) (ret (. w cdiv)))
@@ -35,9 +64,9 @@
   (mir.omove (mir.ploc t)))
 
 (fn loc_op ((p (& prog.prog)) (e (& thir.ex))) mir.op
-  (mir.oconst 3u8 0 0 (thir.loc_text p (. e file) (. e line) (. e col)) (thir.ref_str p)))
+  (mir.oconst 3u8 0 0 0 (thir.loc_text p (. e file) (. e line) (. e col)) (thir.ref_str p)))
 
-(fn call_div ((def i64) (tmp i64) (next i64) (thir.loc mir.op) (a mir.op) (b mir.op) (rem bool)) mir.term
+(fn call_sys ((def i64) (tmp i64) (next i64) (thir.loc mir.op) (a mir.op) (b mir.op) (rem_arg bool) (rem bool)) mir.term
   (let mut t (mir.tnone))
   (set (. t kind) 3u8)
   (set (. t fid) def)
@@ -46,7 +75,7 @@
   (vec.push (&mut (. t args)) thir.loc)
   (vec.push (&mut (. t args)) a)
   (vec.push (&mut (. t args)) b)
-  (vec.push (&mut (. t args)) (mir.oconst 2u8 (if rem 1 0) 0 (str.new) (ty.bool_ty)))
+  (if rem_arg (vec.push (&mut (. t args)) (mir.oconst 2u8 (if rem 1 0) 0 0 (str.new) (ty.bool_ty))))
   t)
 
 (fn cast_back ((w (&mut lower.low)) (dest mir.place) (tmp i64) (ty_ (& ty.sty))) unit

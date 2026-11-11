@@ -29,7 +29,7 @@
   (pub (flag bool))
   (pub (flag2 bool))
   (pub (id i64))
-  (pub (id2 i64))
+  (pub (id2 i128))
   (pub (text str))
   (pub (kids (vec ex)))
   (pub (tys (vec ty.sty)))

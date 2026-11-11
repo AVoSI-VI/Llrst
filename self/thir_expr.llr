@@ -17,6 +17,7 @@
 (use proj.thir_eq)
 (use proj.thir_flow)
 (use proj.thir_trait)
+(use proj.thir_ty)
 (use proj.ty)
 
 (pub (fn at ((c (& thir.ck)) (e (& expr)) (k u8) (t ty.sty)) thir.ex
@@ -55,7 +56,7 @@
   (if (== k 13u8) (ret (check_ref p c e won want)))
   (if (== k 14u8) (ret (check_deref p c e)))
   (if (== k 15u8) (ret (check_field p c e)))
-  (if (== k 16u8) (ret (check_cast p c e)))
+  (if (== k 16u8) (ret (thir_ty.check_cast p c e)))
   (if (== k 17u8) (ret (check_bin p c e won want)))
   (if (or (== k 18u8) (== k 19u8)) (ret (check_and p c e)))
   (if (== k 20u8) (ret (check_not p c e)))
@@ -98,27 +99,11 @@
 
 (fn clone_tys ((v (& (vec ty)))) (vec ty) (vec.clone v))
 
-(fn atom_ty ((name (& str))) bool
-  (if (>= (ty.int_id name) 0) (ret true))
-  (or (str.eq name "f32")
-    (or (str.eq name "f64") (or (str.eq name "bool") (or (str.eq name "str") (str.eq name "unit"))))))
-
-(fn bare_ty ((e (& expr))) bool (and (== (. e kind) 1u8) (atom_ty (& (. e text)))))
-
-(fn named_ty ((p (& prog.prog)) (name (& str))) (res ty.sty str)
-  (let i (ty.int_id name))
-  (if (>= i 0) (ret (res.ok (ty.int i))))
-  (if (str.eq name "f32") (ret (res.ok (ty.mk 1u8 0 false (str.new) (vec.new <ty.sty>)))))
-  (if (str.eq name "f64") (ret (res.ok (ty.mk 2u8 0 false (str.new) (vec.new <ty.sty>)))))
-  (if (str.eq name "bool") (ret (res.ok (ty.bool_ty))))
-  (if (str.eq name "unit") (ret (res.ok (ty.unit))))
-  (let id (prog.pre_id p "str"))
-  (if (< id 0) (ret (res.err (str.from "name.not_type"))))
-  (res.ok (ty.adt id (vec.new <ty.sty>))))
+(fn bare_ty ((e (& expr))) bool (and (== (. e kind) 1u8) (thir_ty.atom_ty (& (. e text)))))
 
 (fn let_none ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
   (if (not (. e mut)) (ret (res.err (str.from "mut.required"))))
-  (let t (try (named_ty p (& (. (vec.get (& (. e kids)) 0) text)))))
+  (let t (try (thir_ty.named_ty p (& (. (vec.get (& (. e kids)) 0) text)))))
   (if (ty.is_unit (& t)) (ret (res.err (str.from "type.unit_bind"))))
   (let id (try (thir.declare c (& (. e text)) t (. e mut) (. e line) (. e col) (. e len))))
   (let mut x (at c e 3u8 (ty.unit)))
@@ -153,9 +138,9 @@
 (fn let_ty ((declared (& (opt ty.sty))) (init (& thir.ex))) ty.sty
   (match declared ((opt.some t) (ty.clone t)) ((opt.none) (ty.clone (& (. init ty))))))
 
-(fn resolve_here ((p (& prog.prog)) (c (& thir.ck)) (t (& ty))) (res ty.sty str)
+(pub (fn resolve_here ((p (& prog.prog)) (c (& thir.ck)) (t (& ty))) (res ty.sty str)
   (let s (try (resolve.resolve p (. c module) (& (. c gens)) t)))
-  (res.ok (ty.subst (& s) (& (. c targs)))))
+  (res.ok (ty.subst (& s) (& (. c targs))))))
 
 (fn check_set ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
   (let place (try (check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
@@ -316,25 +301,6 @@
   (if (== (. s kind) 7u8) (ret (res.ok ())))
   (if (and (== (. s kind) 6u8) (. s flag)) (ret (res.ok ())))
   (res.err (str.from "mut.required")))
-
-(fn check_cast ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr))) (res thir.ex str)
-  (let to (try (resolve_here p c (vec.get (& (. e tys)) 0))))
-  (let inner (try (check_expr p c (vec.get (& (. e kids)) 0) false (& (ty.unit)))))
-  (if (not (cast_ok c (& (. inner ty)) (& to))) (ret (res.err (str.from "type.bad_cast"))))
-  (let mut x (at c e 17u8 to))
-  (vec.push (&mut (. x kids)) inner)
-  (res.ok x))
-
-(fn cast_ok ((c (&mut thir.ck)) (from (& ty.sty)) (to (& ty.sty))) bool
-  (let f (thir.shallow c from))
-  (if (and (== (. f kind) 14u8) (. f flag) (ty.is_num to))
-    (ret (thir.unify c (& f) (& (ty.int 3)))))
-  (if (and (ty.is_num (& f)) (ty.is_num to)) (ret true))
-  (if (and (== (. f kind) 3u8) (== (. to kind) 0u8)) (ret true))
-  (if (and (== (. f kind) 7u8) (== (. to kind) 7u8)) (ret true))
-  (if (and (== (. f kind) 7u8) (and (== (. to kind) 0u8) (== (. to id) 7))) (ret true))
-  (if (and (== (. to kind) 7u8) (and (== (. f kind) 0u8) (== (. f id) 7))) (ret true))
-  (and (== (. f kind) 6u8) (== (. to kind) 7u8)))
 
 (fn check_bin ((p (& prog.prog)) (c (&mut thir.ck)) (e (& expr)) (won bool) (want (& ty.sty))) (res thir.ex str)
   (let id (lit.bin_id (& (. e text))))

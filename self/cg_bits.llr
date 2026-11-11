@@ -102,11 +102,7 @@
     (put_int (&mut o) v (if (== (. t kind) 0u8) (int_w (. t id)) 8) be))
   o))
 
-(fn int_w ((id i64)) i64
-  (if (or (== id 0) (== id 4)) (ret 1))
-  (if (or (== id 1) (== id 5)) (ret 2))
-  (if (or (== id 2) (== id 6)) (ret 4))
-  8)
+(fn int_w ((id i64)) i64 (ty.int_bytes id))
 
 (fn byte_at ((v (& (vec u8))) (i i64)) i64 (as i64 (@ (vec.get v i))))
 

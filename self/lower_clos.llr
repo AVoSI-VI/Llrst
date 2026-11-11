@@ -16,7 +16,7 @@
   (let name (clos_name w idx))
   (let ex (fn_ex e))
   (let mut sink (vec.new <diag.dg>))
-  (let mut nested (lower.lower_fn p ex name (&mut sink) (&mut (. w ic))))
+  (let mut nested (lower.lower_fn p ex name (&mut sink) (&mut (. w ic)) (. w checked)))
   (diag.append (&mut (. w diags)) (& sink))
   (strip (&mut nested) (vec.len (& (. e tys))))
   (let caps (clone_tys (& (. e tys))))
