@@ -21,7 +21,10 @@
 
 (pub (fn signed ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (ty.signed (. t id)))))
 
+(pub (fn wide ((t (& ty.sty))) bool (and (== (. t kind) 0u8) (or (== (. t id) 8) (== (. t id) 9)))))
+
 (pub (fn is_scalar ((t (& ty.sty))) bool
+  (if (wide t) (ret false))
   (let k (. t kind))
   (or (== k 0u8)
     (or (== k 1u8) (or (== k 2u8) (or (== k 3u8) (or (== k 6u8) (or (== k 7u8) (== k 9u8)))))))))
@@ -104,6 +107,7 @@
 
 (fn compute ((ls (&mut lays)) (p (& prog.prog)) (t (& ty.sty))) lay
   (let k (. t kind))
+  (if (wide t) (ret (empty 16 8)))
   (if (== k 0u8) (ret (scalar (int_bytes (. t id)))))
   (if (== k 1u8) (ret (scalar 4)))
   (if (or (== k 2u8) (or (== k 6u8) (or (== k 7u8) (== k 9u8)))) (ret (scalar 8)))
@@ -258,3 +262,19 @@
   (assert_eq (. bl align) 8)
   (let n (ty.arr 2 (ty.arr 4 (ty.int 4))))
   (assert_eq (size (&mut ls) (& p) (& n)) 8))
+
+(test lay_wide
+  (let mut ls (new))
+  (let p (prog.blank_prog))
+  (let i (ty.int 8))
+  (let u (ty.int 9))
+  (assert (wide (& i)))
+  (assert (wide (& u)))
+  (assert (not (is_scalar (& i))))
+  (assert (is_agg (& i)))
+  (assert (is_scalar (& (ty.int 3))))
+  (assert_eq (size (&mut ls) (& p) (& i)) 16)
+  (assert_eq (size (&mut ls) (& p) (& u)) 16)
+  (let l (of (&mut ls) (& p) (& i)))
+  (assert_eq (. l align) 8)
+  (assert_eq (vec.len (& (. l fields))) 0))

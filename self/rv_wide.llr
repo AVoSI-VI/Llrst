@@ -1,0 +1,216 @@
+;; 128-bit ops in memory. Carry is sltu. The product is mul plus mulhu:
+;; the low 128 bits match the unsigned limb product, so mulh is not used.
+;; A variable shift masks the count to 6 bits, so counts at or above 64 branch.
+(use proj.isa_rv)
+(use proj.rv_buf)
+(use proj.rv_int)
+(use proj.rv_mem)
+
+(fn g ((r i64)) i64 (isa_rv.gpr r))
+
+(fn fall ((b (&mut rv_buf.buf)) (lab i64) (rs1 i64) (rs2 i64) (f3 i64)) unit
+  (rv_buf.push_w b (rv_buf.btype 8 rs2 rs1 f3))
+  (rv_buf.fix_j b lab))
+
+(pub (fn add ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (let p (g src))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t1 p 0)
+  (rv_int.add b rv_buf.t2 rv_buf.t0 rv_buf.t1)
+  (rv_int.sltu b rv_buf.t5 rv_buf.t2 rv_buf.t0)
+  (rv_mem.st b 8 rv_buf.t2 d 0)
+  (rv_mem.ld b 8 rv_buf.t0 d 8)
+  (rv_mem.ld b 8 rv_buf.t1 p 8)
+  (rv_int.add b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (rv_int.add b rv_buf.t0 rv_buf.t0 rv_buf.t5)
+  (rv_mem.st b 8 rv_buf.t0 d 8)))
+
+(pub (fn sub ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (let p (g src))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t1 p 0)
+  (rv_int.sltu b rv_buf.t5 rv_buf.t0 rv_buf.t1)
+  (rv_int.sub b rv_buf.t2 rv_buf.t0 rv_buf.t1)
+  (rv_mem.st b 8 rv_buf.t2 d 0)
+  (rv_mem.ld b 8 rv_buf.t0 d 8)
+  (rv_mem.ld b 8 rv_buf.t1 p 8)
+  (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t5)
+  (rv_mem.st b 8 rv_buf.t0 d 8)))
+
+(fn lop ((b (&mut rv_buf.buf)) (k i64) (rd i64) (rs1 i64) (rs2 i64)) unit
+  (if (== k 0) (ret (rv_int.and_rr b rd rs1 rs2)))
+  (if (== k 1) (ret (rv_int.or b rd rs1 rs2)))
+  (rv_int.xor b rd rs1 rs2))
+
+(fn logic ((b (&mut rv_buf.buf)) (dst i64) (src i64) (k i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (let p (g src))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t1 p 0)
+  (lop b k rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (rv_mem.st b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t0 d 8)
+  (rv_mem.ld b 8 rv_buf.t1 p 8)
+  (lop b k rv_buf.t0 rv_buf.t0 rv_buf.t1)
+  (rv_mem.st b 8 rv_buf.t0 d 8))
+
+(pub (fn band ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 0)))
+
+(pub (fn bor ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 1)))
+
+(pub (fn bxor ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 2)))
+
+(pub (fn negw ((b (&mut rv_buf.buf)) (dst i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_int.sltu b rv_buf.t5 rv_buf.x0 rv_buf.t0)
+  (rv_int.sub b rv_buf.t0 rv_buf.x0 rv_buf.t0)
+  (rv_mem.st b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t0 d 8)
+  (rv_int.sub b rv_buf.t0 rv_buf.x0 rv_buf.t0)
+  (rv_int.sub b rv_buf.t0 rv_buf.t0 rv_buf.t5)
+  (rv_mem.st b 8 rv_buf.t0 d 8)))
+
+(pub (fn bnot ((b (&mut rv_buf.buf)) (dst i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_int.xori b rv_buf.t0 rv_buf.t0 (neg 1))
+  (rv_mem.st b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t0 d 8)
+  (rv_int.xori b rv_buf.t0 rv_buf.t0 (neg 1))
+  (rv_mem.st b 8 rv_buf.t0 d 8)))
+
+(pub (fn mul ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (let p (g src))
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t1 d 8)
+  (rv_mem.ld b 8 rv_buf.t2 p 0)
+  (rv_mem.ld b 8 rv_buf.t5 p 8)
+  (rv_int.mul b rv_buf.t6 rv_buf.t0 rv_buf.t2)
+  (rv_mem.st b 8 rv_buf.t6 d 0)
+  (rv_int.mulhu b rv_buf.t6 rv_buf.t0 rv_buf.t2)
+  (rv_int.mul b p rv_buf.t0 rv_buf.t5)
+  (rv_int.add b rv_buf.t6 rv_buf.t6 p)
+  (rv_int.mul b p rv_buf.t1 rv_buf.t2)
+  (rv_int.add b rv_buf.t6 rv_buf.t6 p)
+  (rv_mem.st b 8 rv_buf.t6 d 8)))
+
+(fn fill ((b (&mut rv_buf.buf)) (src i64) (from_lo bool)) unit
+  (rv_int.li b rv_buf.t1 64)
+  (rv_int.sub b rv_buf.t1 rv_buf.t1 rv_buf.t6)
+  (if from_lo (rv_int.srl b rv_buf.t5 src rv_buf.t1) (rv_int.sll b rv_buf.t5 src rv_buf.t1))
+  (rv_int.sltu b rv_buf.t1 rv_buf.x0 rv_buf.t6)
+  (rv_int.sub b rv_buf.t1 rv_buf.x0 rv_buf.t1)
+  (rv_int.and_rr b rv_buf.t5 rv_buf.t5 rv_buf.t1))
+
+(fn small ((b (&mut rv_buf.buf)) (kind i64)) unit
+  (if (== kind 0)
+    (do
+      (fill b rv_buf.t0 true)
+      (rv_int.sll b rv_buf.t1 rv_buf.t2 rv_buf.t6)
+      (rv_int.or b rv_buf.t2 rv_buf.t1 rv_buf.t5)
+      (ret (rv_int.sll b rv_buf.t0 rv_buf.t0 rv_buf.t6))))
+  (fill b rv_buf.t2 false)
+  (rv_int.srl b rv_buf.t1 rv_buf.t0 rv_buf.t6)
+  (rv_int.or b rv_buf.t0 rv_buf.t1 rv_buf.t5)
+  (if (== kind 2) (ret (rv_int.sra b rv_buf.t2 rv_buf.t2 rv_buf.t6)))
+  (rv_int.srl b rv_buf.t2 rv_buf.t2 rv_buf.t6))
+
+(fn wide ((b (&mut rv_buf.buf)) (kind i64)) unit
+  (rv_int.li b rv_buf.t1 64)
+  (rv_int.sub b rv_buf.t1 rv_buf.t6 rv_buf.t1)
+  (if (== kind 0)
+    (do
+      (rv_int.sll b rv_buf.t2 rv_buf.t0 rv_buf.t1)
+      (ret (rv_int.add b rv_buf.t0 rv_buf.x0 rv_buf.x0))))
+  (if (== kind 2)
+    (do
+      (rv_int.sra b rv_buf.t0 rv_buf.t2 rv_buf.t1)
+      (rv_int.li b rv_buf.t1 63)
+      (ret (rv_int.sra b rv_buf.t2 rv_buf.t2 rv_buf.t1))))
+  (rv_int.srl b rv_buf.t0 rv_buf.t2 rv_buf.t1)
+  (rv_int.add b rv_buf.t2 rv_buf.x0 rv_buf.x0))
+
+(fn shift ((b (&mut rv_buf.buf)) (dst i64) (cnt i64) (kind i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (rv_int.add b rv_buf.t6 (g cnt) rv_buf.x0)
+  (rv_mem.ld b 8 rv_buf.t0 d 0)
+  (rv_mem.ld b 8 rv_buf.t2 d 8)
+  (rv_int.li b rv_buf.t1 64)
+  (let ge (rv_buf.label b))
+  (let done (rv_buf.label b))
+  (fall b ge rv_buf.t6 rv_buf.t1 6)
+  (small b kind)
+  (rv_buf.fix_j b done)
+  (rv_buf.bind b ge)
+  (wide b kind)
+  (rv_buf.bind b done)
+  (rv_mem.st b 8 rv_buf.t0 d 0)
+  (rv_mem.st b 8 rv_buf.t2 d 8))
+
+(pub (fn shl ((b (&mut rv_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 0)))
+
+(pub (fn shr ((b (&mut rv_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 1)))
+
+(pub (fn sar ((b (&mut rv_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 2)))
+
+(fn jif ((b (&mut rv_buf.buf)) (lab i64) (rs1 i64) (rs2 i64) (inv i64)) unit
+  (fall b lab rs1 rs2 inv))
+
+(fn ends ((b (&mut rv_buf.buf)) (less i64) (more i64) (done i64)) unit
+  (rv_int.li b rv_buf.t0 0)
+  (rv_buf.fix_j b done)
+  (rv_buf.bind b less)
+  (rv_int.li b rv_buf.t0 (neg 1))
+  (rv_buf.fix_j b done)
+  (rv_buf.bind b more)
+  (rv_int.li b rv_buf.t0 1)
+  (rv_buf.bind b done)
+  (rv_buf.pend b rv_buf.pend_rr 8 rv_buf.t0 rv_buf.x0 0 false))
+
+(pub (fn cmp ((b (&mut rv_buf.buf)) (av i64) (bv i64) (signed bool)) unit
+  (rv_buf.clear b)
+  (let a (g av))
+  (let c (g bv))
+  (let less (rv_buf.label b))
+  (let more (rv_buf.label b))
+  (let done (rv_buf.label b))
+  (rv_mem.ld b 8 rv_buf.t0 a 8)
+  (rv_mem.ld b 8 rv_buf.t1 c 8)
+  (if signed
+    (do (jif b less rv_buf.t0 rv_buf.t1 5) (jif b more rv_buf.t1 rv_buf.t0 5))
+    (do (jif b less rv_buf.t0 rv_buf.t1 7) (jif b more rv_buf.t1 rv_buf.t0 7)))
+  (rv_mem.ld b 8 rv_buf.t0 a 0)
+  (rv_mem.ld b 8 rv_buf.t1 c 0)
+  (jif b less rv_buf.t0 rv_buf.t1 7)
+  (jif b more rv_buf.t1 rv_buf.t0 7)
+  (ends b less more done)))
+
+(pub (fn ext ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (let v (g src))
+  (rv_mem.st b 8 v d 0)
+  (rv_int.srai b rv_buf.t0 v 63)
+  (rv_mem.st b 8 rv_buf.t0 d 8)))
+
+(pub (fn zext ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (let d (g dst))
+  (rv_mem.st b 8 (g src) d 0)
+  (rv_mem.st b 8 rv_buf.x0 d 8)))
+
+(pub (fn trunc ((b (&mut rv_buf.buf)) (dst i64) (src i64)) unit
+  (rv_buf.clear b)
+  (rv_mem.ld b 8 (g dst) (g src) 0)))

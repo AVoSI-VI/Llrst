@@ -1,0 +1,216 @@
+;; 128-bit ops in memory. adc, sbb, shld, and shrd live here so isa_x64 stays put.
+;; A count of 64 or more cannot use shld: the hardware masks the count to 6 bits.
+(use proj.cg_isa)
+(use proj.isa_x64)
+(use proj.x64_buf)
+(use proj.x64_int)
+(use std.fmt)
+(use std.str)
+
+(fn g ((s (& cg_isa.isa)) (r i64)) i64 (isa_x64.gpr s r))
+
+(fn mem ((base i64) (disp i64)) x64_buf.mem (x64_buf.mem base (neg 1) 1 disp))
+
+(fn ld ((b (&mut x64_buf.buf)) (dst i64) (base i64) (disp i64)) unit
+  (let m (mem base disp))
+  (x64_int.load b 8 dst (& m)))
+
+(fn st ((b (&mut x64_buf.buf)) (src i64) (base i64) (disp i64)) unit
+  (let m (mem base disp))
+  (x64_int.store b 8 (& m) src))
+
+(fn alu_m ((b (&mut x64_buf.buf)) (op i64) (reg i64) (base i64) (disp i64)) unit
+  (let m (mem base disp))
+  (x64_buf.emit_mem b 8 op reg (& m)))
+
+(fn both ((b (&mut x64_buf.buf)) (d i64) (p i64) (lo i64) (hi i64)) unit
+  (ld b x64_buf.rax d 0)
+  (alu_m b lo x64_buf.rax p 0)
+  (st b x64_buf.rax d 0)
+  (ld b x64_buf.rax d 8)
+  (alu_m b hi x64_buf.rax p 8)
+  (st b x64_buf.rax d 8))
+
+(pub (fn add ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (both b (g s dst) (g s src) 3 19)))
+
+(pub (fn sub ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (both b (g s dst) (g s src) 43 27)))
+
+(fn lop ((b (&mut x64_buf.buf)) (k i64) (dst i64) (src i64)) unit
+  (if (== k 0) (ret (x64_int.and_rr b 8 dst src)))
+  (if (== k 1) (ret (x64_int.or_rr b 8 dst src)))
+  (x64_int.xor_rr b 8 dst src))
+
+(fn logic ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64) (k i64)) unit
+  (let d (g s dst))
+  (let p (g s src))
+  (ld b x64_buf.rax d 0)
+  (ld b x64_buf.rcx p 0)
+  (lop b k x64_buf.rax x64_buf.rcx)
+  (st b x64_buf.rax d 0)
+  (ld b x64_buf.rax d 8)
+  (ld b x64_buf.rcx p 8)
+  (lop b k x64_buf.rax x64_buf.rcx)
+  (st b x64_buf.rax d 8))
+
+(pub (fn band ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit (logic b s dst src 0)))
+
+(pub (fn bor ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit (logic b s dst src 1)))
+
+(pub (fn bxor ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit (logic b s dst src 2)))
+
+(pub (fn negw ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64)) unit
+  (let d (g s dst))
+  (ld b x64_buf.rax d 0)
+  (x64_int.neg_r b 8 x64_buf.rax)
+  (st b x64_buf.rax d 0)
+  (ld b x64_buf.rax d 8)
+  (x64_int.mov_ri b 8 x64_buf.rcx 0)
+  (x64_buf.emit_rr b 8 27 x64_buf.rcx x64_buf.rax)
+  (st b x64_buf.rcx d 8)))
+
+(pub (fn bnot ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64)) unit
+  (let d (g s dst))
+  (ld b x64_buf.rax d 0)
+  (x64_int.not_r b 8 x64_buf.rax)
+  (st b x64_buf.rax d 0)
+  (ld b x64_buf.rax d 8)
+  (x64_int.not_r b 8 x64_buf.rax)
+  (st b x64_buf.rax d 8)))
+
+(pub (fn mul ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (let d (g s dst))
+  (let p (g s src))
+  (ld b x64_buf.rax d 0)
+  (x64_int.push_r b x64_buf.rax)
+  (ld b x64_buf.rcx p 0)
+  (x64_int.mul_r b 8 x64_buf.rcx)
+  (st b x64_buf.rax d 0)
+  (x64_int.pop_r b x64_buf.rax)
+  (x64_int.push_r b x64_buf.rdx)
+  (ld b x64_buf.rcx p 8)
+  (x64_int.imul_r b 8 x64_buf.rcx)
+  (x64_int.pop_r b x64_buf.rdx)
+  (x64_int.add_rr b 8 x64_buf.rdx x64_buf.rax)
+  (x64_int.push_r b x64_buf.rdx)
+  (ld b x64_buf.rax d 8)
+  (ld b x64_buf.rcx p 0)
+  (x64_int.imul_r b 8 x64_buf.rcx)
+  (x64_int.pop_r b x64_buf.rdx)
+  (x64_int.add_rr b 8 x64_buf.rdx x64_buf.rax)
+  (st b x64_buf.rdx d 8)))
+
+(fn shld ((b (&mut x64_buf.buf)) (fill i64) (dest i64)) unit (x64_buf.emit_rr2 b 8 165 fill dest))
+
+(fn shrd ((b (&mut x64_buf.buf)) (fill i64) (dest i64)) unit (x64_buf.emit_rr2 b 8 173 fill dest))
+
+(fn lt_shl ((b (&mut x64_buf.buf))) unit
+  (shld b x64_buf.rax x64_buf.rdx)
+  (x64_int.shl_cl b 8 x64_buf.rax))
+
+(fn lt_shr ((b (&mut x64_buf.buf))) unit
+  (shrd b x64_buf.rdx x64_buf.rax)
+  (x64_int.shr_cl b 8 x64_buf.rdx))
+
+(fn lt_sar ((b (&mut x64_buf.buf))) unit
+  (shrd b x64_buf.rdx x64_buf.rax)
+  (x64_int.sar_cl b 8 x64_buf.rdx))
+
+(fn ge_shl ((b (&mut x64_buf.buf))) unit
+  (x64_int.sub_ri b 8 x64_buf.rcx 64)
+  (x64_int.mov_rr b 8 x64_buf.rdx x64_buf.rax)
+  (x64_int.shl_cl b 8 x64_buf.rdx)
+  (x64_int.xor_rr b 8 x64_buf.rax x64_buf.rax))
+
+(fn ge_shr ((b (&mut x64_buf.buf))) unit
+  (x64_int.sub_ri b 8 x64_buf.rcx 64)
+  (x64_int.mov_rr b 8 x64_buf.rax x64_buf.rdx)
+  (x64_int.shr_cl b 8 x64_buf.rax)
+  (x64_int.xor_rr b 8 x64_buf.rdx x64_buf.rdx))
+
+(fn ge_sar ((b (&mut x64_buf.buf))) unit
+  (x64_int.sub_ri b 8 x64_buf.rcx 64)
+  (x64_int.mov_rr b 8 x64_buf.rax x64_buf.rdx)
+  (x64_int.sar_cl b 8 x64_buf.rax)
+  (x64_int.sar_ri b 8 x64_buf.rdx 63))
+
+(fn shift ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (cnt i64) (kind i64)) unit
+  (let d (g s dst))
+  (let n (g s cnt))
+  (if (!= n x64_buf.rcx) (x64_int.mov_rr b 8 x64_buf.rcx n))
+  (ld b x64_buf.rax d 0)
+  (ld b x64_buf.rdx d 8)
+  (let big (x64_buf.label b))
+  (let done (x64_buf.label b))
+  (x64_int.cmp_ri b 8 x64_buf.rcx 64)
+  (x64_int.jcc b x64_buf.ae big)
+  (if (== kind 0) (lt_shl b))
+  (if (== kind 1) (lt_shr b))
+  (if (== kind 2) (lt_sar b))
+  (x64_int.jmp b done)
+  (x64_buf.bind b big)
+  (if (== kind 0) (ge_shl b))
+  (if (== kind 1) (ge_shr b))
+  (if (== kind 2) (ge_sar b))
+  (x64_buf.bind b done)
+  (st b x64_buf.rax d 0)
+  (st b x64_buf.rdx d 8))
+
+(pub (fn shl ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit (shift b s dst cnt 0)))
+
+(pub (fn shr ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit (shift b s dst cnt 1)))
+
+(pub (fn sar ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit (shift b s dst cnt 2)))
+
+(pub (fn cmp ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (av i64) (bv i64) (signed bool)) unit
+  (let a (g s av))
+  (let c (g s bv))
+  (let lt (if signed x64_buf.l x64_buf.b))
+  (let gt (if signed x64_buf.g x64_buf.a))
+  (let done (x64_buf.label b))
+  (ld b x64_buf.rax a 8)
+  (ld b x64_buf.rcx c 8)
+  (x64_int.cmp_rr b 8 x64_buf.rax x64_buf.rcx)
+  (x64_int.mov_ri b 8 x64_buf.rdx (neg 1))
+  (x64_int.jcc b lt done)
+  (x64_int.mov_ri b 8 x64_buf.rdx 1)
+  (x64_int.jcc b gt done)
+  (ld b x64_buf.rax a 0)
+  (ld b x64_buf.rcx c 0)
+  (x64_int.cmp_rr b 8 x64_buf.rax x64_buf.rcx)
+  (x64_int.mov_ri b 8 x64_buf.rdx 0)
+  (x64_int.jcc b x64_buf.e done)
+  (x64_int.mov_ri b 8 x64_buf.rdx (neg 1))
+  (x64_int.jcc b x64_buf.b done)
+  (x64_int.mov_ri b 8 x64_buf.rdx 1)
+  (x64_buf.bind b done)
+  (x64_int.cmp_ri b 8 x64_buf.rdx 0)))
+
+(pub (fn ext ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (let d (g s dst))
+  (let v (g s src))
+  (st b v d 0)
+  (x64_int.mov_rr b 8 x64_buf.rax v)
+  (x64_int.sar_ri b 8 x64_buf.rax 63)
+  (st b x64_buf.rax d 8)))
+
+(pub (fn zext ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (let d (g s dst))
+  (st b (g s src) d 0)
+  (x64_int.xor_rr b 8 x64_buf.rax x64_buf.rax)
+  (st b x64_buf.rax d 8)))
+
+(pub (fn trunc ((b (&mut x64_buf.buf)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (ld b (g s dst) (g s src) 0)))
+
+(fn eq ((b (& x64_buf.buf)) (want (& str))) unit
+  (let mut s (str.new))
+  (for i 0 (x64_buf.len b) (str.push (&mut s) (& (fmt.hex (as i64 (x64_buf.at b i)) 2))))
+  (assert_eq (& s) want))
+
+(test add_enc
+  (let mut b (x64_buf.new))
+  (let s (cg_isa.isa false false false))
+  (add (&mut b) (& s) cg_isa.addr cg_isa.dst)
+  (eq (& b) "498b03490302498903498b43084913420849894308"))

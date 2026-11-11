@@ -1,0 +1,369 @@
+;; 128-bit values stay in memory. A binop copies the left operand first so the
+;; source is intact and the two pointers differ, including `(* a a)`.
+(use proj.cg_frame)
+(use proj.cg_isa)
+(use proj.cg_lay)
+(use proj.cg_mod)
+(use proj.cg_op)
+(use proj.cg_ovf)
+(use proj.mir)
+(use proj.prog)
+(use proj.thir)
+(use proj.ty)
+
+(fn lea ((fx (&mut cg_frame.fncx)) (dst i64) (base i64) (disp i64)) unit
+  (cg_isa.lea (&mut (. fx buf)) (& (. fx isa)) dst base disp))
+
+(fn ld ((fx (&mut cg_frame.fncx)) (dst i64) (base i64) (disp i64)) unit
+  (cg_frame.ld fx 8 dst base disp))
+
+(fn st ((fx (&mut cg_frame.fncx)) (base i64) (disp i64) (src i64)) unit
+  (cg_frame.st fx 8 base disp src))
+
+(fn movi ((fx (&mut cg_frame.fncx)) (dst i64) (imm i64)) unit
+  (cg_isa.mov_ri (&mut (. fx buf)) (& (. fx isa)) 8 dst imm))
+
+(fn mov ((fx (&mut cg_frame.fncx)) (dst i64) (src i64)) unit
+  (cg_isa.mov_rr (&mut (. fx buf)) (& (. fx isa)) 8 dst src))
+
+(fn cmpri ((fx (&mut cg_frame.fncx)) (reg i64) (imm i64)) unit
+  (cg_isa.cmp_ri (&mut (. fx buf)) (& (. fx isa)) 8 reg imm))
+
+(fn cmprr ((fx (&mut cg_frame.fncx)) (a i64) (b i64)) unit
+  (cg_isa.cmp_rr (&mut (. fx buf)) (& (. fx isa)) 8 a b))
+
+(fn jcc ((fx (&mut cg_frame.fncx)) (cc i64) (id i64)) unit
+  (cg_isa.jcc (&mut (. fx buf)) (& (. fx isa)) cc id))
+
+(fn lab ((fx (&mut cg_frame.fncx))) i64 (cg_isa.label (&mut (. fx buf)) (& (. fx isa))))
+
+(fn bind ((fx (&mut cg_frame.fncx)) (id i64)) unit
+  (cg_isa.bind (&mut (. fx buf)) (& (. fx isa)) id))
+
+(fn jmp ((fx (&mut cg_frame.fncx)) (id i64)) unit (cg_isa.jmp (&mut (. fx buf)) (& (. fx isa)) id))
+
+(fn xorr ((fx (&mut cg_frame.fncx)) (dst i64) (src i64)) unit
+  (cg_isa.xor_rr (&mut (. fx buf)) (& (. fx isa)) 8 dst src))
+
+(fn hold_addr ((fx (&mut cg_frame.fncx))) i64
+  (let d (cg_frame.tmp fx 8 8))
+  (st fx cg_isa.fp d cg_isa.addr)
+  d)
+
+(fn word ((fx (&mut cg_frame.fncx)) (slot i64) (disp i64) (reg i64)) unit
+  (ld fx cg_isa.addr cg_isa.fp slot)
+  (ld fx reg cg_isa.addr disp))
+
+(fn at ((fx (&mut cg_frame.fncx)) (disp i64)) unit (lea fx cg_isa.addr cg_isa.fp disp))
+
+(pub (fn kconst ((fx (&mut cg_frame.fncx)) (lo i64) (hi i64) (t (& ty.sty))) ty.sty
+  (let d (cg_frame.tmp fx 16 8))
+  (movi fx cg_isa.acc lo)
+  (st fx cg_isa.fp d cg_isa.acc)
+  (movi fx cg_isa.acc hi)
+  (st fx cg_isa.fp (+ d 8) cg_isa.acc)
+  (at fx d)
+  (ty.clone t)))
+
+(fn copy16 ((fx (&mut cg_frame.fncx)) (slot i64) (disp i64)) unit
+  (ld fx cg_isa.addr cg_isa.fp slot)
+  (lea fx cg_isa.dst cg_isa.fp disp)
+  (cg_isa.copy (&mut (. fx buf)) (& (. fx isa)) 16))
+
+(fn arm ((fx (&mut cg_frame.fncx)) (disp i64) (slot i64)) unit
+  (at fx disp)
+  (ld fx cg_isa.dst cg_isa.fp slot))
+
+(fn pair ((fx (&mut cg_frame.fncx)) (lp i64) (rp i64)) unit
+  (ld fx cg_isa.addr cg_isa.fp lp)
+  (ld fx cg_isa.dst cg_isa.fp rp))
+
+(fn apply ((fx (&mut cg_frame.fncx)) (op i64)) unit
+  (let c (&mut (. fx buf)))
+  (let s (& (. fx isa)))
+  (if (or (== op 0) (== op 16)) (ret (cg_isa.add_wide c s cg_isa.addr cg_isa.dst)))
+  (if (or (== op 1) (== op 17)) (ret (cg_isa.sub_wide c s cg_isa.addr cg_isa.dst)))
+  (if (or (== op 2) (== op 18)) (ret (cg_isa.mul_wide c s cg_isa.addr cg_isa.dst)))
+  (if (== op 11) (ret (cg_isa.and_wide c s cg_isa.addr cg_isa.dst)))
+  (if (== op 12) (ret (cg_isa.or_wide c s cg_isa.addr cg_isa.dst)))
+  (if (== op 13) (cg_isa.xor_wide c s cg_isa.addr cg_isa.dst)))
+
+(fn boom ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (bad i64)) unit
+  (let ok (lab fx))
+  (jmp fx ok)
+  (bind fx bad)
+  (cg_ovf.abort g p fx "int.overflow")
+  (bind fx ok))
+
+(fn u_lt ((fx (&mut cg_frame.fncx)) (a i64) (b i64) (bad i64)) unit
+  (word fx a 8 cg_isa.hi)
+  (word fx b 8 cg_isa.tmp)
+  (cmprr fx cg_isa.hi cg_isa.tmp)
+  (jcc fx cg_isa.ult bad)
+  (word fx a 8 cg_isa.hi)
+  (word fx b 8 cg_isa.tmp)
+  (cmprr fx cg_isa.hi cg_isa.tmp)
+  (let done (lab fx))
+  (jcc fx cg_isa.ugt done)
+  (word fx a 0 cg_isa.hi)
+  (word fx b 0 cg_isa.tmp)
+  (cmprr fx cg_isa.hi cg_isa.tmp)
+  (jcc fx cg_isa.ult bad)
+  (bind fx done))
+
+(fn s_add ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (xs i64) (ys i64) (ss i64)) unit
+  (word fx xs 8 cg_isa.hi)
+  (word fx ys 8 cg_isa.tmp)
+  (xorr fx cg_isa.hi cg_isa.tmp)
+  (cmpri fx cg_isa.hi 0)
+  (let ok (lab fx))
+  (jcc fx cg_isa.lt ok)
+  (word fx ss 8 cg_isa.tmp)
+  (word fx xs 8 cg_isa.hi)
+  (xorr fx cg_isa.tmp cg_isa.hi)
+  (cmpri fx cg_isa.tmp 0)
+  (cg_ovf.trap g p fx cg_isa.lt "int.overflow")
+  (bind fx ok))
+
+(fn s_sub ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (xs i64) (ys i64) (ss i64)) unit
+  (word fx xs 8 cg_isa.hi)
+  (word fx ys 8 cg_isa.tmp)
+  (xorr fx cg_isa.hi cg_isa.tmp)
+  (cmpri fx cg_isa.hi 0)
+  (let ok (lab fx))
+  (jcc fx cg_isa.ge ok)
+  (word fx ss 8 cg_isa.tmp)
+  (word fx xs 8 cg_isa.hi)
+  (xorr fx cg_isa.tmp cg_isa.hi)
+  (cmpri fx cg_isa.tmp 0)
+  (cg_ovf.trap g p fx cg_isa.lt "int.overflow")
+  (bind fx ok))
+
+(fn u_add ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (xs i64) (ss i64)) unit
+  (let bad (lab fx))
+  (u_lt fx ss xs bad)
+  (boom g p fx bad))
+
+(fn u_sub ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (xs i64) (ys i64)) unit
+  (let bad (lab fx))
+  (u_lt fx xs ys bad)
+  (boom g p fx bad))
+
+(fn guard ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (op i64)
+   (signed bool)
+   (lp i64)
+   (rp i64)
+   (rd i64)) unit
+  (at fx rd)
+  (let sp (hold_addr fx))
+  (if (== op 0) (ret (if signed (s_add g p fx lp rp sp) (u_add g p fx lp sp))))
+  (if signed (s_sub g p fx lp rp sp) (u_sub g p fx lp rp)))
+
+(fn cmp_cc ((op i64)) i64
+  (if (== op 5) (ret cg_isa.eq))
+  (if (== op 6) (ret cg_isa.ne))
+  (if (== op 7) (ret cg_isa.lt))
+  (if (== op 8) (ret cg_isa.le))
+  (if (== op 9) (ret cg_isa.gt))
+  cg_isa.ge)
+
+(fn cmp_op ((fx (&mut cg_frame.fncx)) (t (& ty.sty)) (op i64) (lp i64) (rp i64)) ty.sty
+  (pair fx lp rp)
+  (if (cg_lay.signed t)
+    (cg_isa.cmp_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr cg_isa.dst)
+    (cg_isa.ucmp_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr cg_isa.dst))
+  (cg_isa.setcc (&mut (. fx buf)) (& (. fx isa)) (cmp_cc op) cg_isa.acc)
+  (ty.bool_ty))
+
+(fn shift_ok ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (signed bool)) unit
+  (if signed (cmpri fx cg_isa.hi 0))
+  (if signed (cg_ovf.trap g p fx cg_isa.lt "int.overflow"))
+  (cmpri fx cg_isa.hi 0)
+  (cg_ovf.trap g p fx cg_isa.ne "int.overflow")
+  (cmpri fx cg_isa.acc 128)
+  (cg_ovf.trap g p fx cg_isa.uge "int.overflow"))
+
+(fn prep_cnt ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (rp i64) (signed bool)) unit
+  (word fx rp 0 cg_isa.acc)
+  (word fx rp 8 cg_isa.hi)
+  (if (. g checked)
+    (shift_ok g p fx signed)
+    (cg_isa.and_ri (&mut (. fx buf)) (& (. fx isa)) 8 cg_isa.acc 127))
+  (mov fx cg_isa.tmp cg_isa.acc))
+
+(fn do_sh ((fx (&mut cg_frame.fncx)) (op i64) (signed bool)) unit
+  (let c (&mut (. fx buf)))
+  (let s (& (. fx isa)))
+  (if (== op 14) (ret (cg_isa.shl_wide c s cg_isa.addr cg_isa.tmp)))
+  (if signed
+    (cg_isa.sar_wide c s cg_isa.addr cg_isa.tmp)
+    (cg_isa.shr_wide c s cg_isa.addr cg_isa.tmp)))
+
+(fn sh ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (t (& ty.sty))
+   (op i64)
+   (lp i64)
+   (rp i64)) ty.sty
+  (prep_cnt g p fx rp (cg_lay.signed t))
+  (let rd (cg_frame.tmp fx 16 8))
+  (copy16 fx lp rd)
+  (at fx rd)
+  (do_sh fx op (cg_lay.signed t))
+  (at fx rd)
+  (ty.clone t))
+
+(fn arith ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (t (& ty.sty))
+   (op i64)
+   (lp i64)
+   (rp i64)) ty.sty
+  (let rd (cg_frame.tmp fx 16 8))
+  (copy16 fx lp rd)
+  (arm fx rd rp)
+  (apply fx op)
+  (if (and (. g checked) (or (== op 0) (== op 1))) (guard g p fx op (cg_lay.signed t) lp rp rd))
+  (at fx rd)
+  (ty.clone t))
+
+(pub (fn bin ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (locs (& (vec thir.loc)))
+   (r (& mir.rv))
+   (t (& ty.sty))) ty.sty
+  (let op (. r op))
+  (let lp (hold_addr fx))
+  (cg_op.eval_op g p fx locs (vec.get (& (. r ops)) 1))
+  (let rp (hold_addr fx))
+  (if (and (>= op 5) (<= op 10)) (ret (cmp_op fx t op lp rp)))
+  (if (or (== op 14) (== op 15)) (ret (sh g p fx t op lp rp)))
+  (arith g p fx t op lp rp)))
+
+(fn neg_nz ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (slot i64)) unit
+  (word fx slot 0 cg_isa.hi)
+  (cmpri fx cg_isa.hi 0)
+  (cg_ovf.trap g p fx cg_isa.ne "int.overflow")
+  (word fx slot 8 cg_isa.hi)
+  (cmpri fx cg_isa.hi 0)
+  (cg_ovf.trap g p fx cg_isa.ne "int.overflow"))
+
+(fn neg_min ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (slot i64)) unit
+  (word fx slot 0 cg_isa.hi)
+  (cmpri fx cg_isa.hi 0)
+  (let ok (lab fx))
+  (jcc fx cg_isa.ne ok)
+  (word fx slot 8 cg_isa.hi)
+  (cmpri fx cg_isa.hi (shl 1 63))
+  (cg_ovf.trap g p fx cg_isa.eq "int.overflow")
+  (bind fx ok))
+
+(pub (fn neg ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (t (& ty.sty)) (chk bool)) ty.sty
+  (let lp (hold_addr fx))
+  (if chk (if (cg_lay.signed t) (neg_min g p fx lp) (neg_nz g p fx lp)))
+  (let rd (cg_frame.tmp fx 16 8))
+  (copy16 fx lp rd)
+  (at fx rd)
+  (cg_isa.neg_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr)
+  (at fx rd)
+  (ty.clone t)))
+
+(pub (fn bnot ((fx (&mut cg_frame.fncx)) (t (& ty.sty))) ty.sty
+  (let lp (hold_addr fx))
+  (let rd (cg_frame.tmp fx 16 8))
+  (copy16 fx lp rd)
+  (at fx rd)
+  (cg_isa.not_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr)
+  (at fx rd)
+  (ty.clone t)))
+
+(fn fit_u ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (db i64) (slot i64)) unit
+  (word fx slot 8 cg_isa.hi)
+  (cmpri fx cg_isa.hi 0)
+  (cg_ovf.trap g p fx cg_isa.ne "cast.overflow")
+  (if (>= db 8) (ret))
+  (word fx slot 0 cg_isa.acc)
+  (cmpri fx cg_isa.acc (shl 1 (* db 8)))
+  (cg_ovf.trap g p fx cg_isa.uge "cast.overflow"))
+
+(fn fit_s8 ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (slot i64)) unit
+  (word fx slot 0 cg_isa.acc)
+  (movi fx cg_isa.tmp 63)
+  (cg_isa.sar (&mut (. fx buf)) (& (. fx isa)) 8)
+  (word fx slot 8 cg_isa.hi)
+  (cmprr fx cg_isa.acc cg_isa.hi)
+  (cg_ovf.trap g p fx cg_isa.ne "cast.overflow"))
+
+(fn fit_sn ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (db i64) (slot i64)) unit
+  (let sh (- 64 (* db 8)))
+  (word fx slot 0 cg_isa.acc)
+  (let keep (cg_frame.tmp fx 8 8))
+  (st fx cg_isa.fp keep cg_isa.acc)
+  (movi fx cg_isa.tmp sh)
+  (cg_isa.shl (&mut (. fx buf)) (& (. fx isa)) 8)
+  (movi fx cg_isa.tmp sh)
+  (cg_isa.sar (&mut (. fx buf)) (& (. fx isa)) 8)
+  (ld fx cg_isa.tmp cg_isa.fp keep)
+  (cmprr fx cg_isa.acc cg_isa.tmp)
+  (cg_ovf.trap g p fx cg_isa.ne "cast.overflow")
+  (movi fx cg_isa.tmp 63)
+  (cg_isa.sar (&mut (. fx buf)) (& (. fx isa)) 8)
+  (word fx slot 8 cg_isa.hi)
+  (cmprr fx cg_isa.acc cg_isa.hi)
+  (cg_ovf.trap g p fx cg_isa.ne "cast.overflow"))
+
+(fn fit ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (to (& ty.sty)) (slot i64)) unit
+  (let db (cg_lay.width to))
+  (if (cg_lay.signed to) (fit_s g p fx db slot) (fit_u g p fx db slot)))
+
+(fn fit_s ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (db i64) (slot i64)) unit
+  (if (>= db 8) (ret (fit_s8 g p fx slot)))
+  (fit_sn g p fx db slot))
+
+(fn cast_down ((g (&mut cg_mod.cg)) (p (& prog.prog)) (fx (&mut cg_frame.fncx)) (to (& ty.sty))) unit
+  (let s (hold_addr fx))
+  (if (. g checked) (fit g p fx to s))
+  (word fx s 0 cg_isa.acc))
+
+(fn cast_same ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (not (. g checked)) (ret))
+  (if (== (cg_lay.signed from) (cg_lay.signed to)) (ret))
+  (let s (hold_addr fx))
+  (word fx s 8 cg_isa.hi)
+  (cmpri fx cg_isa.hi 0)
+  (cg_ovf.trap g p fx cg_isa.lt "cast.overflow")
+  (ld fx cg_isa.addr cg_isa.fp s))
+
+(fn cast_up ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (or (== (. from kind) 0u8) (== (. from kind) 3u8)) (cg_op.ext fx from))
+  (if (and (. g checked) (and (cg_lay.signed from) (not (cg_lay.signed to))))
+    (do (cmpri fx cg_isa.acc 0) (cg_ovf.trap g p fx cg_isa.lt "cast.overflow")))
+  (let d (cg_frame.tmp fx 16 8))
+  (at fx d)
+  (if (cg_lay.signed from)
+    (cg_isa.ext_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr cg_isa.acc)
+    (cg_isa.zext_wide (&mut (. fx buf)) (& (. fx isa)) cg_isa.addr cg_isa.acc))
+  (at fx d))
+
+(pub (fn cast ((g (&mut cg_mod.cg))
+   (p (& prog.prog))
+   (fx (&mut cg_frame.fncx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (not (cg_lay.wide from)) (ret (cast_up g p fx from to)))
+  (if (cg_lay.wide to) (ret (cast_same g p fx from to)))
+  (cast_down g p fx to)))

@@ -1,0 +1,76 @@
+;; 128-bit half of the ISA seam, split so cg_isa stays under the line budget.
+;; Pointers arrive in virtual GPRs. Shifts take a count already masked to 0..127.
+;; cmp_wide and ucmp_wide leave a signed -1/0/1 compared against zero.
+(use proj.a64_wide)
+(use proj.cg_isa)
+(use proj.rv_wide)
+(use proj.x64_wide)
+
+(pub (fn add_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.add (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.add (&mut (. c a)) dst src) (x64_wide.add (&mut (. c x)) s dst src))))
+
+(pub (fn sub_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.sub (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.sub (&mut (. c a)) dst src) (x64_wide.sub (&mut (. c x)) s dst src))))
+
+(pub (fn mul_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.mul (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.mul (&mut (. c a)) dst src) (x64_wide.mul (&mut (. c x)) s dst src))))
+
+(pub (fn neg_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64)) unit
+  (if (. s rv) (ret (rv_wide.negw (&mut (. c r)) dst)))
+  (if (. s a64) (a64_wide.negw (&mut (. c a)) dst) (x64_wide.negw (&mut (. c x)) s dst))))
+
+(pub (fn not_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64)) unit
+  (if (. s rv) (ret (rv_wide.bnot (&mut (. c r)) dst)))
+  (if (. s a64) (a64_wide.bnot (&mut (. c a)) dst) (x64_wide.bnot (&mut (. c x)) s dst))))
+
+(pub (fn and_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.band (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.band (&mut (. c a)) dst src) (x64_wide.band (&mut (. c x)) s dst src))))
+
+(pub (fn or_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.bor (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.bor (&mut (. c a)) dst src) (x64_wide.bor (&mut (. c x)) s dst src))))
+
+(pub (fn xor_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.bxor (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.bxor (&mut (. c a)) dst src) (x64_wide.bxor (&mut (. c x)) s dst src))))
+
+(pub (fn shl_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit
+  (if (. s rv) (ret (rv_wide.shl (&mut (. c r)) dst cnt)))
+  (if (. s a64) (a64_wide.shl (&mut (. c a)) dst cnt) (x64_wide.shl (&mut (. c x)) s dst cnt))))
+
+(pub (fn shr_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit
+  (if (. s rv) (ret (rv_wide.shr (&mut (. c r)) dst cnt)))
+  (if (. s a64) (a64_wide.shr (&mut (. c a)) dst cnt) (x64_wide.shr (&mut (. c x)) s dst cnt))))
+
+(pub (fn sar_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (cnt i64)) unit
+  (if (. s rv) (ret (rv_wide.sar (&mut (. c r)) dst cnt)))
+  (if (. s a64) (a64_wide.sar (&mut (. c a)) dst cnt) (x64_wide.sar (&mut (. c x)) s dst cnt))))
+
+(fn cmp_to ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64) (signed bool)) unit
+  (set (. c float_cc) false)
+  (if (. s rv) (ret (rv_wide.cmp (&mut (. c r)) dst src signed)))
+  (if (. s a64)
+    (a64_wide.cmp (&mut (. c a)) dst src signed)
+    (x64_wide.cmp (&mut (. c x)) s dst src signed)))
+
+(pub (fn cmp_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (cmp_to c s dst src true)))
+
+(pub (fn ucmp_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (cmp_to c s dst src false)))
+
+(pub (fn ext_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.ext (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.ext (&mut (. c a)) dst src) (x64_wide.ext (&mut (. c x)) s dst src))))
+
+(pub (fn zext_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.zext (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.zext (&mut (. c a)) dst src) (x64_wide.zext (&mut (. c x)) s dst src))))
+
+(pub (fn trunc_wide ((c (&mut cg_isa.code)) (s (& cg_isa.isa)) (dst i64) (src i64)) unit
+  (if (. s rv) (ret (rv_wide.trunc (&mut (. c r)) dst src)))
+  (if (. s a64) (a64_wide.trunc (&mut (. c a)) dst src) (x64_wide.trunc (&mut (. c x)) s dst src))))

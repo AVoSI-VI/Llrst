@@ -1,0 +1,212 @@
+;; 128-bit ops in memory. adcs and sbcs are new; mul, umulh, and madd already exist.
+;; A shift of 64 is a shift of 0 in lslv, so counts at or above 64 take their own path.
+(use proj.a64_buf)
+(use proj.a64_int)
+(use proj.a64_mem)
+(use proj.isa_a64)
+
+(fn g ((r i64)) i64 (isa_a64.gpr r))
+
+(fn adcs ((b (&mut a64_buf.buf)) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr 0xBA000000 dst rn rm)))
+
+(fn sbcs ((b (&mut a64_buf.buf)) (dst i64) (rn i64) (rm i64)) unit
+  (a64_buf.push_w b (a64_buf.rrr 0xFA000000 dst rn rm)))
+
+(fn mov ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit (a64_int.orr_rr b 8 dst a64_buf.xzr src))
+
+(pub (fn add ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit
+  (let d (g dst))
+  (let p (g src))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x10 p 0)
+  (a64_int.adds b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x9 d 8)
+  (a64_mem.ldr b 8 a64_buf.x10 p 8)
+  (adcs b a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 8)))
+
+(pub (fn sub ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit
+  (let d (g dst))
+  (let p (g src))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x10 p 0)
+  (a64_int.subs b 8 a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x9 d 8)
+  (a64_mem.ldr b 8 a64_buf.x10 p 8)
+  (sbcs b a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 8)))
+
+(fn lop ((b (&mut a64_buf.buf)) (k i64) (dst i64) (rn i64) (rm i64)) unit
+  (if (== k 0) (ret (a64_int.and_rr b 8 dst rn rm)))
+  (if (== k 1) (ret (a64_int.orr_rr b 8 dst rn rm)))
+  (a64_int.eor_rr b 8 dst rn rm))
+
+(fn logic ((b (&mut a64_buf.buf)) (dst i64) (src i64) (k i64)) unit
+  (let d (g dst))
+  (let p (g src))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x10 p 0)
+  (lop b k a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x9 d 8)
+  (a64_mem.ldr b 8 a64_buf.x10 p 8)
+  (lop b k a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x9 d 8))
+
+(pub (fn band ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 0)))
+
+(pub (fn bor ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 1)))
+
+(pub (fn bxor ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit (logic b dst src 2)))
+
+(pub (fn negw ((b (&mut a64_buf.buf)) (dst i64)) unit
+  (let d (g dst))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_int.subs b 8 a64_buf.x9 a64_buf.xzr a64_buf.x9)
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x9 d 8)
+  (sbcs b a64_buf.x9 a64_buf.xzr a64_buf.x9)
+  (a64_mem.str b 8 a64_buf.x9 d 8)))
+
+(pub (fn bnot ((b (&mut a64_buf.buf)) (dst i64)) unit
+  (let d (g dst))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_int.mvn b 8 a64_buf.x9 a64_buf.x9)
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x9 d 8)
+  (a64_int.mvn b 8 a64_buf.x9 a64_buf.x9)
+  (a64_mem.str b 8 a64_buf.x9 d 8)))
+
+(pub (fn mul ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit
+  (let d (g dst))
+  (let p (g src))
+  (mov b a64_buf.x16 d)
+  (mov b a64_buf.x17 p)
+  (a64_mem.ldr b 8 a64_buf.x9 a64_buf.x16 0)
+  (a64_mem.ldr b 8 a64_buf.x11 a64_buf.x16 8)
+  (a64_mem.ldr b 8 a64_buf.x10 a64_buf.x17 0)
+  (a64_mem.ldr b 8 a64_buf.x14 a64_buf.x17 8)
+  (a64_int.mul b 8 a64_buf.x15 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x15 a64_buf.x16 0)
+  (a64_int.umulh b a64_buf.x15 a64_buf.x9 a64_buf.x10)
+  (a64_int.madd b 8 a64_buf.x15 a64_buf.x9 a64_buf.x14 a64_buf.x15)
+  (a64_int.madd b 8 a64_buf.x15 a64_buf.x11 a64_buf.x10 a64_buf.x15)
+  (a64_mem.str b 8 a64_buf.x15 a64_buf.x16 8)))
+
+(fn fill ((b (&mut a64_buf.buf)) (src i64) (from_lo bool)) unit
+  (a64_int.add_ri b 8 a64_buf.x14 a64_buf.xzr 64)
+  (a64_int.sub_rr b 8 a64_buf.x14 a64_buf.x14 a64_buf.x15)
+  (if from_lo
+    (a64_int.lsrv b 8 a64_buf.x14 src a64_buf.x14)
+    (a64_int.lslv b 8 a64_buf.x14 src a64_buf.x14))
+  (a64_int.cmp_ri b 8 a64_buf.x15 0)
+  (a64_int.csel b 8 a64_buf.x14 a64_buf.xzr a64_buf.x14 a64_buf.eq))
+
+(fn small ((b (&mut a64_buf.buf)) (kind i64)) unit
+  (if (== kind 0)
+    (do
+      (fill b a64_buf.x9 true)
+      (a64_int.lslv b 8 a64_buf.x10 a64_buf.x11 a64_buf.x15)
+      (a64_int.orr_rr b 8 a64_buf.x11 a64_buf.x10 a64_buf.x14)
+      (ret (a64_int.lslv b 8 a64_buf.x9 a64_buf.x9 a64_buf.x15))))
+  (fill b a64_buf.x11 false)
+  (a64_int.lsrv b 8 a64_buf.x10 a64_buf.x9 a64_buf.x15)
+  (a64_int.orr_rr b 8 a64_buf.x9 a64_buf.x10 a64_buf.x14)
+  (if (== kind 2) (ret (a64_int.asrv b 8 a64_buf.x11 a64_buf.x11 a64_buf.x15)))
+  (a64_int.lsrv b 8 a64_buf.x11 a64_buf.x11 a64_buf.x15))
+
+(fn wide ((b (&mut a64_buf.buf)) (kind i64)) unit
+  (a64_int.sub_ri b 8 a64_buf.x10 a64_buf.x15 64)
+  (if (== kind 0)
+    (do (a64_int.lslv b 8 a64_buf.x11 a64_buf.x9 a64_buf.x10) (ret (mov b a64_buf.x9 a64_buf.xzr))))
+  (if (== kind 2)
+    (do
+      (a64_int.asrv b 8 a64_buf.x9 a64_buf.x11 a64_buf.x10)
+      (a64_int.add_ri b 8 a64_buf.x10 a64_buf.xzr 63)
+      (ret (a64_int.asrv b 8 a64_buf.x11 a64_buf.x11 a64_buf.x10))))
+  (a64_int.lsrv b 8 a64_buf.x9 a64_buf.x11 a64_buf.x10)
+  (mov b a64_buf.x11 a64_buf.xzr))
+
+(fn shift ((b (&mut a64_buf.buf)) (dst i64) (cnt i64) (kind i64)) unit
+  (let d (g dst))
+  (mov b a64_buf.x16 d)
+  (mov b a64_buf.x15 (g cnt))
+  (a64_mem.ldr b 8 a64_buf.x9 d 0)
+  (a64_mem.ldr b 8 a64_buf.x11 d 8)
+  (let big (a64_buf.label b))
+  (let done (a64_buf.label b))
+  (a64_int.cmp_ri b 8 a64_buf.x15 64)
+  (a64_int.b_cond b a64_buf.cs big)
+  (small b kind)
+  (a64_int.b b done)
+  (a64_buf.bind b big)
+  (wide b kind)
+  (a64_buf.bind b done)
+  (a64_mem.str b 8 a64_buf.x9 a64_buf.x16 0)
+  (a64_mem.str b 8 a64_buf.x11 a64_buf.x16 8))
+
+(pub (fn shl ((b (&mut a64_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 0)))
+
+(pub (fn shr ((b (&mut a64_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 1)))
+
+(pub (fn sar ((b (&mut a64_buf.buf)) (dst i64) (cnt i64)) unit (shift b dst cnt 2)))
+
+(fn hi_cc ((b (&mut a64_buf.buf)) (signed bool) (less i64) (more i64)) unit
+  (let lt (if signed a64_buf.lt a64_buf.cc))
+  (let gt (if signed a64_buf.gt a64_buf.hi))
+  (a64_int.mov_ri b a64_buf.x11 (neg 1))
+  (a64_int.b_cond b lt less)
+  (a64_int.mov_ri b a64_buf.x11 1)
+  (a64_int.b_cond b gt more))
+
+(pub (fn cmp ((b (&mut a64_buf.buf)) (av i64) (bv i64) (signed bool)) unit
+  (let a (g av))
+  (let c (g bv))
+  (let less (a64_buf.label b))
+  (let more (a64_buf.label b))
+  (let done (a64_buf.label b))
+  (a64_mem.ldr b 8 a64_buf.x9 a 8)
+  (a64_mem.ldr b 8 a64_buf.x10 c 8)
+  (a64_int.cmp_rr b 8 a64_buf.x9 a64_buf.x10)
+  (hi_cc b signed less more)
+  (a64_mem.ldr b 8 a64_buf.x9 a 0)
+  (a64_mem.ldr b 8 a64_buf.x10 c 0)
+  (a64_int.cmp_rr b 8 a64_buf.x9 a64_buf.x10)
+  (a64_int.mov_ri b a64_buf.x11 0)
+  (a64_int.b_cond b a64_buf.eq done)
+  (a64_int.mov_ri b a64_buf.x11 (neg 1))
+  (a64_int.b_cond b a64_buf.cc done)
+  (a64_int.mov_ri b a64_buf.x11 1)
+  (a64_int.b b done)
+  (a64_buf.bind b less)
+  (a64_int.mov_ri b a64_buf.x11 (neg 1))
+  (a64_int.b b done)
+  (a64_buf.bind b more)
+  (a64_int.mov_ri b a64_buf.x11 1)
+  (a64_buf.bind b done)
+  (a64_int.cmp_ri b 8 a64_buf.x11 0)))
+
+(pub (fn ext ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit
+  (let d (g dst))
+  (mov b a64_buf.x9 (g src))
+  (a64_mem.str b 8 a64_buf.x9 d 0)
+  (a64_int.add_ri b 8 a64_buf.x10 a64_buf.xzr 63)
+  (a64_int.asrv b 8 a64_buf.x11 a64_buf.x9 a64_buf.x10)
+  (a64_mem.str b 8 a64_buf.x11 d 8)))
+
+(pub (fn zext ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit
+  (let d (g dst))
+  (a64_mem.str b 8 (g src) d 0)
+  (a64_mem.str b 8 a64_buf.xzr d 8)))
+
+(pub (fn trunc ((b (&mut a64_buf.buf)) (dst i64) (src i64)) unit (a64_mem.ldr b 8 (g dst) (g src) 0)))
+
+(test adcs_enc
+  (let mut b (a64_buf.new))
+  (adcs (&mut b) a64_buf.x9 a64_buf.x9 a64_buf.x10)
+  (sbcs (&mut b) a64_buf.x9 a64_buf.xzr a64_buf.x9)
+  (assert_eq (a64_buf.read_w (& b) 0) 0xBA0A0129)
+  (assert_eq (a64_buf.read_w (& b) 4) 0xFA0903E9))

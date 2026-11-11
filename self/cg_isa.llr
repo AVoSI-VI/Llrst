@@ -12,6 +12,8 @@
 
 (pub (use proj.cg_isa_fp))
 
+(pub (use proj.cg_isa_wide))
+
 (pub (const acc i64 0))
 
 (pub (const tmp i64 1))

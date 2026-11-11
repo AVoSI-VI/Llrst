@@ -26,6 +26,11 @@
 
 (const scn_bss i64 3225419904)
 
+;; COFF stores a relocation count in 16 bits. Past 65534, the count is 65535,
+;; the section flag marks the overflow, and the first entry's address is the
+;; real count including that entry. link.exe skips the entry.
+(const rel_ovfl i64 16777216)
+
 (const class_ext i64 2)
 
 (const class_static i64 3)
@@ -124,6 +129,25 @@
 
 (fn nrel ((rels (& (vec u8)))) i64 (/ (vec.len rels) 10))
 
+(fn widen ((rels (vec u8))) (vec u8)
+  (let n (nrel (& rels)))
+  (if (<= n 65534) (ret rels))
+  (let mut b (vec.new <u8>))
+  (elf_out.push_n (&mut b) (+ n 1) 4)
+  (elf_out.push_n (&mut b) 0 4)
+  (elf_out.push_n (&mut b) 0 2)
+  (put_bytes (&mut b) (& rels))
+  b)
+
+(fn hdr_nrel ((rels (& (vec u8)))) i64
+  (let n (nrel rels))
+  (if (> n 65535) (ret 65535))
+  n)
+
+(fn sec_flags ((base i64) (rels (& (vec u8)))) i64
+  (if (> (nrel rels) 65535) (ret (bor base rel_ovfl)))
+  base)
+
 (fn to_str ((b (& (vec u8)))) str (str.from_bytes b))
 
 (fn emit_raw ((b (&mut (vec u8)))
@@ -155,9 +179,9 @@
   (let mut strs (vec.new <u8>))
   (let mut syms (vec.new <u8>))
   (emit_syms o (&mut syms) (&mut strs))
-  (let rt (emit_rels o elf.sec_text))
-  (let rd (emit_rels o elf.sec_data))
-  (let rr (emit_rels o elf.sec_rodata))
+  (let rt (widen (emit_rels o elf.sec_text)))
+  (let rd (widen (emit_rels o elf.sec_data)))
+  (let rr (widen (emit_rels o elf.sec_rodata)))
   (let mut cur (+ 20 160))
   (let text_at (mark (&mut cur) (vec.len (& (. o text)))))
   (let rt_at (mark (&mut cur) (vec.len (& rt))))
@@ -175,30 +199,30 @@
     (vec.len (& (. o text)))
     text_at
     rt_at
-    (nrel (& rt))
+    (hdr_nrel (& rt))
     ln_at
     (/ (vec.len lines) 6)
-    scn_text)
+    (sec_flags scn_text (& rt)))
   (sec_hdr (&mut b)
     ".data"
     (vec.len (& (. o data)))
     (vec.len (& (. o data)))
     data_at
     rd_at
-    (nrel (& rd))
+    (hdr_nrel (& rd))
     0
     0
-    scn_data)
+    (sec_flags scn_data (& rd)))
   (sec_hdr (&mut b)
     ".rdata"
     (vec.len (& (. o rodata)))
     (vec.len (& (. o rodata)))
     ro_at
     rr_at
-    (nrel (& rr))
+    (hdr_nrel (& rr))
     0
     0
-    scn_rdata)
+    (sec_flags scn_rdata (& rr)))
   (sec_hdr (&mut b) ".bss" (. o bss) 0 0 0 0 0 0 scn_bss)
   (emit_raw (&mut b)
     (& (. o text))
