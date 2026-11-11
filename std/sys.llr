@@ -37,10 +37,10 @@
   (if rem (% a b) (/ a b))))
 
 ;; Bit pattern of a non-negative magnitude. A checked cast of a negative `i128` traps.
-(fn mag128 ((x i128)) u128
+(pub (fn mag128 ((x i128)) u128
   (if (>= x 0) (ret (as u128 x)))
   (if (== x (shl 1 127)) (ret (shl 1 127)))
-  (as u128 (wneg x)))
+  (as u128 (wneg x))))
 
 ;; `2^127` is `i128` MIN. Every smaller magnitude fits in a positive `i128`.
 (fn q_i ((u u128)) i128

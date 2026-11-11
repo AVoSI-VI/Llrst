@@ -1,0 +1,109 @@
+;; Eq, Ord, Hash, Clone, and Show for i128 and u128. cmp.llr stays the core; this file adds impls.
+(use std.sys)
+
+;; The 64 bits of a value below 2^64. A checked cast above i64 MAX traps, so each half is cast.
+(fn bits64 ((f u128)) i64 (bor (shl (as i64 (shr f 32)) 32) (as i64 (shr (shl f 96) 96))))
+
+(fn show_u128 ((n u128)) str
+  (if (== n 0u128) (ret (str.from "0")))
+  (let mut ds (vec.new <u8>))
+  (let mut x n)
+  (while (> x 0u128)
+    (do (vec.push (&mut ds) (as u8 (+ 48 (as i64 (% x 10u128))))) (set x (/ x 10u128))))
+  (let mut s (str.new))
+  (let mut i (vec.len (& ds)))
+  (while (> i 0) (do (set i (- i 1)) (str.push_byte (&mut s) (@ (vec.get (& ds) i)))))
+  s)
+
+(impl Eq i128 (fn eq ((a (& i128)) (b (& i128))) bool (== (@ a) (@ b))))
+
+(impl Ord
+  i128
+  (fn cmp ((a (& i128)) (b (& i128))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+;; Both shifts sign-fill, so each word fits in an `i64` and the casts do not trap.
+(impl Hash
+  i128
+  (fn hash ((k (& i128))) i64
+    (let n (bxor (as i64 (shr (shl (@ k) 64) 64)) (as i64 (shr (@ k) 64))))
+    (Hash.hash (& n))))
+
+(impl Clone i128 (fn clone ((a (& i128))) i128 (@ a)))
+
+(impl Show
+  i128
+  (fn show ((a (& i128))) str
+    (if (>= (@ a) 0i128) (ret (show_u128 (as u128 (@ a)))))
+    (let mut s (str.from "-"))
+    (str.push (&mut s) (& (show_u128 (sys.mag128 (@ a)))))
+    s))
+
+(impl Eq u128 (fn eq ((a (& u128)) (b (& u128))) bool (== (@ a) (@ b))))
+
+(impl Ord
+  u128
+  (fn cmp ((a (& u128)) (b (& u128))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+
+(impl Hash
+  u128
+  (fn hash ((k (& u128))) i64
+    (let n (bits64 (bxor (shr (shl (@ k) 64) 64) (shr (@ k) 64))))
+    (Hash.hash (& n))))
+
+(impl Clone u128 (fn clone ((a (& u128))) u128 (@ a)))
+
+(impl Show u128 (fn show ((a (& u128))) str (show_u128 (@ a))))
+
+(test cmp_wide_i128
+  (let one (shl 1i128 100))
+  (let min (shl 1i128 127))
+  (let max (bnot min))
+  (let m (neg 42i128))
+  (assert (Eq.eq (& one) (& one)))
+  (assert (not (Eq.eq (& min) (& max))))
+  (assert (< (Ord.cmp (& min) (& max)) 0))
+  (assert (> (Ord.cmp (& one) (& m)) 0))
+  (assert_eq (Ord.cmp (& max) (& max)) 0)
+  (let c (Clone.clone (& one)))
+  (assert (Eq.eq (& c) (& one)))
+  (assert_eq (& (Show.show (& one))) "1267650600228229401496703205376")
+  (assert_eq (& (Show.show (& min))) "-170141183460469231731687303715884105728")
+  (assert_eq (& (Show.show (& max))) "170141183460469231731687303715884105727")
+  (assert_eq (& (Show.show (& m))) "-42")
+  (assert_eq (& (Show.show (& 0i128))) "0")
+  (assert_eq one one)
+  (assert_ne min max))
+
+(test cmp_wide_u128
+  (let one (shl 1u128 100))
+  (let max (bnot 0u128))
+  (assert (Eq.eq (& one) (& one)))
+  (assert (not (Eq.eq (& one) (& max))))
+  (assert (< (Ord.cmp (& one) (& max)) 0))
+  (assert (> (Ord.cmp (& max) (& one)) 0))
+  (assert_eq (Ord.cmp (& max) (& max)) 0)
+  (let c (Clone.clone (& max)))
+  (assert (Eq.eq (& c) (& max)))
+  (assert_eq (& (Show.show (& one))) "1267650600228229401496703205376")
+  (assert_eq (& (Show.show (& max))) "340282366920938463463374607431768211455")
+  (assert_eq (& (Show.show (& 0u128))) "0")
+  (assert_eq (& (show_u128 907u128)) "907")
+  (assert_eq max max)
+  (assert_ne one max))
+
+(test cmp_wide_hash
+  (let lo 5i128)
+  (let hi (+ lo (shl 1i128 64)))
+  (assert (!= (Hash.hash (& lo)) (Hash.hash (& hi))))
+  (let ulo 5u128)
+  (let uhi (+ ulo (shl 1u128 64)))
+  (assert (!= (Hash.hash (& ulo)) (Hash.hash (& uhi))))
+  (let n 5)
+  (assert_eq (Hash.hash (& lo)) (Hash.hash (& n)))
+  (assert_eq (Hash.hash (& ulo)) (Hash.hash (& n)))
+  (let neg1 (neg 1i128))
+  (let all (bnot 0u128))
+  (assert_eq (Hash.hash (& neg1)) (Hash.hash (& all)))
+  (assert_eq (bits64 (shr all 64)) -1)
+  (assert_eq (bits64 (shl 1u128 63)) (shl 1 63))
+  (assert_eq (bits64 7u128) 7))
