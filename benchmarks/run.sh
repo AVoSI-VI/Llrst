@@ -234,7 +234,8 @@ run_cross() {
           "$src" >"$bin.build" 2>&1 || fail "$task|zig|build"
         ;;
       java)
-        command -v javac >/dev/null || { note "skip|$task|java|not-installed"; continue; }
+        # macOS has a /usr/bin/javac stub that only prints an install prompt.
+        javac -version >/dev/null 2>&1 || { note "skip|$task|java|not-installed"; continue; }
         mkdir -p "$slot/java"
         javac -d "$slot/java" "$src" >"$bin.build" 2>&1 || fail "$task|java|build"
         ;;

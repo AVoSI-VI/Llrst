@@ -139,6 +139,11 @@ fn link_unix(obj: &[u8], out: &Path, target: Option<&str>, shared: bool) -> PRes
             cmd.arg("-pie");
         }
         cmd.arg("-pthread");
+        // llr_walk.c declares these weak. Apple ld rejects an undefined weak symbol unless -U names it.
+        #[cfg(target_os = "macos")]
+        for sym in ["_llr_fnspans", "_llr_fnspans_n", "_llr_frame_walk"] {
+            cmd.arg(format!("-Wl,-U,{sym}"));
+        }
     } else if shared {
         cmd.arg("-shared");
     }

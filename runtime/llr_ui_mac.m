@@ -1,5 +1,6 @@
 /* Cocoa window. poll pumps NSApp; it does not call [NSApp run]. */
 #import "llr_ui_mac.h"
+#import "llr_ui_a11y.h"
 
 #import <time.h>
 #import <stdlib.h>

@@ -1,10 +1,14 @@
 ;; Shared-library link flags. A loaded Windows library cannot be overwritten, so each build is a new file.
 (use std.str)
 
+;; llr_walk.c declares these weak. Apple ld rejects an undefined weak symbol unless -U names it.
+(pub (fn weak_ok () str (str.from " -Wl,-U,_llr_fnspans -Wl,-U,_llr_fnspans_n -Wl,-U,_llr_frame_walk")))
+
 (pub (fn tail ((shared bool) (darwin bool)) str
   (let mut s (str.new))
   (if shared (str.push (&mut s) " -shared") (if (not darwin) (str.push (&mut s) " -pie")))
   (str.push (&mut s) " -pthread")
+  (if darwin (str.push (&mut s) (& (weak_ok))))
   s))
 
 (pub (fn cl_extra ((shared bool)) str
@@ -25,6 +29,11 @@
   (let exe (tail false false))
   (assert (str.has (& exe) "-pie"))
   (assert (not (str.has (& exe) "-shared")))
+  (assert (not (str.has (& exe) "-Wl,-U")))
+  (let mac (tail false true))
+  (assert (not (str.has (& mac) "-pie")))
+  (assert (str.has (& mac) "-Wl,-U,_llr_fnspans_n"))
+  (assert (str.has (& mac) "-Wl,-U,_llr_frame_walk"))
   (assert (str.has (& (cl_extra true)) "/LD"))
   (assert (str.has (& (cl_extra true)) "llr_ui_boot"))
   (assert_eq (& (cl_extra false)) "")

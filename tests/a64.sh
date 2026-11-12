@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # tests/run goldens as aarch64-unknown-linux-gnu. A Linux aarch64 host runs the
-# binary. Any other host uses qemu-aarch64. Not part of tests/run.sh.
+# binary. Any other host uses qemu-aarch64. A Darwin arm64 host without qemu
+# builds each golden as a native Mach-O and runs it directly. Not part of tests/run.sh.
 # Output: ok|run/NAME or fail|run/NAME|... or fail|setup|qemu=missing
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,11 +24,16 @@ command -v ld.lld >/dev/null || {
   exit 1
 }
 need_qemu=1
+native=0
+mach="$(uname -m)"
 if [ "$(uname -s)" = Linux ]; then
-  mach="$(uname -m)"
   if [ "$mach" = aarch64 ] || [ "$mach" = arm64 ]; then
     need_qemu=0
   fi
+elif [ "$(uname -s)" = Darwin ] && [ "$mach" = arm64 ] && ! command -v qemu-aarch64 >/dev/null; then
+  need_qemu=0
+  native=1
+  echo "note|a64|native mach-o, qemu-aarch64 missing"
 fi
 if [ "$need_qemu" -eq 1 ] && ! command -v qemu-aarch64 >/dev/null; then
   echo "fail|setup|qemu=missing"
@@ -51,10 +57,19 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 cc="$(host_cc)"
-if ! "$cc" --target=aarch64-unknown-linux-gnu -c -ffreestanding -fno-stack-protector -fno-builtin \
+if [ "$native" -eq 0 ] && ! "$cc" --target=aarch64-unknown-linux-gnu -c -ffreestanding -fno-stack-protector -fno-builtin \
     "$root/tests/a64_stub.c" -o "$tmp/stub.o" 2>"$tmp/stub.err"; then
   echo "fail|setup|cc=$(head -1 "$tmp/stub.err")"
   exit 1
+fi
+if [ "$native" -eq 1 ]; then
+  export LLRST_RUNTIME="$root/runtime"
+  for c in llr_stat llr_now llr_reload llr_dl; do
+    cc -c -fPIC "$root/runtime/$c.c" -o "$root/runtime/$c.o" 2>/dev/null || {
+      echo "fail|setup|cc=$c.c"
+      exit 1
+    }
+  done
 fi
 
 run_bin() {
@@ -107,7 +122,11 @@ for f in "$root"/tests/run/*.llr; do
     read -r -a flags <"${f%.llr}.flags"
   fi
   set +u
-  "$llrc" build "$f" --emit-obj --target aarch64-unknown-linux-gnu "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.cerr"
+  if [ "$native" -eq 1 ]; then
+    "$llrc" build "$f" "${flags[@]}" -o "$tmp/$name.bin" 2>"$tmp/$name.cerr"
+  else
+    "$llrc" build "$f" --emit-obj --target aarch64-unknown-linux-gnu "${flags[@]}" -o "$tmp/$name" 2>"$tmp/$name.cerr"
+  fi
   built=$?
   set -u
   if [ "$built" -ne 0 ]; then
@@ -115,7 +134,7 @@ for f in "$root"/tests/run/*.llr; do
     fails=$((fails + 1))
     continue
   fi
-  if ! "$cc" --target=aarch64-unknown-linux-gnu -fuse-ld=lld -nostdlib -static -Wl,-e,_start \
+  if [ "$native" -eq 0 ] && ! "$cc" --target=aarch64-unknown-linux-gnu -fuse-ld=lld -nostdlib -static -Wl,-e,_start \
       "$tmp/stub.o" "$tmp/$name.o" -o "$tmp/$name.bin" 2>"$tmp/$name.lerr"; then
     echo "fail|run/$name|link|$(head -1 "$tmp/$name.lerr")"
     fails=$((fails + 1))
