@@ -1,5 +1,4 @@
 ;; SHA-1 and base64 for the WebSocket handshake.
-(use std.bytes)
 (use std.str)
 
 (struct st (a u32) (b u32) (c u32) (d u32) (e u32))
@@ -21,19 +20,19 @@
   3395469782u32)
 
 (fn be32 ((p (& str)) (i i64)) u32
-  (let mut v (vec.new <u8>))
-  (for k 0 4 (vec.push (&mut v) (str.at p (+ i k))))
-  (as u32 (bytes.rd_be (& v) 0 4)))
+  (bor (shl (as u32 (str.at p i)) 24u32)
+    (bor (shl (as u32 (str.at p (+ i 1))) 16u32)
+      (bor (shl (as u32 (str.at p (+ i 2))) 8u32) (as u32 (str.at p (+ i 3)))))))
 
-(fn schedule ((chunk (& str))) (vec u32)
-  (let mut w (vec.new <u32>))
-  (for i 0 16 (vec.push (&mut w) (be32 chunk (* i 4))))
+(fn schedule ((chunk (& str))) (arr u32 80)
+  (let mut w (arr.filled < (arr u32 80) > 0u32))
+  (for i 0 16 (arr.set (&mut w) i (be32 chunk (* i 4))))
   (for i 16 80
     (let x
-      (bxor (@ (vec.get (& w) (- i 3)))
-        (bxor (@ (vec.get (& w) (- i 8)))
-          (bxor (@ (vec.get (& w) (- i 14))) (@ (vec.get (& w) (- i 16)))))))
-    (vec.push (&mut w) (rotl x 1u32)))
+      (bxor (@ (arr.get (& w) (- i 3)))
+        (bxor (@ (arr.get (& w) (- i 8)))
+          (bxor (@ (arr.get (& w) (- i 14))) (@ (arr.get (& w) (- i 16)))))))
+    (arr.set (&mut w) i (rotl x 1u32)))
   w)
 
 (fn step ((s st) (i i64) (w u32)) st
@@ -41,9 +40,9 @@
   (let t (+ (rotl (. s a) 5u32) (+ f (+ (. s e) (+ (kk i) w)))))
   (st t (. s a) (rotl (. s b) 30u32) (. s c) (. s d)))
 
-(fn compress ((h (& st)) (w (& (vec u32)))) st
+(fn compress ((h (& st)) (w (& (arr u32 80)))) st
   (let mut s (st (. h a) (. h b) (. h c) (. h d) (. h e)))
-  (for i 0 80 (set s (step s i (@ (vec.get w i)))))
+  (for i 0 80 (set s (step s i (@ (arr.get w i)))))
   (st (+ (. h a) (. s a))
     (+ (. h b) (. s b))
     (+ (. h c) (. s c))
@@ -51,9 +50,10 @@
     (+ (. h e) (. s e))))
 
 (fn push32 ((out (&mut str)) (x u32)) unit
-  (let mut v (vec.new <u8>))
-  (bytes.wr_be (&mut v) (as i64 x) 4)
-  (for i 0 4 (str.push_byte out (@ (vec.get (& v) i)))))
+  (str.push_byte out (as u8 (shr x 24u32)))
+  (str.push_byte out (as u8 (band (shr x 16u32) 255u32)))
+  (str.push_byte out (as u8 (band (shr x 8u32) 255u32)))
+  (str.push_byte out (as u8 (band x 255u32))))
 
 (fn pad ((msg (& str))) str
   (let bits (* (str.len msg) 8))
@@ -164,7 +164,9 @@
   (assert_eq (& (b64 (& (sha1 (& m))))) "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
 
 (test sha_b64
-  (match (b64_decode (& (b64 "hi"))) ((opt.some s) (assert_eq (& s) "hi")) ((opt.none) (assert false)))
+  (match (b64_decode (& (b64 "hi")))
+    ((opt.some s) (assert_eq (& s) "hi"))
+    ((opt.none) (assert false)))
   (match (b64_decode "!!!!") ((opt.some _) (assert false)) ((opt.none) (assert true)))
   (match (b64_decode "") ((opt.some s) (assert_eq (& s) "")) ((opt.none) (assert false)))
   (drop (b64v 65u8)))
@@ -178,7 +180,7 @@
   (drop (be32 (& chunk) 0))
   (let w (schedule (& chunk)))
   (let s0 (init))
-  (let s1 (step s0 0 (@ (vec.get (& w) 0))))
+  (let s1 (step s0 0 (@ (arr.get (& w) 0))))
   (drop (compress (& s1) (& w)))
   (let mut out (str.new))
   (push32 (&mut out) 1u32)
