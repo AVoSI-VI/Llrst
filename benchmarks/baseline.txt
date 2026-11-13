@@ -124,10 +124,10 @@ bench|stage2|map_ops|5983
 bench|stage2|alloc_churn|4522
 bench|stage0|sha1|9335240
 bench|stage0|sha256|40046862
-bench|stage0|show_u64|1570
+bench|stage0|show_u64|821
 bench|stage2|sha1|10676800
 bench|stage2|sha256|46456625
-bench|stage2|show_u64|1645
+bench|stage2|show_u64|793
 compile|llrc|self/llrs.llr|3041
 compile|llrs0|self/llrs.llr|4211
 compile|llrs1|self/llrs.llr|5894

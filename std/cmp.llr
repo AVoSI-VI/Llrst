@@ -152,16 +152,15 @@
 
 (fn show_u ((n u64)) str
   (if (== n 0u64) (ret (str.from "0")))
-  (let mut ds (vec.new <u8>))
+  (let mut ds (arr.filled < (arr u8 20) > 0u8))
   (let mut x n)
+  (let mut i 20)
   (while (> x 0u64)
     (do
-      (vec.push (&mut ds) (as u8 (+ 48 (as i64 (% x 10u64)))))
+      (set i (- i 1))
+      (arr.set (&mut ds) i (as u8 (+ 48 (as i64 (% x 10u64)))))
       (set x (/ x 10u64))))
-  (let mut s (str.new))
-  (let mut i (vec.len (& ds)))
-  (while (> i 0) (do (set i (- i 1)) (str.push_byte (&mut s) (@ (vec.get (& ds) i)))))
-  s)
+  (str.from_raw (ptr.add (as (ptr u8) (& ds)) i) (- 20 i)))
 
 (impl Show i64 (fn show ((a (& i64))) str (str.from_int (@ a))))
 
@@ -195,9 +194,13 @@
 
 (impl Ord i8 (fn cmp ((a (& i8)) (b (& i8))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
 
-(impl Ord i16 (fn cmp ((a (& i16)) (b (& i16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+(impl Ord
+  i16
+  (fn cmp ((a (& i16)) (b (& i16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
 
-(impl Ord u16 (fn cmp ((a (& u16)) (b (& u16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
+(impl Ord
+  u16
+  (fn cmp ((a (& u16)) (b (& u16))) i64 (if (< (@ a) (@ b)) -1 (if (> (@ a) (@ b)) 1 0))))
 
 (impl Hash i8 (fn hash ((k (& i8))) i64 (let n (as i64 (@ k))) (Hash.hash (& n))))
 
@@ -211,19 +214,14 @@
 
 (impl Clone u16 (fn clone ((a (& u16))) u16 (@ a)))
 
-(impl Eq
-  (vec T)
-  <T:Eq>
-  (fn eq ((a (& (vec T))) (b (& (vec T)))) bool (vec.eq a b)))
+(impl Eq (vec T) <T:Eq> (fn eq ((a (& (vec T))) (b (& (vec T)))) bool (vec.eq a b)))
 
 (impl Ord
   (vec T)
   <T:Ord>
   (fn cmp ((a (& (vec T))) (b (& (vec T)))) i64
     (let n (if (< (vec.len a) (vec.len b)) (vec.len a) (vec.len b)))
-    (for i 0 n
-      (let c (Ord.cmp (vec.get a i) (vec.get b i)))
-      (if (!= c 0) (ret c)))
+    (for i 0 n (let c (Ord.cmp (vec.get a i) (vec.get b i))) (if (!= c 0) (ret c)))
     (if (< (vec.len a) (vec.len b)) -1 (if (> (vec.len a) (vec.len b)) 1 0))))
 
 (impl Hash
@@ -266,8 +264,7 @@
 (impl Hash
   (opt T)
   <T:Hash>
-  (fn hash ((a (& (opt T)))) i64
-    (match a ((opt.none) 0) ((opt.some x) (wadd 1 (Hash.hash x))))))
+  (fn hash ((a (& (opt T)))) i64 (match a ((opt.none) 0) ((opt.some x) (wadd 1 (Hash.hash x))))))
 
 (impl Clone
   (opt T)
@@ -290,7 +287,8 @@
 
 (impl Eq
   (res T E)
-  <T:Eq E:Eq>
+  <T:Eq
+  E:Eq>
   (fn eq ((a (& (res T E))) (b (& (res T E)))) bool
     (match a
       ((res.ok x) (match b ((res.ok y) (Eq.eq x y)) ((res.err _) false)))
@@ -298,7 +296,8 @@
 
 (impl Ord
   (res T E)
-  <T:Ord E:Ord>
+  <T:Ord
+  E:Ord>
   (fn cmp ((a (& (res T E))) (b (& (res T E)))) i64
     (match a
       ((res.ok x) (match b ((res.ok y) (Ord.cmp x y)) ((res.err _) -1)))
@@ -306,13 +305,15 @@
 
 (impl Hash
   (res T E)
-  <T:Hash E:Hash>
+  <T:Hash
+  E:Hash>
   (fn hash ((a (& (res T E)))) i64
     (match a ((res.ok x) (wadd 1 (Hash.hash x))) ((res.err x) (wadd 2 (Hash.hash x))))))
 
 (impl Clone
   (res T E)
-  <T:Clone E:Clone>
+  <T:Clone
+  E:Clone>
   (fn clone ((a (& (res T E)))) (res T E)
     (match a
       ((res.ok x) (res.ok <T E> (Clone.clone x)))
@@ -320,7 +321,8 @@
 
 (impl Show
   (res T E)
-  <T:Show E:Show>
+  <T:Show
+  E:Show>
   (fn show ((a (& (res T E)))) str
     (match a
       ((res.ok x)
@@ -359,4 +361,10 @@
   (assert_ne 1.5 2.5)
   (assert_eq 7i32 7i32)
   (let u 9u64)
-  (assert_eq (& (Show.show (& u))) "9"))
+  (assert_eq (& (Show.show (& u))) "9")
+  (let z 0u64)
+  (assert_eq (& (Show.show (& z))) "0")
+  (let ten 10u64)
+  (assert_eq (& (Show.show (& ten))) "10")
+  (let wide 1000000000000000000u64)
+  (assert_eq (& (Show.show (& wide))) "1000000000000000000"))

@@ -6,14 +6,15 @@
 
 (fn show_u128 ((n u128)) str
   (if (== n 0u128) (ret (str.from "0")))
-  (let mut ds (vec.new <u8>))
+  (let mut ds (arr.filled < (arr u8 39) > 0u8))
   (let mut x n)
+  (let mut i 39)
   (while (> x 0u128)
-    (do (vec.push (&mut ds) (as u8 (+ 48 (as i64 (% x 10u128))))) (set x (/ x 10u128))))
-  (let mut s (str.new))
-  (let mut i (vec.len (& ds)))
-  (while (> i 0) (do (set i (- i 1)) (str.push_byte (&mut s) (@ (vec.get (& ds) i)))))
-  s)
+    (do
+      (set i (- i 1))
+      (arr.set (&mut ds) i (as u8 (+ 48 (as i64 (% x 10u128)))))
+      (set x (/ x 10u128))))
+  (str.from_raw (ptr.add (as (ptr u8) (& ds)) i) (- 39 i)))
 
 (impl Eq i128 (fn eq ((a (& i128)) (b (& i128))) bool (== (@ a) (@ b))))
 
