@@ -80,6 +80,11 @@ module (default path ends in `.wasm`). `llrc run` on either triple is `target.un
 vtable words stay 8 bytes, little-endian, the same layout as x86-64. A wasm address is the
 low 32 bits of that pointer.
 
+An `i128` or `u128` is two `i64` words in that memory, low word first. Addition
+takes the carry from `i64.lt_u` of the low sum. Multiplication builds the high
+word from four 32-bit products. A shift branches when the count is 64 or more,
+because a wasm `i64` shift keeps only the low six bits of the count.
+
 `load.llr` selects `sys_wasm.llr` when the triple contains `wasm32`, before the Windows or
 POSIX file. `sys.os_id` is `3`. `wasm32-wasi` imports WASI preview1. `wasm32-unknown-unknown`
 imports those same names from the module `llr`, then the canvas imports `present`, `size`,

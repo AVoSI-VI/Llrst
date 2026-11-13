@@ -1,0 +1,147 @@
+;; 128-bit shifts. A count of 64 or more cannot use one i64 shift: wasm masks it to six bits.
+(use proj.cg_lay)
+(use proj.prog)
+(use proj.ty)
+(use proj.wasm_abi)
+(use proj.wasm_mod)
+(use proj.wasm_wide)
+
+(fn cnt_ok ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (lo i64) (hi i64) (signed bool)) unit
+  (if signed (do (wasm_abi.reload_acc fx hi) (wasm_wide.cmp_acc g p fx 0 83 "int.overflow")))
+  (wasm_abi.reload_acc fx hi)
+  (wasm_wide.cmp_acc g p fx 0 82 "int.overflow")
+  (wasm_abi.reload_acc fx lo)
+  (wasm_wide.cmp_acc g p fx 128 90 "int.overflow"))
+
+(fn prep_cnt ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (rp i64) (signed bool)) i64
+  (wasm_wide.ldw fx rp 0)
+  (let lo (wasm_abi.hold_acc fx))
+  (wasm_wide.ldw fx rp 8)
+  (let hi (wasm_abi.hold_acc fx))
+  (if (. g checked) (ret (do (cnt_ok g p fx lo hi signed) lo)))
+  (wasm_wide.band_imm fx lo 127))
+
+(fn sh_word ((fx (&mut wasm_abi.fx)) (ptr i64) (disp i64) (cnt i64) (op i64)) i64
+  (wasm_wide.pushw fx ptr disp)
+  (wasm_abi.reload_acc fx cnt)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.put fx op)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.hold_acc fx))
+
+(fn sh_imm ((fx (&mut wasm_abi.fx)) (ptr i64) (disp i64) (n i64) (op i64)) i64
+  (wasm_wide.pushw fx ptr disp)
+  (wasm_abi.i64c fx n)
+  (wasm_abi.put fx op)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.hold_acc fx))
+
+(fn kge ((fx (&mut wasm_abi.fx)) (cnt i64)) i64
+  (wasm_abi.reload_acc fx cnt)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx 64)
+  (wasm_abi.put fx 125)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.hold_acc fx))
+
+(fn sub64 ((fx (&mut wasm_abi.fx)) (cnt i64)) i64
+  (wasm_abi.i64c fx 64)
+  (wasm_abi.reload_acc fx cnt)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.put fx 125)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.hold_acc fx))
+
+(fn sh_ge_shl ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64)) unit
+  (let k (kge fx cnt))
+  (let nh (sh_word fx dp 0 k 134))
+  (wasm_abi.reload_acc fx nh)
+  (wasm_wide.stw fx dp 8)
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.set_acc fx)
+  (wasm_wide.stw fx dp 0))
+
+(fn sh_ge_shr ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64)) unit
+  (let k (kge fx cnt))
+  (let lo (sh_word fx dp 8 k 136))
+  (wasm_abi.reload_acc fx lo)
+  (wasm_wide.stw fx dp 0)
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.set_acc fx)
+  (wasm_wide.stw fx dp 8))
+
+(fn sh_ge_sar ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64)) unit
+  (let k (kge fx cnt))
+  (let lo (sh_word fx dp 8 k 135))
+  (let nh (sh_imm fx dp 8 63 135))
+  (wasm_abi.reload_acc fx lo)
+  (wasm_wide.stw fx dp 0)
+  (wasm_abi.reload_acc fx nh)
+  (wasm_wide.stw fx dp 8))
+
+(fn sh_lt_shl ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64)) unit
+  (let k2 (sub64 fx cnt))
+  (let top (sh_word fx dp 8 cnt 134))
+  (let bot (sh_word fx dp 0 k2 136))
+  (let nh (wasm_wide.lop fx top bot 132))
+  (let nl (sh_word fx dp 0 cnt 134))
+  (wasm_abi.reload_acc fx nl)
+  (wasm_wide.stw fx dp 0)
+  (wasm_abi.reload_acc fx nh)
+  (wasm_wide.stw fx dp 8))
+
+(fn sh_lt_shr ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64) (sar bool)) unit
+  (let k2 (sub64 fx cnt))
+  (let lo (sh_word fx dp 0 cnt 136))
+  (let cross (sh_word fx dp 8 k2 134))
+  (let nl (wasm_wide.lop fx lo cross 132))
+  (let nh (sh_word fx dp 8 cnt (if sar 135 136)))
+  (wasm_abi.reload_acc fx nl)
+  (wasm_wide.stw fx dp 0)
+  (wasm_abi.reload_acc fx nh)
+  (wasm_wide.stw fx dp 8))
+
+(fn sh_big ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64) (shl bool) (sar bool)) unit
+  (if shl (ret (sh_ge_shl fx dp cnt)))
+  (if sar (ret (sh_ge_sar fx dp cnt)))
+  (sh_ge_shr fx dp cnt))
+
+(fn sh_small ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64) (shl bool) (sar bool)) unit
+  (if shl (ret (sh_lt_shl fx dp cnt)))
+  (sh_lt_shr fx dp cnt sar))
+
+(fn sh_nz ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64) (shl bool) (sar bool)) unit
+  (wasm_abi.reload_acc fx cnt)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx 64)
+  (wasm_abi.put fx 90)
+  (wasm_abi.op_if0 fx)
+  (sh_big fx dp cnt shl sar)
+  (wasm_abi.op_else fx)
+  (sh_small fx dp cnt shl sar)
+  (wasm_abi.end fx))
+
+(fn shift ((fx (&mut wasm_abi.fx)) (dp i64) (cnt i64) (shl bool) (sar bool)) unit
+  (wasm_abi.reload_acc fx cnt)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.put fx 81)
+  (wasm_abi.op_if0 fx)
+  (wasm_abi.op_else fx)
+  (sh_nz fx dp cnt shl sar)
+  (wasm_abi.end fx))
+
+(pub (fn do_sh ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (t (& ty.sty))
+   (op i64)
+   (lp i64)
+   (rp i64)) ty.sty
+  (let cnt (prep_cnt g p fx rp (cg_lay.signed t)))
+  (let raw (wasm_wide.placed fx lp))
+  (let dp (wasm_wide.pin fx raw))
+  (let sar (and (!= op 14) (cg_lay.signed t)))
+  (shift fx dp cnt (== op 14) sar)
+  (wasm_wide.at fx raw)
+  (ty.clone t)))

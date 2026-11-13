@@ -1,0 +1,103 @@
+;; 128-bit casts. A narrow source is sign- or zero-filled; a narrow result keeps the low word.
+(use proj.cg_lay)
+(use proj.prog)
+(use proj.ty)
+(use proj.wasm_abi)
+(use proj.wasm_mod)
+(use proj.wasm_op)
+(use proj.wasm_wide)
+
+(fn fit_s8 ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (s i64)) unit
+  (wasm_wide.pushw fx s 0)
+  (wasm_abi.i64c fx 63)
+  (wasm_abi.put fx 135)
+  (wasm_wide.pushw fx s 8)
+  (wasm_abi.put fx 82)
+  (wasm_abi.op_if0 fx)
+  (wasm_op.abort g p fx "cast.overflow")
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx))
+
+(fn fit_sn ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (db i64) (s i64)) unit
+  (let sh (- 64 (* db 8)))
+  (wasm_wide.pushw fx s 0)
+  (wasm_abi.i64c fx sh)
+  (wasm_abi.put fx 134)
+  (wasm_abi.i64c fx sh)
+  (wasm_abi.put fx 135)
+  (wasm_wide.pushw fx s 0)
+  (wasm_abi.put fx 82)
+  (wasm_abi.op_if0 fx)
+  (wasm_op.abort g p fx "cast.overflow")
+  (wasm_abi.op_else fx)
+  (wasm_abi.end fx)
+  (fit_s8 g p fx s))
+
+(fn fit_s ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (db i64) (s i64)) unit
+  (if (>= db 8) (ret (fit_s8 g p fx s)))
+  (fit_sn g p fx db s))
+
+(fn fit_u ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (db i64) (s i64)) unit
+  (wasm_wide.ldw fx s 8)
+  (wasm_wide.cmp_acc g p fx 0 82 "cast.overflow")
+  (if (>= db 8) (ret))
+  (wasm_wide.ldw fx s 0)
+  (wasm_wide.cmp_acc g p fx (shl 1 (* db 8)) 90 "cast.overflow"))
+
+(fn fit ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (to (& ty.sty)) (s i64)) unit
+  (let db (cg_lay.width to))
+  (if (cg_lay.signed to) (fit_s g p fx db s) (fit_u g p fx db s)))
+
+(fn cast_down ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (to (& ty.sty))) unit
+  (let s (wasm_abi.hold_acc fx))
+  (if (. g checked) (fit g p fx to s))
+  (wasm_wide.ldw fx s 0)
+  (wasm_abi.fit fx (cg_lay.width to) (cg_lay.signed to)))
+
+(fn cast_same ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (not (. g checked)) (ret))
+  (if (== (cg_lay.signed from) (cg_lay.signed to)) (ret))
+  (let s (wasm_abi.hold_acc fx))
+  (wasm_wide.ldw fx s 8)
+  (wasm_wide.cmp_acc g p fx 0 83 "cast.overflow")
+  (wasm_abi.reload_acc fx s))
+
+(fn sign_hi ((fx (&mut wasm_abi.fx)) (v i64) (d i64)) unit
+  (wasm_abi.reload_acc fx v)
+  (wasm_abi.get_acc fx)
+  (wasm_abi.i64c fx 63)
+  (wasm_abi.put fx 135)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.store_sp fx (+ d 8) 8))
+
+(fn zero_hi ((fx (&mut wasm_abi.fx)) (d i64)) unit
+  (wasm_abi.i64c fx 0)
+  (wasm_abi.set_acc fx)
+  (wasm_abi.store_sp fx (+ d 8) 8))
+
+(fn cast_up ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (and (. g checked) (and (cg_lay.signed from) (not (cg_lay.signed to))))
+    (wasm_wide.cmp_acc g p fx 0 83 "cast.overflow"))
+  (let v (wasm_abi.hold_acc fx))
+  (let d (wasm_abi.scratch fx 16))
+  (wasm_abi.reload_acc fx v)
+  (wasm_abi.store_sp fx d 8)
+  (if (cg_lay.signed from) (sign_hi fx v d) (zero_hi fx d))
+  (wasm_wide.at fx d))
+
+(pub (fn cast ((g (&mut wasm_mod.wm))
+   (p (& prog.prog))
+   (fx (&mut wasm_abi.fx))
+   (from (& ty.sty))
+   (to (& ty.sty))) unit
+  (if (not (cg_lay.wide from)) (ret (cast_up g p fx from to)))
+  (if (cg_lay.wide to) (ret (cast_same g p fx from to)))
+  (cast_down g p fx to)))

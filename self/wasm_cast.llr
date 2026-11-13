@@ -7,6 +7,7 @@
 (use proj.wasm_abi)
 (use proj.wasm_mod)
 (use proj.wasm_op)
+(use proj.wasm_wide_cast)
 
 (pub (fn eval ((g (&mut wasm_mod.wm))
    (p (& prog.prog))
@@ -22,6 +23,7 @@
    (fx (&mut wasm_abi.fx))
    (from (& ty.sty))
    (to (& ty.sty))) unit
+  (if (or (cg_lay.wide from) (cg_lay.wide to)) (ret (wasm_wide_cast.cast g p fx from to)))
   (if (and (cg_lay.is_float from) (cg_lay.is_float to)) (ret (fcvt fx from to)))
   (if (and (cg_lay.is_float from) (== (. to kind) 0u8)) (ret (ftoi g p fx from to)))
   (if (and (== (. from kind) 0u8) (cg_lay.is_float to)) (ret (itof g p fx from to)))

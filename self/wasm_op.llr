@@ -9,6 +9,7 @@
 (use proj.wasm_cast)
 (use proj.wasm_flag)
 (use proj.wasm_mod)
+(use proj.wasm_wide)
 
 (pub (fn eval_op ((g (&mut wasm_mod.wm))
    (p (& prog.prog))
@@ -31,6 +32,8 @@
   (wasm_flag.set_flag fx (. o local) false))
 
 (fn eval_const ((g (&mut wasm_mod.wm)) (p (& prog.prog)) (fx (&mut wasm_abi.fx)) (o (& mir.op))) ty.sty
+  (if (and (== (. o ck) 0u8) (cg_lay.wide (& (. o ty))))
+    (ret (wasm_wide.kconst fx (. o id) (. o hi) (& (. o ty)))))
   (if (== (. o ck) 0u8) (int_const fx (. o id) (& (. o ty))))
   (if (== (. o ck) 1u8) (fconst fx (& (. o ty)) (& (. o text))))
   (if (== (. o ck) 2u8) (do (wasm_abi.i64c fx (. o id)) (wasm_abi.set_acc fx)))
@@ -124,6 +127,7 @@
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
   (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (if (cg_lay.wide (& t)) (ret (wasm_wide.bnot fx (& t))))
   (wasm_abi.get_acc fx)
   (wasm_abi.i64c fx (neg 1))
   (wasm_abi.put fx 133)
@@ -149,6 +153,8 @@
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
   (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (if (cg_lay.wide (& t))
+    (ret (wasm_wide.neg g p fx (& t) (and (. g checked) (== (. r kind) 3u8)))))
   (if (cg_lay.is_float (& t)) (fneg fx) (ineg g p fx (& t) (and (. g checked) (== (. r kind) 3u8))))
   t)
 
@@ -199,6 +205,7 @@
    (locs (& (vec thir.loc)))
    (r (& mir.rv))) ty.sty
   (let t (eval_op g p fx locs (vec.get (& (. r ops)) 0)))
+  (if (cg_lay.wide (& t)) (ret (wasm_wide.bin g p fx locs r (& t))))
   (if (cg_lay.is_float (& t)) (ret (fbin g p fx locs r (& t))))
   (let d (wasm_abi.hold_acc fx))
   (let _ (eval_op g p fx locs (vec.get (& (. r ops)) 1)))
