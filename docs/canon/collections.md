@@ -50,7 +50,7 @@ A predicate that captures a binding is `(clos ...)`, passed to `vec.any`, `vec.f
 
 ## arr
 
-`(arr T N)` is `N` elements of `T` inline. No `Eq`, `Clone`, or `Show`: compare and copy by element.
+`(arr T N)` is `N` elements of `T` inline. No `Eq`, `Clone`, or `Show`: compare and copy by element. Pick `arr` over `vec` when the length is a constant, the value is built per call or per block, and the element type is `copy`.
 
 | task | form |
 |------|------|
