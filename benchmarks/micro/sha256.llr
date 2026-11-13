@@ -1,0 +1,14 @@
+;; why: k changes the first byte so the digest cannot be hoisted out of the timer
+(use std.sha256)
+
+(extern llr_keep ((n i64)) i64)
+
+(fn once ((seed i64)) i64
+  (let mut msg (str.new))
+  (str.push_byte (&mut msg) (as u8 (+ 97 (band seed 25))))
+  (str.push (&mut msg) (& (str.repeat "a" 65535)))
+  (as i64 (str.at (& (sha256.sha256 (& msg))) 0)))
+
+(bench sha256
+  (let n (llr_keep (once (band k 1023))))
+  (if (< n 0) (panic "keep")))

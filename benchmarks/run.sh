@@ -98,7 +98,7 @@ machine="$(uname -s)|$(uname -m)|$model"
 note() { printf '%s\n' "$1" | tee -a "$log"; }
 
 tasks="fib sieve sort string_build map_ops json_parse nbody mandelbrot spectral_norm fannkuch binary_trees"
-micros="fib sieve sort string_build map_ops alloc_churn"
+micros="fib sieve sort string_build map_ops alloc_churn sha1 sha256 show_u64"
 
 one_task=""
 do_cross=0

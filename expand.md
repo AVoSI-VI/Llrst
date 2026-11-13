@@ -218,7 +218,7 @@ Files: `std/sha.llr`, `std/sha256.llr`, `std/cmp.llr` or `std/cmp_wide.llr`, `be
 
 Depends on A3 (and B2 for the 128-bit `Show`). One row per commit; the commit message names the bench line that moved.
 
-1. `[ ]` Add `benchmarks/micro/sha1.llr`, `sha256.llr`, and `show_u64.llr` `(bench ...)` files and a first `baseline.txt` line for each on the unchanged tree (`benchmarks/run.sh --update-baseline`, same commit, says these are new lines).
+1. `[x]` Add `benchmarks/micro/sha1.llr`, `sha256.llr`, and `show_u64.llr` `(bench ...)` files and a first `baseline.txt` line for each on the unchanged tree (`benchmarks/run.sh --update-baseline`, same commit, says these are new lines).
 2. `[ ]` `std/sha.llr`: `schedule` returns `(arr u32 80)`, `compress` takes `(& (arr u32 80))`, `be32` reads four bytes from the `(& str)` with `str.at`, `push32` pushes four bytes directly. Keep every existing `(test ...)`.
 3. `[ ]` `std/sha256.llr`: `sched` returns `(arr u32 64)` read from the chunk with `str.at` (no `bytes.from_str`), state is `(arr u32 8)`.
 4. `[ ]` `show_u` and `show_u128` write digits into an `(arr u8 20)` / `(arr u8 39)` and copy once.

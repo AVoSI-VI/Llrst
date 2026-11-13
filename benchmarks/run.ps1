@@ -107,7 +107,7 @@ if (-not $cpu) { $cpu = 'Windows' }
 $machine = "Windows|$($env:PROCESSOR_ARCHITECTURE)|$cpu"
 
 $tasks = @('fib', 'sieve', 'sort', 'string_build', 'map_ops', 'json_parse', 'nbody', 'mandelbrot', 'spectral_norm', 'fannkuch', 'binary_trees')
-$micros = @('fib', 'sieve', 'sort', 'string_build', 'map_ops', 'alloc_churn')
+$micros = @('fib', 'sieve', 'sort', 'string_build', 'map_ops', 'alloc_churn', 'sha1', 'sha256', 'show_u64')
 $oneTask = ''
 $doCross = $false
 $doMicro = $false

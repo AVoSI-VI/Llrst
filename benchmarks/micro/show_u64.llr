@@ -1,0 +1,7 @@
+;; why: k changes the value so Show cannot be hoisted out of the timer
+(extern llr_keep ((n i64)) i64)
+
+(bench show_u64
+  (let s (Show.show (& (+ 1000000000000000000u64 (as u64 (band k 999))))))
+  (let n (llr_keep (as i64 (str.at (& s) 0))))
+  (if (< n 0) (panic "keep")))

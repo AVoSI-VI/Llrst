@@ -10,7 +10,7 @@ benchmarks/run.sh [--check] [--update-baseline] [--once] [--only NAME]
 
 ## What is measured
 
-Each task prints one checksum line. `run.sh` diffs it against `expected.txt` before it keeps a time. Cross-language times are the median of five process runs, in milliseconds, after a separate compile. Llrst micro benches are `llr-bench` on `micro/*.llr` and are nanoseconds per call. Compile lines are one wall-clock sample: the three bootstrap stages of `self/llrs.llr`, then `check` of `std/http.llr`.
+Each task prints one checksum line. `run.sh` diffs it against `expected.txt` before it keeps a time. Cross-language times are the median of five process runs, in milliseconds, after a separate compile. Llrst micro benches are `llr-bench` on `micro/*.llr` and are nanoseconds per call. `sha1` and `sha256` hash 64 KiB. `show_u64` prints a `u64`. Compile lines are one wall-clock sample: the three bootstrap stages of `self/llrs.llr`, then `check` of `std/http.llr`.
 
 A missing compiler prints `skip|<task>|<lang>|not-installed` and is not a failure. If `zig` is on `PATH` but has no `lib` directory beside it, set `ZIG` to a binary that does. The log also prints `spread|<task>|<lang>|<min ms>`; the gated number is the median.
 
